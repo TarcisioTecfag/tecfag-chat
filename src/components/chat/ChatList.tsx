@@ -17,6 +17,7 @@ import { useOnboardingAdapter } from "@/hooks/useOnboardingAdapter";
 import { canReadConversation, conversationReadRules } from "@/lib/access-control/conversation-policy";
 import { getConversationPreviewMessage, getConversationPreviewTime } from "@/components/crm/CrmChatWidget";
 import { ContactPhoneTypeBadge } from "@/components/crm/ContactPhonesEditor";
+import { buildPhoneQueryPlan, matchesPhoneSearchQuery } from "@/lib/utils";
 
 /** Converte conteúdo de mídia em label legível para o preview da lista */
 function formatLastMessage(text: string): { mediaType?: "document" | "image" | "video" | "audio" | "sticker"; label: string } {
@@ -227,7 +228,9 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
   });
 
   // Filter conversations based on UI selections
-  const filteredConvs = React.useMemo(() => conversations.filter((c) => c.id !== "valentina").filter((c) => {
+  const filteredConvs = React.useMemo(() => {
+    const phonePlan = searchQuery.trim() !== "" ? buildPhoneQueryPlan(searchQuery) : null;
+    return conversations.filter((c) => c.id !== "valentina").filter((c) => {
     if (!canReadConversation(readPrincipal, { tenantId: tenant ?? "", operatorId: c.operatorId ?? null, queueState: c.queue, mainChannel: c.channel })) return false;
     // 1. Queue Filter
     if (activeQueue !== "todos" && c.queue !== activeQueue) return false;
@@ -239,18 +242,15 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
     if (channelFilter !== "all" && c.channel !== channelFilter) return false;
 
     // 3. Search Query Filter
-    if (searchQuery.trim() !== "") {
+    if (searchQuery.trim() !== "" && phonePlan) {
       const q = searchQuery.toLowerCase();
-      const qDigits = q.replace(/\D/g, "");
       const matchName = c.name.toLowerCase().includes(q);
       const matchPhone =
-        c.phone?.toLowerCase().includes(q) ||
-        (qDigits.length >= 4 && c.phone?.replace(/\D/g, "").includes(qDigits)) ||
+        matchesPhoneSearchQuery(c.phone, phonePlan) ||
         (Array.isArray(c.contactPhones) &&
           c.contactPhones.some(
             (p) =>
-              p.phone?.toLowerCase().includes(q) ||
-              (qDigits.length >= 4 && p.phone?.replace(/\D/g, "").includes(qDigits)) ||
+              matchesPhoneSearchQuery(p.phone, phonePlan) ||
               p.label?.toLowerCase().includes(q),
           )) ||
         false;
@@ -265,7 +265,8 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
     Number(!!(b as any).pinned) - Number(!!(a as any).pinned) ||
     Number(a.queue === "finalizados") - Number(b.queue === "finalizados") ||
     (getConversationSortTimestamp(b) - getConversationSortTimestamp(a))
-  ),
+  );
+  },
     [conversations, activeQueue, currentOperatorId, channelFilter, searchQuery, readPrincipal, tenant]);
 
   return (

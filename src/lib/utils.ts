@@ -309,6 +309,190 @@ export function phoneRegistrationError(rawPhone: string | null | undefined): str
   return null;
 }
 
+export interface PhoneQueryPlan {
+  rawLower: string;
+  digits: string;
+  exactTerms: string[];
+  phoneIdentity: string | null;
+  localSuffixTerms: string[];
+  prefixTerms: string[];
+}
+
+/**
+ * Monta um plano completo de busca por telefone capaz de encontrar números brasileiros
+ * cadastrados COM ou SEM o nono dígito móvel (ex: Meta Cloud API 12 dígitos `557488041686`
+ * vs formato ANATEL 13 dígitos `5574988041686`), com ou sem DDI `55`, com ou sem `0` de
+ * operadora (`074...`), apenas número local (`98804-1686` / `8804-1686`) e prefixos em digitação,
+ * sem vazar entre DDDs distintos nem adulterar telefones fixos ou internacionais.
+ */
+export function buildPhoneQueryPlan(rawQuery: string | null | undefined): PhoneQueryPlan {
+  const trimmed = (rawQuery || "").trim();
+  const rawLower = trimmed.toLowerCase();
+  const digits = trimmed.replace(/\D/g, "");
+
+  if (digits.length < 4) {
+    return {
+      rawLower,
+      digits,
+      exactTerms: [],
+      phoneIdentity: null,
+      localSuffixTerms: [],
+      prefixTerms: [],
+    };
+  }
+
+  const isExplicitNonBrIntl = trimmed.startsWith("+") && !digits.startsWith("55");
+  let normalizedInput = trimmed;
+
+  if (!isExplicitNonBrIntl) {
+    if (
+      digits.startsWith("0") &&
+      (digits.length === 11 || digits.length === 12) &&
+      isValidBrazilNationalPhone(digits.slice(1))
+    ) {
+      normalizedInput = digits.slice(1);
+    } else if (
+      digits.startsWith("550") &&
+      (digits.length === 13 || digits.length === 14) &&
+      isValidBrazilNationalPhone(digits.slice(3))
+    ) {
+      normalizedInput = `55${digits.slice(3)}`;
+    }
+  }
+
+  const exactSet = new Set<string>();
+  let phoneIdentity: string | null = null;
+  const isCompleteValidPhone = phoneRegistrationError(normalizedInput) === null;
+
+  if (isCompleteValidPhone) {
+    const baseTerms = buildPhoneSearchTerms(normalizedInput);
+    for (const term of baseTerms) {
+      exactSet.add(term);
+      if (
+        !isExplicitNonBrIntl &&
+        !isNanpPhoneNumber(digits) &&
+        !isCorruptedNanpWith55(digits) &&
+        (term.length === 10 || term.length === 11) &&
+        isValidBrazilNationalPhone(term)
+      ) {
+        exactSet.add(`0${term}`);
+        exactSet.add(`550${term}`);
+      }
+    }
+
+    const normDigits = normalizedInput.replace(/\D/g, "");
+    if (isCorruptedNanpWith55(normDigits)) {
+      phoneIdentity = normDigits.slice(2);
+    } else if (isExplicitNonBrIntl || isNanpPhoneNumber(normDigits)) {
+      phoneIdentity = normDigits;
+    } else {
+      let national =
+        normDigits.startsWith("55") && (normDigits.length === 12 || normDigits.length === 13)
+          ? normDigits.slice(2)
+          : normDigits;
+      if (national.length === 10 || national.length === 11) {
+        const ddd = national.slice(0, 2);
+        if (BRAZIL_DDDS.has(ddd)) {
+          if (national.length === 11 && /^9[6-9]\d{7}$/.test(national.slice(2))) {
+            national = ddd + national.slice(3);
+          }
+          if (national.length === 10 && /^[2-9]\d{7}$/.test(national.slice(2))) {
+            phoneIdentity = `55${national}`;
+          }
+        }
+      }
+    }
+  }
+
+  const localSuffixTerms =
+    !isExplicitNonBrIntl && exactSet.size === 0 && (digits.length === 8 || digits.length === 9)
+      ? localPhoneSearchTerms(trimmed)
+      : [];
+
+  const prefixSet = new Set<string>();
+  if (!isExplicitNonBrIntl && !isNanpPhoneNumber(digits) && !isCorruptedNanpWith55(digits)) {
+    if (digits.startsWith("55") && digits.length >= 5 && digits.length <= 12) {
+      const after55 = digits.slice(2);
+      const ddd = after55.slice(0, 2);
+      if (BRAZIL_DDDS.has(ddd)) {
+        if (after55.length === 3 && after55[2] === "9") {
+          prefixSet.add(`55${ddd}`);
+        }
+        if (after55.length >= 4 && after55.length <= 10 && /^9[6-9]\d*$/.test(after55.slice(2))) {
+          const without9 = ddd + after55.slice(3);
+          prefixSet.add(`55${without9}`);
+          if (without9.length >= 4) prefixSet.add(without9);
+        }
+        if (after55.length >= 3 && after55.length <= 9 && /^[6-9]\d*$/.test(after55.slice(2))) {
+          const with9 = `${ddd}9${after55.slice(2)}`;
+          prefixSet.add(`55${with9}`);
+          prefixSet.add(with9);
+        }
+      }
+    }
+
+    if (digits.length >= 4 && digits.length <= 10) {
+      const ddd = digits.slice(0, 2);
+      if (BRAZIL_DDDS.has(ddd)) {
+        if (digits.length >= 4 && digits.length <= 10 && /^9[6-9]\d*$/.test(digits.slice(2))) {
+          const without9 = ddd + digits.slice(3);
+          prefixSet.add(`55${digits}`);
+          prefixSet.add(`55${without9}`);
+          if (without9.length >= 4) prefixSet.add(without9);
+        }
+        if (digits.length >= 3 && digits.length <= 9 && /^[6-9]\d*$/.test(digits.slice(2))) {
+          const with9 = `${ddd}9${digits.slice(2)}`;
+          prefixSet.add(`55${digits}`);
+          prefixSet.add(`55${with9}`);
+          prefixSet.add(with9);
+        }
+      }
+    }
+  }
+
+  for (const exact of exactSet) {
+    prefixSet.delete(exact);
+  }
+
+  return {
+    rawLower,
+    digits,
+    exactTerms: Array.from(exactSet),
+    phoneIdentity,
+    localSuffixTerms,
+    prefixTerms: Array.from(prefixSet),
+  };
+}
+
+/**
+ * Avalia em memória se um telefone cadastrado corresponde ao termo buscado
+ * (considerando com/sem nono dígito, com/sem DDI 55, local sem DDD e prefixos parciais).
+ */
+export function matchesPhoneSearchQuery(
+  candidatePhone: string | null | undefined,
+  rawQueryOrPlan: string | PhoneQueryPlan | null | undefined,
+): boolean {
+  if (!candidatePhone || !rawQueryOrPlan) return false;
+  const plan =
+    typeof rawQueryOrPlan === "string" ? buildPhoneQueryPlan(rawQueryOrPlan) : rawQueryOrPlan;
+  if (!plan.rawLower) return false;
+
+  if (candidatePhone.toLowerCase().includes(plan.rawLower)) {
+    return true;
+  }
+
+  if (plan.digits.length < 4) return false;
+  const cleanCandidate = candidatePhone.replace(/\D/g, "");
+  if (!cleanCandidate) return false;
+
+  if (cleanCandidate.includes(plan.digits)) return true;
+  if (plan.exactTerms.includes(cleanCandidate)) return true;
+  if (plan.localSuffixTerms.some((suffix) => cleanCandidate.endsWith(suffix))) return true;
+  if (plan.prefixTerms.some((prefix) => cleanCandidate.startsWith(prefix))) return true;
+
+  return false;
+}
+
 export function maskPhone(val: string): string {
   if (!val) return "";
   const trimmed = val.trim();

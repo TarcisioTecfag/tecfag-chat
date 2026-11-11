@@ -40,6 +40,11 @@ import {
 } from "../../db/schema";
 import { getDealContext } from "./conversation-deal-context";
 import { getContactPhonesMap, type ContactPhoneItem } from "./contact-phones";
+import { buildPhoneQueryPlan } from "../utils";
+import {
+  buildContactPhonesExistsSearchSql,
+  buildPhoneColumnSearchSql,
+} from "../phone-search-sql";
 import {
   buildDefaultDealFileCachePath,
   persistDealFileBinaryChunks,
@@ -608,15 +613,25 @@ export function buildDealFilterConditions(tenantId: string, filters: CrmDealFilt
   if (typeof filters.search === "string" && filters.search.trim()) {
     const cleanTerm = filters.search.trim();
     const term = `%${cleanTerm.toLowerCase()}%`;
-    const numOnly = cleanTerm.replace(/\D/g, "");
+    const phonePlan = buildPhoneQueryPlan(cleanTerm);
+    const numOnly = phonePlan.digits;
 
-    const docOrPhoneCondition = numOnly.length >= 4
-      ? sql`OR acc.document LIKE ${`%${numOnly}%`}`
+    const docCondition = numOnly.length >= 4
+      ? sql`OR regexp_replace(coalesce(acc.document, ''), '[^0-9]', '', 'g') LIKE ${`%${numOnly}%`}`
       : sql``;
+    const accPhoneMatch = buildPhoneColumnSearchSql(sql`acc.phone`, phonePlan);
+    const accPhoneCondition = accPhoneMatch ? sql`OR ${accPhoneMatch}` : sql``;
 
-    const contactPhoneCondition = numOnly.length >= 4
-      ? sql`OR ct.phone LIKE ${`%${numOnly}%`}`
-      : sql``;
+    const ctPhoneMatch = buildPhoneColumnSearchSql(sql`ct.phone`, phonePlan);
+    const ctPhonesExists = buildContactPhonesExistsSearchSql(
+      tenantId,
+      sql`ct.id`,
+      cleanTerm,
+      phonePlan,
+    );
+    const contactPhoneCondition = ctPhoneMatch
+      ? sql`OR LOWER(coalesce(ct.phone, '')) LIKE ${term} OR ${ctPhoneMatch} OR ${ctPhonesExists}`
+      : sql`OR LOWER(coalesce(ct.phone, '')) LIKE ${term} OR ${ctPhonesExists}`;
 
     conditions.push(
       sql`(
@@ -630,7 +645,8 @@ export function buildDealFilterConditions(tenantId: string, filters: CrmDealFilt
               LOWER(acc.name) LIKE ${term}
               OR LOWER(acc.trade_name) LIKE ${term}
               OR LOWER(acc.email) LIKE ${term}
-              ${docOrPhoneCondition}
+              ${docCondition}
+              ${accPhoneCondition}
             )
         )
         OR EXISTS (
@@ -1224,10 +1240,12 @@ export class CrmService {
     if (termInput && termInput.trim()) {
       const cleanTerm = termInput.trim();
       const term = `%${cleanTerm.toLowerCase()}%`;
-      const numOnly = cleanTerm.replace(/\D/g, "");
-      if (numOnly.length >= 4) {
+      const phonePlan = buildPhoneQueryPlan(cleanTerm);
+      const numOnly = phonePlan.digits;
+      const accPhoneMatch = buildPhoneColumnSearchSql(crmAccounts.phone, phonePlan);
+      if (numOnly.length >= 4 && accPhoneMatch) {
         conditions.push(
-          sql`(LOWER(${crmAccounts.name}) LIKE ${term} OR LOWER(coalesce(${crmAccounts.tradeName}, '')) LIKE ${term} OR regexp_replace(coalesce(${crmAccounts.document}, ''), '[^0-9]', '', 'g') LIKE ${`%${numOnly}%`} OR regexp_replace(coalesce(${crmAccounts.phone}, ''), '[^0-9]', '', 'g') LIKE ${`%${numOnly}%`} OR LOWER(coalesce(${crmAccounts.email}, '')) LIKE ${term} OR LOWER(coalesce(${crmAccounts.segment}, '')) LIKE ${term})`
+          sql`(LOWER(${crmAccounts.name}) LIKE ${term} OR LOWER(coalesce(${crmAccounts.tradeName}, '')) LIKE ${term} OR regexp_replace(coalesce(${crmAccounts.document}, ''), '[^0-9]', '', 'g') LIKE ${`%${numOnly}%`} OR LOWER(coalesce(${crmAccounts.phone}, '')) LIKE ${term} OR ${accPhoneMatch} OR LOWER(coalesce(${crmAccounts.email}, '')) LIKE ${term} OR LOWER(coalesce(${crmAccounts.segment}, '')) LIKE ${term})`
         );
       } else {
         conditions.push(

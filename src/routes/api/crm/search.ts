@@ -4,6 +4,11 @@ import { db } from "../../../db";
 import { contacts, crmAccounts, crmDeals, crmPipelines, crmStages } from "../../../db/schema";
 import { requireSession } from "../../../lib/auth-session";
 import { getAllowedPipelineIds, requireCrmPermission } from "../../../lib/rbac";
+import { buildPhoneQueryPlan } from "../../../lib/utils";
+import {
+  buildContactPhonesExistsSearchSql,
+  buildPhoneColumnSearchSql,
+} from "../../../lib/phone-search-sql";
 
 const PAGE_SIZE = 8;
 const MORE_PAGE_SIZE = 20;
@@ -42,12 +47,19 @@ export const Route = createFileRoute("/api/crm/search")({
         const limit = category ? MORE_PAGE_SIZE : PAGE_SIZE;
         const escaped = query.replace(/[\\%_]/g, "\\$&");
         const pattern = `%${escaped}%`;
-        const digits = query.replace(/\D/g, "");
+        const phonePlan = buildPhoneQueryPlan(query);
+        const digits = phonePlan.digits;
         const phonePattern = `%${digits}%`;
         const phoneMatch = (column: typeof contacts.phone | typeof crmAccounts.phone) =>
-          digits.length >= 4
-            ? sql`regexp_replace(${column}, '[^0-9]', '', 'g') LIKE ${phonePattern}`
-            : undefined;
+          buildPhoneColumnSearchSql(column, phonePlan);
+        const accPhoneMatch = buildPhoneColumnSearchSql(sql`acc.phone`, phonePlan);
+        const ctPhoneMatch = buildPhoneColumnSearchSql(sql`ct.phone`, phonePlan);
+        const ctPhonesExistsMatch = buildContactPhonesExistsSearchSql(
+          tenantId,
+          sql`ct.id`,
+          query,
+          phonePlan,
+        );
 
         const dealsWhere = and(
           eq(crmDeals.tenantId, tenantId),
@@ -67,14 +79,17 @@ export const Route = createFileRoute("/api/crm/search")({
               WHERE acc.id = ${crmDeals.accountId} AND acc.tenant_id = ${tenantId}
                 AND (acc.name ILIKE ${pattern} OR acc.trade_name ILIKE ${pattern}
                   OR acc.email ILIKE ${pattern}
-                  OR ${digits.length >= 4 ? sql`regexp_replace(acc.phone, '[^0-9]', '', 'g') LIKE ${phonePattern} OR acc.document LIKE ${phonePattern}` : sql`FALSE`})
+                  OR ${accPhoneMatch ?? sql`FALSE`}
+                  OR ${digits.length >= 4 ? sql`regexp_replace(coalesce(acc.document, ''), '[^0-9]', '', 'g') LIKE ${phonePattern}` : sql`FALSE`})
             )`,
             sql`EXISTS (
               SELECT 1 FROM crm_deal_contacts dc
               JOIN contacts ct ON ct.id = dc.contact_id AND ct.tenant_id = ${tenantId}
               WHERE dc.deal_id = ${crmDeals.id} AND dc.tenant_id = ${tenantId}
                 AND (ct.name ILIKE ${pattern} OR ct.email ILIKE ${pattern}
-                  OR ${digits.length >= 4 ? sql`regexp_replace(ct.phone, '[^0-9]', '', 'g') LIKE ${phonePattern} OR ct.cpf LIKE ${phonePattern} OR ct.cnpj LIKE ${phonePattern}` : sql`FALSE`})
+                  OR ${ctPhoneMatch ?? sql`FALSE`}
+                  OR ${ctPhonesExistsMatch}
+                  OR ${digits.length >= 4 ? sql`ct.cpf LIKE ${phonePattern} OR ct.cnpj LIKE ${phonePattern}` : sql`FALSE`})
             )`,
           ),
         );
@@ -95,7 +110,9 @@ export const Route = createFileRoute("/api/crm/search")({
           or(
             ilike(contacts.name, pattern),
             ilike(contacts.email, pattern),
+            ilike(contacts.phone, pattern),
             phoneMatch(contacts.phone),
+            buildContactPhonesExistsSearchSql(tenantId, contacts.id, query, phonePlan),
             digits.length >= 4 ? ilike(contacts.cpf, phonePattern) : undefined,
             digits.length >= 4 ? ilike(contacts.cnpj, phonePattern) : undefined,
             sql`EXISTS (

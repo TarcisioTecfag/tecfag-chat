@@ -10,6 +10,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useEnhancedAvatarSrc } from "@/lib/avatar-image";
+import { buildPhoneQueryPlan, matchesPhoneSearchQuery } from "@/lib/utils";
 import {
   Users,
   Building2,
@@ -433,6 +434,7 @@ export function ContactsAnalyticsTab({
   // Filtragem da tabela de Clientes Prioritários / Em Risco
   const filteredPriorityClients = useMemo(() => {
     const q = tableSearch.trim().toLowerCase();
+    const phonePlan = q ? buildPhoneQueryPlan(tableSearch) : null;
     return priorityClients.filter((c) => {
       if (clientSegment === "risk") {
         const isStaleDeal =
@@ -452,7 +454,7 @@ export function ContactsAnalyticsTab({
 
       if (q) {
         const hay = `${c.name} ${c.companyName || ""} ${c.phone || ""} ${c.email || ""} ${c.operatorName || ""} ${c.source || ""}`.toLowerCase();
-        if (!hay.includes(q)) return false;
+        if (!hay.includes(q) && !matchesPhoneSearchQuery(c.phone, phonePlan)) return false;
       }
       return true;
     });

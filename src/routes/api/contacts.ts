@@ -18,9 +18,14 @@ import { requireSession } from "../../lib/auth-session.js";
 import {
   normalizeCanonicalPhone,
   buildPhoneSearchTerms,
+  buildPhoneQueryPlan,
   phoneRegistrationError,
   localPhoneSearchTerms,
 } from "../../lib/utils.js";
+import {
+  buildContactPhonesExistsSearchSql,
+  buildPhoneColumnSearchSql,
+} from "../../lib/phone-search-sql";
 
 import { contactDealPermission, registerContactDeal } from "../../lib/crm/contact-registration";
 import {
@@ -118,7 +123,7 @@ export const Route = createFileRoute("/api/contacts")({
         if (channel) conditions.push(eq(contacts.mainChannel, channel));
         if (search) {
           const pattern = `%${search.replace(/[\\%_]/g, "\\$&")}%`;
-          const digits = search.replace(/\D/g, "");
+          const phonePlan = buildPhoneQueryPlan(search);
           conditions.push(
             or(
               ilike(contacts.name, pattern),
@@ -129,23 +134,8 @@ export const Route = createFileRoute("/api/contacts")({
               ilike(crmAccounts.document, pattern),
               ilike(contacts.responsibleName, pattern),
               sql`${contacts.tags}::text ILIKE ${pattern}`,
-              sql`EXISTS (
-                SELECT 1 FROM contact_phones cp
-                WHERE cp.tenant_id = ${tenantId}
-                  AND cp.contact_id = ${contacts.id}
-                  AND (cp.phone ILIKE ${pattern} OR cp.label ILIKE ${pattern})
-              )`,
-              digits.length >= 4
-                ? sql`(
-                    regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') LIKE ${`%${digits}%`}
-                    OR EXISTS (
-                      SELECT 1 FROM contact_phones cp
-                      WHERE cp.tenant_id = ${tenantId}
-                        AND cp.contact_id = ${contacts.id}
-                        AND regexp_replace(cp.phone, '[^0-9]', '', 'g') LIKE ${`%${digits}%`}
-                    )
-                  )`
-                : undefined,
+              buildContactPhonesExistsSearchSql(tenantId, contacts.id, search, phonePlan),
+              buildPhoneColumnSearchSql(contacts.phone, phonePlan),
             )!,
           );
         }

@@ -26,6 +26,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { getAiPersona } from "@/lib/ai-persona";
+import { buildPhoneQueryPlan, matchesPhoneSearchQuery } from "@/lib/utils";
 import { formatMetaErrorMessagePt } from "@/lib/whatsapp/meta-template-common";
 import { DealDetailModal } from "@/components/crm/DealDetailModal";
 import { CreateTaskModal, type EditingTaskData } from "@/components/crm/CreateTaskModal";
@@ -6755,14 +6756,18 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
 
   // Filtro de busca, funil CRM e categoria na sidebar
   const searchLower = searchTerm.toLowerCase().trim();
+  const livePhonePlan = useMemo(
+    () => (searchLower ? buildPhoneQueryPlan(searchTerm) : null),
+    [searchLower, searchTerm]
+  );
   const matchesSearch = useCallback(
     (c: LiveConversation) =>
       !searchLower ||
       c.contactName.toLowerCase().includes(searchLower) ||
-      c.contactPhone.includes(searchLower) ||
+      matchesPhoneSearchQuery(c.contactPhone, livePhonePlan) ||
       (c.accountName?.toLowerCase().includes(searchLower) ?? false) ||
       (c.activeDeal?.title.toLowerCase().includes(searchLower) ?? false),
-    [searchLower]
+    [searchLower, livePhonePlan]
   );
 
   const matchesPipeline = useCallback(

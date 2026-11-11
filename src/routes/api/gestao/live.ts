@@ -5,6 +5,7 @@ import { eq, and, ne, desc, gte, lte, sql } from "drizzle-orm";
 import { requireSession } from "../../../lib/auth-session";
 import { conversationReadCondition, requireConversationAccess } from "../../../lib/access-control/conversation-access";
 import { computeOperatorPresenceSnapshot, getBrtDateKey } from "../../../lib/operator-presence";
+import { buildPhoneQueryPlan, matchesPhoneSearchQuery } from "../../../lib/utils";
 import type {
   LiveActivityCategory,
   LiveDealSummary,
@@ -112,11 +113,12 @@ export const Route = createFileRoute("/api/gestao/live")({
 
           // 4. Filtro por busca (nome, telefone ou empresa)
           const searchLower = search?.toLowerCase().trim() ?? "";
+          const searchPhonePlan = searchLower ? buildPhoneQueryPlan(search) : null;
           const filteredConvs = searchLower
             ? allActiveConvs.filter(
                 (c) =>
                   c.contactName?.toLowerCase().includes(searchLower) ||
-                  c.contactPhone?.includes(searchLower) ||
+                  matchesPhoneSearchQuery(c.contactPhone, searchPhonePlan) ||
                   c.accountName?.toLowerCase().includes(searchLower) ||
                   c.accountTradeName?.toLowerCase().includes(searchLower)
               )

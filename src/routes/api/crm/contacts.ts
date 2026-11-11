@@ -7,9 +7,14 @@ import { requireSession } from "../../../lib/auth-session";
 import { requireCrmPermission } from "../../../lib/rbac";
 import {
   buildPhoneSearchTerms,
+  buildPhoneQueryPlan,
   phoneRegistrationError,
   localPhoneSearchTerms,
 } from "../../../lib/utils";
+import {
+  buildContactPhonesExistsSearchSql,
+  buildPhoneColumnSearchSql,
+} from "../../../lib/phone-search-sql";
 
 import { contactDealPermission, registerContactDeal } from "../../../lib/crm/contact-registration";
 import {
@@ -83,28 +88,14 @@ export const Route = createFileRoute("/api/crm/contacts")({
           }
           conditions.push(identityParts.length > 0 ? or(...identityParts)! : sql`false`);
         } else {
+          const phonePlan = buildPhoneQueryPlan(search);
           conditions.push(
             or(
               ilike(contacts.name, pattern),
               ilike(contacts.phone, pattern),
               ilike(contacts.email, pattern),
-              sql`EXISTS (
-                SELECT 1 FROM contact_phones cp
-                WHERE cp.tenant_id = ${tenantId}
-                  AND cp.contact_id = ${contacts.id}
-                  AND (cp.phone ILIKE ${pattern} OR cp.label ILIKE ${pattern})
-              )`,
-              digits.length >= 4
-                ? sql`(
-                    regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') LIKE ${`%${digits}%`}
-                    OR EXISTS (
-                      SELECT 1 FROM contact_phones cp
-                      WHERE cp.tenant_id = ${tenantId}
-                        AND cp.contact_id = ${contacts.id}
-                        AND regexp_replace(cp.phone, '[^0-9]', '', 'g') LIKE ${`%${digits}%`}
-                    )
-                  )`
-                : undefined,
+              buildContactPhonesExistsSearchSql(tenantId, contacts.id, search, phonePlan),
+              buildPhoneColumnSearchSql(contacts.phone, phonePlan),
             )!,
           );
         }
