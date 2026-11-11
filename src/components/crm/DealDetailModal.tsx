@@ -1498,6 +1498,20 @@ export function DealDetailModal({
   const editNoteTextareaRef = React.useRef<HTMLTextAreaElement>(null);
   const editNoteFileInputRef = React.useRef<HTMLInputElement>(null);
 
+  // ── Estados de edição e conclusão inline de tarefas (declarados antes de qualquer useEffect/return) ──
+  const [editingDealTask, setEditingDealTask] = useState<EditingTaskData | null>(null);
+  const [completingInlineActivityId, setCompletingInlineActivityId] = useState<string | null>(null);
+  const [inlineCompletionNote, setInlineCompletionNote] = useState("");
+  const [isSavingInlineCompletion, setIsSavingInlineCompletion] = useState(false);
+  const [modalCompletionNote, setModalCompletionNote] = useState("");
+  const [activityToCompleteConfirm, setActivityToCompleteConfirm] = useState<{
+    id: string;
+    title: string;
+    type?: string;
+    dueDate?: string | null;
+  } | null>(null);
+  const [isConfirmingActivityComplete, setIsConfirmingActivityComplete] = useState(false);
+
   const canEditDealNotes =
     chatContext?.sessionRole === "admin" ||
     (chatContext?.sessionPermissions?.crm?.canEditDeals ??
@@ -2518,8 +2532,6 @@ export function DealDetailModal({
     }
   };
 
-  if (!isOpen || !dealId) return null;
-
   // Atualização com concorrência otimista
   const updateDeal = async (
     patch: Record<string, any>,
@@ -2827,19 +2839,6 @@ export function DealDetailModal({
       setSubmittingActivity(false);
     }
   };
-
-  const [editingDealTask, setEditingDealTask] = useState<EditingTaskData | null>(null);
-  const [completingInlineActivityId, setCompletingInlineActivityId] = useState<string | null>(null);
-  const [inlineCompletionNote, setInlineCompletionNote] = useState("");
-  const [isSavingInlineCompletion, setIsSavingInlineCompletion] = useState(false);
-  const [modalCompletionNote, setModalCompletionNote] = useState("");
-  const [activityToCompleteConfirm, setActivityToCompleteConfirm] = useState<{
-    id: string;
-    title: string;
-    type?: string;
-    dueDate?: string | null;
-  } | null>(null);
-  const [isConfirmingActivityComplete, setIsConfirmingActivityComplete] = useState(false);
 
   const handleOpenEditDealActivity = (act: any) => {
     if (!deal || !act) return;
@@ -3502,7 +3501,7 @@ export function DealDetailModal({
     });
   }, [unifiedTimeline, historySourceFilter, historyFilter]);
 
-  if (!isOpen) return null;
+  if (!isOpen || !dealId) return null;
 
   return (
     <div className="crm-deal-detail bg-card h-full flex flex-col overflow-hidden">

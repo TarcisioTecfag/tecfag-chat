@@ -150,13 +150,16 @@ function ScoreBadge({ score }: { score: number | null }) {
 }
 
 function ScoreGauge({ score, size = 140 }: { score: number | null; size?: number }) {
-  if (score === null) return <span className="text-xs text-muted-foreground">–</span>;
-  
   const [animatedScore, setAnimatedScore] = useState(0);
   const [displayScore, setDisplayScore] = useState(0);
   const [uuid] = useState(() => Math.random().toString(36).substring(2, 9));
   
   useEffect(() => {
+    if (score === null) {
+      setAnimatedScore(0);
+      setDisplayScore(0);
+      return;
+    }
     // Animar o arco com um leve delay para percepção visual da transição
     const animTimer = setTimeout(() => {
       setAnimatedScore(score);
@@ -185,6 +188,8 @@ function ScoreGauge({ score, size = 140 }: { score: number | null; size?: number
       window.cancelAnimationFrame(animationFrameId);
     };
   }, [score]);
+
+  if (score === null) return <span className="text-xs text-muted-foreground">–</span>;
 
   // Se o tamanho for menor (ex: 90px), usamos dimensões menores para o arco
   const isSmall = size < 110;
@@ -5417,13 +5422,16 @@ function AuditsTab({
 
       {/* Modal Nativo de Negociação do CRM */}
       {selectedDealModalId && (
-        <DealDetailModal
-          dealId={selectedDealModalId}
-          isOpen={Boolean(selectedDealModalId)}
-          onClose={() => setSelectedDealModalId(null)}
-          onDealUpdated={() => fetchAudits(true)}
-          onOpenDeal={(targetDealId) => setSelectedDealModalId(targetDealId)}
-        />
+        <div className="fixed inset-0 z-[90] bg-background overflow-hidden">
+          <DealDetailModal
+            dealId={selectedDealModalId}
+            isOpen={Boolean(selectedDealModalId)}
+            onClose={() => setSelectedDealModalId(null)}
+            onDealUpdated={() => fetchAudits(true)}
+            onOpenDeal={(targetDealId) => setSelectedDealModalId(targetDealId)}
+            backLabel="Voltar para Auditorias"
+          />
+        </div>
       )}
     </div>
   );
@@ -7656,23 +7664,27 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
       </div>
 
       {/* Modal de Inspeção Direta do Card CRM sem sair da aba Ao Vivo */}
-      <DealDetailModal
-        dealId={inspectDealId}
-        isOpen={Boolean(inspectDealId)}
-        onClose={() => setInspectDealId(null)}
-        onDealUpdated={() => {
-          fetchLive();
-        }}
-        onOpenConversation={(convId) => {
-          setInspectDealId(null);
-          setSelectedConvId(convId);
-        }}
-        onOpenDeal={(targetDealId) => setInspectDealId(targetDealId)}
-        pipelineStages={[]}
-        operatorsMap={operatorsMapForDeal}
-        operators={operatorsListForDeal}
-        backLabel="Voltar para Operação Ao Vivo"
-      />
+      {inspectDealId && (
+        <div className="fixed inset-0 z-[90] bg-background overflow-hidden">
+          <DealDetailModal
+            dealId={inspectDealId}
+            isOpen={Boolean(inspectDealId)}
+            onClose={() => setInspectDealId(null)}
+            onDealUpdated={() => {
+              fetchLive();
+            }}
+            onOpenConversation={(convId) => {
+              setInspectDealId(null);
+              setSelectedConvId(convId);
+            }}
+            onOpenDeal={(targetDealId) => setInspectDealId(targetDealId)}
+            pipelineStages={[]}
+            operatorsMap={operatorsMapForDeal}
+            operators={operatorsListForDeal}
+            backLabel="Voltar para Operação Ao Vivo"
+          />
+        </div>
+      )}
     </div>
   );
 }
