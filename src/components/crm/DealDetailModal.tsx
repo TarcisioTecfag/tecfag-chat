@@ -1510,6 +1510,10 @@ export function DealDetailModal({
     setEditingNoteOriginalText("");
     setIsSavingEditedNote(false);
     setIsUploadingEditNoteFile(false);
+    setCompletingInlineActivityId(null);
+    setInlineCompletionNote("");
+    setIsSavingInlineCompletion(false);
+    setModalCompletionNote("");
   }, [dealId, isOpen]);
 
   const adjustEditNoteTextareaHeight = (el?: HTMLTextAreaElement | null) => {
@@ -2825,6 +2829,10 @@ export function DealDetailModal({
   };
 
   const [editingDealTask, setEditingDealTask] = useState<EditingTaskData | null>(null);
+  const [completingInlineActivityId, setCompletingInlineActivityId] = useState<string | null>(null);
+  const [inlineCompletionNote, setInlineCompletionNote] = useState("");
+  const [isSavingInlineCompletion, setIsSavingInlineCompletion] = useState(false);
+  const [modalCompletionNote, setModalCompletionNote] = useState("");
   const [activityToCompleteConfirm, setActivityToCompleteConfirm] = useState<{
     id: string;
     title: string;
@@ -2859,7 +2867,61 @@ export function DealDetailModal({
     setIsCreateTaskModalOpen(true);
   };
 
-  // Solicitar Confirmação antes de Concluir Atividade Comercial
+  // Alternar gaveta inline de conclusão com anotação/observação opcional no DIV da tarefa
+  const handleToggleInlineCompleteActivity = (act: any) => {
+    if (!deal || !act) return;
+    if (act.status === "completed" || act.status === "done") {
+      toast.info("Esta tarefa já foi concluída e não pode ser reativada.");
+      return;
+    }
+    if (completingInlineActivityId === act.id) {
+      setCompletingInlineActivityId(null);
+      setInlineCompletionNote("");
+      return;
+    }
+    setReschedulingActivityId(null);
+    setCompletingInlineActivityId(act.id);
+    setInlineCompletionNote("");
+  };
+
+  const handleSaveInlineCompleteActivity = async (activityId: string) => {
+    if (!deal || !activityId || isSavingInlineCompletion) return;
+    const trimmedNote = inlineCompletionNote.trim();
+    setIsSavingInlineCompletion(true);
+    try {
+      const res = await fetch(`/api/crm/deals/${deal.id}/activities/${activityId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status: "completed",
+          ...(trimmedNote ? { completionNote: trimmedNote } : {}),
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Erro ao concluir tarefa.");
+      }
+      invalidateDealCache(deal.id);
+      toast.success(
+        trimmedNote ? "Tarefa concluída e anotação registrada!" : "Tarefa concluída!"
+      );
+      setCompletingInlineActivityId(null);
+      setInlineCompletionNote("");
+      await loadDealDetail(true, true);
+      if (onDealUpdated && deal) onDealUpdated(deal);
+      window.dispatchEvent(
+        new CustomEvent("crm:deal-task-completed", {
+          detail: { dealId: deal.id, activityId },
+        })
+      );
+    } catch (err: any) {
+      toast.error(err.message || "Falha ao concluir tarefa.");
+    } finally {
+      setIsSavingInlineCompletion(false);
+    }
+  };
+
+  // Solicitar Confirmação antes de Concluir Atividade Comercial (atalho superior)
   const handleCompleteActivity = (activityId: string) => {
     if (!deal) return;
     const found =
@@ -2869,6 +2931,7 @@ export function DealDetailModal({
       toast.info("Esta tarefa já foi concluída e não pode ser reativada.");
       return;
     }
+    setModalCompletionNote("");
     setActivityToCompleteConfirm({
       id: activityId,
       title: found?.title || "Tarefa comercial",
@@ -2879,21 +2942,39 @@ export function DealDetailModal({
 
   const confirmCompleteActivity = async () => {
     if (!deal || !activityToCompleteConfirm) return;
+    const trimmedNote = modalCompletionNote.trim();
     setIsConfirmingActivityComplete(true);
     try {
       const res = await fetch(`/api/crm/deals/${deal.id}/activities/${activityToCompleteConfirm.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "completed" }),
+        body: JSON.stringify({
+          status: "completed",
+          ...(trimmedNote ? { completionNote: trimmedNote } : {}),
+        }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || "Erro ao concluir tarefa.");
       }
-      toast.success("Tarefa concluída!");
+      invalidateDealCache(deal.id);
+      toast.success(
+        trimmedNote ? "Tarefa concluída e anotação registrada!" : "Tarefa concluída!"
+      );
+      const completedId = activityToCompleteConfirm.id;
       setActivityToCompleteConfirm(null);
-      await loadDealDetail();
+      setModalCompletionNote("");
+      if (completingInlineActivityId === completedId) {
+        setCompletingInlineActivityId(null);
+        setInlineCompletionNote("");
+      }
+      await loadDealDetail(true, true);
       if (onDealUpdated && deal) onDealUpdated(deal);
+      window.dispatchEvent(
+        new CustomEvent("crm:deal-task-completed", {
+          detail: { dealId: deal.id, activityId: completedId },
+        })
+      );
     } catch (err: any) {
       toast.error(err.message || "Falha ao concluir tarefa.");
     } finally {
@@ -3088,6 +3169,7 @@ export function DealDetailModal({
       iconType: string;
       badgeColor: string;
       isNote?: boolean;
+      noteTaskCompletionTitle?: string | null;
       activityId?: string;
       editHistory?: DealNoteEditEntry[];
       source: "conversas" | "crm" | "marketing";
@@ -3263,6 +3345,7 @@ export function DealDetailModal({
 
       const taskMetaParts = [
         act.description || null,
+        !isNote && act.completionNote ? `Observação na conclusão: ${act.completionNote}` : null,
         !isNote && act.assignedToOperatorName ? `Responsável: ${act.assignedToOperatorName}` : null,
         !isNote && act.dueDate ? `Prazo: ${new Date(act.dueDate).toLocaleString("pt-BR")}` : null,
       ].filter(Boolean);
@@ -3272,6 +3355,11 @@ export function DealDetailModal({
         : taskMetaParts.length > 0
         ? taskMetaParts.join("\n")
         : null;
+
+      const noteTaskCompletionTitle =
+        isNote && /^Conclusão da tarefa:\s*/i.test(titleStr)
+          ? titleStr.replace(/^Conclusão da tarefa:\s*/i, "").trim() || null
+          : null;
 
       items.push({
         id: `act-${act.id}`,
@@ -3290,6 +3378,7 @@ export function DealDetailModal({
         iconType: isNote ? "note" : "task",
         badgeColor: isNote ? "bg-primary/10 text-primary border border-primary/20" : "bg-muted text-muted-foreground",
         isNote,
+        noteTaskCompletionTitle,
         source: act.conversationId ? "conversas" : "crm",
       });
     });
@@ -4883,9 +4972,19 @@ export function DealDetailModal({
                                             )
                                           )
                                         ) : (
-                                          act.description && (
-                                            <p className="text-xs text-muted-foreground whitespace-pre-wrap">{act.description}</p>
-                                          )
+                                          <>
+                                            {act.description && (
+                                              <p className="text-xs text-muted-foreground whitespace-pre-wrap">{act.description}</p>
+                                            )}
+                                            {act.completionNote && (
+                                              <div className="mt-1.5 rounded-lg border border-primary/20 bg-primary/[0.04] px-2.5 py-2 text-xs text-foreground leading-relaxed break-words">
+                                                <span className="block text-[10px] font-bold uppercase tracking-wider text-primary mb-0.5">
+                                                  Observação na conclusão
+                                                </span>
+                                                <div className="whitespace-pre-wrap">{act.completionNote}</div>
+                                              </div>
+                                            )}
+                                          </>
                                         )}
                                       </div>
 
@@ -4905,11 +5004,15 @@ export function DealDetailModal({
                                         )}
                                         {isPending && !isNote && (
                                           <>
-                                            <SystemTooltip content="Marcar como concluída">
+                                            <SystemTooltip content="Finalizar tarefa (com anotação opcional)">
                                               <button
                                                 type="button"
-                                                onClick={() => handleCompleteActivity(act.id)}
-                                                className="flex h-7 items-center gap-1 rounded-lg bg-primary px-2 text-[11px] font-bold text-primary-foreground hover:opacity-90 transition-opacity cursor-pointer"
+                                                onClick={() => handleToggleInlineCompleteActivity(act)}
+                                                className={`flex h-7 items-center gap-1 rounded-lg bg-primary px-2 text-[11px] font-bold text-primary-foreground hover:opacity-90 transition-all cursor-pointer ${
+                                                  completingInlineActivityId === act.id
+                                                    ? "ring-2 ring-primary/40 ring-offset-1 ring-offset-background"
+                                                    : ""
+                                                }`}
                                               >
                                                 <Check className="h-3 w-3" />
                                                 <span>Concluir</span>
@@ -4934,6 +5037,8 @@ export function DealDetailModal({
                                                   if (reschedulingActivityId === act.id) {
                                                     setReschedulingActivityId(null);
                                                   } else {
+                                                    setCompletingInlineActivityId(null);
+                                                    setInlineCompletionNote("");
                                                     setReschedulingActivityId(act.id);
                                                     setRescheduleDueDate(act.dueDate ? act.dueDate.slice(0, 16) : "");
                                                   }
@@ -4984,6 +5089,75 @@ export function DealDetailModal({
                                         )}
                                       </div>
                                     </div>
+
+                                    {/* Formulário Inline de Conclusão com Anotação / Observação Opcional */}
+                                    {completingInlineActivityId === act.id && isPending && !isNote && (
+                                      <div className="rounded-lg border border-primary/30 bg-card/95 p-3 space-y-2.5 shadow-2xs animate-in fade-in duration-150">
+                                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                                          <div className="flex items-center gap-1.5">
+                                            <CheckCircle2 className="h-3.5 w-3.5 text-primary shrink-0" />
+                                            <span className="text-[11px] font-bold text-foreground">
+                                              Finalizar tarefa — Anotação / Observação
+                                            </span>
+                                            <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] font-semibold uppercase text-muted-foreground">
+                                              Opcional
+                                            </span>
+                                          </div>
+                                          <span className="text-[10px] text-muted-foreground">
+                                            Escreva uma observação se desejar ou salve direto para concluir (Ctrl+Enter)
+                                          </span>
+                                        </div>
+
+                                        <textarea
+                                          rows={2}
+                                          autoFocus
+                                          disabled={isSavingInlineCompletion}
+                                          value={inlineCompletionNote}
+                                          onChange={(e) => setInlineCompletionNote(e.target.value)}
+                                          onKeyDown={(e) => {
+                                            if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                                              e.preventDefault();
+                                              void handleSaveInlineCompleteActivity(act.id);
+                                            } else if (e.key === "Escape") {
+                                              e.preventDefault();
+                                              if (!isSavingInlineCompletion) {
+                                                setCompletingInlineActivityId(null);
+                                                setInlineCompletionNote("");
+                                              }
+                                            }
+                                          }}
+                                          placeholder="Adicione uma anotação ou observação sobre a conclusão desta tarefa (opcional)..."
+                                          className="w-full rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 resize-y min-h-[60px]"
+                                        />
+
+                                        <div className="flex items-center justify-end gap-2">
+                                          <button
+                                            type="button"
+                                            disabled={isSavingInlineCompletion}
+                                            onClick={() => {
+                                              setCompletingInlineActivityId(null);
+                                              setInlineCompletionNote("");
+                                            }}
+                                            className="h-7 rounded-lg border border-border bg-card px-3 text-[11px] font-semibold text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer disabled:opacity-50"
+                                          >
+                                            Cancelar
+                                          </button>
+                                          <button
+                                            type="button"
+                                            disabled={isSavingInlineCompletion}
+                                            onClick={() => void handleSaveInlineCompleteActivity(act.id)}
+                                            className="inline-flex h-7 items-center gap-1.5 rounded-lg bg-primary px-3 text-[11px] font-bold text-primary-foreground hover:opacity-90 transition-opacity cursor-pointer shadow-2xs disabled:opacity-60"
+                                          >
+                                            {isSavingInlineCompletion ? (
+                                              <Loader2 className="h-3 w-3 animate-spin" />
+                                            ) : (
+                                              <Check className="h-3 w-3" />
+                                            )}
+                                            <span>{isSavingInlineCompletion ? "Salvando..." : "Salvar e concluir"}</span>
+                                          </button>
+                                        </div>
+                                      </div>
+                                    )}
 
                                     {/* Formulário Inline de Reagendamento */}
                                     {reschedulingActivityId === act.id && (
@@ -7431,7 +7605,9 @@ export function DealDetailModal({
                                       </span>
                                       <span className="text-muted-foreground text-xs">
                                         {item.isNote
-                                          ? "adicionou uma anotação:"
+                                          ? item.noteTaskCompletionTitle
+                                            ? `adicionou uma anotação ao concluir "${item.noteTaskCompletionTitle}":`
+                                            : "adicionou uma anotação:"
                                           : item.category === "activity"
                                           ? "criou a tarefa:"
                                           : item.title}
@@ -7749,16 +7925,44 @@ export function DealDetailModal({
                   <X className="h-4 w-4" />
                 </button>
               </div>
-              <div className="p-6 space-y-3">
+              <div className="p-6 space-y-3.5">
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  Tem certeza que deseja marcar a tarefa <strong>"{activityToCompleteConfirm.title}"</strong> como concluída? Após concluída, ela não poderá ser reativada.
+                  Finalizar a tarefa <strong className="text-foreground">"{activityToCompleteConfirm.title}"</strong>? Após concluída, ela não poderá ser reativada.
                 </p>
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-foreground">
+                      Anotação / Observação
+                    </label>
+                    <span className="text-[10px] font-semibold uppercase text-muted-foreground">
+                      Opcional
+                    </span>
+                  </div>
+                  <textarea
+                    rows={3}
+                    autoFocus
+                    disabled={isConfirmingActivityComplete}
+                    value={modalCompletionNote}
+                    onChange={(e) => setModalCompletionNote(e.target.value)}
+                    onKeyDown={(e) => {
+                      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                        e.preventDefault();
+                        void confirmCompleteActivity();
+                      }
+                    }}
+                    placeholder="Adicione uma observação sobre a conclusão desta tarefa (opcional)..."
+                    className="w-full rounded-xl border border-border bg-muted/40 px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:border-primary resize-none"
+                  />
+                </div>
               </div>
               <div className="px-6 py-4 bg-muted/30 border-t border-border flex items-center justify-end gap-2.5">
                 <button
                   type="button"
                   disabled={isConfirmingActivityComplete}
-                  onClick={() => setActivityToCompleteConfirm(null)}
+                  onClick={() => {
+                    setActivityToCompleteConfirm(null);
+                    setModalCompletionNote("");
+                  }}
                   className="rounded-xl border border-border px-4 py-2 text-xs font-bold text-muted-foreground hover:text-foreground hover:bg-card transition cursor-pointer"
                 >
                   Cancelar
@@ -7774,7 +7978,7 @@ export function DealDetailModal({
                   ) : (
                     <Check className="h-3.5 w-3.5" />
                   )}
-                  Sim, concluir tarefa
+                  Salvar e concluir
                 </button>
               </div>
             </motion.div>

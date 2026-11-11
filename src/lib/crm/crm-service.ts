@@ -5986,6 +5986,7 @@ export class CrmService {
       type?: "task" | "call" | "meeting" | "whatsapp" | "email" | "lunch" | "visit" | "note";
       assignedToOperatorId?: string | null;
       assignedToOperatorIds?: string[] | null;
+      completionNote?: string | null;
     }
   ): Promise<
     CrmDealActivity & {
@@ -6187,6 +6188,8 @@ export class CrmService {
       const setPayload: Partial<typeof crmDealActivities.$inferInsert> = {
         updatedAt: now,
       };
+      const normalizedCompletionNote =
+        typeof updates.completionNote === "string" ? updates.completionNote.trim() : "";
 
       // Transição de status (concluir, cancelar; tarefas concluídas NÃO podem ser reativadas)
       let statusChanged = false;
@@ -6201,6 +6204,9 @@ export class CrmService {
         statusChanged = true;
         if (updates.status === "completed") {
           setPayload.completedAt = now;
+          if (normalizedCompletionNote) {
+            setPayload.completionNote = normalizedCompletionNote;
+          }
         } else {
           setPayload.completedAt = null;
         }
@@ -6341,9 +6347,35 @@ export class CrmService {
             previousDueDate: current.dueDate,
             dueDate: updated.dueDate,
             changes: activityChanges.length > 0 ? activityChanges : undefined,
+            completionNote:
+              effectiveStatusChanged && updates.status === "completed" && normalizedCompletionNote
+                ? normalizedCompletionNote
+                : undefined,
           },
           tx
         );
+
+        // Quando o operador escreve uma anotação/observação ao concluir a tarefa,
+        // registra também uma Nota Comercial vinculada à negociação (atômica na mesma transação).
+        if (effectiveStatusChanged && updates.status === "completed" && normalizedCompletionNote) {
+          const completionNoteId = `act-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+          await tx.insert(crmDealActivities).values({
+            id: completionNoteId,
+            tenantId,
+            dealId,
+            conversationId: updated.conversationId || null,
+            type: "note",
+            title: `Conclusão da tarefa: ${updated.title}`,
+            description: normalizedCompletionNote,
+            status: "completed",
+            completedAt: now,
+            operatorId: operatorId || null,
+            assignedToOperatorId: operatorId || null,
+            assignedToOperatorIds: operatorId ? [operatorId] : [],
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
       }
 
       // Busca operadores relacionados

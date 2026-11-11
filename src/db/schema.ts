@@ -1015,6 +1015,7 @@ export const crmDealActivities = pgTable("crm_deal_activities", {
   assignedToOperatorId: text("assigned_to_operator_id").references(() => operators.id, { onDelete: "set null" }),
   assignedToOperatorIds: jsonb("assigned_to_operator_ids").$type<string[]>().default([]).notNull(),
   editHistory: jsonb("edit_history").$type<CrmNoteEditEntry[]>().default([]).notNull(),
+  completionNote: text("completion_note"),
   rdTaskId: text("rd_task_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),

@@ -515,6 +515,7 @@ export const Route = createFileRoute("/api/tasks")({
             type?: "task" | "call" | "meeting" | "whatsapp" | "email" | "lunch" | "visit";
             assignedToOperatorId?: string | null;
             assignedToOperatorIds?: string[] | null;
+            completionNote?: string | null;
           } = {};
 
           if (body.status !== undefined) {
@@ -535,6 +536,9 @@ export const Route = createFileRoute("/api/tasks")({
           if (Array.isArray(body.assignedToOperatorIds)) {
             updates.assignedToOperatorIds = body.assignedToOperatorIds;
           }
+          if (typeof body.completionNote === "string" && body.completionNote.trim()) {
+            updates.completionNote = body.completionNote.trim();
+          }
 
           const updatedActivity = await crmService.updateDealActivity(
             tenantId,
@@ -543,24 +547,6 @@ export const Route = createFileRoute("/api/tasks")({
             session.operator.id,
             updates
           );
-
-          // Se o operador registrou uma anotação de conclusão, cria nota histórica na negociação
-          if (updates.status === "completed" && typeof body.completionNote === "string" && body.completionNote.trim()) {
-            try {
-              await crmService.createDealActivity(
-                tenantId,
-                kanbanActivity.dealId,
-                session.operator.id,
-                {
-                  type: "note",
-                  title: `Conclusão da tarefa: ${kanbanActivity.title}`,
-                  description: body.completionNote.trim(),
-                }
-              );
-            } catch (noteErr: any) {
-              console.warn("[Tasks API] Aviso ao registrar nota de conclusão:", noteErr.message);
-            }
-          }
 
           // Se o operador agendou o próximo passo no modal de conclusão, cria a nova atividade
           let createdNextTask = null;

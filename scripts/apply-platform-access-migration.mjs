@@ -264,6 +264,13 @@ const migrations = [
       import.meta.url,
     ),
   },
+  {
+    name: "0059_crm_task_completion_note",
+    url: new URL(
+      "../src/db/migrations/0059_crm_task_completion_note.sql",
+      import.meta.url,
+    ),
+  },
 ];
 const databaseUrl = process.env.DATABASE_URL;
 

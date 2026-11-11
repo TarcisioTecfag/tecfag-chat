@@ -396,6 +396,7 @@ export const DealCard = React.memo(function DealCard({
     id: string;
     title: string;
   } | null>(null);
+  const [quickCompletionNote, setQuickCompletionNote] = useState("");
 
   // Abrir pop-up de confirmação antes de concluir tarefa pelo atalho do card
   const handleCompleteTask = (e: React.MouseEvent) => {
@@ -403,6 +404,7 @@ export const DealCard = React.memo(function DealCard({
     hideSharedCardTooltip();
     const taskId = effectiveNextTask?.id;
     if (!taskId || completingTaskRef.current || completingTask) return;
+    setQuickCompletionNote("");
     setTaskToCompleteConfirm({
       id: taskId,
       title: (effectiveNextTask?.title || "Tarefa comercial").replace(/^Hoje:\s*/i, ""),
@@ -415,6 +417,7 @@ export const DealCard = React.memo(function DealCard({
     const targetTask = taskToCompleteConfirm;
     const taskId = targetTask?.id || effectiveNextTask?.id;
     if (!taskId || completingTaskRef.current || completingTask) return;
+    const trimmedNote = quickCompletionNote.trim();
     completingTaskRef.current = true;
     setCompletingTask(true);
     setCompletedTaskIds((prev) => (prev.includes(taskId) ? prev : [...prev, taskId]));
@@ -422,7 +425,10 @@ export const DealCard = React.memo(function DealCard({
       const res = await fetch(`/api/crm/deals/${deal.id}/activities/${taskId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "completed" }),
+        body: JSON.stringify({
+          status: "completed",
+          ...(trimmedNote ? { completionNote: trimmedNote } : {}),
+        }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -430,8 +436,11 @@ export const DealCard = React.memo(function DealCard({
       }
       invalidateDealCache(deal.id);
       seedDealPreview({ ...deal, nextTask: null });
-      toast.success("Tarefa concluída!");
+      toast.success(
+        trimmedNote ? "Tarefa concluída e anotação registrada!" : "Tarefa concluída!"
+      );
       setTaskToCompleteConfirm(null);
+      setQuickCompletionNote("");
       onTaskCompleted?.(deal.id, taskId);
       window.dispatchEvent(
         new CustomEvent("crm:deal-task-completed", {
@@ -888,11 +897,37 @@ export const DealCard = React.memo(function DealCard({
                   <X className="h-4 w-4" />
                 </button>
               </div>
-              <div className="p-6 space-y-3">
+              <div className="p-6 space-y-3.5">
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  Tem certeza que deseja marcar a tarefa{" "}
-                  <strong className="text-foreground">"{taskToCompleteConfirm.title}"</strong> como concluída? Após concluída, ela não poderá ser reativada.
+                  Finalizar a tarefa{" "}
+                  <strong className="text-foreground">"{taskToCompleteConfirm.title}"</strong>? Após concluída, ela não poderá ser reativada.
                 </p>
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-foreground">
+                      Anotação / Observação
+                    </label>
+                    <span className="text-[10px] font-semibold uppercase text-muted-foreground">
+                      Opcional
+                    </span>
+                  </div>
+                  <textarea
+                    rows={3}
+                    autoFocus
+                    disabled={completingTask}
+                    value={quickCompletionNote}
+                    onChange={(e) => setQuickCompletionNote(e.target.value)}
+                    onKeyDown={(e) => {
+                      e.stopPropagation();
+                      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                        e.preventDefault();
+                        void handleConfirmCompleteTask();
+                      }
+                    }}
+                    placeholder="Adicione uma observação sobre a conclusão desta tarefa (opcional)..."
+                    className="w-full rounded-xl border border-border bg-muted/40 px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:border-primary resize-none"
+                  />
+                </div>
               </div>
               <div className="px-6 py-4 bg-muted/30 border-t border-border flex items-center justify-end gap-2.5">
                 <button
@@ -901,6 +936,7 @@ export const DealCard = React.memo(function DealCard({
                   onClick={(e) => {
                     e.stopPropagation();
                     setTaskToCompleteConfirm(null);
+                    setQuickCompletionNote("");
                   }}
                   className="rounded-xl border border-border px-4 py-2 text-xs font-bold text-muted-foreground hover:text-foreground hover:bg-card transition cursor-pointer"
                 >
@@ -917,7 +953,7 @@ export const DealCard = React.memo(function DealCard({
                   ) : (
                     <Check className="h-3.5 w-3.5" />
                   )}
-                  Sim, concluir tarefa
+                  Salvar e concluir
                 </button>
               </div>
             </div>

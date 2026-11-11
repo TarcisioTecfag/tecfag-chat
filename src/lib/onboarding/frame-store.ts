@@ -190,10 +190,30 @@ export async function handleTrainingRequest(store: TrainingStore, input: string 
         const task = find(store.tasks, body.id || part.split("/")[1]);
         if (task && method === "DELETE") store.tasks.splice(store.tasks.indexOf(task),1);
         else if (task) {
+          const wasCompleted = task.status === "completed";
           const isNoteEdit = task.type === "note" && typeof body.description === "string" && body.description.trim() !== String(task.description || task.title || "").trim();
+          const trimmedCompletionNote = typeof body.completionNote === "string" ? body.completionNote.trim() : "";
           Object.assign(task, body, body.title ? {name:body.title,subject:body.title} : {});
           if (isNoteEdit) {
             task.editHistory = [...(Array.isArray(task.editHistory) ? task.editHistory : []), { editedAt: new Date().toISOString(), operatorId: store.operatorId || "demo-op", operatorName: store.operatorName }];
+          }
+          if (!wasCompleted && body.status === "completed") {
+            task.completedAt = new Date().toISOString();
+            if (trimmedCompletionNote) {
+              task.completionNote = trimmedCompletionNote;
+              store.tasks.push({
+                id: id("task"),
+                dealId: deal.id,
+                type: "note",
+                title: `Conclusão da tarefa: ${task.title || task.name || "Tarefa"}`,
+                description: trimmedCompletionNote,
+                status: "completed",
+                createdAt: new Date().toISOString(),
+                operatorName: store.operatorName,
+              });
+            } else {
+              delete task.completionNote;
+            }
           }
         }
         else if (!body.title?.trim()) return reply({ error: "Preencha o título da atividade." }, 422);

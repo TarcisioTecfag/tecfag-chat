@@ -416,6 +416,7 @@ export async function verifyDatabaseCompatibility(): Promise<void> {
       ALTER TABLE operators ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE;
       ALTER TABLE crm_deal_activities ADD COLUMN IF NOT EXISTS assigned_to_operator_ids JSONB NOT NULL DEFAULT '[]'::jsonb;
       ALTER TABLE crm_deal_activities ADD COLUMN IF NOT EXISTS edit_history JSONB NOT NULL DEFAULT '[]'::jsonb;
+      ALTER TABLE crm_deal_activities ADD COLUMN IF NOT EXISTS completion_note TEXT;
       CREATE TABLE IF NOT EXISTS crm_deal_file_chunks (
         id TEXT PRIMARY KEY,
         file_id TEXT NOT NULL REFERENCES crm_deal_files(id) ON DELETE CASCADE,

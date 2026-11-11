@@ -51,6 +51,8 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/activities/$activit
               assignedToOperatorIds: Array.isArray(body.assignedToOperatorIds)
                 ? body.assignedToOperatorIds
                 : undefined,
+              completionNote:
+                typeof body.completionNote === "string" ? body.completionNote : undefined,
             }
           );
 
