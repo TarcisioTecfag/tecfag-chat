@@ -932,6 +932,19 @@ export const Route = createFileRoute('/api/valentina/sdr')({
             });
           }
 
+          if (enabled === false) {
+            void import("../../../lib/triage/sdr-disabled-routing")
+              .then(({ sweepUnassignedAutomacaoWhenSdrDisabled }) =>
+                sweepUnassignedAutomacaoWhenSdrDisabled(db, tenantId),
+              )
+              .catch((sweepErr) =>
+                console.warn(
+                  "[api/valentina/sdr] Falha ao varrer conversas órfãs em automacao:",
+                  sweepErr,
+                ),
+              );
+          }
+
           return new Response(JSON.stringify({ success: true, enabled: enabled !== undefined ? Boolean(enabled) : true }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });

@@ -29,6 +29,14 @@ import { sendPushToOperator } from "../push-notifications";
 import { checkAndSendOperatorStatusAutoReply } from "./status-auto-reply";
 import { setAttendanceActor } from "../attendance-events";
 import { SlaEngine } from "../sla-engine";
+import { extractContinuityCode } from "../livechat/site-channel-policy";
+import {
+  deliverSdrDisabledRoutingEffects,
+  isSdrEnabledForTenant,
+  routeWhenSdrDisabled,
+  routeWhenSdrDisabledInTx,
+  type SdrDisabledRoutingResult,
+} from "../triage/sdr-disabled-routing";
 import crypto from "node:crypto";
 
 type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -127,6 +135,15 @@ export class InboundProcessor {
               .from(contacts)
               .where(and(eq(contacts.tenantId, tenantId), eq(contacts.id, conv.contactId)))
           : [];
+        if (result.sdrDisabledRouting?.routed) {
+          await deliverSdrDisabledRoutingEffects({
+            tenantId,
+            routing: result.sdrDisabledRouting,
+            contactId: conv.contactId,
+            clientName: contactRow?.name || msg.senderName,
+            interestText: msg.content,
+          });
+        }
         SessionManager.getInstance().notifyPublic(tenantId, {
           type: "message",
           message: {
@@ -256,6 +273,42 @@ export class InboundProcessor {
       return prevList.slice(-20);
     };
 
+    // 0. Continuidade site → WhatsApp (perfil industrial): código de uso único enviado pelo cliente.
+    if (getAiPersona(tenantId).triagePolicy === "industrial") {
+      const { linkSiteContinuity } = await import("../livechat/site-continuity");
+      const link = await linkSiteContinuity(tenantId, convId, cleanText).catch((err: any) => {
+        console.error("[Meta/Continuidade] Falha ao vincular atendimento do site:", err?.message);
+        return null;
+      });
+      if (link?.linked && link.mode === "operator") return;
+    }
+
+    // 0b. Verificar se o SDR está habilitado no tenant antes de comandos !reset ou reinício de ciclo
+    const sdrEnabled = await isSdrEnabledForTenant(db, tenantId);
+    if (!sdrEnabled) {
+      if (
+        getAiPersona(tenantId).triagePolicy === "industrial" &&
+        !conv.operatorId &&
+        conv.queueState !== "meus" &&
+        conv.queueState !== "finalizados"
+      ) {
+        const fallbackRouting = await routeWhenSdrDisabled(db, {
+          tenantId,
+          conversationId: convId,
+          contactId: conv.contactId,
+        });
+        if (fallbackRouting.routed) {
+          await deliverSdrDisabledRoutingEffects({
+            tenantId,
+            routing: fallbackRouting,
+            contactId: conv.contactId,
+            interestText: cleanText,
+          });
+        }
+      }
+      return;
+    }
+
     // 1. Comando !reset: Reinicia a triagem da IA sem apagar mensagens
     if (cleanText.toLowerCase() === "!reset") {
       console.log(`[Meta/Reset] Comando !reset acionado para a conversa ${convId} (${fromPhone}) no tenant ${tenantId}.`);
@@ -369,25 +422,6 @@ export class InboundProcessor {
       }
     }
 
-    // 2b. Continuidade site → WhatsApp (perfil industrial): código de uso único enviado pelo cliente.
-    if (getAiPersona(tenantId).triagePolicy === "industrial") {
-      const { linkSiteContinuity } = await import("../livechat/site-continuity");
-      const link = await linkSiteContinuity(tenantId, convId, cleanText).catch((err: any) => {
-        console.error("[Meta/Continuidade] Falha ao vincular atendimento do site:", err?.message);
-        return null;
-      });
-      if (link?.linked && link.mode === "operator") return;
-    }
-
-    // 3. Verificar se o SDR está habilitado no tenant
-    const sdrConfig = await db.query.agentConfigs.findFirst({
-      where: (t, { eq: dEq, and: dAnd }) =>
-        dAnd(dEq(t.tenantId, tenantId), dEq(t.agentType, "sdr")),
-    });
-    if (sdrConfig && sdrConfig.enabled === 0) {
-      return;
-    }
-
     // 4. Trava de Operador: só aciona o SDR se a conversa não estiver com vendedor humano
     const currentFlow = await db.query.agentFlowStates.findFirst({
       where: (t, { eq: dEq, and: dAnd }) =>
@@ -450,6 +484,7 @@ export class InboundProcessor {
     messageId?: string;
     conversationId?: string;
     reopened?: boolean;
+    sdrDisabledRouting?: SdrDisabledRoutingResult;
     error?: string;
   }> {
     const {
@@ -1026,6 +1061,28 @@ export class InboundProcessor {
         updatedAt: timestamp,
       });
 
+      // 6b. Se o SDR IA estiver desativado em tenant de política industrial, direciona automaticamente
+      // para quem estiver configurado em Fluxos -> SDR / Análise (ou Fila Humana se ninguém elegível).
+      let sdrDisabledRouting: SdrDisabledRoutingResult | undefined;
+      if (
+        getAiPersona(tenantId).triagePolicy === "industrial" &&
+        !activeConv.operatorId &&
+        activeConv.queueState !== "meus" &&
+        activeConv.queueState !== "finalizados" &&
+        !extractContinuityCode(text || "")
+      ) {
+        sdrDisabledRouting = await routeWhenSdrDisabledInTx(db, {
+          tenantId,
+          conversationId: activeConv.id,
+          contactId: contact.id,
+          clientName: contact.name,
+          noteSentAt: new Date(effectiveTimestamp.getTime() + 1),
+        });
+        if (sdrDisabledRouting.routed && sdrDisabledRouting.conversation) {
+          activeConv = sdrDisabledRouting.conversation;
+        }
+      }
+
       // 7. Conclusão do registro em pending_inbounds
       await db
         .update(pendingInbounds)
@@ -1039,6 +1096,7 @@ export class InboundProcessor {
         messageId,
         conversationId: activeConv.id,
         reopened,
+        sdrDisabledRouting,
       };
     } catch (err) {
       throw err; // rollback de contato, conversa, mídia, mensagem e conclusão do evento

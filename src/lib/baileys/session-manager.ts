@@ -1889,10 +1889,13 @@ export class SessionManager {
       }
 
       if (!this.connectionId && !rawMsg.__historical && !isFromMe && conversation?.queueState === "finalizados" && targetQueue === "fila" && getAiPersona(tenantId).triagePolicy === "industrial") {
-        const restarted = await restartIndustrialCycle(db, tenantId, convId, { reason: "reopened", sourceKey: messageId, receivedAt: eventTime });
-        if (restarted) {
-          targetQueue = restarted.conversation.queueState;
-          targetOperatorId = restarted.conversation.operatorId;
+        const { isSdrEnabledForTenant } = await import("../triage/sdr-disabled-routing");
+        if (await isSdrEnabledForTenant(db, tenantId)) {
+          const restarted = await restartIndustrialCycle(db, tenantId, convId, { reason: "reopened", sourceKey: messageId, receivedAt: eventTime });
+          if (restarted) {
+            targetQueue = restarted.conversation.queueState;
+            targetOperatorId = restarted.conversation.operatorId;
+          }
         }
       }
 
@@ -1991,6 +1994,62 @@ export class SessionManager {
           .catch((err) => console.warn("[Baileys] Falha ao transcrever áudio automaticamente:", err));
       }
 
+      let sdrDisabledRouted = false;
+      if (
+        !this.connectionId &&
+        !callDetails &&
+        !rawMsg.__historical &&
+        !isFromMe &&
+        finalSenderType === "client" &&
+        !targetOperatorId &&
+        targetQueue !== "meus" &&
+        targetQueue !== "finalizados" &&
+        !contact?.walletOperatorId &&
+        !(typeof text === "string" && /SITE/i.test(text)) &&
+        getAiPersona(tenantId).triagePolicy === "industrial"
+      ) {
+        try {
+          const { routeWhenSdrDisabledInTx, deliverSdrDisabledRoutingEffects } = await import(
+            "../triage/sdr-disabled-routing"
+          );
+          const fallbackRouting = await routeWhenSdrDisabledInTx(db, {
+            tenantId,
+            conversationId: convId,
+            contactId,
+            clientName: contact?.name || name,
+            noteSentAt: new Date(eventTime.getTime() + 1),
+          });
+          if (fallbackRouting.routed && fallbackRouting.conversation) {
+            sdrDisabledRouted = true;
+            targetQueue = fallbackRouting.conversation.queueState;
+            targetOperatorId = fallbackRouting.conversation.operatorId;
+            if (fallbackRouting.operator && contact) {
+              contact = {
+                ...contact,
+                walletOperatorId: fallbackRouting.operator.id,
+                responsibleName: fallbackRouting.operator.name,
+              };
+            }
+            setTimeout(() => {
+              deliverSdrDisabledRoutingEffects({
+                tenantId,
+                routing: fallbackRouting,
+                contactId,
+                clientName: contact?.name || name,
+                interestText: text,
+              }).catch((err: any) =>
+                console.warn("[Baileys/SdrDisabledRouting] Erro pós-commit:", err?.message),
+              );
+            }, 0);
+          }
+        } catch (sdrFallbackErr: any) {
+          console.warn(
+            "[Baileys/SdrDisabledRouting] Falha ao direcionar para SDR / Análise:",
+            sdrFallbackErr?.message,
+          );
+        }
+      }
+
       // ── SLA Engine & Web Push Notification ─────────
       try {
         const now = new Date();
@@ -2062,14 +2121,14 @@ export class SessionManager {
           quotedMessageId,
           quotedMessageSender,
           quotedMessageContent,
-          queue: this.connectionId ? targetQueue : !conversation
+          queue: this.connectionId || sdrDisabledRouted ? targetQueue : !conversation
             ? isFromMe
               ? "meus"
               : contact?.walletOperatorId
                 ? "meus"
                 : "fila"
             : targetQueue,
-          operatorId: this.connectionId ? targetOperatorId : !conversation
+          operatorId: this.connectionId || sdrDisabledRouted ? targetOperatorId : !conversation
             ? !isFromMe && contact?.walletOperatorId
               ? contact.walletOperatorId
               : null
