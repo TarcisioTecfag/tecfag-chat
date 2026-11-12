@@ -500,7 +500,31 @@ if (!databaseUrl) {
       console.log(`[platform migration] ${tecfagFullRdCrmMigrationName} já aplicada anteriormente.`);
     }
 
-    // 8. Higienização contínua de sectors.operator_ids (remove IDs de operadores órfãos/excluídos e deduplica por setor)
+    // 8. Migração Fragmentada Setor & Funil de Peças RD Station CRM -> Tecfag Chat (Keicy Cardoso & Guilherme Bertola: 4.610 Negociações, 2.447 Empresas, 2.772 Contatos, 3.864 Tarefas e 2.354 Notas — 12/11/2026)
+    const tecfagPecasRdCrmMigrationName = "seed_tecfag_pecas_rd_crm_migration_2026_11_12_v1";
+    const [appliedTecfagPecasRdCrm] = await sql`
+      SELECT name FROM app_deploy_migrations WHERE name = ${tecfagPecasRdCrmMigrationName}
+    `;
+    if (!appliedTecfagPecasRdCrm) {
+      console.log(`[platform migration] Iniciando execução única de ${tecfagPecasRdCrmMigrationName}...`);
+      const { runTecfagPecasRdCrmMigration } = await import(
+        "./import-tecfag-pecas-rd-crm.mjs"
+      );
+      const summary = await runTecfagPecasRdCrmMigration(sql);
+      await sql`
+        INSERT INTO app_deploy_migrations (name)
+        VALUES (${tecfagPecasRdCrmMigrationName})
+        ON CONFLICT (name) DO NOTHING
+      `;
+      console.log(
+        `[platform migration] ${tecfagPecasRdCrmMigrationName} concluída com sucesso:`,
+        summary,
+      );
+    } else {
+      console.log(`[platform migration] ${tecfagPecasRdCrmMigrationName} já aplicada anteriormente.`);
+    }
+
+    // 9. Higienização contínua de sectors.operator_ids (remove IDs de operadores órfãos/excluídos e deduplica por setor)
     try {
       const [allSectors, allOperators] = await Promise.all([
         sql`SELECT id, tenant_id, name, operator_ids FROM sectors`,
