@@ -1,7 +1,7 @@
 export type ConversationDealContext = {
   version: number;
-  currentDeal: { id: string; title: string } | null;
-  previousDeal: { id: string; title: string } | null;
+  currentDeal: { id: string; title: string; status?: string } | null;
+  previousDeal: { id: string; title: string; status?: string } | null;
   hasCurrentDeal: boolean;
   selectionRequired: boolean;
   gracePeriodActive?: boolean;
@@ -56,7 +56,7 @@ export const cachedDealRequirement = (conversationId?: string | null) => {
 
 export function markConversationDealSatisfied(
   conversationId?: string | null,
-  selectedDeal?: { id: string; title: string; version?: number } | null,
+  selectedDeal?: { id: string; title: string; status?: string; version?: number } | null,
 ) {
   if (!conversationId) return;
   mutationEpoch.set(conversationId, (mutationEpoch.get(conversationId) || 0) + 1);
@@ -82,7 +82,11 @@ export function markConversationDealSatisfied(
             typeof selectedDeal.version === "number" && selectedDeal.version > existing.version
               ? selectedDeal.version
               : existing.version,
-          currentDeal: { id: selectedDeal.id, title: selectedDeal.title },
+          currentDeal: {
+            id: selectedDeal.id,
+            title: selectedDeal.title,
+            ...(selectedDeal.status ? { status: selectedDeal.status } : {}),
+          },
           hasCurrentDeal: true,
           selectionRequired: false,
         });

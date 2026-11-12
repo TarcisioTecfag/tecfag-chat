@@ -92,7 +92,7 @@ export function ConversationDealRequirement({
           </p>
           <p className="text-xs text-muted-foreground">
             {selectionRequired
-              ? "Há negociações em andamento, mas nenhuma foi escolhida como atual. Selecione pelo menu suspenso ou clique em \"Escolher essa\" diretamente em um dos cards abaixo."
+              ? "Há negociações disponíveis (em andamento ou pausadas), mas nenhuma foi escolhida como atual. Selecione pelo menu suspenso ou clique em \"Escolher essa\" diretamente em um dos cards abaixo."
               : "As mensagens recebidas estão preservadas. Associe um card ou crie uma negociação para continuar."}
           </p>
         </div>

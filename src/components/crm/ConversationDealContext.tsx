@@ -143,7 +143,9 @@ export function ConversationDealContext({
       const picked = data.deals.find((d) => d.id === dealId);
       markConversationDealSatisfied(
         conversationId,
-        picked ? { id: picked.id, title: picked.title, version: result.version } : undefined,
+        picked
+          ? { id: picked.id, title: picked.title, status: picked.status, version: result.version }
+          : undefined,
       );
       onSelected?.(result.version);
       await refresh();
@@ -159,12 +161,12 @@ export function ConversationDealContext({
   };
 
   const triggerLabel = data.currentDeal?.title
-    ? data.currentDeal.title
+    ? `${data.currentDeal.title}${data.currentDeal.status === "paused" ? " (Pausado)" : ""}`
     : data.hasCurrentDeal
       ? "Negociação selecionada (acesso restrito)"
       : data.gracePeriodActive && data.graceDeal
         ? `${data.graceDeal.title} (${data.graceDeal.status === "won" ? "Vendido" : "Perdido"} • Carência 24h)`
-        : "Selecione uma negociação em andamento";
+        : "Selecione uma negociação disponível";
 
   return (
     <div
@@ -194,7 +196,7 @@ export function ConversationDealContext({
               <span>
                 {eligibleDeals.length > 0
                   ? "Selecione a negociação atual para continuar"
-                  : "Nenhuma negociação em andamento disponível"}
+                  : "Nenhuma negociação disponível (em andamento ou pausada)"}
               </span>
             </div>
           ) : (
@@ -233,8 +235,8 @@ export function ConversationDealContext({
                 !data.editable
                   ? "Assuma o atendimento para alterar a negociação atual"
                   : data.currentDeal?.title
-                    ? `Negociação ativa: ${data.currentDeal.title} (clique para trocar)`
-                    : "Clique para escolher a negociação em andamento deste atendimento"
+                    ? `Negociação ativa: ${data.currentDeal.title}${data.currentDeal.status === "paused" ? " (Pausado)" : ""} (clique para trocar)`
+                    : "Clique para escolher a negociação deste atendimento"
               }
             >
               <PopoverTrigger asChild>
@@ -289,7 +291,7 @@ export function ConversationDealContext({
                 <div className="space-y-1">
                   <div className="flex items-center justify-between px-2.5 py-1">
                     <span className="text-[10px] font-extrabold uppercase tracking-wider text-red-500">
-                      Em andamento — disponíveis para seleção
+                      Disponíveis para seleção — em andamento e pausadas
                     </span>
                     <span className="rounded-full bg-red-600/15 px-1.5 py-0.5 text-[9px] font-bold text-red-500">
                       {eligibleDeals.length}
@@ -298,15 +300,16 @@ export function ConversationDealContext({
 
                   {eligibleDeals.length === 0 ? (
                     <div className="rounded-xl bg-muted/40 px-3 py-2.5 text-[11px] text-muted-foreground italic">
-                      Nenhuma negociação em andamento vinculada para seleção.
+                      Nenhuma negociação em andamento ou pausada vinculada para seleção.
                     </div>
                   ) : (
                     eligibleDeals.map((deal) => {
                       const isSelected = data.currentDeal?.id === deal.id;
+                      const isPaused = deal.status === "paused";
                       return (
                         <SystemTooltip
                           key={deal.id}
-                          content={`Definir "${deal.title}" como negociação atual`}
+                          content={`Definir "${deal.title}"${isPaused ? " (Pausado)" : ""} como negociação atual`}
                           side="left"
                         >
                           <button
@@ -321,10 +324,25 @@ export function ConversationDealContext({
                             <div className="flex items-center gap-2 min-w-0 flex-1">
                               <span
                                 className={`h-2 w-2 rounded-full shrink-0 ${
-                                  isSelected ? "bg-white" : "bg-red-500"
+                                  isSelected
+                                    ? "bg-white"
+                                    : isPaused
+                                      ? "bg-muted-foreground/60"
+                                      : "bg-red-500"
                                 }`}
                               />
                               <span className="line-clamp-2 leading-snug">{deal.title}</span>
+                              {isPaused && (
+                                <span
+                                  className={`rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase shrink-0 ${
+                                    isSelected
+                                      ? "bg-white/20 text-white"
+                                      : "bg-muted text-muted-foreground"
+                                  }`}
+                                >
+                                  Pausado
+                                </span>
+                              )}
                             </div>
                             {isSelected ? (
                               <span className="inline-flex items-center gap-1 rounded-lg bg-white/20 px-2 py-0.5 text-[10px] font-bold text-white shrink-0">
@@ -353,7 +371,7 @@ export function ConversationDealContext({
                     {historicalDeals.map((deal) => (
                       <SystemTooltip
                         key={deal.id}
-                        content="Negociações encerradas, pausadas ou desvinculadas não podem ser definidas como negociação atual"
+                        content="Negociações encerradas (vendidas ou perdidas) ou desvinculadas não podem ser definidas como negociação atual"
                         side="left"
                       >
                         <div className="flex items-center justify-between gap-2 rounded-xl px-2.5 py-1.5 text-xs text-muted-foreground/70 bg-muted/20 cursor-not-allowed">
@@ -454,6 +472,7 @@ export function ConversationDealTransferContext({
             </button>
             {eligibleDeals.map((deal) => {
               const isSelected = selected === deal.id;
+              const isPaused = deal.status === "paused";
               return (
                 <button
                   key={deal.id}
@@ -469,7 +488,10 @@ export function ConversationDealTransferContext({
                       : "text-foreground hover:bg-red-600/12 hover:text-red-500 font-semibold"
                   }`}
                 >
-                  <span className="line-clamp-2">{deal.title}</span>
+                  <span className="line-clamp-2 flex-1">
+                    {deal.title}
+                    {isPaused ? " (Pausado)" : ""}
+                  </span>
                   {isSelected && <Check className="h-3.5 w-3.5 shrink-0 text-white" />}
                 </button>
               );

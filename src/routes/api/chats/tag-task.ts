@@ -52,6 +52,7 @@ export const Route = createFileRoute("/api/chats/tag-task")({
             const state = await getDealContext(tx, tenantId, conversationId, session.operator.id);
             assertDealContextVersion(state.context, body.expectedContextVersion);
             const openLinkedDeals = state.deals.filter((d) => d.status === "open" && d.isLinked);
+            const pausedLinkedDeals = state.deals.filter((d) => d.status === "paused" && d.isLinked);
             const deal =
               state.deals.find((d) => d.id === state.context.currentDealId) ||
               findActiveGraceDeal(state.deals, [
@@ -63,6 +64,11 @@ export const Route = createFileRoute("/api/chats/tag-task")({
                 : null) ||
               (state.conversation.queueState === "finalizados" && openLinkedDeals.length === 1
                 ? openLinkedDeals[0]
+                : null) ||
+              (state.conversation.queueState === "finalizados" &&
+              openLinkedDeals.length === 0 &&
+              pausedLinkedDeals.length === 1
+                ? pausedLinkedDeals[0]
                 : null);
             if (!deal)
               throw new DealContextError(

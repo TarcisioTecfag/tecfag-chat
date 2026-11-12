@@ -2688,6 +2688,7 @@ export function DealDetailModal({
     const ok = await updateDeal({
       status: "won",
       winReason: winReason.trim() || undefined,
+      pausedReason: null,
       closedAt: new Date().toISOString(),
     });
     setShowWinPrompt(false);
@@ -2702,11 +2703,11 @@ export function DealDetailModal({
   };
 
   // Marcar como Perdido
-  // Marcar como Perdido
   const handleConfirmLoss = async () => {
     await updateDeal({
       status: "lost",
       lossReason: lossReason.trim() || undefined,
+      pausedReason: null,
       closedAt: new Date().toISOString(),
     });
     setShowLossPrompt(false);
@@ -3640,16 +3641,31 @@ export function DealDetailModal({
               {!loading && deal && (
                 <>
                   {deal.status === "open" && (
+                    <SystemTooltip content="Pausar negociação">
+                      <button
+                        onClick={() => setShowPausePrompt(true)}
+                        className="flex h-8 items-center gap-1.5 rounded-full border border-border bg-card px-3 text-xs font-bold text-foreground hover:bg-muted transition-colors cursor-pointer"
+                      >
+                        <PauseCircle className="h-3.5 w-3.5 text-muted-foreground" />
+                        <span>Pausar</span>
+                      </button>
+                    </SystemTooltip>
+                  )}
+
+                  {deal.status === "paused" && (
+                    <SystemTooltip content="Retomar negociação (voltar para Em andamento)">
+                      <button
+                        onClick={handleReopen}
+                        className="flex h-8 items-center gap-1.5 rounded-full border border-border bg-card px-3 text-xs font-bold text-foreground hover:bg-muted transition-colors cursor-pointer"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5 text-muted-foreground" />
+                        <span>Retomar Negociação</span>
+                      </button>
+                    </SystemTooltip>
+                  )}
+
+                  {(deal.status === "open" || deal.status === "paused") && (
                     <>
-                      <SystemTooltip content="Pausar negociação">
-                        <button
-                          onClick={() => setShowPausePrompt(true)}
-                          className="flex h-8 items-center gap-1.5 rounded-full border border-border bg-card px-3 text-xs font-bold text-foreground hover:bg-muted transition-colors cursor-pointer"
-                        >
-                          <PauseCircle className="h-3.5 w-3.5 text-muted-foreground" />
-                          <span>Pausar</span>
-                        </button>
-                      </SystemTooltip>
                       <SystemTooltip content="Marcar como Perdido">
                         <button
                           onClick={() => setShowLossPrompt(true)}
@@ -3669,16 +3685,6 @@ export function DealDetailModal({
                         </button>
                       </SystemTooltip>
                     </>
-                  )}
-
-                  {deal.status === "paused" && (
-                    <button
-                      onClick={handleReopen}
-                      className="flex h-8 items-center gap-1.5 rounded-full bg-primary px-3 text-xs font-bold text-primary-foreground hover:opacity-90 transition-opacity cursor-pointer"
-                    >
-                      <RotateCcw className="h-3.5 w-3.5" />
-                      <span>Retomar Negociação</span>
-                    </button>
                   )}
 
                   {(deal.status === "won" || deal.status === "lost") && (

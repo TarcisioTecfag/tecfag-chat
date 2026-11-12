@@ -279,7 +279,7 @@ export async function getContactDealRows(
     )
     .where(and(eq(crmDeals.tenantId, tenantId), whereMatch))
     .orderBy(
-      sql`CASE WHEN ${crmDeals.status} = 'open' THEN 0 ELSE 1 END`,
+      sql`CASE WHEN ${crmDeals.status} = 'open' THEN 0 WHEN ${crmDeals.status} = 'paused' THEN 1 ELSE 2 END`,
       desc(crmDeals.createdAt),
       asc(crmDeals.id),
     );

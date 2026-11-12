@@ -3331,8 +3331,8 @@ export class CrmService {
     });
     const nextTask: any = nextTasks[0] || null;
 
-    // Garante vínculo de contexto de atendimento para conversas ativas quando esta negociação está aberta
-    if (linkedConvIds.length > 0 && deal.status === "open") {
+    // Garante vínculo de contexto de atendimento para conversas ativas quando esta negociação está em andamento ou pausada
+    if (linkedConvIds.length > 0 && (deal.status === "open" || deal.status === "paused")) {
       try {
         for (const convId of linkedConvIds) {
           await db.transaction((tx) => getDealContext(tx, tenantId, convId, deal.operatorId || null));
@@ -4282,7 +4282,7 @@ export class CrmService {
 
       if (targetAccountId) await syncAccountDealContacts(tx, tenantId, dealId, targetAccountId, operatorId);
 
-      if (deal.status === "open" && linkedConversationIds.size > 0) {
+      if ((deal.status === "open" || deal.status === "paused") && linkedConversationIds.size > 0) {
         try {
           for (const convId of linkedConversationIds) {
             await getDealContext(tx, tenantId, convId, operatorId);
@@ -4608,6 +4608,9 @@ export class CrmService {
         setPayload.status = effectiveNewStatus;
         if (effectiveNewStatus === "won" || effectiveNewStatus === "lost") {
           setPayload.closedAt = now;
+          if (updates.pausedReason === undefined && current.pausedReason) {
+            setPayload.pausedReason = null;
+          }
         } else {
           setPayload.closedAt = null;
         }

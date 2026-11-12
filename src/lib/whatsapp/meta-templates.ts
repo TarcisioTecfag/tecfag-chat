@@ -904,9 +904,12 @@ export async function resolveConversationActiveDealStage(
         .orderBy(desc(crmDeals.updatedAt));
 
       const openDeals = linkedDeals.filter((d) => d.status === "open");
+      const pausedDeals = linkedDeals.filter((d) => d.status === "paused");
       if (openDeals.length === 1) {
         targetDealId = openDeals[0].id;
-      } else if (openDeals.length === 0 && linkedDeals.length === 1) {
+      } else if (openDeals.length === 0 && pausedDeals.length === 1) {
+        targetDealId = pausedDeals[0].id;
+      } else if (openDeals.length === 0 && pausedDeals.length === 0 && linkedDeals.length === 1) {
         targetDealId = linkedDeals[0].id;
       }
     }

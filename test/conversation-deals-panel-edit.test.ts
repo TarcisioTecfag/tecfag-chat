@@ -211,4 +211,66 @@ describe("ConversationDealsPanel inline edit resilience", () => {
     );
     expect(validated).toEqual({ "cf-single": "opt-whats" });
   });
+
+  test("permite editar livremente valor, etapa e campos customizados de negociação pausada sem exigir retomada de status", () => {
+    const defs: CustomFieldDef[] = [
+      {
+        id: "cf-obs",
+        name: "Observação Comercial",
+        fieldType: "text",
+        allPipelines: true,
+      },
+    ];
+
+    const pausedDeal = {
+      id: "deal-paused-1",
+      title: "Envasadora Pausada",
+      value: "12000.00",
+      pipelineId: "pipe-1",
+      stageId: "stg-1",
+      operatorId: "op-1",
+      status: "paused",
+      customFields: { "cf-obs": "Aguardando retorno" },
+    };
+
+    const payloadKeepPaused = buildDealUpdatePayload(
+      pausedDeal,
+      {
+        title: "Envasadora Pausada (Revisada)",
+        value: "14900",
+        pipelineId: "pipe-1",
+        stageId: "stg-2",
+        operatorId: "op-1",
+        status: "paused",
+        customFields: { "cf-obs": "Novo valor enviado mesmo pausada" },
+      },
+      defs,
+    );
+
+    expect(payloadKeepPaused).toEqual({
+      title: "Envasadora Pausada (Revisada)",
+      value: 14900,
+      operatorId: "op-1",
+      stageId: "stg-2",
+      customFields: { "cf-obs": "Novo valor enviado mesmo pausada" },
+    });
+    expect(payloadKeepPaused.status).toBeUndefined();
+
+    const payloadDirectWin = buildDealUpdatePayload(
+      pausedDeal,
+      {
+        title: "Envasadora Pausada",
+        value: "14900",
+        pipelineId: "pipe-1",
+        stageId: "stg-2",
+        operatorId: "op-1",
+        status: "won",
+        customFields: { "cf-obs": "Aguardando retorno" },
+      },
+      defs,
+    );
+
+    expect(payloadDirectWin.status).toBe("won");
+    expect(payloadDirectWin.value).toBe(14900);
+  });
 });

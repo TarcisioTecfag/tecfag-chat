@@ -271,6 +271,13 @@ const migrations = [
       import.meta.url,
     ),
   },
+  {
+    name: "0061_paused_deal_conversation_context",
+    url: new URL(
+      "../src/db/migrations/0061_paused_deal_conversation_context.sql",
+      import.meta.url,
+    ),
+  },
 ];
 const databaseUrl = process.env.DATABASE_URL;
 

@@ -73,29 +73,45 @@ export function findActiveGraceDeal<
 }
 
 export function isCurrentDealEligible(deal: { status: string; isLinked?: boolean }) {
-  return deal.status === "open" && deal.isLinked !== false;
+  return (deal.status === "open" || deal.status === "paused") && deal.isLinked !== false;
+}
+
+function getDealSortPriority(status: string): number {
+  if (status === "open") return 0;
+  if (status === "paused") return 1;
+  return 2;
 }
 
 export function sortContactDeals<
   T extends { id: string; status: string; createdAt?: string | Date },
 >(deals: readonly T[]): T[] {
   return [...deals].sort((a, b) => {
-    const statusOrder = Number(b.status === "open") - Number(a.status === "open");
+    const statusOrder = getDealSortPriority(a.status) - getDealSortPriority(b.status);
     if (statusOrder) return statusOrder;
     const time = (value?: string | Date) => (value ? new Date(value).getTime() || 0 : 0);
     return time(b.createdAt) - time(a.createdAt) || a.id.localeCompare(b.id);
   });
 }
 
-/** A escolha anterior tem precedência; nunca promove outro card após conclusão. */
+/**
+ * A escolha anterior (em andamento ou pausada) tem precedência; nunca promove outro card após conclusão.
+ * Na auto-seleção inicial: prioriza 'Em andamento' (se houver apenas 1 aberta); caso não haja nenhuma
+ * aberta e exista exatamente 1 'Pausada', auto-seleciona a 'Pausada'.
+ */
 export function resolveDealSelection(
   state: DealContextState,
   openDealIds: string[],
+  pausedDealIds: string[] = [],
 ): string | null {
-  if (state.currentDealId)
-    return openDealIds.includes(state.currentDealId) ? state.currentDealId : null;
+  if (state.currentDealId) {
+    return openDealIds.includes(state.currentDealId) || pausedDealIds.includes(state.currentDealId)
+      ? state.currentDealId
+      : null;
+  }
   if (state.selectionRequired) return null;
-  return openDealIds.length === 1 ? openDealIds[0] : null;
+  if (openDealIds.length === 1) return openDealIds[0];
+  if (openDealIds.length === 0 && pausedDealIds.length === 1) return pausedDealIds[0];
+  return null;
 }
 
 export class DealContextError extends Error {

@@ -15,6 +15,7 @@ import { getContactDealRows } from "./contact-deals-query";
 import {
   assertDealContextVersion,
   DealContextError,
+  isCurrentDealEligible,
   resolveDealSelection,
   findActiveGraceDeal,
   getDealPostCloseGraceExpiresAt,
@@ -25,6 +26,7 @@ import {
 export {
   DealContextError,
   assertDealContextVersion,
+  isCurrentDealEligible,
   findActiveGraceDeal,
   getDealPostCloseGraceExpiresAt,
   isDealWithinPostCloseGrace,
@@ -107,13 +109,12 @@ export async function getDealContext(
     }),
   );
   // Conversas encerradas só conservam a sugestão histórica, nunca o destino ativo.
+  const openDealIds = deals.filter((d) => d.status === "open" && d.isLinked).map((d) => d.id);
+  const pausedDealIds = deals.filter((d) => d.status === "paused" && d.isLinked).map((d) => d.id);
   const selectedId =
     conversation.queueState === "finalizados"
       ? null
-      : resolveDealSelection(
-          context,
-          deals.filter((d) => d.status === "open" && d.isLinked).map((d) => d.id),
-        );
+      : resolveDealSelection(context, openDealIds, pausedDealIds);
   if (
     selectedId !== context.currentDealId ||
     (conversation.queueState === "finalizados" && !context.selectionRequired)
@@ -241,9 +242,9 @@ export async function selectDealContext(
 ) {
   const state = await getDealContext(tx, tenantId, conversationId, operatorId);
   assertDealContextVersion(state.context, expectedVersion);
-  if (dealId && !state.deals.some((d) => d.id === dealId && d.status === "open" && d.isLinked)) {
+  if (dealId && !state.deals.some((d) => d.id === dealId && isCurrentDealEligible(d))) {
     throw new DealContextError(
-      "Selecione uma negociação vinculada e em andamento.",
+      "Selecione uma negociação vinculada (em andamento ou pausada).",
       "INVALID_DEAL_CONTEXT",
       400,
     );

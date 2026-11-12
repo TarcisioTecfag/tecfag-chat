@@ -10,6 +10,7 @@ import { conversations, contacts, crmAccounts } from "../../../../db/schema";
 import { eq, and } from "drizzle-orm";
 import {
   getDealContext,
+  isCurrentDealEligible,
   findActiveGraceDeal,
   getDealPostCloseGraceExpiresAt,
 } from "../../../../lib/crm/conversation-deal-context";
@@ -60,7 +61,7 @@ export const Route = createFileRoute("/api/chats/$conversationId/deals")({
             if (session.operator.role !== "admin" && !session.permissions?.views?.chat && !session.permissions?.crm?.canViewCrm) return Response.json({ error: "Permissão insuficiente." }, { status: 403 });
             const state = await db.transaction(tx => getDealContext(tx, tenantId, conversationId, session.operator.id));
             const readableDeals = state.deals.filter(deal => canReadCrmDeal(session, deal));
-            const eligibleCount = readableDeals.filter(deal => deal.status === "open" && deal.isLinked).length;
+            const eligibleCount = readableDeals.filter(isCurrentDealEligible).length;
             const hasLinkedInState = state.deals.some(deal => deal.isLinked);
             const graceDeal = !state.context.currentDealId
               ? findActiveGraceDeal(readableDeals, [state.context.currentDealId, state.context.previousDealId])

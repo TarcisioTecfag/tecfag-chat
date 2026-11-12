@@ -507,8 +507,9 @@ export function ConversationDealsPanel({
       if (tenant && currentOperatorId) {
         try {
           const freshCtx = await fetchDealContext(tenant, currentOperatorId, conversationId);
-          const isOpenDeal = !dealItem.status || dealItem.status === "open";
-          if (!freshCtx.hasCurrentDeal && freshCtx.editable && isOpenDeal) {
+          const isEligibleDeal =
+            !dealItem.status || dealItem.status === "open" || dealItem.status === "paused";
+          if (!freshCtx.hasCurrentDeal && freshCtx.editable && isEligibleDeal) {
             const patchRes = await fetch(
               `/api/chats/${encodeURIComponent(conversationId)}/deal-context`,
               {
@@ -525,6 +526,7 @@ export function ConversationDealsPanel({
               markConversationDealSatisfied(conversationId, {
                 id: dealItem.id,
                 title: dealItem.title || "Negociação vinculada",
+                status: dealItem.status,
                 version: patchData?.version,
               });
             }
@@ -647,6 +649,7 @@ export function ConversationDealsPanel({
       markConversationDealSatisfied(conversationId, {
         id: deal.id,
         title: deal.title || "Negociação selecionada",
+        status: deal.status,
         version: resultVersion,
       });
       await Promise.all([fetchLinkedDeals(true, true), dealContext.refresh()]);
@@ -732,8 +735,11 @@ export function ConversationDealsPanel({
             const isSaving = savingDealId === deal.id;
             const isExpanded = expandedDealIds.has(deal.id);
             const isCurrentDeal = currentDealId === deal.id;
+            const getSectionGroup = (st?: string | null) =>
+              st === "open" ? "open" : st === "paused" ? "paused" : "history";
+            const sectionGroup = getSectionGroup(deal.status);
             const showGroupHeader =
-              index === 0 || (deals[index - 1].status === "open") !== (deal.status === "open");
+              index === 0 || getSectionGroup(deals[index - 1].status) !== sectionGroup;
 
             const rawValue = deal.value !== null && deal.value !== undefined ? Number(deal.value) : null;
             const formattedValue =
@@ -760,9 +766,11 @@ export function ConversationDealsPanel({
               <React.Fragment key={deal.id}>
                 {showGroupHeader && (
                   <p className="col-span-full text-xs font-bold text-muted-foreground uppercase tracking-wider pt-0.5">
-                    {deal.status === "open"
+                    {sectionGroup === "open"
                       ? "Em andamento"
-                      : "Histórico — vendidas, perdidas e pausadas"}
+                      : sectionGroup === "paused"
+                        ? "Pausadas — disponíveis para vínculo no atendimento"
+                        : "Histórico — vendidas e perdidas"}
                   </p>
                 )}
                 <div
@@ -1189,7 +1197,7 @@ export function ConversationDealsPanel({
 
                       {/* Barra de Ações Rápidas + Botão "Escolher essa" */}
                       <div className="flex items-center gap-1 shrink-0">
-                        {deal.status === "open" && (
+                        {(deal.status === "open" || deal.status === "paused") && (
                           isCurrentDeal ? (
                             <span className="inline-flex items-center gap-1 rounded-lg bg-red-600/15 border border-red-500/40 px-2.5 py-1 text-[11px] font-bold text-red-500 mr-0.5">
                               <CheckCircle2 className="h-3 w-3 shrink-0" />

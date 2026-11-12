@@ -1432,9 +1432,12 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
       !dealContext.data.hasCurrentDeal &&
       !dealContext.data.gracePeriodActive
     ) {
+      const hasEligibleDeal = dealContext.data.deals.some(
+        (d) => (d.status === "open" || d.status === "paused") && d.isLinked !== false,
+      );
       toast.error(
-        dealContext.data.selectionRequired || dealContext.data.deals.length > 0
-          ? "Selecione qual negociação está em andamento neste atendimento antes de enviar mensagens ou templates."
+        hasEligibleDeal
+          ? "Selecione a negociação deste atendimento antes de enviar mensagens ou templates."
           : "Vincule ou crie uma negociação no CRM antes de enviar mensagens ou templates.",
       );
       return false;

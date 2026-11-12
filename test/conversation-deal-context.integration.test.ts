@@ -15,6 +15,7 @@ import { getContactDealRows } from "../src/lib/crm/contact-deals-query";
 import {
   isCurrentDealEligible,
   sortContactDeals,
+  resolveDealSelection,
   isDealWithinPostCloseGrace,
   getDealPostCloseGraceExpiresAt,
   findActiveGraceDeal,
@@ -76,6 +77,67 @@ describe("Política de carência de 24h pós-venda e pós-perda", () => {
     expect(getDealPostCloseGraceExpiresAt(chosen, now)).toBe(
       new Date(new Date(lostRecent.closedAt).getTime() + DEAL_POST_CLOSE_GRACE_MS).toISOString(),
     );
+  });
+});
+
+describe("Política de negociação pausada como vínculo ativo de atendimento", () => {
+  test("permite open e paused vinculadas, ordena open -> paused -> histórico e respeita prioridade na auto-seleção", () => {
+    expect(isCurrentDealEligible({ status: "open", isLinked: true })).toBe(true);
+    expect(isCurrentDealEligible({ status: "paused", isLinked: true })).toBe(true);
+    expect(isCurrentDealEligible({ status: "paused", isLinked: false })).toBe(false);
+    expect(isCurrentDealEligible({ status: "won", isLinked: true })).toBe(false);
+    expect(isCurrentDealEligible({ status: "lost", isLinked: true })).toBe(false);
+
+    const sorted = sortContactDeals([
+      { id: "won-1", status: "won", createdAt: "2026-10-25" },
+      { id: "paused-old", status: "paused", createdAt: "2026-10-20" },
+      { id: "open-1", status: "open", createdAt: "2026-10-19" },
+      { id: "paused-new", status: "paused", createdAt: "2026-10-24" },
+      { id: "lost-1", status: "lost", createdAt: "2026-10-26" },
+    ]);
+    expect(sorted.map((d) => d.id)).toEqual([
+      "open-1",
+      "paused-new",
+      "paused-old",
+      "lost-1",
+      "won-1",
+    ]);
+
+    // 1 open + 1 paused: prioriza 'open' na auto-seleção inicial
+    expect(
+      resolveDealSelection(
+        { currentDealId: null, selectionRequired: false },
+        ["open-1"],
+        ["paused-1"],
+      ),
+    ).toBe("open-1");
+
+    // 0 open + 1 paused: auto-seleciona a negociação pausada
+    expect(
+      resolveDealSelection(
+        { currentDealId: null, selectionRequired: false },
+        [],
+        ["paused-1"],
+      ),
+    ).toBe("paused-1");
+
+    // 0 open + 2 paused: ambíguo, requer escolha manual
+    expect(
+      resolveDealSelection(
+        { currentDealId: null, selectionRequired: false },
+        [],
+        ["paused-1", "paused-2"],
+      ),
+    ).toBeNull();
+
+    // Se a negociação atual for pausada, preserva o vínculo mesmo havendo outra em andamento
+    expect(
+      resolveDealSelection(
+        { currentDealId: "paused-1", selectionRequired: false },
+        ["open-1"],
+        ["paused-1"],
+      ),
+    ).toBe("paused-1");
   });
 });
 
@@ -188,6 +250,12 @@ describe.skipIf(!process.env.PGLITE_TEST_MODULE)("Negociação atual: PostgreSQL
     );
     await pg.exec(attendanceMigration);
     await pg.exec(attendanceMigration);
+    const pausedDealMigration = await readFile(
+      new URL("../src/db/migrations/0061_paused_deal_conversation_context.sql", import.meta.url),
+      "utf8",
+    );
+    await pg.exec(pausedDealMigration);
+    await pg.exec(pausedDealMigration);
     mock.module("../src/db", () => ({
       db,
       client: () => {
@@ -244,6 +312,13 @@ describe.skipIf(!process.env.PGLITE_TEST_MODULE)("Negociação atual: PostgreSQL
         pipelineId: "pipe-a",
         name: "Entrada",
         orderIndex: 0,
+      },
+      {
+        id: "stage-a-2",
+        tenantId: "context-a",
+        pipelineId: "pipe-a",
+        name: "Proposta",
+        orderIndex: 1,
       },
       {
         id: "stage-b",
@@ -886,7 +961,8 @@ describe.skipIf(!process.env.PGLITE_TEST_MODULE)("Negociação atual: PostgreSQL
     expect(rows).toHaveLength(9);
     expect(await getContactDealRows(db, "context-b", f.id)).toHaveLength(0);
     expect(rows.slice(0, 6).every((d) => d.status === "open")).toBe(true);
-    expect(rows.slice(6).every((d) => d.status !== "open")).toBe(true);
+    expect(rows[6].status).toBe("paused");
+    expect(rows.slice(7).every((d) => d.status === "won" || d.status === "lost")).toBe(true);
     const result = await dealsApi.GET({
       params: { conversationId: f.id },
       request: new Request("http://localhost/api/chats/" + f.id + "/deals"),
@@ -900,7 +976,7 @@ describe.skipIf(!process.env.PGLITE_TEST_MODULE)("Negociação atual: PostgreSQL
     expect(await before.json()).toMatchObject({
       dealRequired: false,
       currentDealRequired: true,
-      eligibleCount: 6,
+      eligibleCount: 7,
     });
     const contextResponse = await contextApi.GET({
       params: { conversationId: f.id },
@@ -908,7 +984,7 @@ describe.skipIf(!process.env.PGLITE_TEST_MODULE)("Negociação atual: PostgreSQL
     });
     const options = await contextResponse.json();
     expect(options.deals).toHaveLength(9);
-    expect(options.deals.filter(isCurrentDealEligible)).toHaveLength(6);
+    expect(options.deals.filter(isCurrentDealEligible)).toHaveLength(7);
     expect(options.hasCurrentDeal).toBe(false);
     expect(
       (
@@ -917,10 +993,16 @@ describe.skipIf(!process.env.PGLITE_TEST_MODULE)("Negociação atual: PostgreSQL
         )
       ).status,
     ).toBe(400);
+    const patchPaused = await contextApi.PATCH(
+      request(f.id, { dealId: f.deals[2], expectedVersion: options.version }, "PATCH"),
+    );
+    expect(patchPaused.status).toBe(200);
+    const pausedBody = await patchPaused.json();
+    expect((await state(f.id)).context.currentDealId).toBe(f.deals[2]);
     expect(
       (
         await contextApi.PATCH(
-          request(f.id, { dealId: f.deals[3], expectedVersion: options.version }, "PATCH"),
+          request(f.id, { dealId: f.deals[3], expectedVersion: pausedBody.version }, "PATCH"),
         )
       ).status,
     ).toBe(200);
@@ -1018,8 +1100,8 @@ describe.skipIf(!process.env.PGLITE_TEST_MODULE)("Negociação atual: PostgreSQL
     expect((await events(f.deals[0]))[0].description).toBe("Primeiro assunto");
     expect(await events(f.deals[1])).toHaveLength(0);
   });
-  test("ganha, perdida, pausada e desvinculada exigem nova escolha sem promover outro card", async () => {
-    for (const status of ["won", "lost", "paused", "unlinked"]) {
+  test("ganha, perdida e desvinculada exigem nova escolha sem promover outro card; pausada mantém vínculo ativo", async () => {
+    for (const status of ["won", "lost", "unlinked"]) {
       const f = await fixture(2);
       const initial = await state(f.id);
       await db.transaction((tx: any) =>
@@ -1048,6 +1130,40 @@ describe.skipIf(!process.env.PGLITE_TEST_MODULE)("Negociação atual: PostgreSQL
         selectionRequired: true,
       });
     }
+
+    const pausedFixture = await fixture(2);
+    const initialPaused = await state(pausedFixture.id);
+    await db.transaction((tx: any) =>
+      selectDealContext(
+        tx,
+        "context-a",
+        pausedFixture.id,
+        pausedFixture.deals[0],
+        "op-a",
+        initialPaused.context.version,
+      ),
+    );
+    await db
+      .update(schema.crmDeals)
+      .set({ status: "paused", pausedReason: "Aguardando retorno" })
+      .where(
+        and(
+          eq(schema.crmDeals.tenantId, "context-a"),
+          eq(schema.crmDeals.id, pausedFixture.deals[0]),
+        ),
+      );
+    expect((await state(pausedFixture.id)).context.currentDealId).toBe(pausedFixture.deals[0]);
+    const pausedCtxHttp = await (
+      await contextApi.GET({
+        params: { conversationId: pausedFixture.id },
+        request: new Request("http://localhost"),
+      })
+    ).json();
+    expect(pausedCtxHttp).toMatchObject({
+      hasCurrentDeal: true,
+      selectionRequired: false,
+      currentDeal: { id: pausedFixture.deals[0], status: "paused" },
+    });
   });
   test("API de notas grava no card atual e é idempotente; ID enviado pelo cliente não redireciona", async () => {
     const f = await fixture();
@@ -1381,5 +1497,164 @@ describe.skipIf(!process.env.PGLITE_TEST_MODULE)("Negociação atual: PostgreSQL
         graceDeal: null,
       });
     }
+  });
+
+  test("negociação pausada permite atendimento completo, auto-seleção sem aberta, troca manual e edição livre sem alterar status", async () => {
+    // 1. Contato com 0 abertas, 1 pausada e 1 perdida antiga -> auto-seleciona a pausada e libera atendimento
+    const fSinglePaused = await fixture(2);
+    const expiredDate = new Date(Date.now() - 48 * 60 * 60 * 1000);
+    await db
+      .update(schema.crmDeals)
+      .set({ status: "paused", pausedReason: "Aguardando aprovação financeira" })
+      .where(
+        and(
+          eq(schema.crmDeals.tenantId, "context-a"),
+          eq(schema.crmDeals.id, fSinglePaused.deals[0]),
+        ),
+      );
+    await db
+      .update(schema.crmDeals)
+      .set({ status: "lost", closedAt: expiredDate })
+      .where(
+        and(
+          eq(schema.crmDeals.tenantId, "context-a"),
+          eq(schema.crmDeals.id, fSinglePaused.deals[1]),
+        ),
+      );
+
+    const statusRes = await dealsApi.GET({
+      params: { conversationId: fSinglePaused.id },
+      request: new Request("http://localhost/api/chats/" + fSinglePaused.id + "/deals?statusOnly=1"),
+    });
+    expect(await statusRes.json()).toMatchObject({
+      dealRequired: false,
+      currentDealRequired: false,
+      eligibleCount: 1,
+      gracePeriodActive: false,
+    });
+
+    const ctxRes = await contextApi.GET({
+      params: { conversationId: fSinglePaused.id },
+      request: new Request("http://localhost"),
+    });
+    const ctxJson = await ctxRes.json();
+    expect(ctxJson).toMatchObject({
+      hasCurrentDeal: true,
+      selectionRequired: false,
+      currentDeal: {
+        id: fSinglePaused.deals[0],
+        status: "paused",
+      },
+    });
+
+    // Salva nota interna na conversa vinculada à negociação pausada
+    const noteRes = await notes(
+      request(fSinglePaused.id, {
+        conversationId: fSinglePaused.id,
+        content: "Cliente retomou contato pedindo atualização de prazo",
+        isInternalNote: true,
+        expectedContextVersion: ctxJson.version,
+      }),
+    );
+    expect(noteRes.status).toBe(200);
+    expect((await events(fSinglePaused.deals[0])).map((e: any) => e.description)).toContain(
+      "Cliente retomou contato pedindo atualização de prazo",
+    );
+
+    // Verifica que o ledger de atendimento vinculou diretamente ao deal pausado sem pending_binding
+    const boundAttendanceEvents = await db
+      .select()
+      .from(schema.attendanceEvents)
+      .where(
+        and(
+          eq(schema.attendanceEvents.tenantId, "context-a"),
+          eq(schema.attendanceEvents.conversationId, fSinglePaused.id),
+        ),
+      );
+    expect(boundAttendanceEvents.length).toBeGreaterThan(0);
+    expect(
+      boundAttendanceEvents.every(
+        (ev: any) => ev.dealId === fSinglePaused.deals[0] && ev.pendingBinding === false,
+      ),
+    ).toBe(true);
+
+    // Cria tarefa via tag-task sobre a negociação pausada
+    const taskRes = await taskApi(
+      request(fSinglePaused.id, {
+        conversationId: fSinglePaused.id,
+        tagName: "Cobrar retorno do financeiro",
+        dueDate: "2026-12-01",
+        dueTime: "10:00",
+        expectedContextVersion: ctxJson.version,
+      }),
+    );
+    expect(taskRes.status).toBe(200);
+    expect((await events(fSinglePaused.deals[0])).map((e: any) => e.title)).toContain(
+      "Cobrar retorno do financeiro",
+    );
+
+    // Confirma que a negociação permaneceu com status 'paused' após notas e tarefas
+    const [stillPausedAfterChat] = await db
+      .select()
+      .from(schema.crmDeals)
+      .where(
+        and(
+          eq(schema.crmDeals.tenantId, "context-a"),
+          eq(schema.crmDeals.id, fSinglePaused.deals[0]),
+        ),
+      );
+    expect(stillPausedAfterChat).toMatchObject({
+      status: "paused",
+      pausedReason: "Aguardando aprovação financeira",
+    });
+
+    // Encerramento do atendimento também aceita a negociação pausada
+    const closeRes = await queue(
+      request(fSinglePaused.id, {
+        conversationId: fSinglePaused.id,
+        queueState: "finalizados",
+        expectedVersion: 1,
+        expectedContextVersion: ctxJson.version,
+      }),
+    );
+    expect(closeRes.status).toBe(200);
+
+    // 2. Contato com 1 aberta + 1 pausada -> auto-seleção prioriza a 'open', permitindo trocar para 'paused'
+    const fMixed = await fixture(2);
+    await db
+      .update(schema.crmDeals)
+      .set({ status: "paused", pausedReason: "Projeto secundário" })
+      .where(and(eq(schema.crmDeals.tenantId, "context-a"), eq(schema.crmDeals.id, fMixed.deals[0])));
+    const mixedInitial = await state(fMixed.id);
+    expect(mixedInitial.context.currentDealId).toBe(fMixed.deals[1]); // open escolhida primeiro
+
+    const switchToPaused = await contextApi.PATCH(
+      request(
+        fMixed.id,
+        { dealId: fMixed.deals[0], expectedVersion: mixedInitial.context.version },
+        "PATCH",
+      ),
+    );
+    expect(switchToPaused.status).toBe(200);
+    expect((await state(fMixed.id)).context.currentDealId).toBe(fMixed.deals[0]);
+
+    // 3. Edição irrestrita na negociação pausada via crmService (valor, etapa, título e fechamento direto como ganha)
+    const { crmService } = await import("../src/lib/crm/crm-service");
+    const editedPaused = await crmService.updateDeal("context-a", fMixed.deals[0], "op-a", {
+      title: "Projeto secundário revisado",
+      value: 48500,
+      stageId: "stage-a-2",
+    });
+    expect(editedPaused.status).toBe("paused");
+    expect(editedPaused.pausedReason).toBe("Projeto secundário");
+    expect(Number(editedPaused.value)).toBe(48500);
+    expect(editedPaused.stageId).toBe("stage-a-2");
+
+    const closedFromPaused = await crmService.updateDeal("context-a", fMixed.deals[0], "op-a", {
+      status: "won",
+      winReason: "Aprovado diretoria",
+    });
+    expect(closedFromPaused.status).toBe("won");
+    expect(closedFromPaused.pausedReason).toBeNull();
   });
 });

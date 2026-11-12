@@ -618,7 +618,7 @@ export async function ensureLinkedDeviceConversationDeal(
           ),
         )
         .orderBy(
-          sql`CASE WHEN ${crmDeals.status} = 'open' THEN 0 ELSE 1 END`,
+          sql`CASE WHEN ${crmDeals.status} = 'open' THEN 0 WHEN ${crmDeals.status} = 'paused' THEN 1 ELSE 2 END`,
           desc(crmDeals.updatedAt),
           desc(crmDeals.createdAt),
         );
@@ -678,14 +678,18 @@ export async function ensureLinkedDeviceConversationDeal(
       }
 
       const openDeals = existingDeals.filter((d) => d.status === "open");
+      const pausedDeals = existingDeals.filter((d) => d.status === "paused");
+      const eligibleDeals = existingDeals.filter(
+        (d) => d.status === "open" || d.status === "paused",
+      );
       if (
         currentContext?.currentDealId &&
-        openDeals.some((d) => d.id === currentContext!.currentDealId)
+        eligibleDeals.some((d) => d.id === currentContext!.currentDealId)
       ) {
         resolvedCurrentDealId = currentContext.currentDealId;
       } else if (
         siblingCurrentDealId &&
-        openDeals.some((d) => d.id === siblingCurrentDealId)
+        eligibleDeals.some((d) => d.id === siblingCurrentDealId)
       ) {
         resolvedCurrentDealId = siblingCurrentDealId;
       } else if (openDeals.length > 0) {
@@ -693,6 +697,11 @@ export async function ensureLinkedDeviceConversationDeal(
           ? openDeals.find((d) => d.operatorId === operatorId)
           : undefined;
         resolvedCurrentDealId = (ownedByOperator || openDeals[0]).id;
+      } else if (pausedDeals.length > 0) {
+        const ownedByOperator = operatorId
+          ? pausedDeals.find((d) => d.operatorId === operatorId)
+          : undefined;
+        resolvedCurrentDealId = (ownedByOperator || pausedDeals[0]).id;
       } else {
         resolvedCurrentDealId =
           currentContext?.currentDealId || siblingCurrentDealId || existingDeals[0].id;
