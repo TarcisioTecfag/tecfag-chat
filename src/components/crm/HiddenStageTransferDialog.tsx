@@ -16,6 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { sortAlphabeticallyByName } from "@/lib/operator-initial-navigation";
 
 export interface HiddenTransferOperatorOption {
   id: string;
@@ -63,8 +64,8 @@ export const HiddenStageTransferDialog: React.FC<HiddenStageTransferDialogProps>
   };
   const [selectedOperatorId, setSelectedOperatorId] = useState<string>("");
 
-  const eligibleOperators = operators.filter(
-    (op) => !currentOperatorId || op.id !== currentOperatorId,
+  const eligibleOperators = sortAlphabeticallyByName(
+    operators.filter((op) => !currentOperatorId || op.id !== currentOperatorId),
   );
 
   useEffect(() => {

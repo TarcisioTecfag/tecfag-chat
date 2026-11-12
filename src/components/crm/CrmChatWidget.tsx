@@ -56,6 +56,20 @@ import {
 import { SystemAnnotationBubble } from "@/components/chat/SystemAnnotationBubble";
 import { getVigosPhoneLink } from "@/lib/utils";
 export { getVigosPhoneLink };
+import {
+  OperatorInitialQuickBar,
+  OperatorAvatarWithInitial,
+  type OperatorInitialMatchMeta,
+} from "@/components/chat/OperatorInitialQuickBar";
+import {
+  sortAlphabeticallyByName,
+  getAvailableInitials,
+  cycleItemByInitial,
+  stepActiveItem,
+  normalizeInitialLetter,
+  isEditableKeyboardTarget,
+  extractInitialKeyFromKeyboardEvent,
+} from "@/lib/operator-initial-navigation";
 import { MessageKnowledgeSourceButton, VtexProductPreviewCard } from "@/components/chat/ChatMessageBubble";
 import {
   Dialog,
@@ -1442,6 +1456,55 @@ export function CrmChatWidget() {
   const [transferTargetChat, setTransferTargetChat] = useState<Conversation | null>(null);
   const [transferSearch, setTransferSearch] = useState("");
   const [transferSubmitting, setTransferSubmitting] = useState(false);
+  const [highlightedTransferOpId, setHighlightedTransferOpId] = useState<string | null>(null);
+  const [transferInitialMeta, setTransferInitialMeta] = useState<OperatorInitialMatchMeta | null>(null);
+  const transferListRef = useRef<HTMLDivElement | null>(null);
+
+  const sortedTransferOperators = useMemo(() => {
+    const term = transferSearch.trim().toLowerCase();
+    return sortAlphabeticallyByName(
+      operators.filter((op) => op.id !== currentOperatorId),
+    ).filter((op) => !term || op.name.toLowerCase().includes(term));
+  }, [operators, currentOperatorId, transferSearch]);
+
+  const transferInitials = useMemo(
+    () => getAvailableInitials(sortedTransferOperators),
+    [sortedTransferOperators],
+  );
+
+  const scrollTransferOpIntoView = useCallback((opId: string) => {
+    requestAnimationFrame(() => {
+      const container = transferListRef.current;
+      if (!container) return;
+      const rows = container.querySelectorAll<HTMLElement>("[data-transfer-op-id]");
+      for (const row of Array.from(rows)) {
+        if (row.getAttribute("data-transfer-op-id") === opId) {
+          row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+          break;
+        }
+      }
+    });
+  }, []);
+
+  const handleCycleTransferInitial = useCallback(
+    (letter: string) => {
+      const match = cycleItemByInitial({
+        items: sortedTransferOperators,
+        letter,
+        currentActiveId: highlightedTransferOpId,
+      });
+      if (match) {
+        setHighlightedTransferOpId(match.id);
+        setTransferInitialMeta({
+          letter: match.letter,
+          position: match.matchPosition,
+          total: match.matchCount,
+        });
+        scrollTransferOpIntoView(match.id);
+      }
+    },
+    [sortedTransferOperators, highlightedTransferOpId, scrollTransferOpIntoView],
+  );
 
   const handleExecuteTransfer = async (targetOpId: string) => {
     if (!transferTargetChat || transferSubmitting) return;
@@ -1451,6 +1514,8 @@ export function CrmChatWidget() {
       if (ok) {
         setTransferTargetChat(null);
         setTransferSearch("");
+        setHighlightedTransferOpId(null);
+        setTransferInitialMeta(null);
         if (selectedChatId === transferTargetChat.id) {
           setView("list");
           setSelectedChatId(null);
@@ -4598,11 +4663,44 @@ export function CrmChatWidget() {
           if (!isOpen) {
             setTransferTargetChat(null);
             setTransferSearch("");
+            setHighlightedTransferOpId(null);
+            setTransferInitialMeta(null);
           }
         }}
       >
         <DialogContent
           data-crm-chat-widget
+          onOpenAutoFocus={(e) => e.preventDefault()}
+          onKeyDown={(e) => {
+            if (isEditableKeyboardTarget(e.target)) return;
+            if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+              e.preventDefault();
+              const next = stepActiveItem({
+                items: sortedTransferOperators,
+                direction: e.key === "ArrowDown" ? 1 : -1,
+                currentActiveId: highlightedTransferOpId,
+              });
+              if (next) {
+                setHighlightedTransferOpId(next.id);
+                setTransferInitialMeta(null);
+                scrollTransferOpIntoView(next.id);
+              }
+              return;
+            }
+            if (e.key === "Enter" && highlightedTransferOpId) {
+              const targetOp = sortedTransferOperators.find((op) => op.id === highlightedTransferOpId);
+              if (targetOp) {
+                e.preventDefault();
+                void handleExecuteTransfer(targetOp.id);
+              }
+              return;
+            }
+            const initialKey = extractInitialKeyFromKeyboardEvent(e);
+            if (initialKey) {
+              e.preventDefault();
+              handleCycleTransferInitial(initialKey);
+            }
+          }}
           className="z-[10060] pointer-events-auto max-w-md p-5 bg-card text-foreground border border-border shadow-2xl"
         >
           <DialogHeader>
@@ -4615,34 +4713,61 @@ export function CrmChatWidget() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="mt-2 space-y-3">
+          <div className="mt-2 space-y-2.5">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
               <input
                 value={transferSearch}
-                onChange={(e) => setTransferSearch(e.target.value)}
+                onChange={(e) => {
+                  setTransferSearch(e.target.value);
+                  setHighlightedTransferOpId(null);
+                  setTransferInitialMeta(null);
+                }}
                 placeholder="Buscar operador por nome..."
                 className="h-8.5 w-full rounded-lg border border-border bg-background pl-8 pr-3 text-xs outline-none focus:border-primary/60 focus:ring-1 focus:ring-primary/20"
               />
             </div>
 
-            <div className="max-h-60 overflow-y-auto space-y-1 pr-1 scrollbar-thin">
-              {operators
-                .filter((op) => op.id !== currentOperatorId)
-                .filter((op) => !transferSearch || op.name.toLowerCase().includes(transferSearch.toLowerCase()))
-                .map((op) => (
+            {sortedTransferOperators.length > 0 && (
+              <OperatorInitialQuickBar
+                initials={transferInitials}
+                activeLetter={
+                  highlightedTransferOpId
+                    ? normalizeInitialLetter(
+                        sortedTransferOperators.find((op) => op.id === highlightedTransferOpId)?.name,
+                      )
+                    : null
+                }
+                matchMeta={transferInitialMeta}
+                onSelectLetter={handleCycleTransferInitial}
+              />
+            )}
+
+            <div
+              ref={transferListRef}
+              className="max-h-60 overflow-y-auto space-y-1 pr-1 scrollbar-thin"
+            >
+              {sortedTransferOperators.map((op) => {
+                const isHighlighted = op.id === highlightedTransferOpId;
+                return (
                   <button
                     key={op.id}
                     type="button"
+                    data-transfer-op-id={op.id}
                     onClick={() => handleExecuteTransfer(op.id)}
                     disabled={transferSubmitting}
-                    className="flex w-full items-center justify-between rounded-lg p-2 text-left hover:bg-muted/80 transition cursor-pointer disabled:opacity-50"
+                    className={`flex w-full items-center justify-between rounded-lg p-2 text-left transition cursor-pointer disabled:opacity-50 ${
+                      isHighlighted
+                        ? "bg-primary/15 ring-1 ring-primary/40 shadow-2xs"
+                        : "hover:bg-muted/80"
+                    }`}
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
-                      <img
-                        src={op.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${op.name}`}
-                        alt={op.name}
-                        className="h-7 w-7 rounded-full object-cover border border-border"
+                      <OperatorAvatarWithInitial
+                        name={op.name}
+                        avatar={op.avatar}
+                        sizeClassName="h-7 w-7 text-[11px]"
+                        highlighted={isHighlighted}
                       />
                       <div className="min-w-0">
                         <div className="truncate text-xs font-semibold text-foreground">{op.name}</div>
@@ -4654,13 +4779,16 @@ export function CrmChatWidget() {
                     <span className="text-[10px] font-bold text-primary flex items-center gap-1">
                       {transferSubmitting ? (
                         <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : isHighlighted ? (
+                        <>Enter &rarr;</>
                       ) : (
                         <>Transferir &rarr;</>
                       )}
                     </span>
                   </button>
-                ))}
-              {operators.filter((op) => op.id !== currentOperatorId).length === 0 && (
+                );
+              })}
+              {sortedTransferOperators.length === 0 && (
                 <div className="py-6 text-center text-xs text-muted-foreground">
                   Nenhum outro operador disponível para transferência.
                 </div>

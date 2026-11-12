@@ -35,6 +35,19 @@ import { SystemDateTimePicker } from "@/components/ui/system-date-time-picker";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
+  OperatorInitialQuickBar,
+  type OperatorInitialMatchMeta,
+} from "@/components/chat/OperatorInitialQuickBar";
+import {
+  sortAlphabeticallyByName,
+  getAvailableInitials,
+  cycleItemByInitial,
+  stepActiveItem,
+  normalizeInitialLetter,
+  isEditableKeyboardTarget,
+  extractInitialKeyFromKeyboardEvent,
+} from "@/lib/operator-initial-navigation";
+import {
   MOCK_LIVE,
   MOCK_OVERVIEW,
   MOCK_ALERTS,
@@ -5902,15 +5915,128 @@ function LiveSupervisorInterventionPopover({
   compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [highlightedOpId, setHighlightedOpId] = useState<string | null>(null);
+  const [initialMeta, setInitialMeta] = useState<OperatorInitialMatchMeta | null>(null);
   const ref = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  const sortedOperators = useMemo(
+    () =>
+      sortAlphabeticallyByName(
+        operators,
+        (op) => op.operatorName,
+        (op) => op.operatorId,
+      ),
+    [operators],
+  );
+
+  const eligibleCycleOperators = useMemo(
+    () =>
+      sortedOperators.filter(
+        (op) => !(conv.operatorId === op.operatorId && conv.queueState === "atendimento"),
+      ),
+    [sortedOperators, conv.operatorId, conv.queueState],
+  );
+
+  const availableInitials = useMemo(
+    () => getAvailableInitials(eligibleCycleOperators, (op) => op.operatorName),
+    [eligibleCycleOperators],
+  );
+
+  const scrollOpIntoView = useCallback((opId: string) => {
+    requestAnimationFrame(() => {
+      const container = listRef.current;
+      if (!container) return;
+      const rows = container.querySelectorAll<HTMLElement>("[data-transfer-op-id]");
+      for (const row of Array.from(rows)) {
+        if (row.getAttribute("data-transfer-op-id") === opId) {
+          row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+          break;
+        }
+      }
+    });
+  }, []);
+
+  const handleCycleInitial = useCallback(
+    (letter: string) => {
+      const match = cycleItemByInitial({
+        items: eligibleCycleOperators,
+        letter,
+        currentActiveId: highlightedOpId,
+        getId: (op) => op.operatorId,
+        getName: (op) => op.operatorName,
+      });
+      if (match) {
+        setHighlightedOpId(match.id);
+        setInitialMeta({
+          letter: match.letter,
+          position: match.matchPosition,
+          total: match.matchCount,
+        });
+        scrollOpIntoView(match.id);
+      }
+    },
+    [eligibleCycleOperators, highlightedOpId, scrollOpIntoView],
+  );
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+        setHighlightedOpId(null);
+        setInitialMeta(null);
+      }
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (isEditableKeyboardTarget(e.target)) return;
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setOpen(false);
+        setHighlightedOpId(null);
+        setInitialMeta(null);
+        return;
+      }
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        const next = stepActiveItem({
+          items: eligibleCycleOperators,
+          direction: e.key === "ArrowDown" ? 1 : -1,
+          currentActiveId: highlightedOpId,
+          getId: (op) => op.operatorId,
+        });
+        if (next) {
+          setHighlightedOpId(next.id);
+          setInitialMeta(null);
+          scrollOpIntoView(next.id);
+        }
+        return;
+      }
+      if (e.key === "Enter" && highlightedOpId && !busy) {
+        const target = eligibleCycleOperators.find((op) => op.operatorId === highlightedOpId);
+        if (target) {
+          e.preventDefault();
+          setOpen(false);
+          setHighlightedOpId(null);
+          setInitialMeta(null);
+          void onIntervene(conv.id, "transfer", target.operatorId);
+        }
+        return;
+      }
+      const initialKey = extractInitialKeyFromKeyboardEvent(e);
+      if (initialKey) {
+        e.preventDefault();
+        handleCycleInitial(initialKey);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open, eligibleCycleOperators, highlightedOpId, busy, conv.id, onIntervene, scrollOpIntoView, handleCycleInitial]);
 
   return (
     <div ref={ref} className="relative" onClick={(e) => e.stopPropagation()}>
@@ -5919,7 +6045,15 @@ function LiveSupervisorInterventionPopover({
         whileHover={{ scale: 1.03 }}
         whileTap={{ scale: 0.96 }}
         disabled={busy}
-        onClick={() => setOpen((o) => !o)}
+        onClick={() =>
+          setOpen((o) => {
+            if (o) {
+              setHighlightedOpId(null);
+              setInitialMeta(null);
+            }
+            return !o;
+          })
+        }
         className={`inline-flex items-center gap-1.5 rounded-lg border font-bold transition-all duration-200 cursor-pointer disabled:opacity-50 ${
           compact
             ? "px-2 py-1 text-[10px] bg-card hover:bg-primary/10 text-foreground hover:text-primary border-border hover:border-primary/30"
@@ -5944,31 +6078,56 @@ function LiveSupervisorInterventionPopover({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 4, scale: 0.97 }}
             transition={{ duration: 0.16, ease: "easeOut" }}
-            className="absolute right-0 top-full mt-1.5 z-50 w-64 bg-card border border-border rounded-2xl shadow-xl py-2 overflow-hidden"
+            className="absolute right-0 top-full mt-1.5 z-50 w-72 bg-card border border-border rounded-2xl shadow-xl py-2 overflow-hidden"
           >
-            <div className="px-3 pb-1.5 border-b border-line flex items-center justify-between">
-              <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">
-                Atribuir / Transferir para
-              </span>
-              <UserCheck className="h-3.5 w-3.5 text-primary" />
+            <div className="px-3 pb-1.5 border-b border-line space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">
+                  Atribuir / Transferir (A–Z)
+                </span>
+                <UserCheck className="h-3.5 w-3.5 text-primary" />
+              </div>
+
+              {eligibleCycleOperators.length > 0 && (
+                <OperatorInitialQuickBar
+                  initials={availableInitials}
+                  activeLetter={
+                    highlightedOpId
+                      ? normalizeInitialLetter(
+                          eligibleCycleOperators.find((op) => op.operatorId === highlightedOpId)
+                            ?.operatorName,
+                        )
+                      : null
+                  }
+                  matchMeta={initialMeta}
+                  onSelectLetter={handleCycleInitial}
+                  compact
+                />
+              )}
             </div>
 
-            <div className="max-h-48 overflow-y-auto scrollbar-thin py-1">
-              {operators.map((op) => {
+            <div ref={listRef} className="max-h-52 overflow-y-auto scrollbar-thin py-1">
+              {sortedOperators.map((op) => {
                 const isCurrent = conv.operatorId === op.operatorId && conv.queueState === "atendimento";
+                const isHighlighted = !isCurrent && op.operatorId === highlightedOpId;
                 return (
                   <button
                     key={op.operatorId}
                     type="button"
+                    data-transfer-op-id={op.operatorId}
                     disabled={isCurrent || busy}
                     onClick={async () => {
                       setOpen(false);
+                      setHighlightedOpId(null);
+                      setInitialMeta(null);
                       await onIntervene(conv.id, "transfer", op.operatorId);
                     }}
                     className={`w-full px-3 py-1.5 text-left text-[11px] flex items-center justify-between gap-2 transition-colors cursor-pointer ${
                       isCurrent
                         ? "bg-primary/10 text-primary font-bold cursor-default"
-                        : "hover:bg-muted/60 text-foreground"
+                        : isHighlighted
+                          ? "bg-primary/15 text-foreground font-semibold ring-1 ring-inset ring-primary/40"
+                          : "hover:bg-muted/60 text-foreground"
                     }`}
                   >
                     <div className="flex items-center gap-2 min-w-0">
@@ -5980,7 +6139,11 @@ function LiveSupervisorInterventionPopover({
                       <span className="truncate">{op.operatorName}</span>
                     </div>
                     <span className="text-[9px] text-muted-foreground shrink-0">
-                      {isCurrent ? "Atual" : `${op.waitingReplyCount ?? 0} esp.`}
+                      {isCurrent
+                        ? "Atual"
+                        : isHighlighted
+                          ? "Enter ↵"
+                          : `${op.waitingReplyCount ?? 0} esp.`}
                     </span>
                   </button>
                 );

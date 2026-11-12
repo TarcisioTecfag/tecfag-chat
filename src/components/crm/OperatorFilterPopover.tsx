@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Users, Search, Check, X, UserCheck, ChevronDown } from "lucide-react";
 import { SystemTooltip } from "@/components/ui/tooltip";
+import { sortAlphabeticallyByName } from "@/lib/operator-initial-navigation";
 
 interface OperatorOption {
   id: string;
@@ -57,11 +58,16 @@ export function OperatorFilterPopover({
     }
   }, [isOpen, selectedOperatorIds, currentOperatorId]);
 
+  const sortedOperators = useMemo(
+    () => sortAlphabeticallyByName(operators),
+    [operators],
+  );
+
   const filteredOperators = useMemo(() => {
-    if (!search.trim()) return operators;
+    if (!search.trim()) return sortedOperators;
     const term = search.trim().toLowerCase();
-    return operators.filter((op) => op.name.toLowerCase().includes(term));
-  }, [operators, search]);
+    return sortedOperators.filter((op) => op.name.toLowerCase().includes(term));
+  }, [sortedOperators, search]);
 
   const handleToggle = (opId: string) => {
     if (isMineLocked) return;

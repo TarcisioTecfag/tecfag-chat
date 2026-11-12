@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@/hooks/useChatState";
 import { usePermissions } from "@/hooks/usePermissions";
 import {
@@ -14,6 +14,19 @@ import { SharedFiles } from "@/components/chat/SharedFiles";
 import { getAiPersona } from "@/lib/ai-persona";
 import { AiAvatar } from "@/components/ui/AiAvatar";
 import { ConversationDealTransferContext } from "@/components/crm/ConversationDealContext";
+import {
+  OperatorInitialQuickBar,
+  OperatorAvatarWithInitial,
+  type OperatorInitialMatchMeta,
+} from "@/components/chat/OperatorInitialQuickBar";
+import {
+  sortAlphabeticallyByName,
+  getAvailableInitials,
+  cycleItemByInitial,
+  normalizeInitialLetter,
+  isEditableKeyboardTarget,
+  extractInitialKeyFromKeyboardEvent,
+} from "@/lib/operator-initial-navigation";
 
 interface MobileActionsModalProps {
   isOpen: boolean;
@@ -42,6 +55,87 @@ export const MobileActionsModal: React.FC<MobileActionsModalProps> = ({
   const [showTransferSelect, setShowTransferSelect] = useState(false);
   const [showCustomerFile, setShowCustomerFile] = useState(false);
   const [showFinishConfirm, setShowFinishConfirm] = useState(false);
+  const [highlightedOpId, setHighlightedOpId] = useState<string | null>(null);
+  const [initialMeta, setInitialMeta] = useState<OperatorInitialMatchMeta | null>(null);
+  const transferListRef = useRef<HTMLDivElement | null>(null);
+
+  const sortedSectors = useMemo(() => sortAlphabeticallyByName(sectors), [sectors]);
+  const sortedOperators = useMemo(
+    () => sortAlphabeticallyByName(operators.filter((op) => op.id !== currentOperatorId)),
+    [operators, currentOperatorId],
+  );
+  const availableInitials = useMemo(
+    () => getAvailableInitials(sortedOperators),
+    [sortedOperators],
+  );
+
+  const handleCycleInitial = useCallback(
+    (letter: string) => {
+      const match = cycleItemByInitial({
+        items: sortedOperators,
+        letter,
+        currentActiveId: highlightedOpId,
+      });
+      if (match) {
+        setHighlightedOpId(match.id);
+        setInitialMeta({
+          letter: match.letter,
+          position: match.matchPosition,
+          total: match.matchCount,
+        });
+        requestAnimationFrame(() => {
+          const container = transferListRef.current;
+          if (!container) return;
+          const rows = container.querySelectorAll<HTMLElement>("[data-transfer-op-id]");
+          for (const row of Array.from(rows)) {
+            if (row.getAttribute("data-transfer-op-id") === match.id) {
+              row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+              break;
+            }
+          }
+        });
+      }
+    },
+    [sortedOperators, highlightedOpId],
+  );
+
+  useEffect(() => {
+    if (!isOpen || !activeChat || !showTransferSelect) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (isEditableKeyboardTarget(e.target)) return;
+      if (e.key === "Enter" && highlightedOpId) {
+        const target = sortedOperators.find((op) => op.id === highlightedOpId);
+        if (target) {
+          e.preventDefault();
+          void transferChat(activeChat.id, null, target.id).then((ok) => {
+            if (ok) {
+              setShowTransferSelect(false);
+              setHighlightedOpId(null);
+              setInitialMeta(null);
+              onClose();
+            }
+          });
+        }
+        return;
+      }
+      const initialKey = extractInitialKeyFromKeyboardEvent(e);
+      if (initialKey) {
+        e.preventDefault();
+        handleCycleInitial(initialKey);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [
+    isOpen,
+    activeChat,
+    showTransferSelect,
+    highlightedOpId,
+    sortedOperators,
+    transferChat,
+    onClose,
+    handleCycleInitial,
+  ]);
 
   if (!isOpen || !activeChat) return null;
 
@@ -239,13 +333,17 @@ export const MobileActionsModal: React.FC<MobileActionsModalProps> = ({
               </div>
             ) : (
               /* Seleção de Operador ou Setor para Transferência */
-              <div className="flex flex-col gap-3 py-1">
+              <div className="flex flex-col gap-2.5 py-1">
                 <div className="flex items-center justify-between border-b border-border pb-2">
                   <span className="text-xs font-bold text-foreground">
                     Selecione o Destino:
                   </span>
                   <button
-                    onClick={() => setShowTransferSelect(false)}
+                    onClick={() => {
+                      setShowTransferSelect(false);
+                      setHighlightedOpId(null);
+                      setInitialMeta(null);
+                    }}
                     className="text-xs text-primary font-bold hover:underline cursor-pointer"
                   >
                     Voltar
@@ -256,13 +354,31 @@ export const MobileActionsModal: React.FC<MobileActionsModalProps> = ({
                   <ConversationDealTransferContext conversationId={activeChat.id} />
                 )}
 
-                <div className="max-h-60 overflow-y-auto flex flex-col gap-1.5 pr-1">
-                  {sectors.length > 0 && (
+                {sortedOperators.length > 0 && (
+                  <OperatorInitialQuickBar
+                    initials={availableInitials}
+                    activeLetter={
+                      highlightedOpId
+                        ? normalizeInitialLetter(
+                            sortedOperators.find((op) => op.id === highlightedOpId)?.name,
+                          )
+                        : null
+                    }
+                    matchMeta={initialMeta}
+                    onSelectLetter={handleCycleInitial}
+                  />
+                )}
+
+                <div
+                  ref={transferListRef}
+                  className="max-h-60 overflow-y-auto flex flex-col gap-1.5 pr-1"
+                >
+                  {sortedSectors.length > 0 && (
                     <>
                       <div className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground px-1 pt-0.5">
-                        Setores (Fila Geral)
+                        Setores (Fila Geral · A–Z)
                       </div>
-                      {sectors.map((sec) => (
+                      {sortedSectors.map((sec) => (
                         <motion.button
                           whileTap={{ scale: 0.97 }}
                           key={sec.id}
@@ -286,30 +402,39 @@ export const MobileActionsModal: React.FC<MobileActionsModalProps> = ({
                   )}
 
                   <div className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground px-1 pt-1">
-                    Operadores Diretos
+                    Operadores Diretos (A–Z)
                   </div>
-                  {operators.filter((op) => op.id !== currentOperatorId).map((op) => (
-                    <motion.button
-                      whileTap={{ scale: 0.97 }}
-                      key={op.id}
-                      onClick={() => handleTransfer(op.id, null)}
-                      className="flex items-center justify-between p-2.5 rounded-xl bg-muted/60 hover:bg-primary-soft text-left transition cursor-pointer"
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <img
-                          src={op.avatar}
-                          alt={op.name}
-                          className="w-7 h-7 rounded-full object-cover"
-                        />
-                        <span className="text-xs font-bold text-foreground">
-                          {op.name}
+                  {sortedOperators.map((op) => {
+                    const isHighlighted = op.id === highlightedOpId;
+                    return (
+                      <motion.button
+                        whileTap={{ scale: 0.97 }}
+                        key={op.id}
+                        data-transfer-op-id={op.id}
+                        onClick={() => handleTransfer(op.id, null)}
+                        className={`flex items-center justify-between p-2.5 rounded-xl text-left transition cursor-pointer ${
+                          isHighlighted
+                            ? "bg-primary/15 ring-1 ring-primary/40 shadow-2xs"
+                            : "bg-muted/60 hover:bg-primary-soft"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <OperatorAvatarWithInitial
+                            name={op.name}
+                            avatar={op.avatar}
+                            sizeClassName="w-7 h-7 text-[11px]"
+                            highlighted={isHighlighted}
+                          />
+                          <span className="text-xs font-bold text-foreground">
+                            {op.name}
+                          </span>
+                        </div>
+                        <span className="text-[10px] font-bold text-primary">
+                          {isHighlighted ? "Transferir ↵" : "Transferir"}
                         </span>
-                      </div>
-                      <span className="text-[10px] font-bold text-primary">
-                        Transferir
-                      </span>
-                    </motion.button>
-                  ))}
+                      </motion.button>
+                    );
+                  })}
                 </div>
               </div>
             )}

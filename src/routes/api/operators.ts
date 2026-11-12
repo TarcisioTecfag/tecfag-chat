@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { recordCrmAction } from "../../lib/crm/action-history";
+import { sortAlphabeticallyByName } from "../../lib/operator-initial-navigation";
 import { db } from "../../db/index.js";
 import {
   operators,
@@ -202,7 +203,9 @@ export const Route = createFileRoute("/api/operators")({
             };
           });
 
-          return new Response(JSON.stringify(sanitizedList), {
+          const sortedSanitizedList = sortAlphabeticallyByName(sanitizedList);
+
+          return new Response(JSON.stringify(sortedSanitizedList), {
             headers: {
               ...corsHeaders,
               "Content-Type": "application/json",

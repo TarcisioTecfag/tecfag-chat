@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { recordCrmAction } from "../../lib/crm/action-history";
+import { sortAlphabeticallyByName } from "../../lib/operator-initial-navigation";
 import { db } from "../../db/index.js";
 import {
   sectors,
@@ -100,7 +101,7 @@ export async function sanitizeAndRepairTenantSectors(tenantId: string) {
     }),
   );
 
-  return enrichedList;
+  return sortAlphabeticallyByName(enrichedList);
 }
 
 export const Route = createFileRoute("/api/sectors")({

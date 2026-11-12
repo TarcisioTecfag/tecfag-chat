@@ -14,6 +14,7 @@ import {
 import { GroupPermissions, DEFAULT_ADMIN_PERMISSIONS, normalizeGroupPermissions } from "@/lib/rbac";
 import { parseAppRoute } from "@/lib/app-routes";
 import { getAiPersona } from "@/lib/ai-persona";
+import { sortAlphabeticallyByName } from "@/lib/operator-initial-navigation";
 import { resolveTemplateVariables } from "@/lib/utils";
 import {
   buildAgenticThoughtTrace,
@@ -5944,7 +5945,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         mustChangePassword,
         completeMandatoryPasswordChange,
 
-        operators: operators.filter((op) => op.tenantId === tenant),
+        operators: sortAlphabeticallyByName(operators.filter((op) => op.tenantId === tenant)),
         refreshOperators,
         completeOperatorWizard,
         toggleOperatorPasswordReset,
@@ -5952,16 +5953,18 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         sectors: (() => {
           const tenantOps = operators.filter((op) => op.tenantId === tenant);
           const validOpIdsSet = new Set(tenantOps.map((op) => op.id));
-          return sectors
-            .filter((s) => s.tenantId === tenant)
-            .map((s) => {
-              const rawIds = Array.isArray(s.operatorIds) ? s.operatorIds : [];
-              const cleanIds =
-                validOpIdsSet.size > 0
-                  ? Array.from(new Set(rawIds.filter((id) => validOpIdsSet.has(id))))
-                  : Array.from(new Set(rawIds));
-              return cleanIds.length === rawIds.length ? s : { ...s, operatorIds: cleanIds };
-            });
+          return sortAlphabeticallyByName(
+            sectors
+              .filter((s) => s.tenantId === tenant)
+              .map((s) => {
+                const rawIds = Array.isArray(s.operatorIds) ? s.operatorIds : [];
+                const cleanIds =
+                  validOpIdsSet.size > 0
+                    ? Array.from(new Set(rawIds.filter((id) => validOpIdsSet.has(id))))
+                    : Array.from(new Set(rawIds));
+                return cleanIds.length === rawIds.length ? s : { ...s, operatorIds: cleanIds };
+              }),
+          );
         })(),
         currentOperatorId,
         currentGroup,

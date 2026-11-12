@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useTrainingSurface } from "@/hooks/useTrainingSurface";
+import { sortAlphabeticallyByName } from "@/lib/operator-initial-navigation";
 import {
   X,
   Building2,
@@ -847,23 +848,37 @@ export function DealDetailModal({
         }
       }
     }
-    return Array.from(merged.values());
+    return sortAlphabeticallyByName(Array.from(merged.values()));
   }, [chatContext?.operators, propOperators]);
 
   const operatorsMap = React.useMemo(() => {
+    const entries: Array<{ id: string; name: string }> = [];
+    const seen = new Set<string>();
     if (propOperatorsMap instanceof Map && propOperatorsMap.size > 0) {
-      return propOperatorsMap;
-    }
-    const map = new Map<string, string>();
-    if (propOperatorsMap && !(propOperatorsMap instanceof Map)) {
+      for (const [id, name] of propOperatorsMap.entries()) {
+        if (id && name && !seen.has(id)) {
+          seen.add(id);
+          entries.push({ id, name: String(name) });
+        }
+      }
+    } else if (propOperatorsMap && !(propOperatorsMap instanceof Map)) {
       for (const [id, name] of Object.entries(propOperatorsMap)) {
-        if (id && name) map.set(id, String(name));
+        if (id && name && !seen.has(id)) {
+          seen.add(id);
+          entries.push({ id, name: String(name) });
+        }
       }
     }
     for (const op of operators) {
-      if (op?.id && op?.name && !map.has(op.id)) {
-        map.set(op.id, String(op.name));
+      if (op?.id && op?.name && !seen.has(op.id)) {
+        seen.add(op.id);
+        entries.push({ id: op.id, name: String(op.name) });
       }
+    }
+    const sortedEntries = sortAlphabeticallyByName(entries);
+    const map = new Map<string, string>();
+    for (const entry of sortedEntries) {
+      map.set(entry.id, entry.name);
     }
     return map;
   }, [propOperatorsMap, operators]);

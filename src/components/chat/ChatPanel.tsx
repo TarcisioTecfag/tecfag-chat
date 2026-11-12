@@ -83,6 +83,20 @@ import {
 import { ValentinaAssistantModal } from "./ValentinaAssistantModal";
 import { ProductCatalogPicker } from "./ProductCatalogPicker";
 import { InlineChatTaskComposer } from "./InlineChatTaskComposer";
+import {
+  OperatorInitialQuickBar,
+  OperatorAvatarWithInitial,
+  type OperatorInitialMatchMeta,
+} from "./OperatorInitialQuickBar";
+import {
+  sortAlphabeticallyByName,
+  getAvailableInitials,
+  cycleItemByInitial,
+  stepActiveItem,
+  normalizeInitialLetter,
+  isEditableKeyboardTarget,
+  extractInitialKeyFromKeyboardEvent,
+} from "@/lib/operator-initial-navigation";
 import { MarkEvidenceModal } from "@/components/crm/MarkEvidenceModal";
 import { AiAvatar } from "@/components/ui/AiAvatar";
 import { ChatMessageBubble } from "./ChatMessageBubble";
@@ -1590,16 +1604,248 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   const [showQuickMenu, setShowQuickMenu] = useState(false);
   const [showTransferDropdown, setShowTransferDropdown] = useState(false);
   const [selectedTransferSectorId, setSelectedTransferSectorId] = useState<string | null>(null);
+  const [highlightedTransferOpId, setHighlightedTransferOpId] = useState<string | null>(null);
+  const [transferInitialMeta, setTransferInitialMeta] = useState<OperatorInitialMatchMeta | null>(null);
+  const transferDropdownListRef = useRef<HTMLDivElement | null>(null);
 
-  const closeTransferDropdown = () => {
+  const closeTransferDropdown = useCallback(() => {
     setShowTransferDropdown(false);
     setSelectedTransferSectorId(null);
-  };
+    setHighlightedTransferOpId(null);
+    setTransferInitialMeta(null);
+  }, []);
+
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [transferDealSelection, setTransferDealSelection] = useState<{ dealId: string; expectedVersion: number } | undefined>();
   useEffect(() => { setTransferDealSelection(undefined); }, [showTransferModal, activeChat?.id]);
   const [transferModalSearch, setTransferModalSearch] = useState("");
   const [transferModalSubmitting, setTransferModalSubmitting] = useState(false);
+  const [highlightedModalOpId, setHighlightedModalOpId] = useState<string | null>(null);
+  const [modalInitialMeta, setModalInitialMeta] = useState<OperatorInitialMatchMeta | null>(null);
+  const transferModalListRef = useRef<HTMLDivElement | null>(null);
+
+  const scrollOpRowIntoContainer = useCallback((container: HTMLElement | null, opId: string) => {
+    if (!container || !opId) return;
+    requestAnimationFrame(() => {
+      const rows = container.querySelectorAll<HTMLElement>("[data-transfer-op-id]");
+      for (const row of Array.from(rows)) {
+        if (row.getAttribute("data-transfer-op-id") === opId) {
+          row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+          break;
+        }
+      }
+    });
+  }, []);
+
+  const sortedTransferSectors = useMemo(() => sortAlphabeticallyByName(sectors), [sectors]);
+
+  const sortedTransferDirectOps = useMemo(
+    () => sortAlphabeticallyByName(operators.filter((op) => op.id !== currentOperatorId)),
+    [operators, currentOperatorId],
+  );
+
+  const sortedTransferDropdownOps = useMemo(() => {
+    if (!selectedTransferSectorId) return [];
+    if (selectedTransferSectorId === "__direct__") return sortedTransferDirectOps;
+    const sec = sectors.find((s) => s.id === selectedTransferSectorId);
+    if (!sec) return [];
+    return sortAlphabeticallyByName(operators.filter((op) => sec.operatorIds.includes(op.id)));
+  }, [selectedTransferSectorId, sortedTransferDirectOps, sectors, operators]);
+
+  const transferDropdownInitials = useMemo(
+    () => getAvailableInitials(sortedTransferDropdownOps),
+    [sortedTransferDropdownOps],
+  );
+
+  const handleCycleTransferDropdownInitial = useCallback(
+    (letter: string) => {
+      if (!selectedTransferSectorId) {
+        const match = cycleItemByInitial({
+          items: sortedTransferDirectOps,
+          letter,
+          currentActiveId: null,
+        });
+        if (match) {
+          setSelectedTransferSectorId("__direct__");
+          setHighlightedTransferOpId(match.id);
+          setTransferInitialMeta({
+            letter: match.letter,
+            position: match.matchPosition,
+            total: match.matchCount,
+          });
+          setTimeout(() => scrollOpRowIntoContainer(transferDropdownListRef.current, match.id), 16);
+        }
+        return;
+      }
+
+      const match = cycleItemByInitial({
+        items: sortedTransferDropdownOps,
+        letter,
+        currentActiveId: highlightedTransferOpId,
+      });
+      if (match) {
+        setHighlightedTransferOpId(match.id);
+        setTransferInitialMeta({
+          letter: match.letter,
+          position: match.matchPosition,
+          total: match.matchCount,
+        });
+        scrollOpRowIntoContainer(transferDropdownListRef.current, match.id);
+      }
+    },
+    [
+      selectedTransferSectorId,
+      sortedTransferDirectOps,
+      sortedTransferDropdownOps,
+      highlightedTransferOpId,
+      scrollOpRowIntoContainer,
+    ],
+  );
+
+  useEffect(() => {
+    if (!showTransferDropdown || !activeChat) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (isEditableKeyboardTarget(e.target)) return;
+
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closeTransferDropdown();
+        return;
+      }
+
+      if (e.key === "Backspace" && selectedTransferSectorId !== null) {
+        e.preventDefault();
+        setSelectedTransferSectorId(null);
+        setHighlightedTransferOpId(null);
+        setTransferInitialMeta(null);
+        return;
+      }
+
+      if (
+        selectedTransferSectorId !== null &&
+        (e.key === "ArrowDown" || e.key === "ArrowUp")
+      ) {
+        e.preventDefault();
+        const next = stepActiveItem({
+          items: sortedTransferDropdownOps,
+          direction: e.key === "ArrowDown" ? 1 : -1,
+          currentActiveId: highlightedTransferOpId,
+        });
+        if (next) {
+          setHighlightedTransferOpId(next.id);
+          setTransferInitialMeta(null);
+          scrollOpRowIntoContainer(transferDropdownListRef.current, next.id);
+        }
+        return;
+      }
+
+      if (
+        selectedTransferSectorId !== null &&
+        e.key === "Enter" &&
+        highlightedTransferOpId
+      ) {
+        const activeEl = document.activeElement as HTMLElement | null;
+        if (activeEl?.getAttribute("data-transfer-nav-action") === "true") {
+          return;
+        }
+        const targetOp = sortedTransferDropdownOps.find(
+          (op) => op.id === highlightedTransferOpId,
+        );
+        if (targetOp) {
+          e.preventDefault();
+          const directTransfer = selectedTransferSectorId === "__direct__";
+          const selectedSector = sectors.find((s) => s.id === selectedTransferSectorId);
+          void transferChat(
+            activeChat.id,
+            directTransfer ? null : selectedSector?.name || "Sem Nome",
+            targetOp.id,
+          );
+          closeTransferDropdown();
+        }
+        return;
+      }
+
+      const initialKey = extractInitialKeyFromKeyboardEvent(e);
+      if (initialKey) {
+        e.preventDefault();
+        handleCycleTransferDropdownInitial(initialKey);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [
+    showTransferDropdown,
+    activeChat,
+    selectedTransferSectorId,
+    sortedTransferDropdownOps,
+    highlightedTransferOpId,
+    sectors,
+    transferChat,
+    closeTransferDropdown,
+    scrollOpRowIntoContainer,
+    handleCycleTransferDropdownInitial,
+  ]);
+
+  const sortedModalOperators = useMemo(() => {
+    const term = transferModalSearch.trim().toLowerCase();
+    return sortedTransferDirectOps.filter(
+      (op) => !term || op.name.toLowerCase().includes(term),
+    );
+  }, [sortedTransferDirectOps, transferModalSearch]);
+
+  const sortedModalSectors = useMemo(() => {
+    const term = transferModalSearch.trim().toLowerCase();
+    return sortedTransferSectors.filter(
+      (sec) => !term || sec.name.toLowerCase().includes(term),
+    );
+  }, [sortedTransferSectors, transferModalSearch]);
+
+  const modalInitials = useMemo(
+    () => getAvailableInitials(sortedModalOperators),
+    [sortedModalOperators],
+  );
+
+  const handleCycleModalInitial = useCallback(
+    (letter: string) => {
+      const match = cycleItemByInitial({
+        items: sortedModalOperators,
+        letter,
+        currentActiveId: highlightedModalOpId,
+      });
+      if (match) {
+        setHighlightedModalOpId(match.id);
+        setModalInitialMeta({
+          letter: match.letter,
+          position: match.matchPosition,
+          total: match.matchCount,
+        });
+        scrollOpRowIntoContainer(transferModalListRef.current, match.id);
+      }
+    },
+    [sortedModalOperators, highlightedModalOpId, scrollOpRowIntoContainer],
+  );
+
+  const executeModalOperatorTransfer = useCallback(
+    async (op: { id: string; name: string }) => {
+      if (transferModalSubmitting || !activeChat) return;
+      setTransferModalSubmitting(true);
+      try {
+        const ok = await transferChat(activeChat.id, null, op.id, transferDealSelection);
+        if (ok) {
+          setShowTransferModal(false);
+          setTransferModalSearch("");
+          setHighlightedModalOpId(null);
+          setModalInitialMeta(null);
+          toast.success(`Atendimento transferido para ${op.name}`);
+        }
+      } finally {
+        setTransferModalSubmitting(false);
+      }
+    },
+    [transferModalSubmitting, activeChat, transferChat, transferDealSelection],
+  );
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [attachments, setAttachments] = useState<File[]>(initialTransientState?.attachments ?? []);
   const [attachmentPreviewUrls, setAttachmentPreviewUrls] = useState<string[]>([]);
@@ -3351,30 +3597,46 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                   {showTransferDropdown && (
                     <>
                       <div className="fixed inset-0 z-40" onClick={closeTransferDropdown} />
-                      <div className="absolute right-0 mt-1.5 z-50 w-64 max-h-80 overflow-y-auto rounded-xl bg-card p-1 border border-border shadow-card animate-in fade-in duration-100">
+                      <div
+                        ref={transferDropdownListRef}
+                        className="absolute right-0 mt-1.5 z-50 w-72 max-h-96 overflow-y-auto scrollbar-thin rounded-xl bg-card p-1.5 border border-border shadow-card animate-in fade-in duration-100"
+                      >
                         {!selectedTransferSectorId ? (
                           <>
                             <div className="px-3 py-1.5 text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider border-b border-line mb-1">
                               Escolha o destino
                             </div>
                             <button
-                              onClick={() => setSelectedTransferSectorId("__direct__")}
-                              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
+                              type="button"
+                              onClick={() => {
+                                setHighlightedTransferOpId(null);
+                                setTransferInitialMeta(null);
+                                setSelectedTransferSectorId("__direct__");
+                              }}
+                              className="flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
                             >
-                              <UserPlus className="h-4 w-4 text-primary" />
-                              Operador diretamente
+                              <span className="flex items-center gap-2">
+                                <UserPlus className="h-4 w-4 text-primary" />
+                                Operador diretamente
+                              </span>
+                              <span className="text-[10px] text-muted-foreground font-normal">
+                                A–Z
+                              </span>
                             </button>
                             <div className="px-3 py-1.5 text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider border-t border-line mt-1">
                               Ou escolha um setor
                             </div>
-                            {sectors.map((sec) => {
+                            {sortedTransferSectors.map((sec) => {
                               const validOpsCount = operators.filter((op) =>
                                 sec.operatorIds.includes(op.id),
                               ).length;
                               return (
                                 <button
+                                  type="button"
                                   key={sec.id}
                                   onClick={() => {
+                                    setHighlightedTransferOpId(null);
+                                    setTransferInitialMeta(null);
                                     setSelectedTransferSectorId(sec.id);
                                   }}
                                   className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
@@ -3393,42 +3655,69 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                               (s) => s.id === selectedTransferSectorId,
                             );
                             const directTransfer = selectedTransferSectorId === "__direct__";
-                            const sectorOps = directTransfer
-                              ? operators.filter((op) => op.id !== currentOperatorId)
-                              : selectedSector
-                                ? operators.filter((op) => selectedSector.operatorIds.includes(op.id))
-                                : [];
+                            const sectorOps = sortedTransferDropdownOps;
+                            const highlightedOp = highlightedTransferOpId
+                              ? sectorOps.find((op) => op.id === highlightedTransferOpId) || null
+                              : null;
+                            const activeInitial = highlightedOp
+                              ? normalizeInitialLetter(highlightedOp.name)
+                              : null;
 
                             return (
                               <>
-                                <button
-                                  onClick={() => setSelectedTransferSectorId(null)}
-                                  className="flex w-full items-center gap-1 px-3 py-1.5 text-left text-xs font-bold text-primary hover:bg-muted transition border-b border-line mb-1 cursor-pointer"
-                                >
-                                  <ChevronLeft className="h-3.5 w-3.5" />
-                                  Voltar para Setores
-                                </button>
+                                <div className="sticky top-0 z-10 bg-card pb-1.5 mb-1 border-b border-line space-y-1.5">
+                                  <button
+                                    type="button"
+                                    data-transfer-nav-action="true"
+                                    onClick={() => {
+                                      setSelectedTransferSectorId(null);
+                                      setHighlightedTransferOpId(null);
+                                      setTransferInitialMeta(null);
+                                    }}
+                                    className="flex w-full items-center gap-1 px-2.5 py-1.5 rounded-lg text-left text-xs font-bold text-primary hover:bg-muted transition cursor-pointer"
+                                  >
+                                    <ChevronLeft className="h-3.5 w-3.5" />
+                                    Voltar para Setores
+                                  </button>
 
-                                <div className="px-3 py-1 text-[9px] font-extrabold uppercase text-muted-foreground tracking-wider mb-1">
-                                  {directTransfer
-                                    ? "Escolha o responsável"
-                                    : `Atendentes em ${selectedSector?.name}`}
+                                  <div className="px-2.5 flex items-center justify-between text-[9px] font-extrabold uppercase text-muted-foreground tracking-wider">
+                                    <span>
+                                      {directTransfer
+                                        ? "Escolha o responsável (A–Z)"
+                                        : `Atendentes em ${selectedSector?.name}`}
+                                    </span>
+                                    <span className="font-semibold lowercase text-[9px]">
+                                      {sectorOps.length} op.
+                                    </span>
+                                  </div>
+
+                                  {sectorOps.length > 0 && (
+                                    <OperatorInitialQuickBar
+                                      initials={transferDropdownInitials}
+                                      activeLetter={activeInitial}
+                                      matchMeta={transferInitialMeta}
+                                      onSelectLetter={handleCycleTransferDropdownInitial}
+                                      compact
+                                    />
+                                  )}
                                 </div>
 
                                 {/* Option to transfer to any agent in sector (general queue) */}
                                 {!directTransfer && (
                                   <button
+                                    type="button"
+                                    data-transfer-nav-action="true"
                                     onClick={() => {
                                       transferChat(
-                                      activeChat.id,
-                                      selectedSector?.name || "Sem Nome",
-                                      null,
-                                    );
+                                        activeChat.id,
+                                        selectedSector?.name || "Sem Nome",
+                                        null,
+                                      );
                                       closeTransferDropdown();
                                     }}
-                                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-foreground hover:bg-muted transition border-b border-line border-dashed cursor-pointer"
+                                    className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 mb-1 text-left text-xs font-semibold text-foreground hover:bg-muted transition border-b border-line border-dashed cursor-pointer"
                                   >
-                                    <div className="h-5 w-5 rounded-full bg-primary/10 text-primary grid place-items-center text-[10px] font-black uppercase shrink-0">
+                                    <div className="h-6 w-6 rounded-full bg-primary/10 text-primary grid place-items-center text-[10px] font-black uppercase shrink-0">
                                       F
                                     </div>
                                     <div className="flex flex-col">
@@ -3445,36 +3734,60 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                                     Nenhum atendente neste setor
                                   </div>
                                 ) : (
-                                  sectorOps.map((op) => (
-                                    <button
-                                      key={op.id}
-                                      onClick={() => {
-                                        transferChat(
-                                          activeChat.id,
-                                          directTransfer ? null : selectedSector?.name || "Sem Nome",
-                                          op.id,
-                                        );
-                                        closeTransferDropdown();
-                                      }}
-                                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
-                                    >
-                                      <img
-                                        src={op.avatar}
-                                        alt={op.name}
-                                        className="h-5 w-5 rounded-full object-cover shrink-0"
-                                      />
-                                      <div className="flex flex-col">
-                                        <span>{op.name}</span>
-                                        <span className="text-[9px] text-muted-foreground font-normal capitalize">
-                                          {op.status === "disponivel"
-                                            ? "Disponível"
-                                            : op.status === "pausa"
-                                              ? "Em Pausa"
-                                              : "Desconectado"}
-                                        </span>
-                                      </div>
-                                    </button>
-                                  ))
+                                  <div className="space-y-0.5">
+                                    {sectorOps.map((op) => {
+                                      const isHighlighted = op.id === highlightedTransferOpId;
+                                      return (
+                                        <button
+                                          type="button"
+                                          key={op.id}
+                                          data-transfer-op-id={op.id}
+                                          onMouseEnter={() => {
+                                            if (highlightedTransferOpId && highlightedTransferOpId !== op.id) {
+                                              setTransferInitialMeta(null);
+                                            }
+                                          }}
+                                          onClick={() => {
+                                            transferChat(
+                                              activeChat.id,
+                                              directTransfer ? null : selectedSector?.name || "Sem Nome",
+                                              op.id,
+                                            );
+                                            closeTransferDropdown();
+                                          }}
+                                          className={`flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold transition cursor-pointer ${
+                                            isHighlighted
+                                              ? "bg-primary/15 text-foreground ring-1 ring-primary/40 shadow-2xs"
+                                              : "text-foreground hover:bg-muted"
+                                          }`}
+                                        >
+                                          <div className="flex items-center gap-2.5 min-w-0">
+                                            <OperatorAvatarWithInitial
+                                              name={op.name}
+                                              avatar={op.avatar}
+                                              sizeClassName="h-6 w-6 text-[10px]"
+                                              highlighted={isHighlighted}
+                                            />
+                                            <div className="flex flex-col min-w-0">
+                                              <span className="truncate">{op.name}</span>
+                                              <span className="text-[9px] text-muted-foreground font-normal capitalize">
+                                                {op.status === "disponivel"
+                                                  ? "Disponível"
+                                                  : op.status === "pausa"
+                                                    ? "Em Pausa"
+                                                    : "Desconectado"}
+                                              </span>
+                                            </div>
+                                          </div>
+                                          {isHighlighted && (
+                                            <span className="text-[9px] font-bold text-primary shrink-0 px-1.5 py-0.5 rounded bg-primary/10 border border-primary/25">
+                                              Enter
+                                            </span>
+                                          )}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
                                 )}
                               </>
                             );
@@ -5262,10 +5575,48 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
         open={showTransferModal}
         onOpenChange={(isOpen) => {
           setShowTransferModal(isOpen);
-          if (!isOpen) setTransferModalSearch("");
+          if (!isOpen) {
+            setTransferModalSearch("");
+            setHighlightedModalOpId(null);
+            setModalInitialMeta(null);
+          }
         }}
       >
-        <DialogContent data-tour="chat.transfer" className="max-w-md p-5 bg-card text-foreground border border-border shadow-2xl">
+        <DialogContent
+          data-tour="chat.transfer"
+          onOpenAutoFocus={(e) => e.preventDefault()}
+          onKeyDown={(e) => {
+            if (isEditableKeyboardTarget(e.target)) return;
+            if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+              e.preventDefault();
+              const next = stepActiveItem({
+                items: sortedModalOperators,
+                direction: e.key === "ArrowDown" ? 1 : -1,
+                currentActiveId: highlightedModalOpId,
+              });
+              if (next) {
+                setHighlightedModalOpId(next.id);
+                setModalInitialMeta(null);
+                scrollOpRowIntoContainer(transferModalListRef.current, next.id);
+              }
+              return;
+            }
+            if (e.key === "Enter" && highlightedModalOpId) {
+              const targetOp = sortedModalOperators.find((op) => op.id === highlightedModalOpId);
+              if (targetOp) {
+                e.preventDefault();
+                void executeModalOperatorTransfer(targetOp);
+              }
+              return;
+            }
+            const initialKey = extractInitialKeyFromKeyboardEvent(e);
+            if (initialKey) {
+              e.preventDefault();
+              handleCycleModalInitial(initialKey);
+            }
+          }}
+          className="max-w-md p-5 bg-card text-foreground border border-border shadow-2xl"
+        >
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-sm font-bold">
               <ArrowRightLeft className="h-4 w-4 text-primary" />
@@ -5277,61 +5628,68 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="mt-2 space-y-3">
+          <div className="mt-2 space-y-2.5">
             {activeChat && <ConversationDealTransferContext conversationId={activeChat.id} onChange={setTransferDealSelection} />}
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
               <input
                 value={transferModalSearch}
-                onChange={(e) => setTransferModalSearch(e.target.value)}
+                onChange={(e) => {
+                  setTransferModalSearch(e.target.value);
+                  setHighlightedModalOpId(null);
+                  setModalInitialMeta(null);
+                }}
                 placeholder="Buscar por operador ou setor..."
                 className="h-8.5 w-full rounded-lg border border-border bg-background pl-8 pr-3 text-xs outline-none focus:border-primary/60 focus:ring-1 focus:ring-primary/20"
               />
             </div>
 
-            <div className="max-h-64 overflow-y-auto space-y-3 pr-1 scrollbar-thin">
+            {sortedModalOperators.length > 0 && (
+              <OperatorInitialQuickBar
+                initials={modalInitials}
+                activeLetter={
+                  highlightedModalOpId
+                    ? normalizeInitialLetter(
+                        sortedModalOperators.find((op) => op.id === highlightedModalOpId)?.name,
+                      )
+                    : null
+                }
+                matchMeta={modalInitialMeta}
+                onSelectLetter={handleCycleModalInitial}
+              />
+            )}
+
+            <div
+              ref={transferModalListRef}
+              className="max-h-64 overflow-y-auto space-y-3 pr-1 scrollbar-thin"
+            >
               {/* Seção Operadores */}
               <div>
                 <div className="px-1 py-1 text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider mb-1">
-                  Operadores
+                  Operadores (A–Z)
                 </div>
                 <div className="space-y-1">
-                  {operators
-                    .filter((op) => op.id !== currentOperatorId)
-                    .filter(
-                      (op) =>
-                        !transferModalSearch ||
-                        op.name.toLowerCase().includes(transferModalSearch.toLowerCase()),
-                    )
-                    .map((op) => (
+                  {sortedModalOperators.map((op) => {
+                    const isHighlighted = op.id === highlightedModalOpId;
+                    return (
                       <button
                         key={op.id}
                         type="button"
-                        onClick={async () => {
-                          if (transferModalSubmitting || !activeChat) return;
-                          setTransferModalSubmitting(true);
-                          try {
-                            const ok = await transferChat(activeChat.id, null, op.id, transferDealSelection);
-                            if (ok) {
-                              setShowTransferModal(false);
-                              setTransferModalSearch("");
-                              toast.success(`Atendimento transferido para ${op.name}`);
-                            }
-                          } finally {
-                            setTransferModalSubmitting(false);
-                          }
-                        }}
+                        data-transfer-op-id={op.id}
+                        onClick={() => void executeModalOperatorTransfer(op)}
                         disabled={transferModalSubmitting}
-                        className="flex w-full items-center justify-between rounded-lg p-2 text-left hover:bg-muted/80 transition cursor-pointer disabled:opacity-50"
+                        className={`flex w-full items-center justify-between rounded-lg p-2 text-left transition cursor-pointer disabled:opacity-50 ${
+                          isHighlighted
+                            ? "bg-primary/15 ring-1 ring-primary/40 shadow-2xs"
+                            : "hover:bg-muted/80"
+                        }`}
                       >
                         <div className="flex items-center gap-2.5 min-w-0">
-                          <img
-                            src={
-                              op.avatar ||
-                              `https://api.dicebear.com/7.x/avataaars/svg?seed=${op.name}`
-                            }
-                            alt={op.name}
-                            className="h-7 w-7 rounded-full object-cover border border-border"
+                          <OperatorAvatarWithInitial
+                            name={op.name}
+                            avatar={op.avatar}
+                            sizeClassName="h-7 w-7 text-[11px]"
+                            highlighted={isHighlighted}
                           />
                           <div className="min-w-0">
                             <div className="truncate text-xs font-semibold text-foreground">
@@ -5345,19 +5703,16 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                         <span className="text-[10px] font-bold text-primary flex items-center gap-1">
                           {transferModalSubmitting ? (
                             <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : isHighlighted ? (
+                            <>Enter &rarr;</>
                           ) : (
                             <>Transferir &rarr;</>
                           )}
                         </span>
                       </button>
-                    ))}
-                  {operators
-                    .filter((op) => op.id !== currentOperatorId)
-                    .filter(
-                      (op) =>
-                        !transferModalSearch ||
-                        op.name.toLowerCase().includes(transferModalSearch.toLowerCase()),
-                    ).length === 0 && (
+                    );
+                  })}
+                  {sortedModalOperators.length === 0 && (
                     <div className="py-2 text-center text-xs text-muted-foreground italic">
                       Nenhum operador encontrado
                     </div>
@@ -5369,58 +5724,54 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               {sectors.length > 0 && (
                 <div className="pt-2 border-t border-border/60">
                   <div className="px-1 py-1 text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider mb-1">
-                    Setores (Fila Geral)
+                    Setores (Fila Geral · A–Z)
                   </div>
                   <div className="space-y-1">
-                    {sectors
-                      .filter(
-                        (sec) =>
-                          !transferModalSearch ||
-                          sec.name.toLowerCase().includes(transferModalSearch.toLowerCase()),
-                      )
-                      .map((sec) => (
-                        <button
-                          key={sec.id}
-                          type="button"
-                          onClick={async () => {
-                            if (transferModalSubmitting || !activeChat) return;
-                            setTransferModalSubmitting(true);
-                            try {
-                              const ok = await transferChat(activeChat.id, sec.name, null, transferDealSelection);
-                              if (ok) {
-                                setShowTransferModal(false);
-                                setTransferModalSearch("");
-                                toast.success(`Atendimento transferido para a fila de ${sec.name}`);
-                              }
-                            } finally {
-                              setTransferModalSubmitting(false);
+                    {sortedModalSectors.map((sec) => (
+                      <button
+                        key={sec.id}
+                        type="button"
+                        onClick={async () => {
+                          if (transferModalSubmitting || !activeChat) return;
+                          setTransferModalSubmitting(true);
+                          try {
+                            const ok = await transferChat(activeChat.id, sec.name, null, transferDealSelection);
+                            if (ok) {
+                              setShowTransferModal(false);
+                              setTransferModalSearch("");
+                              setHighlightedModalOpId(null);
+                              setModalInitialMeta(null);
+                              toast.success(`Atendimento transferido para a fila de ${sec.name}`);
                             }
-                          }}
-                          disabled={transferModalSubmitting}
-                          className="flex w-full items-center justify-between rounded-lg p-2 text-left hover:bg-muted/80 transition cursor-pointer disabled:opacity-50"
-                        >
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <div className="h-7 w-7 rounded-full bg-primary/10 text-primary grid place-items-center text-xs font-bold shrink-0">
-                              {sec.name.charAt(0).toUpperCase()}
+                          } finally {
+                            setTransferModalSubmitting(false);
+                          }
+                        }}
+                        disabled={transferModalSubmitting}
+                        className="flex w-full items-center justify-between rounded-lg p-2 text-left hover:bg-muted/80 transition cursor-pointer disabled:opacity-50"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="h-7 w-7 rounded-full bg-primary/10 text-primary grid place-items-center text-xs font-bold shrink-0">
+                            {sec.name.charAt(0).toUpperCase()}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="truncate text-xs font-semibold text-foreground">
+                              {sec.name}
                             </div>
-                            <div className="min-w-0">
-                              <div className="truncate text-xs font-semibold text-foreground">
-                                {sec.name}
-                              </div>
-                              <div className="truncate text-[10px] text-muted-foreground">
-                                {operators.filter((op) => sec.operatorIds.includes(op.id)).length} atendente(s)
-                              </div>
+                            <div className="truncate text-[10px] text-muted-foreground">
+                              {operators.filter((op) => sec.operatorIds.includes(op.id)).length} atendente(s)
                             </div>
                           </div>
-                          <span className="text-[10px] font-bold text-primary flex items-center gap-1">
-                            {transferModalSubmitting ? (
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                            ) : (
-                              <>Fila geral &rarr;</>
-                            )}
-                          </span>
-                        </button>
-                      ))}
+                        </div>
+                        <span className="text-[10px] font-bold text-primary flex items-center gap-1">
+                          {transferModalSubmitting ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <>Fila geral &rarr;</>
+                          )}
+                        </span>
+                      </button>
+                    ))}
                   </div>
                 </div>
               )}
