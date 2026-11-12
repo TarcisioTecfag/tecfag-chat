@@ -80,6 +80,7 @@ import { useRdMarketingJourney } from "@/hooks/useRdMarketingJourney";
 import { RdMarketingJourneyControls, ContactDealsList } from "./RdMarketingJourneyControls";
 import { SaleCelebrationModal, type SaleCelebrationData } from "./SaleCelebrationModal";
 import { getAiPersona } from "@/lib/ai-persona";
+import { formatVigosPhoneNumber, getVigosPhoneLink } from "@/lib/utils";
 import type { JourneyEvent } from "@/lib/rd-marketing/journey-types";
 import {
   DealFilePreviewModal,
@@ -760,15 +761,6 @@ function formatContactPhone(phone?: string | null) {
     return `(${digits.substring(0, 2)}) ${digits.substring(2, 6)}-${digits.substring(6)}`;
   }
   return phone;
-}
-
-function getVigosPhoneLink(phone?: string | null) {
-  if (!phone) return "#";
-  let n = phone.replace(/\D/g, "");
-  if (n.startsWith("55") && n.length > 10) n = n.substring(2);
-  if (n.startsWith("0")) n = n.substring(1);
-  if (n.startsWith("14")) n = n.substring(2);
-  return `tel:${n}`;
 }
 
 function getAccountNameScaleStyle(name?: string | null): React.CSSProperties {
@@ -4121,7 +4113,9 @@ export function DealDetailModal({
                             {!hasMultiplePhones && singlePhone?.phone && (
                               <>
                                 {/* Ligar via VigosPhone */}
-                                <SystemTooltip content="Ligar via VigosPhone">
+                                <SystemTooltip
+                                  content={`Ligar via VigosPhone (${formatVigosPhoneNumber(singlePhone.phone) || formatContactPhone(singlePhone.phone)})`}
+                                >
                                   <a
                                     href={getVigosPhoneLink(singlePhone.phone)}
                                     className="rounded-sm p-1 text-muted-foreground hover:bg-muted hover:text-primary transition-colors cursor-pointer"
@@ -4230,7 +4224,9 @@ export function DealDetailModal({
                                   </div>
                                   {hasMultiplePhones && (
                                     <div className="flex items-center gap-0.5 shrink-0">
-                                      <SystemTooltip content={`Ligar via VigosPhone (${formatContactPhone(p.phone)})`}>
+                                      <SystemTooltip
+                                        content={`Ligar via VigosPhone (${formatVigosPhoneNumber(p.phone) || formatContactPhone(p.phone)})`}
+                                      >
                                         <a
                                           href={getVigosPhoneLink(p.phone)}
                                           className="rounded-sm p-1 text-muted-foreground hover:bg-muted hover:text-primary transition-colors cursor-pointer"

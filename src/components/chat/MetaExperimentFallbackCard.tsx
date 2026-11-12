@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { SystemTooltip } from "@/components/ui/tooltip";
+import { formatVigosPhoneNumber, getVigosPhoneLink } from "@/lib/utils";
 import {
   analyzeContactPhoneForUndeliverable,
   buildExperimentFallbackCandidates,
@@ -470,24 +471,47 @@ export function MetaUndeliverableNoticeCard({
         {(phoneInfo.formattedPhone || cleanEmail) && (
           <div className="flex flex-col gap-1.5 pt-0.5">
             {phoneInfo.formattedPhone && (
-              <SystemTooltip content="Clique para copiar o número e ligar para o cliente">
-                <button
-                  type="button"
-                  onClick={(e) => handleCopy("phone", phoneInfo.formattedPhone!, e)}
-                  className="w-full flex items-center justify-between gap-2 rounded-xl border border-border/80 bg-background/90 hover:bg-muted/80 hover:border-primary/35 px-3 py-2 text-xs transition cursor-pointer group"
+              <div className="flex items-center gap-1.5">
+                <SystemTooltip
+                  content={`Discar ${formatVigosPhoneNumber(phoneInfo.rawDigits) || phoneInfo.formattedPhone} direto no VigosPhone`}
                 >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <PhoneCall className="h-3.5 w-3.5 text-primary shrink-0" />
-                    <span className="font-bold text-foreground truncate">
-                      {phoneInfo.formattedPhone}
-                    </span>
-                    {phoneInfo.isBrazilLandline && (
-                      <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] font-semibold text-muted-foreground shrink-0">
-                        Fixo
+                  <a
+                    href={getVigosPhoneLink(phoneInfo.rawDigits || phoneInfo.formattedPhone)}
+                    onClick={(e) => e.stopPropagation()}
+                    className="flex-1 flex items-center justify-between gap-2 rounded-xl border border-border/80 bg-background/90 hover:bg-muted/80 hover:border-primary/35 px-3 py-2 text-xs transition cursor-pointer group min-w-0"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <PhoneCall className="h-3.5 w-3.5 text-primary shrink-0" />
+                      <span className="font-bold text-foreground truncate">
+                        {phoneInfo.formattedPhone}
                       </span>
-                    )}
-                  </div>
-                  <span className="inline-flex items-center gap-1 text-[10.5px] font-bold text-primary shrink-0">
+                      {phoneInfo.isBrazilLandline && (
+                        <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] font-semibold text-muted-foreground shrink-0">
+                          Fixo
+                        </span>
+                      )}
+                    </div>
+                    <span className="inline-flex items-center gap-1 text-[10.5px] font-bold text-primary shrink-0">
+                      <PhoneCall className="h-3 w-3 opacity-80 group-hover:opacity-100" />
+                      <span>Ligar</span>
+                    </span>
+                  </a>
+                </SystemTooltip>
+
+                <SystemTooltip
+                  content={`Copiar número para VigosPhone (${formatVigosPhoneNumber(phoneInfo.rawDigits) || phoneInfo.formattedPhone})`}
+                >
+                  <button
+                    type="button"
+                    onClick={(e) =>
+                      handleCopy(
+                        "phone",
+                        formatVigosPhoneNumber(phoneInfo.rawDigits) || phoneInfo.formattedPhone!,
+                        e,
+                      )
+                    }
+                    className="inline-flex items-center gap-1 rounded-xl border border-border/80 bg-background/90 hover:bg-muted/80 hover:border-primary/35 px-2.5 py-2 text-[10.5px] font-bold text-primary transition cursor-pointer shrink-0"
+                  >
                     {copiedField === "phone" ? (
                       <>
                         <Check className="h-3 w-3" />
@@ -495,13 +519,13 @@ export function MetaUndeliverableNoticeCard({
                       </>
                     ) : (
                       <>
-                        <Copy className="h-3 w-3 opacity-80 group-hover:opacity-100" />
-                        <span>Copiar telefone</span>
+                        <Copy className="h-3 w-3 opacity-80" />
+                        <span>Copiar</span>
                       </>
                     )}
-                  </span>
-                </button>
-              </SystemTooltip>
+                  </button>
+                </SystemTooltip>
+              </div>
             )}
 
             {cleanEmail && (

@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { motion, AnimatePresence } from "framer-motion";
 import { useChat } from "@/hooks/useChatState";
+import { getVigosPhoneLink } from "@/lib/utils";
 import {
   ChevronLeft,
   ChevronRight,
@@ -1137,8 +1138,9 @@ export function CommercialBiView() {
           setActiveView("commercialManagement");
           navigate({ to: "/" });
         }}
-        onCallContact={(phone, dealTitle) => {
-          if (phone) window.open(`tel:${phone.replace(/[^\d+]/g, "")}`, "_self");
+        onCallContact={(phone) => {
+          const link = getVigosPhoneLink(phone);
+          if (link !== "#") window.open(link, "_self");
         }}
       />
 
@@ -1161,8 +1163,9 @@ export function CommercialBiView() {
           setActiveView("commercialManagement");
           navigate({ to: "/" });
         }}
-        onCallContact={(phone, dealTitle) => {
-          if (phone) window.open(`tel:${phone.replace(/[^\d+]/g, "")}`, "_self");
+        onCallContact={(phone) => {
+          const link = getVigosPhoneLink(phone);
+          if (link !== "#") window.open(link, "_self");
         }}
         onSaveDirectives={async (dealIds) => {
           const deals = (maturityData?.previstas.deals || []).filter((deal) =>
@@ -1212,8 +1215,9 @@ export function CommercialBiView() {
           setActiveView("commercialManagement");
           navigate({ to: "/" });
         }}
-        onCallContact={(phone, dealTitle) => {
-          if (phone) window.open(`tel:${phone.replace(/[^\d+]/g, "")}`, "_self");
+        onCallContact={(phone) => {
+          const link = getVigosPhoneLink(phone);
+          if (link !== "#") window.open(link, "_self");
         }}
       />
 

@@ -611,6 +611,118 @@ export function formatPhoneNumber(phone: string | null | undefined): string {
   return `+${digits}`;
 }
 
+/**
+ * Formata um número de telefone para discagem via VigosPhone (Softphone PABX local em Bauru / 014):
+ * - Remove o DDI 55 (preservando com segurança o DDD 55 do RS e números internacionais);
+ * - Restaura o 9º dígito obrigatório da ANATEL em celulares vindos do WhatsApp com 8 dígitos ([6-9]xxxxxxx -> 9[6-9]xxxxxxx),
+ *   mantendo telefones fixos ([2-5]xxxxxxx) com 8 dígitos;
+ * - Exceção DDD 14 (Bauru / região 014): remove o zero e o DDD 14, retornando apenas o número local (8 ou 9 dígitos);
+ * - Demais DDDs brasileiros (11, 21, 41, 55, 62, 74, etc.): adiciona obrigatoriamente o prefixo 0 antes do DDD (ex: 011999998888).
+ */
+export function formatVigosPhoneNumber(phone?: string | null): string {
+  if (!phone) return "";
+  let raw = String(phone).trim();
+  if (!raw) return "";
+
+  raw = raw.replace(/^tel:/i, "").trim();
+  if (raw.includes("@")) {
+    raw = raw.split("@")[0].split(":")[0];
+  }
+
+  const hasExplicitPlus = raw.startsWith("+");
+  const digits = raw.replace(/\D/g, "");
+  if (!digits) return "";
+
+  // 1. Números especiais não-geográficos brasileiros (0800, 0300, 4003, 4004, 3003)
+  if (/^550[38]00\d{6,7}$/.test(digits)) {
+    return digits.slice(2);
+  }
+  if (/^0[38]00\d{6,7}$/.test(digits)) {
+    return digits;
+  }
+  if (/^(?:3003|400[34])\d{4}$/.test(digits)) {
+    return digits;
+  }
+
+  // 2. Proteção para números internacionais (não-Brasil)
+  if (isCorruptedNanpWith55(digits)) {
+    return digits.slice(2);
+  }
+  if (hasExplicitPlus && !digits.startsWith("55")) {
+    return digits;
+  }
+  if (isNanpPhoneNumber(digits)) {
+    return digits;
+  }
+
+  let n = digits;
+
+  // 3. Remoção segura do DDI 55 (sem confundir com o DDD 55 de Santa Maria/RS)
+  // Caso 3a: +55 + 0 + DDD + 8/9 dígitos (13 ou 14 dígitos, ex: 55011999998888 ou 5501432001234)
+  if (
+    n.startsWith("550") &&
+    (n.length === 13 || n.length === 14) &&
+    BRAZIL_DDDS.has(n.slice(3, 5))
+  ) {
+    n = n.slice(3);
+  } else if (
+    // Caso 3b: +55 + DDD + 8/9 dígitos (12 ou 13 dígitos, ex: 5511999998888, 5514999998888, 5555999998888, 557488041686)
+    n.startsWith("55") &&
+    (n.length === 12 || n.length === 13) &&
+    BRAZIL_DDDS.has(n.slice(2, 4))
+  ) {
+    n = n.slice(2);
+  }
+
+  // 4. Remoção de prefixo de tronco 0 ou 0 + CSP de operadora (ex: 011..., 014..., 01511..., 02114...)
+  if (
+    n.startsWith("0") &&
+    (n.length === 13 || n.length === 14) &&
+    BRAZIL_DDDS.has(n.slice(3, 5))
+  ) {
+    n = n.slice(3);
+  } else if (
+    n.startsWith("0") &&
+    (n.length === 11 || n.length === 12) &&
+    BRAZIL_DDDS.has(n.slice(1, 3))
+  ) {
+    n = n.slice(1);
+  }
+
+  // 5. Número brasileiro nacional com DDD (10 ou 11 dígitos)
+  if ((n.length === 10 || n.length === 11) && BRAZIL_DDDS.has(n.slice(0, 2))) {
+    const ddd = n.slice(0, 2);
+    let subscriber = n.slice(2);
+
+    // Restaura o 9º dígito obrigatório para celulares de 8 dígitos vindos da Meta/WhatsApp ([6-9]xxxxxxx -> 9[6-9]xxxxxxx)
+    if (subscriber.length === 8 && /^[6-9]\d{7}$/.test(subscriber)) {
+      subscriber = `9${subscriber}`;
+    }
+
+    // Exceção Bauru / Região 014: sem zero e sem DDD
+    if (ddd === "14") {
+      return subscriber;
+    }
+
+    // Demais DDDs: sempre com 0 antes do DDD (ex: 011999998888)
+    return `0${ddd}${subscriber}`;
+  }
+
+  // 6. Número local já sem DDD (8 ou 9 dígitos — assumido local Bauru/014)
+  if (n.length === 8 || n.length === 9) {
+    if (n.length === 8 && /^[6-9]\d{7}$/.test(n)) {
+      return `9${n}`;
+    }
+    return n;
+  }
+
+  return n;
+}
+
+export function getVigosPhoneLink(phone?: string | null): string {
+  const formatted = formatVigosPhoneNumber(phone);
+  return formatted ? `tel:${formatted}` : "#";
+}
 
 export function formatCPF(cpf: string | null | undefined): string {
   if (!cpf) return "Não informado";

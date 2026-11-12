@@ -54,6 +54,8 @@ import {
   WhatsappLogo,
 } from "@/components/chat/ChatList";
 import { SystemAnnotationBubble } from "@/components/chat/SystemAnnotationBubble";
+import { getVigosPhoneLink } from "@/lib/utils";
+export { getVigosPhoneLink };
 import { MessageKnowledgeSourceButton, VtexProductPreviewCard } from "@/components/chat/ChatMessageBubble";
 import {
   Dialog,
@@ -166,15 +168,6 @@ export function getConversationPreviewTime(
   const fromConvIso = formatBrtTimeHHMM(conversation.lastMessageAtISO);
   if (fromConvIso) return fromConvIso;
   return conversation.time || conversation.lastMessageTime || "";
-}
-
-export function getVigosPhoneLink(phone?: string | null): string {
-  if (!phone) return "#";
-  let n = phone.replace(/\D/g, "");
-  if (n.startsWith("55") && n.length > 10) n = n.substring(2);
-  if (n.startsWith("0")) n = n.substring(1);
-  if (n.startsWith("14")) n = n.substring(2);
-  return `tel:${n}`;
 }
 
 export function formatDisplayPhone(phone?: string | null): string {

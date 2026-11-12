@@ -34,6 +34,7 @@ import { SystemTooltip } from "@/components/ui/tooltip";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { AiAvatar } from "@/components/ui/AiAvatar";
 import { stripNotificationEmojis } from "@/lib/format-notification-text";
+import { getVigosPhoneLink } from "@/lib/utils";
 import { MessageReactionPicker } from "./MessageReactionPicker";
 import { MessageReactions } from "./MessageReactions";
 import { MessageStatusTicks } from "./MessageStatusTicks";
@@ -719,15 +720,6 @@ export function MessageKnowledgeSourceButton({
       </PopoverContent>
     </Popover>
   );
-}
-
-function getVigosPhoneLink(phone?: string | null): string {
-  if (!phone) return "#";
-  let n = phone.replace(/\D/g, "");
-  if (n.startsWith("55") && n.length > 10) n = n.substring(2);
-  if (n.startsWith("0")) n = n.substring(1);
-  if (n.startsWith("14")) n = n.substring(2);
-  return `tel:${n}`;
 }
 
 function formatDisplayPhone(phone?: string | null): string {

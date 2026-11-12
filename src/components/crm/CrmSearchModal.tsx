@@ -18,6 +18,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { DealStatusBadge } from "./deal-status-config";
+import { getVigosPhoneLink } from "@/lib/utils";
 
 type DealResult = {
   id: string;
@@ -256,7 +257,7 @@ export function CrmSearchModal({
                   )}
                   {selectedContact.phone && (
                     <a
-                      href={`tel:${selectedContact.phone}`}
+                      href={getVigosPhoneLink(selectedContact.phone)}
                       className="flex items-center gap-2 text-primary hover:underline"
                     >
                       <Phone className="h-4 w-4" />

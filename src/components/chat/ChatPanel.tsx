@@ -96,7 +96,12 @@ import { toast } from "sonner";
 import { usePermissions } from "@/hooks/usePermissions";
 import { getAiPersona } from "@/lib/ai-persona";
 import { setRememberedTabForView } from "@/lib/app-routes";
-import { resolveTemplateVariables, formatPhoneNumber } from "@/lib/utils";
+import {
+  resolveTemplateVariables,
+  formatPhoneNumber,
+  formatVigosPhoneNumber,
+  getVigosPhoneLink,
+} from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ContactPhoneTypeBadge } from "@/components/crm/ContactPhonesEditor";
 import type { ContactPhoneItem } from "@/lib/contact-phone-types";
@@ -3302,14 +3307,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <a
-                      href={(() => {
-                        if (!activeChat.phone) return "#";
-                        let n = activeChat.phone.replace(/\D/g, "");
-                        if (n.startsWith("55") && n.length > 10) n = n.substring(2);
-                        if (n.startsWith("0")) n = n.substring(1);
-                        if (n.startsWith("14")) n = n.substring(2);
-                        return `tel:${n}`;
-                      })()}
+                      href={getVigosPhoneLink(activeChat.phone)}
                       onClick={logVigosPhoneCall}
                       className="grid h-8 w-8 md:h-9 md:w-9 place-items-center rounded-xl border border-border bg-card text-primary hover:bg-primary/10 hover:border-primary/30 transition cursor-pointer"
                     >
@@ -3317,7 +3315,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                     </a>
                   </TooltipTrigger>
                   <TooltipContent side="bottom">
-                    Discar via VigosPhone (Softphone Local)
+                    Discar via VigosPhone ({formatVigosPhoneNumber(activeChat.phone) || "Softphone Local"})
                   </TooltipContent>
                 </Tooltip>
               )}
