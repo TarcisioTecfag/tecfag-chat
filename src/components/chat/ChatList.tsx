@@ -214,9 +214,21 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
   const queueTabIds: QueueType[] = React.useMemo(() => queues.map((q) => q.id as QueueType), [queues]);
   React.useEffect(() => {
     if (queueTabIds.length && !queueTabIds.includes(activeQueue)) {
-      setActiveQueue(queueTabIds[0]); setSelectedChatId(null);
+      const nextQueue = queueTabIds[0];
+      setActiveQueue(nextQueue);
+      const keepSelected =
+        Boolean(selectedChatId) &&
+        conversations.some(
+          (c) =>
+            c.id === selectedChatId &&
+            (nextQueue === "todos" || c.queue === nextQueue) &&
+            (nextQueue !== "meus" || c.operatorId === currentOperatorId),
+        );
+      if (!keepSelected) {
+        setSelectedChatId(null);
+      }
     }
-  }, [queueTabIds, activeQueue, setActiveQueue, setSelectedChatId]);
+  }, [queueTabIds, activeQueue, setActiveQueue, setSelectedChatId, selectedChatId, conversations, currentOperatorId]);
   useTabNavigation({
     tabs: queueTabIds,
     activeTab: activeQueue,

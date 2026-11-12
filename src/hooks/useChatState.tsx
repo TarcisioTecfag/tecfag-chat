@@ -599,6 +599,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
   const [selectedChatId, setSelectedChatId] = useState<string | null>(() => {
     if (typeof window !== "undefined") {
+      const parsed = parseAppRoute(window.location.pathname);
+      if (parsed.viewId === "chat") {
+        if (parsed.isAiAssistantChat) return "valentina";
+        if (parsed.chatKey) return null;
+      }
       return localStorage.getItem("chat_selected_id");
     }
     return null;
@@ -744,8 +749,12 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const parsedUrlRoute = parseAppRoute(window.location.pathname);
       if (parsedUrlRoute.viewId) {
         setActiveView(parsedUrlRoute.viewId);
-        if (parsedUrlRoute.viewId === "chat" && parsedUrlRoute.isAiAssistantChat) {
-          setSelectedChatId("valentina");
+        if (parsedUrlRoute.viewId === "chat") {
+          if (parsedUrlRoute.isAiAssistantChat) {
+            setSelectedChatId("valentina");
+          } else if (parsedUrlRoute.chatKey) {
+            setSelectedChatId(null);
+          }
         }
       } else {
         const savedView = localStorage.getItem("chat_active_view");
@@ -1964,6 +1973,12 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Load default selected chat when tenant changes
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      const parsed = parseAppRoute(window.location.pathname);
+      if (parsed.viewId === "chat" && (parsed.chatKey || parsed.isAiAssistantChat)) {
+        return;
+      }
+    }
     const currentConvs = tenant === "tecfag" ? tecfagConvs : valemConvs;
     if (currentConvs.length === 0) return;
     const savedSelectedId = typeof window !== "undefined" ? localStorage.getItem("chat_selected_id") : null;
@@ -2120,16 +2135,32 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             ...c,
             pinned: c.id === "valentina" ? true : pinnedIds.includes(c.id),
           }));
-          setConversations(chatsWithPinned);
+          setConversations((previous) => {
+            const incomingIds = new Set(chatsWithPinned.map((c: any) => c.id));
+            const preservedDeepLinked = previous.filter(
+              (item) => item.id !== "valentina" && !incomingIds.has(item.id),
+            );
+            return preservedDeepLinked.length > 0
+              ? [...chatsWithPinned, ...preservedDeepLinked]
+              : chatsWithPinned;
+          });
 
-          // Restaurar atendimento selecionado pós-deploy ou selecionar o primeiro disponível na fila ativa
-          const savedSelectedId = typeof window !== "undefined" ? localStorage.getItem("chat_selected_id") : null;
-          if (savedSelectedId && chatsWithPinned.some((c: any) => c.id === savedSelectedId)) {
-            setSelectedChatId(savedSelectedId);
-          } else if (!selectedChatIdRef.current) {
-            const firstInQueue = chatsWithPinned.find((c: any) => (activeQueue === "todos" || c.queue === activeQueue) && (activeQueue !== "meus" || c.operatorId === currentOperatorId));
-            if (firstInQueue) {
-              setSelectedChatId(firstInQueue.id);
+          const parsedUrl =
+            typeof window !== "undefined" ? parseAppRoute(window.location.pathname) : null;
+          const isExplicitChatDeepLink = Boolean(
+            parsedUrl?.viewId === "chat" && (parsedUrl.chatKey || parsedUrl.isAiAssistantChat),
+          );
+
+          if (!isExplicitChatDeepLink) {
+            // Restaurar atendimento selecionado pós-deploy ou selecionar o primeiro disponível na fila ativa
+            const savedSelectedId = typeof window !== "undefined" ? localStorage.getItem("chat_selected_id") : null;
+            if (savedSelectedId && chatsWithPinned.some((c: any) => c.id === savedSelectedId)) {
+              setSelectedChatId(savedSelectedId);
+            } else if (!selectedChatIdRef.current) {
+              const firstInQueue = chatsWithPinned.find((c: any) => (activeQueue === "todos" || c.queue === activeQueue) && (activeQueue !== "meus" || c.operatorId === currentOperatorId));
+              if (firstInQueue) {
+                setSelectedChatId(firstInQueue.id);
+              }
             }
           }
         }

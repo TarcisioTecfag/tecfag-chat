@@ -54,6 +54,12 @@ import { getAiPersona } from "@/lib/ai-persona";
 import { SystemTooltip } from "@/components/ui/tooltip";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import {
+  buildRodizioChatHref,
+  buildRodizioNegotiationHref,
+  buildRodizioTriageHref,
+  openRouteInNewTab,
+} from "@/lib/rodizio-external-links";
+import {
   RodizioStats,
   LeadByDay,
   LeadByFunnel,
@@ -545,20 +551,19 @@ function ReassignDropdown({
 
 function LeadOpenActionPopup({
   card,
+  deals,
   triggerRef,
   onClose,
-  onViewTriage,
-  onViewChat,
-  onViewNegotiation,
 }: {
   card: OperatorCard;
+  deals: ReadonlyArray<CrmDeal>;
   triggerRef: React.RefObject<HTMLButtonElement | null>;
   onClose: () => void;
-  onViewTriage: (card: OperatorCard) => void;
-  onViewChat: (card: OperatorCard) => void;
-  onViewNegotiation: (card: OperatorCard) => void;
 }) {
   const popupRef = useRef<HTMLDivElement | null>(null);
+  const triageHref = buildRodizioTriageHref(card);
+  const chatHref = buildRodizioChatHref(card);
+  const negotiationHref = buildRodizioNegotiationHref(card, deals);
   const [pos, setPos] = useState<{
     top?: number;
     bottom?: number;
@@ -664,15 +669,16 @@ function LeadOpenActionPopup({
 
       <div className="space-y-1">
         {/* Opção 1: Ver Triagem */}
-        <motion.button
-          type="button"
+        <motion.a
+          href={triageHref}
+          target="_blank"
+          rel="noopener noreferrer"
           whileHover={{ x: 2 }}
           whileTap={{ scale: 0.98 }}
           onClick={() => {
             onClose();
-            onViewTriage(card);
           }}
-          className="w-full flex items-start gap-2.5 p-2 rounded-xl text-left hover:bg-primary-soft/60 border border-transparent hover:border-primary/20 transition cursor-pointer group"
+          className="w-full flex items-start gap-2.5 p-2 rounded-xl text-left hover:bg-primary-soft/60 border border-transparent hover:border-primary/20 transition cursor-pointer group no-underline"
         >
           <div className="h-7 w-7 rounded-lg bg-violet-500/10 border border-violet-500/20 text-violet-600 dark:text-violet-400 grid place-items-center shrink-0 group-hover:bg-violet-600 group-hover:text-white transition">
             <Bot className="h-3.5 w-3.5" />
@@ -682,24 +688,25 @@ function LeadOpenActionPopup({
               <span className="text-[11px] font-extrabold text-foreground group-hover:text-primary transition">
                 Ver Triagem
               </span>
-              <ChevronRight className="h-3 w-3 text-muted-foreground group-hover:text-primary transition shrink-0" />
+              <ExternalLink className="h-3 w-3 text-muted-foreground group-hover:text-primary transition shrink-0" />
             </div>
             <p className="text-[9px] text-muted-foreground leading-snug mt-0.5">
-              Abre o chat de atendimento da aba SDR
+              Abre o chat de atendimento da aba SDR em nova guia
             </p>
           </div>
-        </motion.button>
+        </motion.a>
 
         {/* Opção 2: Ver Conversa */}
-        <motion.button
-          type="button"
+        <motion.a
+          href={chatHref}
+          target="_blank"
+          rel="noopener noreferrer"
           whileHover={{ x: 2 }}
           whileTap={{ scale: 0.98 }}
           onClick={() => {
             onClose();
-            onViewChat(card);
           }}
-          className="w-full flex items-start gap-2.5 p-2 rounded-xl text-left hover:bg-primary-soft/60 border border-transparent hover:border-primary/20 transition cursor-pointer group"
+          className="w-full flex items-start gap-2.5 p-2 rounded-xl text-left hover:bg-primary-soft/60 border border-transparent hover:border-primary/20 transition cursor-pointer group no-underline"
         >
           <div className="h-7 w-7 rounded-lg bg-primary/10 border border-primary/20 text-primary grid place-items-center shrink-0 group-hover:bg-primary group-hover:text-primary-foreground transition">
             <MessageCircle className="h-3.5 w-3.5" />
@@ -709,24 +716,25 @@ function LeadOpenActionPopup({
               <span className="text-[11px] font-extrabold text-foreground group-hover:text-primary transition">
                 Ver Conversa
               </span>
-              <ChevronRight className="h-3 w-3 text-muted-foreground group-hover:text-primary transition shrink-0" />
+              <ExternalLink className="h-3 w-3 text-muted-foreground group-hover:text-primary transition shrink-0" />
             </div>
             <p className="text-[9px] text-muted-foreground leading-snug mt-0.5">
-              Abre o chat de atendimento padrão
+              Abre o chat de atendimento padrão em nova guia
             </p>
           </div>
-        </motion.button>
+        </motion.a>
 
         {/* Opção 3: Ver Negociação */}
-        <motion.button
-          type="button"
+        <motion.a
+          href={negotiationHref}
+          target="_blank"
+          rel="noopener noreferrer"
           whileHover={{ x: 2 }}
           whileTap={{ scale: 0.98 }}
           onClick={() => {
             onClose();
-            onViewNegotiation(card);
           }}
-          className="w-full flex items-start gap-2.5 p-2 rounded-xl text-left hover:bg-primary-soft/60 border border-transparent hover:border-primary/20 transition cursor-pointer group"
+          className="w-full flex items-start gap-2.5 p-2 rounded-xl text-left hover:bg-primary-soft/60 border border-transparent hover:border-primary/20 transition cursor-pointer group no-underline"
         >
           <div className="h-7 w-7 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-600 dark:text-blue-400 grid place-items-center shrink-0 group-hover:bg-blue-600 group-hover:text-white transition">
             <Briefcase className="h-3.5 w-3.5" />
@@ -736,13 +744,13 @@ function LeadOpenActionPopup({
               <span className="text-[11px] font-extrabold text-foreground group-hover:text-primary transition">
                 Ver Negociação
               </span>
-              <ChevronRight className="h-3 w-3 text-muted-foreground group-hover:text-primary transition shrink-0" />
+              <ExternalLink className="h-3 w-3 text-muted-foreground group-hover:text-primary transition shrink-0" />
             </div>
             <p className="text-[9px] text-muted-foreground leading-snug mt-0.5">
-              Abre o card no CRM local
+              Abre o card no CRM local em nova guia
             </p>
           </div>
-        </motion.button>
+        </motion.a>
       </div>
     </motion.div>,
     document.body
@@ -753,6 +761,7 @@ function LeadOpenActionPopup({
 
 function LeadCardItem({
   card,
+  deals,
   opName,
   isOpen,
   isOpenActionPopup,
@@ -763,12 +772,10 @@ function LeadCardItem({
   onReassign,
   onClose,
   onCloseOpenActionPopup,
-  onViewTriage,
-  onViewChat,
-  onViewNegotiation,
   onDeleteCard,
 }: {
   card: OperatorCard;
+  deals: ReadonlyArray<CrmDeal>;
   opName: string;
   isOpen: boolean;
   isOpenActionPopup: boolean;
@@ -779,9 +786,6 @@ function LeadCardItem({
   onReassign: (cardId: string, op: OperatorOption) => Promise<void>;
   onClose: () => void;
   onCloseOpenActionPopup: () => void;
-  onViewTriage: (card: OperatorCard) => void;
-  onViewChat: (card: OperatorCard) => void;
-  onViewNegotiation: (card: OperatorCard) => void;
   onDeleteCard?: (cardId: string, leadName: string) => void;
 }) {
   const btnRef = useRef<HTMLButtonElement | null>(null);
@@ -870,11 +874,9 @@ function LeadCardItem({
         {isOpenActionPopup && (
           <LeadOpenActionPopup
             card={card}
+            deals={deals}
             triggerRef={openBtnRef}
             onClose={onCloseOpenActionPopup}
-            onViewTriage={onViewTriage}
-            onViewChat={onViewChat}
-            onViewNegotiation={onViewNegotiation}
           />
         )}
       </div>
@@ -1977,70 +1979,12 @@ export function RodizioTab({ onOpenTriage }: RodizioTabProps = {}) {
     }
   };
 
-  // 1. Ver Triagem (Abre o chat de atendimento da aba SDR)
-  const handleViewTriage = (card: OperatorCard) => {
-    const convId = card.chatId || card.id;
-    if (onOpenTriage) {
-      toast.info(`Abrindo triagem de "${card.name}" na aba SDR...`);
-      onOpenTriage(convId, card.name);
-      return;
-    }
-    setSelectedChatId(convId);
-    setActiveView("valentina");
-  };
-
-  // 2. Ver Conversa (Abre o chat de atendimento padrão)
-  const handleViewChat = (card: OperatorCard) => {
-    const convId = card.chatId || card.id;
-    setSelectedChatId(convId);
-    setActiveView("chat");
-    toast.info(`Abrindo conversa de "${card.name}" no Chat...`);
-  };
-
-  // 3. Ver Negociação (Abre o card no CRM local)
-  const handleViewNegotiation = (card: OperatorCard) => {
-    const matchedDeal = deals.find(
-      (d) =>
-        d.id === card.rdDealId ||
-        d.rd_deal_id === card.rdDealId ||
-        d.id === card.id ||
-        d.name.trim().toLowerCase() === card.name.trim().toLowerCase() ||
-        (card.phone && d.phone && d.phone === card.phone)
-    );
-
-    const targetDealId =
-      card.rdDealId ||
-      matchedDeal?.rd_deal_id ||
-      matchedDeal?.id ||
-      (card.id.startsWith("deal-") ? card.id : undefined);
-
-    if (targetDealId) {
-      toast.info(`Abrindo negociação de "${card.name}" no CRM Local...`);
-      navigate({
-        to: "/crm/deals/$dealId",
-        params: { dealId: targetDealId },
-        search: { from: "valentina" },
-      });
-      return;
-    }
-
-    setActiveView("crm" as any);
-    toast.info(`Abrindo CRM Local para "${card.name}"...`);
-  };
-
   const handleOpenDeal = (deal: CrmDeal) => {
     const targetDealId = deal.rd_deal_id || deal.id;
-    if (targetDealId) {
-      toast.info(`Abrindo negociação "${deal.name}" no CRM Local...`);
-      navigate({
-        to: "/crm/deals/$dealId",
-        params: { dealId: targetDealId },
-        search: { from: "valentina" },
-      });
-    } else {
-      setActiveView("crm" as any);
-      toast.info(`Negociação: ${deal.name}`);
-    }
+    const href = targetDealId
+      ? `/crm/deals/${encodeURIComponent(targetDealId)}?from=valentina`
+      : "/negociacoes/quadro";
+    openRouteInNewTab(href);
   };
 
   // Atualizar estado de disponibilidade
@@ -2195,6 +2139,7 @@ export function RodizioTab({ onOpenTriage }: RodizioTabProps = {}) {
                 <LeadCardItem
                   key={card.id}
                   card={card}
+                  deals={deals}
                   opName={op.name}
                   isOpen={openDropdown === card.id}
                   isOpenActionPopup={openActionPopupCardId === uniquePopupKey}
@@ -2213,9 +2158,6 @@ export function RodizioTab({ onOpenTriage }: RodizioTabProps = {}) {
                   onReassign={handleReassign}
                   onClose={() => setOpenDropdown(null)}
                   onCloseOpenActionPopup={() => setOpenActionPopupCardId(null)}
-                  onViewTriage={handleViewTriage}
-                  onViewChat={handleViewChat}
-                  onViewNegotiation={handleViewNegotiation}
                   onDeleteCard={handleDeleteCard}
                 />
               );

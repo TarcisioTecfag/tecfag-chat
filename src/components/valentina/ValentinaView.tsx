@@ -40,6 +40,7 @@ const allTabs: { id: ValentinaTab; label: string; icon: React.ElementType }[] = 
 // ── Componente principal ────────────────────────────────────────────────────
 
 import { getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
+import { parseSdrTargetFromSearch, type SdrTargetLookup } from "@/lib/rodizio-external-links";
 
 export function ValentinaView() {
   const { tenant, setActiveView, setSelectedChatId } = useChat();
@@ -47,9 +48,17 @@ export function ValentinaView() {
   const { canAccessValentinaTab } = usePermissions();
   const allowedTabs = allTabs.filter(tab => canAccessValentinaTab(tab.id));
   const allowedTabIds = useMemo(() => allowedTabs.map((t) => t.id), [allowedTabs]);
-  const [activeTab, setActiveTab] = useState<ValentinaTab>(() =>
-    getInitialTabFromUrl("valentina", allowedTabs[0]?.id || "chat", allowedTabIds),
+  const [sdrTargetConversation, setSdrTargetConversation] = useState<SdrTargetLookup | null>(() =>
+    typeof window !== "undefined" ? parseSdrTargetFromSearch(window.location.search) : null,
   );
+  const [activeTab, setActiveTab] = useState<ValentinaTab>(() => {
+    const fromSearch =
+      typeof window !== "undefined" ? parseSdrTargetFromSearch(window.location.search) : null;
+    if (fromSearch && allowedTabIds.includes("sdr")) {
+      return "sdr";
+    }
+    return getInitialTabFromUrl("valentina", allowedTabs[0]?.id || "chat", allowedTabIds);
+  });
   const [showMobileFeed, setShowMobileFeed] = useState(false);
 
   // Estado e Controle de SDR Triagem Automática (elevado ao Header para maximizar espaço de tela)
@@ -59,11 +68,6 @@ export function ValentinaView() {
   const [sdrRefreshKey, setSdrRefreshKey] = useState(0);
   const [isSdrLoading, setIsSdrLoading] = useState(false);
   const [sdrSelectedConversationId, setSdrSelectedConversationId] = useState<string | undefined>(undefined);
-  const [sdrTargetConversation, setSdrTargetConversation] = useState<{
-    conversationId: string;
-    leadName?: string;
-    ts: number;
-  } | null>(null);
   const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
   useEffect(() => {

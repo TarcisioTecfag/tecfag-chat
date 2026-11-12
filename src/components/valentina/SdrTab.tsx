@@ -651,7 +651,13 @@ export interface SdrTabProps {
   refreshKey?: number;
   onLoadingChange?: (loading: boolean) => void;
   onSelectedConversationChange?: (conversationId: string | undefined) => void;
-  targetConversation?: { conversationId: string; leadName?: string; ts: number } | null;
+  targetConversation?: {
+    conversationId: string;
+    dealId?: string;
+    phone?: string;
+    leadName?: string;
+    ts: number;
+  } | null;
   onTargetConversationHandled?: () => void;
 }
 
@@ -949,18 +955,42 @@ export function SdrTab({
 
   // Quando o usuário clica em "Ver Triagem" na aba de Rodízio, seleciona a sessão correspondente e rola para o chat SDR
   useEffect(() => {
-    if (!targetConversation?.conversationId || sessions.length === 0) return;
+    if (
+      !targetConversation ||
+      (!targetConversation.conversationId &&
+        !targetConversation.dealId &&
+        !targetConversation.phone &&
+        !targetConversation.leadName) ||
+      sessions.length === 0
+    ) {
+      return;
+    }
 
-    const targetId = targetConversation.conversationId;
+    const targetId = (targetConversation.conversationId || "").trim();
+    const targetDealId = (targetConversation.dealId || "").trim();
+    const normPhone = (targetConversation.phone || "").replace(/\D/g, "");
     const normLeadName = (targetConversation.leadName || "").trim().toLowerCase();
+
+    const phonesMatch = (sessionPhone: string | undefined | null) => {
+      if (!normPhone || !sessionPhone) return false;
+      const sDigits = sessionPhone.replace(/\D/g, "");
+      if (!sDigits) return false;
+      if (sDigits === normPhone) return true;
+      const tailA = sDigits.slice(-8);
+      const tailB = normPhone.slice(-8);
+      return tailA.length === 8 && tailA === tailB && sDigits.slice(-10, -8) === normPhone.slice(-10, -8);
+    };
 
     const matched =
       sessions.find(
         (s) =>
-          s.conversationId === targetId ||
-          s.id === targetId ||
-          (s.linkedDeal?.dealId && s.linkedDeal.dealId === targetId)
+          (Boolean(targetId) &&
+            (s.conversationId === targetId ||
+              s.id === targetId ||
+              (s.linkedDeal?.dealId && s.linkedDeal.dealId === targetId))) ||
+          (Boolean(targetDealId) && s.linkedDeal?.dealId === targetDealId),
       ) ||
+      (normPhone ? sessions.find((s) => phonesMatch(s.phone)) : undefined) ||
       (normLeadName
         ? sessions.find((s) => s.contactName.trim().toLowerCase() === normLeadName)
         : undefined);

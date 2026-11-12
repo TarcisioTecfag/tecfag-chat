@@ -1,7 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { and, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "../../../db";
-import { contacts, conversations } from "../../../db/schema";
+import {
+  contacts,
+  conversations,
+  crmConversationDeals,
+  crmDealContacts,
+} from "../../../db/schema";
 import { requireSession } from "../../../lib/auth-session";
 import { conversationReadCondition } from "../../../lib/access-control/conversation-access";
 
@@ -48,8 +53,67 @@ export const Route = createFileRoute("/api/chats/resolve")({
         const [found] = await db.select({ id: conversations.id }).from(conversations)
           .where(and(eq(conversations.tenantId, session.tenantId), eq(conversations.id, key), conversationReadCondition(session)))
           .limit(1);
-        if (!found) return Response.json({ error: "Atendimento não encontrado." }, { status: 404 });
-        return Response.json({ conversationId: found.id }, { headers: { "Cache-Control": "no-store" } });
+        if (found) {
+          return Response.json({ conversationId: found.id }, { headers: { "Cache-Control": "no-store" } });
+        }
+
+        if (key.startsWith("deal-")) {
+          const [linkedConv] = await db
+            .select({ id: conversations.id })
+            .from(crmConversationDeals)
+            .innerJoin(
+              conversations,
+              and(
+                eq(conversations.id, crmConversationDeals.conversationId),
+                eq(conversations.tenantId, session.tenantId),
+              ),
+            )
+            .where(
+              and(
+                eq(crmConversationDeals.tenantId, session.tenantId),
+                eq(crmConversationDeals.dealId, key),
+                conversationReadCondition(session),
+              ),
+            )
+            .orderBy(desc(crmConversationDeals.isActive), desc(conversations.lastMessageTime))
+            .limit(1);
+
+          if (linkedConv) {
+            return Response.json(
+              { conversationId: linkedConv.id },
+              { headers: { "Cache-Control": "no-store" } },
+            );
+          }
+
+          const [contactConv] = await db
+            .select({ id: conversations.id })
+            .from(crmDealContacts)
+            .innerJoin(
+              conversations,
+              and(
+                eq(conversations.contactId, crmDealContacts.contactId),
+                eq(conversations.tenantId, session.tenantId),
+              ),
+            )
+            .where(
+              and(
+                eq(crmDealContacts.tenantId, session.tenantId),
+                eq(crmDealContacts.dealId, key),
+                conversationReadCondition(session),
+              ),
+            )
+            .orderBy(desc(crmDealContacts.isPrimary), desc(conversations.lastMessageTime))
+            .limit(1);
+
+          if (contactConv) {
+            return Response.json(
+              { conversationId: contactConv.id },
+              { headers: { "Cache-Control": "no-store" } },
+            );
+          }
+        }
+
+        return Response.json({ error: "Atendimento não encontrado." }, { status: 404 });
       },
     },
   },

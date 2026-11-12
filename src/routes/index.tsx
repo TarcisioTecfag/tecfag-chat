@@ -169,7 +169,7 @@ export function Index() {
         return;
       }
 
-      if (!selectedChatId && (parsed.isRoot || viewChanged || chatIdChanged || parsed.viewId !== "chat")) {
+      if (!selectedChatId && !parsed.chatKey && !parsed.isAiAssistantChat && (parsed.isRoot || viewChanged || chatIdChanged || parsed.viewId !== "chat")) {
         const target = "/chat";
         if (location.pathname !== target) {
           prevPathRef.current = target;
