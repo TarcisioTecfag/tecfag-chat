@@ -71,6 +71,7 @@ import {
   Pencil,
   Copy,
   Check,
+  ListTodo,
 } from "lucide-react";
 import {
   Dialog,
@@ -81,6 +82,7 @@ import {
 } from "@/components/ui/dialog";
 import { ValentinaAssistantModal } from "./ValentinaAssistantModal";
 import { ProductCatalogPicker } from "./ProductCatalogPicker";
+import { InlineChatTaskComposer } from "./InlineChatTaskComposer";
 import { MarkEvidenceModal } from "@/components/crm/MarkEvidenceModal";
 import { AiAvatar } from "@/components/ui/AiAvatar";
 import { ChatMessageBubble } from "./ChatMessageBubble";
@@ -1131,7 +1133,7 @@ interface TransientChatPanelState {
   text: string;
   replyingTo: any;
   attachments: File[];
-  msgMode: "client" | "internal";
+  msgMode: "client" | "internal" | "task";
   noteScope: "current" | "general";
   msgSearch: string;
   showMsgSearch: boolean;
@@ -1183,6 +1185,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     toggleReaction,
     syncConversationMessages,
     updateClientInfo,
+    updateTags,
   } = useChat();
 
   const connectionsState = useWhatsappConnections(tenant);
@@ -1493,7 +1496,16 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     return !!sent;
   };
 
-  const [msgMode, setMsgMode] = useState<"client" | "internal">(initialTransientState?.msgMode ?? "client");
+  const [msgMode, setMsgMode] = useState<"client" | "internal" | "task">(initialTransientState?.msgMode ?? "client");
+  const [showClosedWindowTaskComposer, setShowClosedWindowTaskComposer] = useState(false);
+  useEffect(() => {
+    setShowClosedWindowTaskComposer(false);
+  }, [activeChat?.id]);
+  useEffect(() => {
+    if (msgMode === "task" && (!canManageTags || activeChat?.id === "valentina")) {
+      setMsgMode("client");
+    }
+  }, [msgMode, canManageTags, activeChat?.id]);
   const noteConversationRef = useRef(activeChat?.id);
   noteConversationRef.current = activeChat?.id;
   const openingNote = useRef(false);
@@ -2693,7 +2705,8 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   };
 
   const handleSend = async () => {
-    if (isMetaWhatsappChat && msgMode !== "internal" && metaWindow && !metaWindow.open) {
+    if (msgMode === "task") return;
+    if (isMetaWhatsappChat && msgMode === "client" && metaWindow && !metaWindow.open) {
       toast.error("A janela de 24 horas terminou. Use um template aprovado pela Meta.");
       setIsCatalogOpen(false);
       setShowMetaTemplateModal(true);
@@ -4437,6 +4450,14 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                 activeDealLabel={dealContext.data?.currentDeal?.title || null}
               />
 
+              {showClosedWindowTaskComposer && canManageTags && activeChat.id !== "valentina" && (
+                <InlineChatTaskComposer
+                  conversationId={activeChat.id}
+                  tags={activeChat.tags}
+                  onUpdateTags={updateTags}
+                />
+              )}
+
               <div className="rounded-xl border border-border/80 border-l-[6px] border-l-primary bg-card p-3.5 md:p-5 shadow-xs">
                 <div className="flex items-start gap-2.5 md:gap-3.5">
                   <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
@@ -4459,6 +4480,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                             return;
                           }
                           const next = !showMetaTemplateModal;
+                          if (next) setShowClosedWindowTaskComposer(false);
                           setShowMetaTemplateModal(next);
                           if (next) void loadMetaTemplates();
                         }}
@@ -4469,6 +4491,29 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                           {showMetaTemplateModal ? "Fechar Templates" : "Enviar Template"}
                         </span>
                       </button>
+                      {canManageTags && activeChat.id !== "valentina" && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const next = !showClosedWindowTaskComposer;
+                            if (next) {
+                              setShowMetaTemplateModal(false);
+                              void dealContext.refresh();
+                            }
+                            setShowClosedWindowTaskComposer(next);
+                          }}
+                          className={`inline-flex items-center gap-1.5 md:gap-2 rounded-md border px-3 md:px-4 py-1.5 md:py-2 text-xs font-semibold shadow-xs transition-colors cursor-pointer ${
+                            showClosedWindowTaskComposer
+                              ? "border-primary bg-primary/10 text-primary"
+                              : "border-border/90 bg-background hover:bg-muted/70 hover:border-primary/50 text-foreground"
+                          }`}
+                        >
+                          <ListTodo className="h-3.5 w-3.5 text-primary" />
+                          <span>
+                            {showClosedWindowTaskComposer ? "Fechar Tarefas" : "Tarefas"}
+                          </span>
+                        </button>
+                      )}
                       {canTransfer && (
                         <button
                           type="button"
@@ -4497,7 +4542,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
 
               {/* ── 1. Aviso de Janela Meta 24h (Posicionado no topo para perfeita simetria — oculto no chat interno de Fagner/Valentina) ── */}
               {isMetaWhatsappChat &&
-                msgMode !== "internal" && (
+                msgMode === "client" && (
                   <div data-tour="meta.window" className="mb-2.5 rounded-xl border border-primary/20 bg-primary/5 dark:bg-primary/10 px-3.5 py-2 text-xs backdrop-blur-xs shadow-2xs">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-2 text-muted-foreground">
@@ -4625,6 +4670,27 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                     <span>Nota Interna</span>
                   </button>
                 )}
+                {canManageTags && activeChat.id !== "valentina" && (
+                  <button
+                    type="button"
+                    data-chat-task-tab="true"
+                    onClick={() => {
+                      setMsgMode("task");
+                      setIsCatalogOpen(false);
+                      setShowMetaTemplateModal(false);
+                      setShowValentinaModal(false);
+                      void dealContext.refresh();
+                    }}
+                    className={`pb-1 border-b-2 px-1 transition cursor-pointer flex items-center gap-1 ${
+                      !isCatalogOpen && !showMetaTemplateModal && !showValentinaModal && msgMode === "task"
+                        ? "border-primary text-primary font-bold"
+                        : "border-transparent text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    <ListTodo className="h-3 w-3 text-primary" />
+                    <span>Tarefas</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => {
@@ -4702,6 +4768,12 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                   tenantId={tenant}
                   onAttachFiles={handleAttachCatalogFiles}
                   onClose={() => setIsCatalogOpen(false)}
+                />
+              ) : msgMode === "task" && canManageTags && activeChat.id !== "valentina" ? (
+                <InlineChatTaskComposer
+                  conversationId={activeChat.id}
+                  tags={activeChat.tags}
+                  onUpdateTags={updateTags}
                 />
               ) : (
                 <>

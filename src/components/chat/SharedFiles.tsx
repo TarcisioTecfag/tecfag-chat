@@ -693,11 +693,15 @@ export function SharedFiles() {
     const openLinkedDeals = (taskDealContext.data?.deals || []).filter(
       (d) => d.status === "open" && d.isLinked,
     );
+    const pausedLinkedDeals = (taskDealContext.data?.deals || []).filter(
+      (d) => d.status === "paused" && d.isLinked,
+    );
     const canResolveDeal =
       Boolean(taskDealContext.data?.hasCurrentDeal) ||
       Boolean(taskDealContext.data?.gracePeriodActive) ||
       Boolean(taskDealContext.data?.previousDeal) ||
-      openLinkedDeals.length === 1;
+      openLinkedDeals.length === 1 ||
+      (openLinkedDeals.length === 0 && pausedLinkedDeals.length === 1);
     if (!canResolveDeal) {
       toast.error("Selecione a negociação deste atendimento antes de criar a tarefa.");
       return;
@@ -737,6 +741,7 @@ export function SharedFiles() {
     void taskDealContext.refresh();
     void fetchCurrentDealTasks();
     window.dispatchEvent(new Event("crm-deals-changed"));
+    window.dispatchEvent(new Event("chat:reconnected"));
 
     // Reset form
     setTaskSubject("");

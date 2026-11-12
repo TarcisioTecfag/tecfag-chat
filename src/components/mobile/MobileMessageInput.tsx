@@ -15,11 +15,13 @@ import {
   Film,
   Sparkles,
   Package,
+  ListTodo,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ValentinaAssistantModal } from "../chat/ValentinaAssistantModal";
 import { ProductCatalogPicker } from "../chat/ProductCatalogPicker";
 import { QuickResponsesPopover } from "../chat/QuickResponsesPopover";
+import { InlineChatTaskComposer } from "../chat/InlineChatTaskComposer";
 import { getAiPersona } from "@/lib/ai-persona";
 import { usePermissions } from "@/hooks/usePermissions";
 import { setRememberedTabForView } from "@/lib/app-routes";
@@ -54,11 +56,12 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
     tenant,
     operatorProfile,
     setActiveView,
+    updateTags,
   } = useChat();
-  const { canManageGlobalTemplates, canSendInternalNotes } = usePermissions();
+  const { canManageGlobalTemplates, canSendInternalNotes, canManageTags } = usePermissions();
   const aiPersona = getAiPersona(tenant || "valem");
 
-  const [activeTab, setActiveTab] = useState<"message" | "internal_note">("message");
+  const [activeTab, setActiveTab] = useState<"message" | "internal_note" | "task">("message");
   const [text, setText] = useState("");
   const dealContext = useConversationDealContext(selectedChatId || undefined);
   const draftContextVersion = useRef<number | undefined>(undefined);
@@ -71,7 +74,10 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
     if (activeTab === "internal_note" && !canSendInternalNotes) {
       setActiveTab("message");
     }
-  }, [activeTab, canSendInternalNotes]);
+    if (activeTab === "task" && (!canManageTags || selectedChatId === "valentina")) {
+      setActiveTab("message");
+    }
+  }, [activeTab, canSendInternalNotes, canManageTags, selectedChatId]);
   useEffect(() => {
     const syncVersion = () => {
       draftContextVersion.current = undefined;
@@ -457,6 +463,31 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
                   </motion.button>
                 )}
 
+                {canManageTags && selectedChatId !== "valentina" && (
+                  <motion.button
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => {
+                      setActiveTab("task");
+                      setIsCatalogOpen(false);
+                      void dealContext.refresh();
+                    }}
+                    className={`relative pb-1 transition-colors cursor-pointer flex items-center gap-1 text-xs ${
+                      !isCatalogOpen && activeTab === "task"
+                        ? "text-primary font-extrabold"
+                        : "text-muted-foreground hover:text-foreground font-medium"
+                    }`}
+                  >
+                    <ListTodo className="w-3 h-3 text-primary" />
+                    <span>Tarefas</span>
+                    {!isCatalogOpen && activeTab === "task" && (
+                      <motion.span
+                        layoutId="mobileInputActiveTab"
+                        className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full"
+                      />
+                    )}
+                  </motion.button>
+                )}
+
                 <motion.button
                   whileTap={{ scale: 0.95 }}
                   onClick={() => setIsCatalogOpen((v) => !v)}
@@ -489,6 +520,13 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
                 tenantId={tenant}
                 onAttachFiles={handleAttachCatalogFiles}
                 onClose={() => setIsCatalogOpen(false)}
+              />
+            ) : activeTab === "task" && canManageTags && selectedChatId && selectedChatId !== "valentina" ? (
+              <InlineChatTaskComposer
+                conversationId={selectedChatId}
+                tags={activeChat?.tags}
+                onUpdateTags={updateTags}
+                compact
               />
             ) : (
               <div
