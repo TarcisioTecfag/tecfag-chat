@@ -28,8 +28,18 @@ export const Route = createFileRoute("/api/valentina/assistant")({
         if ("response" in auth) return auth.response;
         const { session } = auth;
         const tenantId = session.tenantId;
-        if (session.permissions?.views?.valentina !== true || session.permissions?.valentina?.canAccessChat !== true) {
-          return Response.json({ error: "Permissão insuficiente para usar o assistente.", code: "FORBIDDEN" }, { status: 403 });
+        const canAccessAssistantSurface =
+          session.permissions?.views?.chat === true ||
+          session.permissions?.views?.valentina === true;
+        if (!canAccessAssistantSurface || session.permissions?.valentina?.canAccessChat !== true) {
+          return Response.json(
+            {
+              error:
+                "Permissão insuficiente para usar o assistente. Habilite 'Assistente IA no Chat' em Operações de Atendimento do grupo.",
+              code: "FORBIDDEN",
+            },
+            { status: 403 },
+          );
         }
 
         try {

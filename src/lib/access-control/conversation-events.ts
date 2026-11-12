@@ -22,7 +22,10 @@ export async function filterConversationEvent(session: AuthSessionContext, event
     return permissions?.views?.chat === true ? { type: "status", status: event.status } : null;
   }
   if (event.type === "operator_ai_notification") {
-    if (event.operatorId !== session.operator.id || permissions?.views?.valentina !== true || permissions?.valentina?.canAccessChat !== true) return null;
+    const canReceiveOperatorAi =
+      (permissions?.views?.chat === true || permissions?.views?.valentina === true) &&
+      permissions?.valentina?.canAccessChat === true;
+    if (event.operatorId !== session.operator.id || !canReceiveOperatorAi) return null;
     const conversationId = event.message?.warningMetadata?.conversationId ?? event.notification?.warningMetadata?.conversationId;
     if (conversationId && await requireConversationAccess(session, conversationId)) return null;
     return event;

@@ -1195,6 +1195,7 @@ export function GroupsView() {
     const catObj = { ...(currentPerms[category] as any) };
     for (const k of Object.keys(catObj)) {
       if (typeof catObj[k] === "boolean") {
+        if (category === "valentina" && k === "canAccessChat" && !value) continue;
         catObj[k] = k === "restrictToOwnChats" ? !value : value;
       }
     }
@@ -1202,6 +1203,9 @@ export function GroupsView() {
     const updatedPerms: GroupPermissions = {
       ...currentPerms,
       [category]: catObj,
+      ...(category === "chat"
+        ? { valentina: { ...currentPerms.valentina, canAccessChat: value } }
+        : {}),
     };
 
     const legacyUpdates: Partial<AccessGroup> = {
@@ -2843,7 +2847,7 @@ export function GroupsView() {
                           { key: "tasks",     label: "Tarefas & Compromissos", desc: "Acesso ao kanban de tarefas do operador" },
                           { key: "contacts",  label: "Base de Contatos", desc: "Acesso à lista e fichas de clientes" },
                           { key: "wallet",   label: "Carteiras Globais", desc: "Acesso à gestão de carteiras comerciais" },
-                          { key: "valentina", label: `${aiPersona.name} IA Hub`, desc: "Acesso ao SDR, Rodízio e Base de Conhecimento" },
+                          { key: "valentina", label: `${aiPersona.name} IA Hub`, desc: "Exibe o módulo gerencial (SDR, Fluxos, Rodízio e Base) no menu lateral" },
                           { key: "ligacoes",  label: "Ligações & Telefonia", desc: "Acesso ao módulo de voz Twilio IA" },
                           { key: "monitor",   label: "Monitoramento & QA", desc: "Acesso ao espião, alertas e auditorias" },
                           { key: "analytics", label: "Estatísticas & BI", desc: "Acesso às métricas, SLA e relatórios" },
@@ -2949,6 +2953,28 @@ export function GroupsView() {
                             </label>
                           );
                         })}
+                        {matchesSearch(
+                          `Assistente ${aiPersona.name} no Chat`,
+                          `Gerar Resumo do Atendimento, Melhor Resposta, Corretor e conversar com ${aiPersona.name} no Chat`,
+                        ) && (
+                          <label className="flex items-start gap-3 rounded-xl border border-border bg-muted/20 p-3 hover:bg-muted/30 transition cursor-pointer">
+                            <Checkbox
+                              checked={perms.valentina.canAccessChat ?? false}
+                              onCheckedChange={(checked) =>
+                                updateGroupGranular(selectedGroupId, "valentina", "canAccessChat", !!checked)
+                              }
+                              className="shrink-0 mt-0.5"
+                            />
+                            <div>
+                              <span className="text-xs font-bold block text-foreground">
+                                {`Assistente ${aiPersona.name} no Chat`}
+                              </span>
+                              <span className="text-[10px] text-muted-foreground block leading-snug">
+                                {`Gerar Resumo do Atendimento, Melhor Resposta, Corretor e conversar com ${aiPersona.gender === "female" ? "a" : "o"} ${aiPersona.name} no Chat (independe do IA Hub lateral)`}
+                              </span>
+                            </div>
+                          </label>
+                        )}
                       </div>
                     )}
                   </div>
@@ -3077,7 +3103,7 @@ export function GroupsView() {
                     {openSections.valentina && (
                       <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                         {[
-                          { key: "canAccessChat",      label: `Chat com ${aiPersona.gender === "female" ? "a" : "o"} ${aiPersona.name}`, desc: "Conversar diretamente com a assistente de IA" },
+                          { key: "canAccessChat",      label: `Chat com ${aiPersona.gender === "female" ? "a" : "o"} ${aiPersona.name}`, desc: "Conversar com a IA e usar Resumo/Sugestões no Chat (não exige liberar o IA Hub lateral)" },
                           { key: "canAccessSdr",       label: "Visualizar Leads SDR", desc: "Ver a fila de triagem e captação de leads" },
                           { key: "canManageSdr",       label: "Gerenciar & Pausar SDR", desc: "Alterar comportamento ou pausar bot SDR" },
                           { key: "canAccessRodizio",   label: "Visualizar Rodízio de Leads", desc: "Acompanhar distribuição e pesos de fila" },

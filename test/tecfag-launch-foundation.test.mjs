@@ -63,14 +63,16 @@ before(async () => {
   access = loadAccessSource("src/lib/access-control/conversation-access.ts", {
     "../../db": { db }, "../../db/schema": schema, "drizzle-orm": orm,
   });
+  const customCommon = loadAccessSource("src/lib/crm/custom-field-common.ts");
   const customFields = loadAccessSource("src/lib/crm/custom-fields.ts", {
     "../../db": { db }, "../../db/schema": schema, "drizzle-orm": orm,
+    "./custom-field-common": customCommon,
   });
   engine = loadAccessSource("src/lib/valentina/assistant-engine.ts", {
     "../../db": { db }, "../../db/schema": schema, "drizzle-orm": orm,
     "../access-control/conversation-access": access, "../rbac": rbac,
     "../ai-persona": {}, "./knowledge-service": {}, "../crm/custom-fields": customFields,
-    "./grammar-corrector": {},
+    "./grammar-corrector": {}, "./vtex-assistant-service": { lookupVtexProductsForAssistant: async () => "" },
   });
 });
 after(async () => { await client?.close(); });
@@ -152,6 +154,24 @@ function assistantRoute({ session = principal(), authenticated = true } = {}) {
   return { calls, run: (body) => post({ request: apiRequest(body) }) };
 }
 describe("autorizacao do assistente antes de contexto ou IA", () => {
+  it("permite vendedor usar Resumo do Atendimento no Chat sem liberar o modulo IA Hub (views.valentina = false)", async () => {
+    const sellerWithoutHub = principal();
+    sellerWithoutHub.permissions.views.valentina = false;
+    sellerWithoutHub.permissions.views.chat = true;
+    sellerWithoutHub.permissions.valentina.canAccessChat = true;
+    const h = assistantRoute({ session: sellerWithoutHub });
+    const response = await h.run({ action: "lead_summary", conversationId: "chat-a" });
+    assert.equal(response.status, 200);
+    assert.equal(h.calls[2].context.tenantId, tenant);
+    assert.match(h.calls[2].prompt, /Preciso de uma seladora/);
+
+    const neitherModule = principal();
+    neitherModule.permissions.views.valentina = false;
+    neitherModule.permissions.views.chat = false;
+    const denied = assistantRoute({ session: neitherModule });
+    assert.equal((await denied.run({ action: "lead_summary", conversationId: "chat-a" })).status, 403);
+    assert.deepEqual(denied.calls, []);
+  });
   it("nega sessao ausente e permissao explicita negativa inclusive para admin", async () => {
     for (const role of ["agent", "admin"]) {
       const session = principal(); session.operator.role = role; session.permissions.valentina.canAccessChat = false;

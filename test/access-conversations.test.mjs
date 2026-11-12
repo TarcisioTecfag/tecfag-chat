@@ -163,6 +163,10 @@ test("QR, connection phone and personal AI notifications have separate rights", 
   assert.equal(await h.filterConversationEvent(admin, { type: "qr", qr: "secret" }), null);
   const ai = { ...p, permissions: { views: { valentina: true }, valentina: { canAccessChat: true } } };
   assert.equal(await h.filterConversationEvent(ai, { type: "operator_ai_notification", operatorId: "other", message: { content: "secret" } }), null);
+  const sellerChatOnlyAi = { ...p, permissions: { views: { chat: true, valentina: false }, valentina: { canAccessChat: true } } };
+  assert.ok(await h.filterConversationEvent(sellerChatOnlyAi, { type: "operator_ai_notification", operatorId: "agent-a", message: { content: "own" } }));
+  const sellerDisabledAi = { ...p, permissions: { views: { chat: true, valentina: false }, valentina: { canAccessChat: false } } };
+  assert.equal(await h.filterConversationEvent(sellerDisabledAi, { type: "operator_ai_notification", operatorId: "agent-a", message: { content: "own" } }), null);
 });
 
 test("SSE rechecks policy before delivery and closes with a content-free invalidation", async () => {

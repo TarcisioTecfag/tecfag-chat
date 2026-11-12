@@ -58,6 +58,16 @@ for (const collection of ["groups", "members", "sectors"]) test(`cross-tenant ${
 test("duplicate source identifiers are rejected", () => {
   const s = snapshot(); assert.throws(() => previewAccessMigration(snapshot({ groups: [...s.groups, ...s.groups] })), /duplicados/);
 });
+test("seller with chat view and without valentina hub retains chat AI assistant grants", () => {
+  const s = snapshot();
+  s.groups[0].permissions.views.valentina = false;
+  s.groups[0].permissions.valentina = { canAccessChat: true };
+  const candidate = previewAccessMigration(snapshot({ groups: s.groups })).groups[0].candidate;
+  assert.equal(candidate.modules.valentina, false);
+  assert.equal(candidate.modules.chat, true);
+  assert.ok(candidate.grants.some((grant) => grant.action === "ai.assistant.use"));
+  assert.ok(candidate.grants.some((grant) => grant.action === "ai.history.read"));
+});
 test("candidate conversation grants preserve explicit queue restrictions", () => {
   const s = snapshot(); Object.assign(s.groups[0].permissions.chat, { canViewQueueBot: false, canViewQueueClosed: false });
   const candidate = previewAccessMigration(snapshot({ groups: s.groups })).groups[0].candidate;
