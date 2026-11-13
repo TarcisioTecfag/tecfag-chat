@@ -90,7 +90,11 @@ import { stripNotificationEmojis } from "@/lib/format-notification-text";
 import { shouldShowMiniChatWidget } from "@/lib/widget-visibility";
 import { isAppShellPath } from "@/lib/app-routes";
 import { QuotedMessagePreview } from "@/components/chat/ChatPanel";
-import { InlineChatNoteComposer } from "@/components/chat/InlineChatNoteComposer";
+import {
+  enqueueInlineNoteFiles,
+  hasDraggedFiles,
+  InlineChatNoteComposer,
+} from "@/components/chat/InlineChatNoteComposer";
 import type { ApprovedMetaTemplate } from "@/components/chat/MetaTemplateSelectModal";
 import {
   MetaExperimentFallbackCard,
@@ -2963,7 +2967,40 @@ export function CrmChatWidget() {
                     </header>
 
                     {/* Corpo da Thread (Mensagens + Composer + Seletor Interno de Templates) */}
-                    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+                    <div
+                      className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
+                      onDragOver={(e) => {
+                        if (
+                          !hasDraggedFiles(e.dataTransfer) ||
+                          !canSendInternalNotes ||
+                          !selected?.id ||
+                          selected.id === "valentina" ||
+                          selected.id === "__resolving__"
+                        ) {
+                          return;
+                        }
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = "copy";
+                      }}
+                      onDrop={(e) => {
+                        if (
+                          !hasDraggedFiles(e.dataTransfer) ||
+                          !canSendInternalNotes ||
+                          !selected?.id ||
+                          selected.id === "valentina" ||
+                          selected.id === "__resolving__"
+                        ) {
+                          return;
+                        }
+                        e.preventDefault();
+                        const dropped = Array.from(e.dataTransfer.files || []);
+                        if (dropped.length > 0) {
+                          enqueueInlineNoteFiles(selected.id, dropped);
+                          setShowMetaTemplateModal(false);
+                          setShowMiniNoteComposer(true);
+                        }
+                      }}
+                    >
                       <AnimatePresence>
                         {showMetaTemplateModal && selected.id !== "valentina" && selected.id !== "__resolving__" && (
                           <MiniChatTemplateSelector
@@ -3128,9 +3165,15 @@ export function CrmChatWidget() {
                                       </span>
                                       <span>{message.time}</span>
                                     </div>
-                                    <p className="leading-relaxed whitespace-pre-wrap font-medium">
-                                      {message.text}
-                                    </p>
+                                    <div className="leading-relaxed font-medium">
+                                      <MiniMediaRenderer
+                                        text={message.text}
+                                        isMe={false}
+                                        onImageClick={(url) => setPreviewImage(url)}
+                                        transcription={message.mediaInterpretation}
+                                        messageRowId={message.id}
+                                      />
+                                    </div>
                                   </div>
                                 </div>
                               );

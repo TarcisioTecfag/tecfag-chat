@@ -279,6 +279,57 @@ test("persisting a chat message rechecks capture inside the transaction, while i
     const blockedRegular = await handler({ request: apiRequest({ conversationId: "conv-a", content: "hello client", isInternalNote: false }) });
     assert.equal(blockedRegular.status, 403);
   }
+
+  // Multipart internal note attachment on uncaptured conversation persists mediaFiles + messages
+  let mediaInserted = null, msgInserted = null;
+  const session = principal({ canSendInternalNotes: true });
+  const query = { from: () => query, where: () => query, then: (resolve) => resolve([{ operatorId: null, queueState: "fila" }]) };
+  const lock = { from: () => lock, where: () => lock, for: () => lock, limit: async () => [{ id: "conv-a", operatorId: null, queueState: "fila" }] };
+  const mediaFilesTbl = { __table: "mediaFiles" };
+  const messagesTbl = { __table: "messages" };
+  const tx = {
+    select: () => lock,
+    insert: (tbl) => ({
+      values: async (val) => {
+        if (tbl === mediaFilesTbl) mediaInserted = val;
+        if (tbl === messagesTbl) msgInserted = val;
+      },
+    }),
+    update: () => ({ set: () => ({ where: async () => {} }) }),
+  };
+  const handler = extractedHandler("src/routes/api/chats.ts", "POST", {
+    requireSession: async () => ({ session }),
+    requireConversationAccess: async () => null,
+    requireConversationWriteAccess: async () => null,
+    db: { select: () => query, transaction: async (fn) => fn(tx) },
+    conversations: {},
+    messages: messagesTbl,
+    mediaFiles: mediaFilesTbl,
+    eq: (...x) => x,
+    and: (...x) => x,
+    conversationReadCondition: () => ({}),
+    getDealContext: async () => ({ context: { currentDealId: "deal-a", version: 1 }, deals: [] }),
+    findActiveGraceDeal: () => null,
+    assertDealContextVersion: () => {},
+    recordConversationAction: async () => {},
+    DealContextError: class extends Error {},
+  });
+  const form = new FormData();
+  form.append("conversationId", "conv-a");
+  form.append("content", "Print anexado na fila");
+  form.append("isInternalNote", "true");
+  form.append("expectedContextVersion", "1");
+  form.append("file", new File([new Uint8Array([137, 80, 78, 71])], "captura.png", { type: "image/png" }));
+  const multipartRes = await handler({
+    request: new Request("http://test/api/chats", { method: "POST", body: form }),
+  });
+  assert.equal(multipartRes.status, 200);
+  const multipartJson = await multipartRes.json();
+  assert.match(multipartJson.mediaContent, /^\[MEDIA:image\]media-[^:]+:captura\.png\nPrint anexado na fila$/);
+  assert.equal(mediaInserted.conversationId, "conv-a");
+  assert.equal(mediaInserted.fileName, "captura.png");
+  assert.equal(msgInserted.isInternalNote, true);
+  assert.equal(msgInserted.content, multipartJson.mediaContent);
 });
 test("public CRM detail getters pass the conversation predicate to the actual service call", () => {
   for (const file of ["crm/deals/$dealId.ts", "crm/accounts/$accountId.ts", "crm/accounts/$accountId/conversations.ts"]) {

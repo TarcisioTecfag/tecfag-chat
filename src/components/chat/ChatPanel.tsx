@@ -83,7 +83,12 @@ import {
 import { ValentinaAssistantModal } from "./ValentinaAssistantModal";
 import { ProductCatalogPicker } from "./ProductCatalogPicker";
 import { InlineChatTaskComposer } from "./InlineChatTaskComposer";
-import { InlineChatNoteComposer } from "./InlineChatNoteComposer";
+import {
+  enqueueInlineNoteFiles,
+  extractFilesFromClipboard,
+  hasDraggedFiles,
+  InlineChatNoteComposer,
+} from "./InlineChatNoteComposer";
 import {
   OperatorInitialQuickBar,
   OperatorAvatarWithInitial,
@@ -2588,6 +2593,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composerRef = useRef<HTMLDivElement>(null);
+  const chatPanelSectionRef = useRef<HTMLElement>(null);
 
   const focusInput = useCallback(() => {
     requestAnimationFrame(() => {
@@ -2656,40 +2662,100 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   };
 
   // ── Drag & Drop ────────────────────────────────────────────────────────────
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-  }, []);
+  const isReadonlyWhatsappConnection = Boolean(
+    activeChat?.whatsappConnectionId &&
+      connectionsState.connections.find((c) => c.id === activeChat.whatsappConnectionId)?.canSend !==
+        true,
+  );
+  const isMeta24hWindowClosed = Boolean(
+    isMetaWhatsappChat && metaWindow !== null && !metaWindow.open,
+  );
+  const isNormalComposerBlocked = Boolean(
+    activeChat &&
+      (activeChat.queue === "finalizados" ||
+        isReadonlyWhatsappConnection ||
+        dealRequirement.pending ||
+        (!isOwner && Boolean(activeChat.operatorId)) ||
+        (!activeChat.operatorId && activeChat.queue !== "automacao") ||
+        activeChat.queue === "automacao" ||
+        isMeta24hWindowClosed),
+  );
+
+  const handleDragOver = useCallback(
+    (e: React.DragEvent) => {
+      if (!hasDraggedFiles(e.dataTransfer)) return;
+      if (
+        isNormalComposerBlocked &&
+        (!canSendInternalNotes || !activeChat || activeChat.id === "valentina")
+      ) {
+        return;
+      }
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+      setIsDragging(true);
+    },
+    [isNormalComposerBlocked, canSendInternalNotes, activeChat],
+  );
 
   const handleDragLeave = useCallback((e: React.DragEvent) => {
-    if (!composerRef.current?.contains(e.relatedTarget as Node)) {
+    const rootNode = chatPanelSectionRef.current || composerRef.current;
+    if (!rootNode?.contains(e.relatedTarget as Node)) {
       setIsDragging(false);
     }
   }, []);
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-    const files = Array.from(e.dataTransfer.files);
-    if (files.length > 0) setAttachments((prev) => appendUniqueFiles(prev, files));
-  }, []);
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      if (!hasDraggedFiles(e.dataTransfer)) return;
+      e.preventDefault();
+      setIsDragging(false);
+      const files = Array.from(e.dataTransfer.files || []);
+      if (files.length === 0) return;
+
+      if (isNormalComposerBlocked) {
+        if (!canSendInternalNotes || !activeChat || activeChat.id === "valentina") return;
+        enqueueInlineNoteFiles(activeChat.id, files);
+        setShowMetaTemplateModal(false);
+        setShowClosedWindowTaskComposer(false);
+        setShowInlineAnnotationComposer(true);
+        return;
+      }
+
+      setAttachments((prev) => appendUniqueFiles(prev, files));
+    },
+    [isNormalComposerBlocked, canSendInternalNotes, activeChat],
+  );
 
   // ── Ctrl+V para colar arquivos da área de transferência ───────────────────
   useEffect(() => {
     const handlePaste = (e: ClipboardEvent) => {
-      const items = Array.from(e.clipboardData?.items || []);
-      const files = items
-        .filter((item) => item.kind === "file")
-        .map((item) => item.getAsFile())
-        .filter(Boolean) as File[];
-      if (files.length > 0) {
-        e.preventDefault();
-        setAttachments((prev) => appendUniqueFiles(prev, files));
+      const target = e.target as HTMLElement | null;
+      if (
+        target?.closest(
+          '[data-inline-chat-note-composer="true"], [role="dialog"], [data-radix-popper-content-wrapper]',
+        )
+      ) {
+        return;
       }
+      const files = extractFilesFromClipboard(e.clipboardData);
+      if (files.length === 0) return;
+
+      if (isNormalComposerBlocked) {
+        if (!canSendInternalNotes || !activeChat || activeChat.id === "valentina") return;
+        e.preventDefault();
+        enqueueInlineNoteFiles(activeChat.id, files);
+        setShowMetaTemplateModal(false);
+        setShowClosedWindowTaskComposer(false);
+        setShowInlineAnnotationComposer(true);
+        return;
+      }
+
+      e.preventDefault();
+      setAttachments((prev) => appendUniqueFiles(prev, files));
     };
     window.addEventListener("paste", handlePaste);
     return () => window.removeEventListener("paste", handlePaste);
-  }, []);
+  }, [isNormalComposerBlocked, canSendInternalNotes, activeChat]);
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   const removeAttachment = (index: number) => {
@@ -3107,12 +3173,29 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
 
   return (
     <motion.section
+      ref={chatPanelSectionRef}
       key={activeChat.id}
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.2 }}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
       className="flex h-full min-w-0 flex-1 flex-col rounded-3xl bg-chat-panel border border-border shadow-soft relative"
     >
+      {isDragging && isNormalComposerBlocked && canSendInternalNotes && activeChat.id !== "valentina" && (
+        <div className="absolute inset-2 z-50 flex flex-col items-center justify-center gap-2 rounded-3xl border-2 border-dashed border-amber-500 bg-amber-500/10 backdrop-blur-xs pointer-events-none">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-500/20 text-amber-500 shadow-sm">
+            <Paperclip className="h-6 w-6 animate-bounce" />
+          </div>
+          <p className="text-sm font-bold text-amber-700 dark:text-amber-300">
+            Solte os arquivos para anexar na Anotação Interna
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Visível apenas para a equipe · Não envia ao cliente
+          </p>
+        </div>
+      )}
       {/* Header — flutuante com fundo sólido e sombra para melhor harmonia */}
       <header data-tour="chat.header" className="flex items-center justify-between gap-1.5 md:gap-2 px-2.5 md:px-6 py-2 md:py-3.5 border-b border-border/50 bg-card shadow-sm rounded-t-3xl z-10 shrink-0 min-h-[52px]">
         <div className="flex items-center gap-2 md:gap-3 min-w-0 flex-1">
@@ -4599,9 +4682,6 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
         <div
           ref={composerRef}
           className="block px-2.5 pb-2.5 md:px-5 md:pb-5 shrink-0"
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
         >
           {/* ── BLOQUEIO: outro operador — oculta TUDO, mostra só o banner ── */}
           {activeChat.whatsappConnectionId && connectionsState.connections.find(c => c.id === activeChat.whatsappConnectionId)?.canSend !== true ? (

@@ -1788,5 +1788,70 @@ describe.skipIf(!process.env.PGLITE_TEST_MODULE)("Negociação atual: PostgreSQL
     expect(singleConvAfter.queueState).toBe("automacao");
     expect(singleConvAfter.operatorId).toBeNull();
     expect(singleConvAfter.unreadCount).toBe(2);
+
+    // 3. Upload de arquivo (Ctrl+V print + Drag & Drop PDF sem texto) via multipart/form-data em conversa não captada
+    const pngForm = new FormData();
+    pngForm.append("conversationId", fSingle.id);
+    pngForm.append("content", "SHOW DE BOLA");
+    pngForm.append("isInternalNote", "true");
+    pngForm.append("expectedContextVersion", String(singleCtx.context.version));
+    pngForm.append("clientMessageId", "cmsg-note-png-1");
+    pngForm.append(
+      "file",
+      new File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], "captura-114000-1-abcd.png", {
+        type: "image/png",
+      }),
+    );
+    const pngUploadRes = await notes({
+      request: new Request("http://localhost/api/chats", {
+        method: "POST",
+        body: pngForm,
+      }),
+    } as any);
+    expect(pngUploadRes.status).toBe(200);
+    const pngPayload = await pngUploadRes.json();
+    expect(pngPayload.mediaId).toMatch(/^media-/);
+    expect(pngPayload.mediaContent).toBe(
+      `[MEDIA:image]${pngPayload.mediaId}:captura-114000-1-abcd.png\nSHOW DE BOLA`,
+    );
+
+    const [savedMediaRow] = await db
+      .select()
+      .from(schema.mediaFiles)
+      .where(
+        and(
+          eq(schema.mediaFiles.tenantId, "context-a"),
+          eq(schema.mediaFiles.id, pngPayload.mediaId),
+        ),
+      );
+    expect(savedMediaRow).toBeDefined();
+    expect(savedMediaRow.conversationId).toBe(fSingle.id);
+    expect(savedMediaRow.fileName).toBe("captura-114000-1-abcd.png");
+    expect(savedMediaRow.mimeType).toBe("image/png");
+
+    // PDF solto por Drag & Drop sem texto digitado
+    const pdfForm = new FormData();
+    pdfForm.append("conversationId", fSingle.id);
+    pdfForm.append("content", "");
+    pdfForm.append("isInternalNote", "true");
+    pdfForm.append("expectedContextVersion", String(singleCtx.context.version));
+    pdfForm.append("clientMessageId", "cmsg-note-pdf-1");
+    pdfForm.append(
+      "file",
+      new File([new Uint8Array([37, 80, 68, 70])], "Orcamento_Cliente.pdf", {
+        type: "application/pdf",
+      }),
+    );
+    const pdfUploadRes = await notes({
+      request: new Request("http://localhost/api/chats", {
+        method: "POST",
+        body: pdfForm,
+      }),
+    } as any);
+    expect(pdfUploadRes.status).toBe(200);
+    const pdfPayload = await pdfUploadRes.json();
+    expect(pdfPayload.mediaContent).toBe(
+      `[MEDIA:document]${pdfPayload.mediaId}:Orcamento_Cliente.pdf`,
+    );
   });
 });

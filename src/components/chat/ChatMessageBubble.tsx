@@ -896,6 +896,12 @@ function ChatMessageBubbleComponent({
     );
   }
 
+  const isSticker = safeText.startsWith("[MEDIA:sticker]") || safeText.startsWith("[LOCAL_MEDIA:sticker]");
+  const isMedia =
+    safeText.startsWith("[MEDIA:") ||
+    safeText.startsWith("[LOCAL_MEDIA:") ||
+    safeText.startsWith("[SEND_IMAGE:");
+
   // ── 2. Notas Internas & Orientações da Supervisão ──
   if (m.isInternalNote) {
     const isSupervisorWhisper = Boolean(
@@ -925,9 +931,24 @@ function ChatMessageBubbleComponent({
                   Invisível ao cliente · {m.time}
                 </span>
               </div>
-              <p className="text-xs leading-relaxed font-semibold text-foreground">
-                {renderTextWithLinks(safeText, false, true)}
-              </p>
+              {isMedia ? (
+                <div className="mt-1.5 text-xs leading-relaxed font-semibold text-foreground">
+                  {renderMessageContent(
+                    safeText,
+                    onMediaClick,
+                    false,
+                    undefined,
+                    m.author,
+                    activeChat.name,
+                    m.mediaInterpretation,
+                    m.id,
+                  )}
+                </div>
+              ) : (
+                <p className="text-xs leading-relaxed font-semibold text-foreground whitespace-pre-wrap">
+                  {renderTextWithLinks(safeText, false, true)}
+                </p>
+              )}
             </div>
           </div>
         </div>
@@ -949,20 +970,29 @@ function ChatMessageBubbleComponent({
               <Lock className="h-3 w-3 shrink-0" />
               Anotação Interna — {m.author} às {m.time}
             </div>
-            <p className="text-xs leading-relaxed font-medium text-amber-950 dark:text-amber-200">
-              {renderTextWithLinks(safeText, false, true)}
-            </p>
+            {isMedia ? (
+              <div className="mt-1.5 text-xs leading-relaxed font-medium text-amber-950 dark:text-amber-200">
+                {renderMessageContent(
+                  safeText,
+                  onMediaClick,
+                  false,
+                  undefined,
+                  m.author,
+                  activeChat.name,
+                  m.mediaInterpretation,
+                  m.id,
+                )}
+              </div>
+            ) : (
+              <p className="text-xs leading-relaxed font-medium text-amber-950 dark:text-amber-200 whitespace-pre-wrap">
+                {renderTextWithLinks(safeText, false, true)}
+              </p>
+            )}
           </div>
         </div>
       </div>
     );
   }
-
-  const isSticker = safeText.startsWith("[MEDIA:sticker]") || safeText.startsWith("[LOCAL_MEDIA:sticker]");
-  const isMedia =
-    safeText.startsWith("[MEDIA:") ||
-    safeText.startsWith("[LOCAL_MEDIA:") ||
-    safeText.startsWith("[SEND_IMAGE:");
   const hasCaption = isMedia && safeText.includes("\n") && safeText.split("\n").slice(1).join("\n").trim().length > 0;
   const isAudioOrDoc =
     safeText.startsWith("[MEDIA:audio]") ||

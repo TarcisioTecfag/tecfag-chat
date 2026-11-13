@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../db";
-import { conversations, contacts, messages, sectors, operators } from "../../db/schema";
+import { conversations, contacts, messages, mediaFiles, sectors, operators } from "../../db/schema";
 import { eq, and, or, desc, lt, inArray, sql } from "drizzle-orm";
 import { rdRequest, getCachedUsers } from "../../lib/rdCrmService";
 import { requireSession } from "../../lib/auth-session";
@@ -99,7 +99,10 @@ export const Route = createFileRoute("/api/chats")({
           if ("response" in auth) return auth.response;
           const session = auth.session;
 
-          const body = await request.json() as {
+          const MAX_NOTE_ATTACHMENT_BYTES = 50 * 1024 * 1024;
+          const contentType = request.headers?.get?.("content-type") || "";
+
+          let body: {
             conversationId: string;
             senderType?: string;
             senderName?: string;
@@ -115,6 +118,97 @@ export const Route = createFileRoute("/api/chats")({
             clientMessageId?: string;
             checkAccessIds?: string[];
           };
+          let pendingNoteFile:
+            | {
+                id: string;
+                buffer: Buffer;
+                mime: string;
+                name: string;
+                mediaType: "image" | "video" | "audio" | "document";
+                rawCaption: string;
+              }
+            | undefined;
+
+          if (contentType.includes("multipart/form-data")) {
+            const formData = await request.formData();
+            const rawCaption = String(formData.get("content") || "").trim();
+            const file = formData.get("file");
+            if (!(file instanceof File)) {
+              return Response.json({ error: "Nenhum arquivo enviado." }, { status: 400 });
+            }
+            if (file.size <= 0) {
+              return Response.json({ error: "O arquivo enviado está vazio." }, { status: 400 });
+            }
+            if (file.size > MAX_NOTE_ATTACHMENT_BYTES) {
+              return Response.json(
+                { error: "O arquivo excede o limite máximo de 50MB." },
+                { status: 400 },
+              );
+            }
+
+            const fileId = `media-${crypto.randomUUID()}`;
+            const mime = (file.type || "application/octet-stream").trim() || "application/octet-stream";
+            const safeFileName =
+              (file.name || "arquivo")
+                .replace(/[\r\n:]+/g, "_")
+                .trim()
+                .slice(0, 180) || "arquivo";
+            const ext = safeFileName.split(".").pop()?.toLowerCase() || "";
+
+            let mediaType: "image" | "video" | "audio" | "document" = "document";
+            if (mime.startsWith("image/")) {
+              mediaType = "image";
+            } else if (
+              mime.startsWith("audio/") ||
+              ["mp3", "ogg", "webm", "m4a", "aac", "oga", "opus", "wav"].includes(ext)
+            ) {
+              mediaType = "audio";
+            } else if (
+              mime.startsWith("video/") ||
+              ["mp4", "mov", "webm", "mkv", "avi", "m4v", "3gp", "mpeg", "mpg"].includes(ext)
+            ) {
+              mediaType = "video";
+            }
+
+            const buffer = Buffer.from(await file.arrayBuffer());
+            pendingNoteFile = {
+              id: fileId,
+              buffer,
+              mime,
+              name: safeFileName,
+              mediaType,
+              rawCaption,
+            };
+
+            const expectedVerRaw = formData.get("expectedContextVersion");
+            const parsedExpectedVer =
+              expectedVerRaw !== null && expectedVerRaw !== ""
+                ? Number(expectedVerRaw)
+                : undefined;
+            const rawScope = formData.get("noteScope");
+            const rawClientMsgId = formData.get("clientMessageId");
+
+            body = {
+              conversationId: String(formData.get("conversationId") || "").trim(),
+              senderType: String(formData.get("senderType") || "agent"),
+              senderName: formData.get("senderName") ? String(formData.get("senderName")) : undefined,
+              senderEmail: formData.get("senderEmail") ? String(formData.get("senderEmail")) : undefined,
+              content: `[MEDIA:${mediaType}]${fileId}:${safeFileName}${rawCaption ? `\n${rawCaption}` : ""}`,
+              isInternalNote: formData.get("isInternalNote") === "true",
+              expectedContextVersion: Number.isFinite(parsedExpectedVer) ? parsedExpectedVer : undefined,
+              noteScope: rawScope ? (String(rawScope) as "current" | "general") : undefined,
+              clientMessageId: rawClientMsgId ? String(rawClientMsgId).trim() : undefined,
+              quotedMessageId: formData.get("quotedMessageId") ? String(formData.get("quotedMessageId")) : null,
+              quotedMessageSender: formData.get("quotedMessageSender")
+                ? String(formData.get("quotedMessageSender"))
+                : null,
+              quotedMessageContent: formData.get("quotedMessageContent")
+                ? String(formData.get("quotedMessageContent"))
+                : null,
+            };
+          } else {
+            body = (await request.json()) as typeof body;
+          }
 
           if (body.checkAccessIds !== undefined) {
             const ids = body.checkAccessIds;
@@ -175,6 +269,8 @@ export const Route = createFileRoute("/api/chats")({
           if (body.noteScope !== undefined && !["current", "general"].includes(body.noteScope)) return Response.json({ error: "Destino da nota inválido." }, { status: 400 });
           if (body.clientMessageId !== undefined && (typeof body.clientMessageId !== "string" || !/^[a-zA-Z0-9-]{1,100}$/.test(body.clientMessageId))) return Response.json({ error: "Identificador de mensagem inválido." }, { status: 400 });
           let msgId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+          let msgContent = content;
+          let reusedIdempotent = false;
           let selectedRdDealId: string | null = null;
           const now = new Date();
 
@@ -208,10 +304,15 @@ export const Route = createFileRoute("/api/chats")({
             const isCurrentOwner =
               effectiveQueueState === "meus" && effectiveOperatorId === session.operator.id;
             if (body.clientMessageId) {
-              const [existing] = await tx.select({ id: messages.id }).from(messages).where(and(
+              const [existing] = await tx.select({ id: messages.id, content: messages.content }).from(messages).where(and(
                 eq(messages.tenantId, session.tenantId), eq(messages.conversationId, conversationId), eq(messages.idempotencyKey, body.clientMessageId),
               )).limit(1);
-              if (existing) { msgId = existing.id; return true; }
+              if (existing) {
+                msgId = existing.id;
+                if (existing.content) msgContent = existing.content;
+                reusedIdempotent = true;
+                return true;
+              }
             }
             const state = isInternalNote ? await getDealContext(tx, session.tenantId, conversationId, session.operator.id) : null;
             const graceDeal = state && !state.context.currentDealId ? findActiveGraceDeal(state.deals, [state.context.currentDealId, state.context.previousDealId]) : null;
@@ -224,6 +325,20 @@ export const Route = createFileRoute("/api/chats")({
             }
             const selectedDealId = state?.context.currentDealId || graceDeal?.id || null;
             selectedRdDealId = state?.deals.find(d => d.id === selectedDealId)?.rdDealId || null;
+
+            if (pendingNoteFile) {
+              await tx.insert(mediaFiles).values({
+                id: pendingNoteFile.id,
+                tenantId: session.tenantId,
+                conversationId,
+                fileName: pendingNoteFile.name,
+                mimeType: pendingNoteFile.mime,
+                fileSize: pendingNoteFile.buffer.length,
+                base64Data: pendingNoteFile.buffer.toString("base64"),
+                createdAt: now,
+              });
+            }
+
             await tx.insert(messages).values({
               id: msgId,
               conversationId,
@@ -231,7 +346,7 @@ export const Route = createFileRoute("/api/chats")({
               senderType: senderType as any,
               senderName: senderName || session.operator.name,
               metaDetails: { attendanceActor: { name: session.operator.name, operatorId: session.operator.id } },
-              content,
+              content: msgContent,
               isInternalNote,
               idempotencyKey: body.clientMessageId || null,
               quotedMessageId: quotedMessageId ?? null,
@@ -245,7 +360,7 @@ export const Route = createFileRoute("/api/chats")({
 
             if (isInternalNote) await recordConversationAction(tx, {
               tenantId: session.tenantId, conversationId, dealId: selectedDealId, operatorId: session.operator.id,
-              messageId: msgId, content, type: senderType === "system" ? "system_event" : "note",
+              messageId: msgId, content: msgContent, type: senderType === "system" ? "system_event" : "note",
             });
 
             await tx.update(conversations).set({
@@ -256,6 +371,22 @@ export const Route = createFileRoute("/api/chats")({
             return true;
           });
           if (!stored) return Response.json({ error: isInternalNote ? "Sem acesso a esta conversa." : "O responsável pelo atendimento mudou. Atualize a conversa.", code: "FORBIDDEN" }, { status: 403 });
+
+          if (pendingNoteFile && !reusedIdempotent) {
+            try {
+              const fsMod = await import("node:fs");
+              const pathMod = await import("node:path");
+              const mediaDir = pathMod.join(process.cwd(), "media");
+              if (!fsMod.existsSync(mediaDir)) fsMod.mkdirSync(mediaDir, { recursive: true });
+              const targetDiskPath = pathMod.join(mediaDir, pendingNoteFile.id);
+              if (!fsMod.existsSync(targetDiskPath)) {
+                await fsMod.promises.writeFile(targetDiskPath, pendingNoteFile.buffer);
+                await fsMod.promises.writeFile(pathMod.join(mediaDir, `${pendingNoteFile.id}.mime`), pendingNoteFile.mime);
+              }
+            } catch (fsErr) {
+              console.warn("[api/chats POST] Mídia salva no banco, falha ao gravar cache em disco:", fsErr);
+            }
+          }
 
           try {
             const [contactRow] = conv.contactId
@@ -288,7 +419,7 @@ export const Route = createFileRoute("/api/chats")({
                 whatsappConnectionId: conv.whatsappConnectionId,
                 senderType: (senderType || "agent") as any,
                 senderName: senderName || session.operator.name,
-                content,
+                content: msgContent,
                 isInternalNote: !!isInternalNote,
                 sentAt: now,
                 status: "accepted",
@@ -318,13 +449,17 @@ export const Route = createFileRoute("/api/chats")({
                   } catch {}
                 }
 
+                const rdNoteText = pendingNoteFile
+                  ? `[Anexo interno: ${pendingNoteFile.name}]${pendingNoteFile.rawCaption ? `\n${pendingNoteFile.rawCaption}` : ""}`
+                  : msgContent;
+
                 await rdRequest(
                   session.tenantId,
                   "POST",
                   `/deals/${selectedRdDealId}/activity_notes`,
                   {
                     activity_note: {
-                      text: content,
+                      text: rdNoteText,
                       user_id: noteUserId,
                     },
                   }
@@ -335,10 +470,18 @@ export const Route = createFileRoute("/api/chats")({
             })();
           }
 
-          return new Response(JSON.stringify({ success: true, id: msgId, sentAtISO: now.toISOString() }), {
-            status: 200,
-            headers: corsHeaders,
-          });
+          return new Response(
+            JSON.stringify({
+              success: true,
+              id: msgId,
+              sentAtISO: now.toISOString(),
+              ...(pendingNoteFile ? { mediaId: pendingNoteFile.id, mediaContent: msgContent } : {}),
+            }),
+            {
+              status: 200,
+              headers: corsHeaders,
+            },
+          );
 
         } catch (e: any) {
           if (e instanceof DealContextError) return Response.json({ error: e.message, code: e.code }, { status: e.statusCode });

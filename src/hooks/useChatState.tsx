@@ -3462,35 +3462,85 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const noteContext = isInternalNote && !intent
           ? cachedDealContext(tenant!, currentOperatorId!, targetChatId) || await fetchDealContext(tenant!, currentOperatorId!, targetChatId)
           : null;
-        const response = await fetch(`${BACKEND_URL}/api/chats`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            tenantId: tenant,
-            conversationId: targetChatId,
-            senderType: "agent",
-            senderName: operatorProfile.name,
-            senderEmail: operatorProfile.email,
-            content: text,
-            isInternalNote,
-            expectedContextVersion: intent?.expectedContextVersion ?? noteContext?.version,
-            noteScope: intent?.noteScope || "current",
-            clientMessageId: intent?.id,
-            quotedMessageId: quotedMessage?.id || null,
-            quotedMessageSender: quotedMessage?.sender || null,
-            quotedMessageContent: quotedMessage?.content || null,
-          }),
-        });
+        const effectiveExpectedVersion = intent?.expectedContextVersion ?? noteContext?.version;
+        const effectiveNoteScope = intent?.noteScope || "current";
 
-        if (!response.ok) {
-          const error = await response.json().catch(() => ({}));
-          toast.error(error.error || "Erro ao salvar mensagem local no banco.");
-          if (response.status === 409) window.dispatchEvent(new Event("conversation-deal-context-changed"));
-          return false;
+        if (attachments && attachments.length > 0) {
+          for (const [attachmentIndex, file] of attachments.entries()) {
+            const formData = new FormData();
+            formData.append("conversationId", targetChatId);
+            formData.append("senderType", "agent");
+            formData.append("senderName", operatorProfile.name || "");
+            if (operatorProfile.email) {
+              formData.append("senderEmail", operatorProfile.email);
+            }
+            formData.append("content", attachmentIndex === 0 ? text.trim() : "");
+            formData.append("isInternalNote", isInternalNote ? "true" : "false");
+            if (effectiveExpectedVersion !== undefined) {
+              formData.append("expectedContextVersion", String(effectiveExpectedVersion));
+            }
+            formData.append("noteScope", effectiveNoteScope);
+            formData.append("clientMessageId", `${clientMessageId}-att-${attachmentIndex}`);
+            if (attachmentIndex === 0 && quotedMessage?.id) {
+              formData.append("quotedMessageId", quotedMessage.id);
+              if (quotedMessage.sender) formData.append("quotedMessageSender", quotedMessage.sender);
+              if (quotedMessage.content) formData.append("quotedMessageContent", quotedMessage.content);
+            }
+            const safeName = (file as any).name || file.name || "arquivo";
+            formData.append("file", file, safeName);
+
+            const mediaRes = await fetch(`${BACKEND_URL}/api/chats`, {
+              method: "POST",
+              credentials: "include",
+              body: formData,
+            });
+
+            if (!mediaRes.ok) {
+              const error = await mediaRes.json().catch(() => ({}));
+              toast.error(error.error || "Erro ao salvar anexo da anotação interna.");
+              if (mediaRes.status === 409) window.dispatchEvent(new Event("conversation-deal-context-changed"));
+              return false;
+            }
+            const savedMediaMsg = await mediaRes.json().catch(() => ({}));
+            sentAttachmentMessageIds.push(savedMediaMsg.id || "");
+            sentAttachmentStatuses.push("accepted");
+            sentAttachmentMediaContents.push(savedMediaMsg.mediaContent || "");
+            sentAttachmentSentAtISOs.push(
+              typeof savedMediaMsg.sentAtISO === "string" ? savedMediaMsg.sentAtISO : "",
+            );
+          }
+        } else {
+          const response = await fetch(`${BACKEND_URL}/api/chats`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({
+              tenantId: tenant,
+              conversationId: targetChatId,
+              senderType: "agent",
+              senderName: operatorProfile.name,
+              senderEmail: operatorProfile.email,
+              content: text,
+              isInternalNote,
+              expectedContextVersion: effectiveExpectedVersion,
+              noteScope: effectiveNoteScope,
+              clientMessageId: intent?.id,
+              quotedMessageId: quotedMessage?.id || null,
+              quotedMessageSender: quotedMessage?.sender || null,
+              quotedMessageContent: quotedMessage?.content || null,
+            }),
+          });
+
+          if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            toast.error(error.error || "Erro ao salvar mensagem local no banco.");
+            if (response.status === 409) window.dispatchEvent(new Event("conversation-deal-context-changed"));
+            return false;
+          }
+          const savedMessage = await response.json().catch(() => ({}));
+          sentTextMessageId = savedMessage.id;
+          sentTextSentAtISO = typeof savedMessage.sentAtISO === "string" ? savedMessage.sentAtISO : undefined;
         }
-        const savedMessage = await response.json().catch(() => ({}));
-        sentTextMessageId = savedMessage.id;
-        sentTextSentAtISO = typeof savedMessage.sentAtISO === "string" ? savedMessage.sentAtISO : undefined;
       } catch (err) {
         console.error("Falha ao salvar mensagem local no banco:", err);
         toast.error("Falha ao salvar mensagem local no banco.");
@@ -3503,13 +3553,14 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const resolvedTextStamp = buildMonotonicMessageTime(baseExistingMsgs, sentTextSentAtISO);
     const now = resolvedTextStamp.time;
 
-    // Mensagem de texto (só adiciona se tiver conteúdo)
+    // Mensagem de texto (só adiciona se tiver conteúdo e não tiver sido fundida como legenda em anexo local/interno)
     const messagesToAdd: Message[] = [];
+    const captionMergedIntoLocalAttachment = !shouldSendReal && Boolean(attachments && attachments.length > 0);
 
     // Provedor real do envio: os checks (✓/✓✓/azul) só aparecem para a Meta, que confirma entrega/leitura.
     const sentProvider = shouldSendReal ? activeProvider : null;
 
-    if (text.trim() || metaTemplate) {
+    if ((text.trim() || metaTemplate) && !captionMergedIntoLocalAttachment) {
       messagesToAdd.push({
         id: sentTextMessageId || `msg-${Date.now()}`,
         clientMessageId,
@@ -3540,23 +3591,24 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         else if (mime.startsWith("audio/")) mediaType = "audio";
 
         const serverMediaContent = sentAttachmentMediaContents[i];
+        const fallbackCaption = captionMergedIntoLocalAttachment && i === 0 && text.trim() ? `\n${text.trim()}` : "";
         const mediaText = serverMediaContent
           ? serverMediaContent
-          : `[LOCAL_MEDIA:${mediaType}:${URL.createObjectURL(file)}:${fileName}]`;
+          : `[LOCAL_MEDIA:${mediaType}:${URL.createObjectURL(file)}:${fileName}]${fallbackCaption}`;
 
-        const attachQuote = !text.trim() && !metaTemplate && i === 0;
+        const attachQuote = (!text.trim() || captionMergedIntoLocalAttachment) && !metaTemplate && i === 0;
         const attStamp = buildMonotonicMessageTime([...baseExistingMsgs, ...messagesToAdd], sentAttachmentSentAtISOs[i]);
 
         messagesToAdd.push({
           id: sentAttachmentMessageIds[i] || `msg-media-${Date.now()}-${i}`,
           clientMessageId: `${clientMessageId}-att-${i}`,
-          author: "Você",
+          author: isInternalNote ? operatorProfile.name : "Você",
           text: mediaText,
           time: attStamp.time,
           sentAtISO: attStamp.sentAtISO,
           date: attStamp.date,
           side: "out",
-          isInternalNote: false,
+          isInternalNote,
           quotedMessageId: attachQuote ? quotedMessage?.id || null : null,
           quotedMessageSender: attachQuote ? quotedMessage?.sender || null : null,
           quotedMessageContent: attachQuote ? quotedMessage?.content || null : null,

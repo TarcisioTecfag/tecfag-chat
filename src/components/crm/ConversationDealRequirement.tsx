@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import { Lock } from "lucide-react";
 import { ConversationDealsPanel } from "./ConversationDealsPanel";
-import { InlineChatNoteComposer } from "@/components/chat/InlineChatNoteComposer";
+import {
+  INLINE_NOTE_FILES_EVENT,
+  InlineChatNoteComposer,
+} from "@/components/chat/InlineChatNoteComposer";
 import { usePermissions } from "@/hooks/usePermissions";
 import {
   cachedDealRequirement,
@@ -90,6 +93,18 @@ export function ConversationDealRequirement({
   useEffect(() => {
     setShowNoteComposer(false);
   }, [conversationId]);
+
+  useEffect(() => {
+    if (!canSendInternalNotes || !conversationId || conversationId === "valentina") return;
+    const handleFilesEnqueued = (event: Event) => {
+      const custom = event as CustomEvent<{ conversationId?: string }>;
+      if (custom.detail?.conversationId === conversationId) {
+        setShowNoteComposer(true);
+      }
+    };
+    window.addEventListener(INLINE_NOTE_FILES_EVENT, handleFilesEnqueued);
+    return () => window.removeEventListener(INLINE_NOTE_FILES_EVENT, handleFilesEnqueued);
+  }, [canSendInternalNotes, conversationId]);
 
   return (
     <div className="w-full max-h-[76vh] space-y-3 overflow-y-auto rounded-2xl border-2 border-red-600/70 dark:border-red-500/70 bg-card p-4 shadow-xl">
