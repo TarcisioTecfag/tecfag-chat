@@ -531,8 +531,8 @@ if (!databaseUrl) {
       console.log(`[platform migration] ${tecfagPecasRdCrmMigrationName} já aplicada anteriormente.`);
     }
 
-    // 9. Migração Fragmentada Setor & Funil de Suporte Técnico RD Station CRM -> Tecfag Chat (Raiane Aguiar, Maria Vitoria, Matheus Henrique, Lucimara Dal Mora & Melissa Bueno: 6.406 Negociações, 2.076 Empresas, 3.979 Contatos, 1.500 Tarefas e 1.564 Notas — 13/11/2026)
-    const tecfagSuporteRdCrmMigrationName = "seed_tecfag_suporte_rd_crm_migration_2026_11_13_v1";
+    // 9. Migração Fragmentada Setor & Funil de Suporte Técnico RD Station CRM -> Tecfag Chat (Raiane Aguiar, Maria Vitoria, Matheus Henrique, Lucimara Dal Mora & Melissa Bueno + Delta 13:29: 6.411 Negociações, 2.079 Empresas, 3.983 Contatos, 1.500 Tarefas e 1.567 Notas — 13/11/2026)
+    const tecfagSuporteRdCrmMigrationName = "seed_tecfag_suporte_rd_crm_migration_2026_11_13_v2";
     const [appliedTecfagSuporteRdCrm] = await sql`
       SELECT name FROM app_deploy_migrations WHERE name = ${tecfagSuporteRdCrmMigrationName}
     `;

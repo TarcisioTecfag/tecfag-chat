@@ -93,9 +93,9 @@ describe("Migração RD Station CRM — Funil de Suporte Técnico (Tecfag)", () 
     }
   });
 
-  it("contém as 6.406 negociações únicas de Suporte Técnico nas 12 etapas oficiais (+ 1.288 ex-colaboradores em Testes/Anteriores) e 1.500 tarefas 100% vinculadas", () => {
+  it("contém as 6.411 negociações únicas de Suporte Técnico nas 12 etapas oficiais (incluindo o delta das 13:29 + 1.288 ex-colaboradores em Testes/Anteriores) e 1.500 tarefas 100% vinculadas", () => {
     expect(payload.tenantId).toBe("tecfag");
-    expect(payload.deals.length).toBe(6406);
+    expect(payload.deals.length).toBe(6411);
 
     const activeDeals = payload.deals.filter(
       (d: any) => d.pipeline_id === "pipe-tecfag-suporte-tecnico",
@@ -103,8 +103,22 @@ describe("Migração RD Station CRM — Funil de Suporte Técnico (Tecfag)", () 
     const legacyDeals = payload.deals.filter(
       (d: any) => d.pipeline_id === "pipe-tecfag-testes",
     );
-    expect(activeDeals.length).toBe(5118);
+    expect(activeDeals.length).toBe(5123);
     expect(legacyDeals.length).toBe(1288);
+
+    // Garante presença explícita dos 5 cards criados entre 11:08 e 13:29 (Nova pasta 70)
+    const deltaIds = [
+      "deal-rd-6af71a9579ca4f001f06f358", // TIAGO LEITE PERES
+      "deal-rd-6af71ad69f72000021f2db95", // TRILHA CERVEJARIA LTDA
+      "deal-rd-6af71c9bad1871001f62dd7e", // OTACE ATACADO DE AMENDOIM LTDA
+      "deal-rd-6af7206c27606f001d19c148", // BELMA INDUSTRIAL DE GENEROS ALIMENTICIOS LTDA
+      "deal-rd-6af73671e205500022986fce", // ASSISTEC MAQUINAS AUTOMATICAS LTDA
+    ];
+    for (const deltaId of deltaIds) {
+      const found = payload.deals.find((d: any) => d.id === deltaId);
+      expect(found).toBeDefined();
+      expect(found.account_id).toBeTruthy();
+    }
 
     for (const ld of legacyDeals) {
       expect(ld.stage_id).toBe("stg-tf-testes-anteriores");
@@ -174,7 +188,12 @@ describe("Migração RD Station CRM — Funil de Suporte Técnico (Tecfag)", () 
     const tasks = payload.activities.filter((a: any) => a.type !== "note");
     const notes = payload.activities.filter((a: any) => a.type === "note");
     expect(tasks.length).toBe(1500);
-    expect(notes.length).toBe(1564);
+    expect(notes.length).toBe(1567);
+
+    const belmaNote = notes.find(
+      (n: any) => n.deal_id === "deal-rd-6af7206c27606f001d19c148",
+    );
+    expect(belmaNote?.description).toContain("POLITAN EQUIPAMENTOS INDUSTRIAIS");
 
     let completed = 0;
     let open = 0;

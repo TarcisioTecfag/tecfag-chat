@@ -3,11 +3,10 @@ import path from "node:path";
 import zlib from "node:zlib";
 import XLSX from "xlsx";
 
-const SUPORTE_DIR = "C:/Users/TEC FAG/Downloads/Nova pasta (69)";
-const DEAL_CSV_FILE =
-  "673b397d6c7532001f2b0508_deal_export_2026-11-13_11_08.csv";
-const TASK_CSV_FILE =
-  "673b397d6c7532001f2b0508_task_export_2026-11-13_11_10.csv";
+const DEAL_CSV_PATH =
+  "C:/Users/TEC FAG/Downloads/Nova pasta (70)/673b397d6c7532001f2b0508_deal_export_2026-11-13_13_29.csv";
+const TASK_CSV_PATH =
+  "C:/Users/TEC FAG/Downloads/Nova pasta (69)/673b397d6c7532001f2b0508_task_export_2026-11-13_11_10.csv";
 
 const PECAS_1211_SEED_PATH = path.resolve(
   "scripts/data/tecfag-pecas-rd-crm-2026-11-12.json.gz",
@@ -1069,8 +1068,8 @@ if (isMain) {
     });
   }
 
-  // 1. Read & process Suporte Técnico deal_export CSV
-  const dealRows = readRdCsv(path.join(SUPORTE_DIR, DEAL_CSV_FILE));
+  // 1. Read & process Suporte Técnico deal_export CSV (13:29 updated export)
+  const dealRows = readRdCsv(DEAL_CSV_PATH);
   let legacyDealsToViniciusTestes = 0;
   let rowsWithoutContactSkippedFakeCreation = 0;
 
@@ -1243,9 +1242,23 @@ if (isMain) {
       const descRd = String(row["DESCRIÇÃO"] || "").trim();
       const lossNote = String(row["Anotação do motivo de perda"] || "").trim();
       const preAnalise = String(row["PRÉ-ANÁLISE "] || "").trim();
-      if (infoComp || descRd || lossNote || preAnalise) {
+      const extraRdNote =
+        rdDealId === "6af7206c27606f001d19c148"
+          ? [
+              "PEÇA SOLICITADA:",
+              "Mola de tração biônica – fio 1,6 mm / diâmetro externo 15 mm / corpo 124 mm / zincada.",
+              "PROBLEMA / SOLICITAÇÃO:",
+              "Cliente solicitou cotação de uma mola de tração. Foram solicitados os dados da máquina para identificação e confirmação da possibilidade de fornecimento.",
+              "ANÁLISE E SOLUÇÃO:",
+              "Após verificar a etiqueta, foi identificado que o equipamento pertence à empresa POLITAN EQUIPAMENTOS INDUSTRIAIS LTDA., não sendo uma máquina da TecFag. O cliente foi informado de que fornecemos peças exclusivamente para máquinas identificadas com a etiqueta TECFAG. Portanto, não será possível atender à solicitação.",
+              "FINALIDADE / STATUS:",
+              "Atendimento finalizado. Cliente ciente da impossibilidade de fornecimento devido à máquina não pertencer à TecFag.",
+            ].join("\n")
+          : "";
+      if (infoComp || descRd || lossNote || preAnalise || extraRdNote) {
         const noteParts = [];
         if (infoComp) noteParts.push(infoComp);
+        if (extraRdNote) noteParts.push(extraRdNote);
         if (preAnalise && preAnalise !== infoComp) {
           noteParts.push(`Pré-Análise: ${preAnalise}`);
         }
@@ -1445,7 +1458,7 @@ if (isMain) {
     [normKey("WhatsApp")]: "whatsapp",
   };
 
-  const taskRows = readRdCsv(path.join(SUPORTE_DIR, TASK_CSV_FILE));
+  const taskRows = readRdCsv(TASK_CSV_PATH);
   let tasksMatchedSuporteTitle = 0;
   let tasksMatchedSuporteCompany = 0;
   let tasksMatchedPecas1211 = 0;
