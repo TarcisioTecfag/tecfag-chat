@@ -687,7 +687,10 @@ export class CrmService {
    * Lista todos os funis de um tenant com suas respectivas etapas ordenadas.
    * Leitura pura e idempotente — NUNCA gera seed de dados operacionais no GET.
    */
-  async getPipelines(tenantId: string): Promise<Array<CrmPipeline & { stages: CrmStage[] }>> {
+  async getPipelines(
+    tenantId: string,
+    options?: { includeDealCounts?: boolean }
+  ): Promise<Array<CrmPipeline & { dealsCount?: number; stages: Array<CrmStage & { dealsCount?: number }> }>> {
     const pipelines = await db
       .select()
       .from(crmPipelines)
@@ -710,17 +713,77 @@ export class CrmService {
       )
       .orderBy(asc(crmStages.orderIndex), asc(crmStages.createdAt));
 
-    const stagesByPipeline = new Map<string, CrmStage[]>();
+    let countByStageId: Map<string, number> | null = null;
+    let countByPipelineId: Map<string, number> | null = null;
+
+    if (options?.includeDealCounts) {
+      countByStageId = new Map<string, number>();
+      countByPipelineId = new Map<string, number>();
+      const countsRows = await db
+        .select({
+          pipelineId: crmDeals.pipelineId,
+          stageId: crmDeals.stageId,
+          count: sql<number>`count(*)::int`,
+        })
+        .from(crmDeals)
+        .where(
+          and(
+            eq(crmDeals.tenantId, tenantId),
+            inArray(crmDeals.pipelineId, pipelineIds)
+          )
+        )
+        .groupBy(crmDeals.pipelineId, crmDeals.stageId);
+
+      for (const row of countsRows) {
+        const n = Number(row.count) || 0;
+        countByStageId.set(row.stageId, (countByStageId.get(row.stageId) || 0) + n);
+        countByPipelineId.set(row.pipelineId, (countByPipelineId.get(row.pipelineId) || 0) + n);
+      }
+    }
+
+    const stagesByPipeline = new Map<string, Array<CrmStage & { dealsCount?: number }>>();
     for (const stage of stages) {
       const list = stagesByPipeline.get(stage.pipelineId) || [];
-      list.push(stage);
+      list.push(
+        countByStageId
+          ? { ...stage, dealsCount: countByStageId.get(stage.id) || 0 }
+          : stage
+      );
       stagesByPipeline.set(stage.pipelineId, list);
     }
 
     return pipelines.map((pipeline) => ({
       ...pipeline,
+      ...(countByPipelineId ? { dealsCount: countByPipelineId.get(pipeline.id) || 0 } : {}),
       stages: stagesByPipeline.get(pipeline.id) || [],
     }));
+  }
+
+  /**
+   * Reordena os funis de vendas de um tenant de forma atômica.
+   */
+  async reorderPipelines(
+    tenantId: string,
+    pipelineOrders: Array<{ id: string; orderIndex: number }>
+  ): Promise<Array<CrmPipeline & { dealsCount?: number; stages: Array<CrmStage & { dealsCount?: number }> }>> {
+    if (!Array.isArray(pipelineOrders) || pipelineOrders.length === 0) {
+      return this.getPipelines(tenantId, { includeDealCounts: true });
+    }
+
+    const now = new Date();
+    await db.transaction(async (tx) => {
+      for (const item of pipelineOrders) {
+        if (!item?.id || typeof item.orderIndex !== "number" || !Number.isInteger(item.orderIndex)) {
+          continue;
+        }
+        await tx
+          .update(crmPipelines)
+          .set({ orderIndex: item.orderIndex, updatedAt: now })
+          .where(and(eq(crmPipelines.id, item.id), eq(crmPipelines.tenantId, tenantId)));
+      }
+    });
+
+    return this.getPipelines(tenantId, { includeDealCounts: true });
   }
 
   /**
@@ -905,39 +968,100 @@ export class CrmService {
   }
 
   /**
-   * Remove um funil. Rejeita caso existam negociações associadas.
+   * Remove um funil. Rejeita caso existam negociações associadas, a menos que `migrateToStageId` seja informado.
    */
   async deletePipeline(
     tenantId: string,
-    pipelineId: string
-  ): Promise<{ success: boolean }> {
-    await this.getPipelineById(tenantId, pipelineId);
+    pipelineId: string,
+    options?: { migrateToStageId?: string | null }
+  ): Promise<{ success: boolean; migratedDealsCount?: number; targetStageId?: string | null }> {
+    const existingPipeline = await this.getPipelineById(tenantId, pipelineId);
 
     const [dealsCount] = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(crmDeals)
       .where(and(eq(crmDeals.pipelineId, pipelineId), eq(crmDeals.tenantId, tenantId)));
 
-    if (dealsCount && dealsCount.count > 0) {
-      throw new CrmValidationError(
-        `Não é possível excluir o funil porque existem ${dealsCount.count} negociação(ões) vinculada(s).`,
-        "PIPELINE_HAS_DEALS"
-      );
+    const totalDeals = dealsCount?.count ?? 0;
+    const migrateToStageId =
+      typeof options?.migrateToStageId === "string" ? options.migrateToStageId.trim() : "";
+
+    let targetStage: CrmStage | null = null;
+    if (totalDeals > 0) {
+      if (!migrateToStageId) {
+        throw new CrmValidationError(
+          `Não é possível excluir o funil porque existem ${totalDeals} negociação(ões) vinculada(s).`,
+          "PIPELINE_HAS_DEALS"
+        );
+      }
+
+      const [foundTarget] = await db
+        .select()
+        .from(crmStages)
+        .where(and(eq(crmStages.id, migrateToStageId), eq(crmStages.tenantId, tenantId)))
+        .limit(1);
+
+      if (!foundTarget) {
+        throw new CrmNotFoundError("Etapa de destino não encontrada para este tenant.");
+      }
+      if (foundTarget.pipelineId === pipelineId) {
+        throw new CrmValidationError(
+          "Escolha uma etapa de destino em outro funil para migrar as negociações.",
+          "INVALID_TARGET_STAGE"
+        );
+      }
+      targetStage = foundTarget;
     }
 
-    await db
-      .delete(crmStages)
-      .where(and(eq(crmStages.pipelineId, pipelineId), eq(crmStages.tenantId, tenantId)));
+    const stageIdsInPipeline = existingPipeline.stages.map((s) => s.id);
+    const now = new Date();
 
-    await db
-      .delete(crmPipelines)
-      .where(and(eq(crmPipelines.id, pipelineId), eq(crmPipelines.tenantId, tenantId)));
+    await db.transaction(async (tx) => {
+      if (totalDeals > 0 && targetStage) {
+        await tx
+          .update(crmDeals)
+          .set({
+            pipelineId: targetStage.pipelineId,
+            stageId: targetStage.id,
+            version: sql`${crmDeals.version} + 1`,
+            updatedAt: now,
+          })
+          .where(and(eq(crmDeals.pipelineId, pipelineId), eq(crmDeals.tenantId, tenantId)));
+      }
 
-    return { success: true };
+      if (stageIdsInPipeline.length > 0) {
+        await tx
+          .update(crmCustomFieldDefinitions)
+          .set({
+            requiredFromStageId: targetStage?.id ?? null,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(crmCustomFieldDefinitions.tenantId, tenantId),
+              inArray(crmCustomFieldDefinitions.requiredFromStageId, stageIdsInPipeline)
+            )
+          );
+      }
+
+      await tx
+        .delete(crmStages)
+        .where(and(eq(crmStages.pipelineId, pipelineId), eq(crmStages.tenantId, tenantId)));
+
+      await tx
+        .delete(crmPipelines)
+        .where(and(eq(crmPipelines.id, pipelineId), eq(crmPipelines.tenantId, tenantId)));
+    });
+
+    return {
+      success: true,
+      migratedDealsCount: totalDeals,
+      targetStageId: targetStage?.id ?? null,
+    };
   }
 
   /**
-   * Cria uma nova etapa no funil informado.
+   * Cria uma nova etapa no funil informado (deslocando etapas posteriores se orderIndex for especificado).
    */
   async createStage(
     tenantId: string,
@@ -956,33 +1080,58 @@ export class CrmService {
       throw new CrmValidationError("O nome da etapa é obrigatório.", "NAME_REQUIRED");
     }
 
-    let nextOrder = data.orderIndex;
-    if (nextOrder === undefined) {
-      const [maxOrder] = await db
+    const stageId = `stg-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    const now = new Date();
+
+    return await db.transaction(async (tx) => {
+      const [maxOrder] = await tx
         .select({ max: sql<number>`coalesce(max(${crmStages.orderIndex}), -1)::int` })
         .from(crmStages)
         .where(and(eq(crmStages.pipelineId, pipelineId), eq(crmStages.tenantId, tenantId)));
-      nextOrder = (maxOrder?.max ?? -1) + 1;
-    }
 
-    const stageId = `stg-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-    const [created] = await db
-      .insert(crmStages)
-      .values({
-        id: stageId,
-        tenantId,
-        pipelineId,
-        name: data.name.trim(),
-        orderIndex: nextOrder,
-        isWinStage: data.isWinStage ?? false,
-        isLossStage: data.isLossStage ?? false,
-        requiredFields: data.requiredFields ?? [],
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .returning();
+      const appendOrder = (maxOrder?.max ?? -1) + 1;
+      const hasExplicitOrder =
+        data.orderIndex !== undefined &&
+        Number.isInteger(data.orderIndex) &&
+        data.orderIndex >= 0;
+      const nextOrder = hasExplicitOrder
+        ? Math.min(data.orderIndex!, appendOrder)
+        : appendOrder;
 
-    return created;
+      if (hasExplicitOrder && nextOrder < appendOrder) {
+        await tx
+          .update(crmStages)
+          .set({
+            orderIndex: sql`${crmStages.orderIndex} + 1`,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(crmStages.pipelineId, pipelineId),
+              eq(crmStages.tenantId, tenantId),
+              gte(crmStages.orderIndex, nextOrder)
+            )
+          );
+      }
+
+      const [created] = await tx
+        .insert(crmStages)
+        .values({
+          id: stageId,
+          tenantId,
+          pipelineId,
+          name: data.name.trim(),
+          orderIndex: nextOrder,
+          isWinStage: data.isWinStage ?? false,
+          isLossStage: data.isLossStage ?? false,
+          requiredFields: data.requiredFields ?? [],
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning();
+
+      return created;
+    });
   }
 
   /**
@@ -1034,12 +1183,14 @@ export class CrmService {
   }
 
   /**
-   * Remove uma etapa. Rejeita caso existam negociações associadas a ela.
+   * Remove uma etapa. Rejeita caso existam negociações associadas a ela,
+   * exceto quando `migrateToStageId` é informado para migração atômica antes da exclusão.
    */
   async deleteStage(
     tenantId: string,
-    stageId: string
-  ): Promise<{ success: boolean }> {
+    stageId: string,
+    options?: { migrateToStageId?: string | null }
+  ): Promise<{ success: boolean; migratedDealsCount?: number; targetStageId?: string | null; stageName?: string }> {
     const [existing] = await db
       .select()
       .from(crmStages)
@@ -1055,18 +1206,94 @@ export class CrmService {
       .from(crmDeals)
       .where(and(eq(crmDeals.stageId, stageId), eq(crmDeals.tenantId, tenantId)));
 
-    if (dealsCount && dealsCount.count > 0) {
-      throw new CrmValidationError(
-        `Não é possível excluir a etapa porque existem ${dealsCount.count} negociação(ões) vinculada(s). Mova as negociações antes de excluir.`,
-        "STAGE_HAS_DEALS"
-      );
+    const totalDeals = dealsCount?.count ?? 0;
+    const migrateToStageId =
+      typeof options?.migrateToStageId === "string" ? options.migrateToStageId.trim() : "";
+
+    let targetStage: CrmStage | null = null;
+    if (totalDeals > 0) {
+      if (!migrateToStageId) {
+        throw new CrmValidationError(
+          `Não é possível excluir a etapa porque existem ${totalDeals} negociação(ões) vinculada(s). Mova as negociações antes de excluir.`,
+          "STAGE_HAS_DEALS"
+        );
+      }
+
+      if (migrateToStageId === stageId) {
+        throw new CrmValidationError(
+          "A etapa de destino deve ser diferente da etapa que está sendo excluída.",
+          "INVALID_TARGET_STAGE"
+        );
+      }
+
+      const [foundTarget] = await db
+        .select()
+        .from(crmStages)
+        .where(and(eq(crmStages.id, migrateToStageId), eq(crmStages.tenantId, tenantId)))
+        .limit(1);
+
+      if (!foundTarget) {
+        throw new CrmNotFoundError("Etapa de destino não encontrada para este tenant.");
+      }
+      targetStage = foundTarget;
     }
 
-    await db
-      .delete(crmStages)
-      .where(and(eq(crmStages.id, stageId), eq(crmStages.tenantId, tenantId)));
+    const now = new Date();
+    await db.transaction(async (tx) => {
+      if (totalDeals > 0 && targetStage) {
+        await tx
+          .update(crmDeals)
+          .set({
+            pipelineId: targetStage.pipelineId,
+            stageId: targetStage.id,
+            version: sql`${crmDeals.version} + 1`,
+            updatedAt: now,
+          })
+          .where(and(eq(crmDeals.stageId, stageId), eq(crmDeals.tenantId, tenantId)));
+      }
 
-    return { success: true };
+      await tx
+        .update(crmCustomFieldDefinitions)
+        .set({
+          requiredFromStageId: targetStage?.id ?? null,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(crmCustomFieldDefinitions.tenantId, tenantId),
+            eq(crmCustomFieldDefinitions.requiredFromStageId, stageId)
+          )
+        );
+
+      await tx
+        .delete(crmStages)
+        .where(and(eq(crmStages.id, stageId), eq(crmStages.tenantId, tenantId)));
+
+      const remainingStages = await tx
+        .select({ id: crmStages.id })
+        .from(crmStages)
+        .where(and(eq(crmStages.pipelineId, existing.pipelineId), eq(crmStages.tenantId, tenantId)))
+        .orderBy(asc(crmStages.orderIndex), asc(crmStages.createdAt));
+
+      for (let idx = 0; idx < remainingStages.length; idx++) {
+        await tx
+          .update(crmStages)
+          .set({ orderIndex: idx, updatedAt: now })
+          .where(
+            and(
+              eq(crmStages.id, remainingStages[idx].id),
+              eq(crmStages.tenantId, tenantId)
+            )
+          );
+      }
+    });
+
+    return {
+      success: true,
+      migratedDealsCount: totalDeals,
+      targetStageId: targetStage?.id ?? null,
+      stageName: existing.name,
+    };
   }
 
   /**

@@ -11,7 +11,7 @@ import { handleConditionalResponse } from "../../../lib/http-cache";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
 
@@ -47,7 +47,8 @@ export const Route = createFileRoute("/api/crm/pipelines")({
             if (permError) return permError;
           }
 
-          const allPipelines = await crmService.getPipelines(tenantId);
+          const includeDealCounts = url.searchParams.get("includeDealCounts") === "true";
+          const allPipelines = await crmService.getPipelines(tenantId, { includeDealCounts });
           const bypassRestrictions = forPermissions && canManageGroupsOrPipelines;
           const allowedPipelineIds = bypassRestrictions ? null : getAllowedPipelineIds(session);
           const visiblePipelines =
@@ -147,6 +148,42 @@ export const Route = createFileRoute("/api/crm/pipelines")({
           });
         } catch (err: any) {
           console.error("[CRM Pipelines API] Erro no POST:", err);
+          return handleCrmError(err, corsHeaders);
+        }
+      },
+
+      /**
+       * PATCH /api/crm/pipelines
+       * Reordena os funis de vendas de forma atômica.
+       * Exige canManagePipelines.
+       */
+      PATCH: async ({ request }) => {
+        try {
+          const auth = await requireSession(request);
+          if ("response" in auth) return auth.response;
+          const { session } = auth;
+          const tenantId = session.tenantId;
+
+          const permError = requireCrmPermission(session, "canManagePipelines");
+          if (permError) return permError;
+
+          const body = await request.json().catch(() => ({}));
+          if (!Array.isArray(body.pipelineOrders)) {
+            return new Response(
+              JSON.stringify({
+                error: "pipelineOrders deve ser um array com id e orderIndex.",
+                code: "BAD_REQUEST",
+              }),
+              { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+          }
+
+          const pipelines = await crmService.reorderPipelines(tenantId, body.pipelineOrders);
+          return new Response(JSON.stringify({ pipelines }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        } catch (err: any) {
+          console.error("[CRM Pipelines API] Erro no PATCH:", err);
           return handleCrmError(err, corsHeaders);
         }
       },

@@ -87,7 +87,7 @@ export const Route = createFileRoute("/api/crm/pipelines/$pipelineId")({
 
       /**
        * DELETE /api/crm/pipelines/:pipelineId
-       * Exclui um funil. Rejeita se houver negociações associadas.
+       * Exclui um funil. Rejeita se houver negociações associadas, a menos que migrateToStageId seja informado.
        * Exige canManagePipelines.
        */
       DELETE: async ({ request, params }) => {
@@ -101,11 +101,29 @@ export const Route = createFileRoute("/api/crm/pipelines/$pipelineId")({
           if (permError) return permError;
 
           const { pipelineId } = params as unknown as { pipelineId: string };
+          const url = new URL(request.url);
+          const body = await request.json().catch(() => ({}));
+          const migrateToStageId =
+            (typeof body?.migrateToStageId === "string" ? body.migrateToStageId : null) ||
+            url.searchParams.get("migrateToStageId") ||
+            null;
+
           const pipeline = await crmService.getPipelineById(tenantId, pipelineId);
-          const result = await crmService.deletePipeline(tenantId, pipelineId);
-          await recordCrmAction({ tenantId, operatorId: session.operator.id, operatorName: session.operator.name,
-            action: "delete_pipeline", entityType: "pipeline", itemCount: 1,
-            details: { pipelineId, name: pipeline.name } });
+          const result = await crmService.deletePipeline(tenantId, pipelineId, { migrateToStageId });
+          await recordCrmAction({
+            tenantId,
+            operatorId: session.operator.id,
+            operatorName: session.operator.name,
+            action: "delete_pipeline",
+            entityType: "pipeline",
+            itemCount: 1,
+            details: {
+              pipelineId,
+              name: pipeline.name,
+              migratedDealsCount: result.migratedDealsCount ?? 0,
+              targetStageId: result.targetStageId ?? null,
+            },
+          });
 
           return new Response(JSON.stringify(result), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },

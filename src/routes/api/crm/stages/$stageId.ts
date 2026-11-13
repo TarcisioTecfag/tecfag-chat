@@ -52,7 +52,7 @@ export const Route = createFileRoute("/api/crm/stages/$stageId")({
 
       /**
        * DELETE /api/crm/stages/:stageId
-       * Exclui uma etapa. Rejeita se houver negociações associadas.
+       * Exclui uma etapa. Rejeita se houver negociações associadas, a menos que migrateToStageId seja informado.
        * Exige canManagePipelines.
        */
       DELETE: async ({ request, params }) => {
@@ -66,9 +66,28 @@ export const Route = createFileRoute("/api/crm/stages/$stageId")({
           if (permError) return permError;
 
           const { stageId } = params as unknown as { stageId: string };
-          const result = await crmService.deleteStage(tenantId, stageId);
-          await recordCrmAction({ tenantId, operatorId: session.operator.id, operatorName: session.operator.name,
-            action: "delete_stage", entityType: "stage", itemCount: 1, details: { stageId } });
+          const url = new URL(request.url);
+          const body = await request.json().catch(() => ({}));
+          const migrateToStageId =
+            (typeof body?.migrateToStageId === "string" ? body.migrateToStageId : null) ||
+            url.searchParams.get("migrateToStageId") ||
+            null;
+
+          const result = await crmService.deleteStage(tenantId, stageId, { migrateToStageId });
+          await recordCrmAction({
+            tenantId,
+            operatorId: session.operator.id,
+            operatorName: session.operator.name,
+            action: "delete_stage",
+            entityType: "stage",
+            itemCount: 1,
+            details: {
+              stageId,
+              stageName: result.stageName,
+              migratedDealsCount: result.migratedDealsCount ?? 0,
+              targetStageId: result.targetStageId ?? null,
+            },
+          });
 
           return new Response(JSON.stringify(result), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
