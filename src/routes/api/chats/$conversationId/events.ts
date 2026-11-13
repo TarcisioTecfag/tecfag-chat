@@ -3,10 +3,7 @@ import { and, desc, eq, lt, notExists, or, sql } from "drizzle-orm";
 import { db } from "../../../../db";
 import { attendanceEvents, messages } from "../../../../db/schema";
 import { requireSession } from "../../../../lib/auth-session";
-import {
-  requireConversationAccess,
-  requireConversationWriteAccess,
-} from "../../../../lib/access-control/conversation-access";
+import { requireConversationAccess } from "../../../../lib/access-control/conversation-access";
 import {
   getDealContext,
   assertDealContextVersion,
@@ -143,7 +140,7 @@ export const Route = createFileRoute("/api/chats/$conversationId/events")({
           if ("response" in auth) return auth.response;
           const { session } = auth;
           const tenantId = session.tenantId;
-          const denied = await requireConversationWriteAccess(session, params.conversationId);
+          const denied = await requireConversationAccess(session, params.conversationId);
           if (denied) return denied;
           const body = await request.json();
           // Somente intenções da UI. A conclusão real vem da escrita autoritativa no servidor.
@@ -162,12 +159,12 @@ export const Route = createFileRoute("/api/chats/$conversationId/events")({
               params.conversationId,
               session.operator.id,
             );
-            if (
-              state.conversation.operatorId !== session.operator.id ||
-              state.conversation.queueState !== "meus"
-            )
-              throw new DealContextError("O responsável pelo atendimento mudou.", "FORBIDDEN", 403);
-            assertDealContextVersion(state.context, body.expectedContextVersion);
+            const isCurrentOwner =
+              state.conversation.operatorId === session.operator.id &&
+              state.conversation.queueState === "meus";
+            if (isCurrentOwner || body.expectedContextVersion !== undefined) {
+              assertDealContextVersion(state.context, body.expectedContextVersion);
+            }
             await recordAttendanceEvent(tx, {
               tenantId,
               conversationId: params.conversationId,

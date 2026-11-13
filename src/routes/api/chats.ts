@@ -7,7 +7,7 @@ import { requireSession } from "../../lib/auth-session";
 import { getAiPersona } from "../../lib/ai-persona";
 import { readReactions } from "../../lib/whatsapp/meta-reactions";
 import { SessionManager } from "../../lib/baileys/session-manager";
-import { conversationReadCondition, requireConversationWriteAccess } from "../../lib/access-control/conversation-access";
+import { conversationReadCondition, requireConversationAccess, requireConversationWriteAccess } from "../../lib/access-control/conversation-access";
 import { conversationReadRules } from "../../lib/access-control/conversation-policy";
 import { getDealContext, recordConversationAction, assertDealContextVersion, DealContextError, findActiveGraceDeal } from "../../lib/crm/conversation-deal-context";
 import { getContactPhonesMap } from "../../lib/crm/contact-phones";
@@ -141,7 +141,13 @@ export const Route = createFileRoute("/api/chats")({
             );
           }
 
-          const denied = await requireConversationWriteAccess(session, conversationId);
+          if (isInternalNote && session.permissions.chat.canSendInternalNotes !== true) {
+            return Response.json({ error: "Sem permissão para enviar notas internas.", code: "FORBIDDEN" }, { status: 403 });
+          }
+
+          const denied = isInternalNote
+            ? await requireConversationAccess(session, conversationId)
+            : await requireConversationWriteAccess(session, conversationId);
           if (denied) return denied;
 
           // Validar se a conversa pertence ao tenant da sessão
@@ -162,11 +168,8 @@ export const Route = createFileRoute("/api/chats")({
             });
           }
 
-          if (conv.queueState !== "meus" || conv.operatorId !== session.operator.id) {
+          if (!isInternalNote && (conv.queueState !== "meus" || conv.operatorId !== session.operator.id)) {
             return Response.json({ error: "Capture o atendimento antes de escrever nesta conversa.", code: "FORBIDDEN" }, { status: 403 });
-          }
-          if (isInternalNote && session.permissions.chat.canSendInternalNotes !== true) {
-            return Response.json({ error: "Sem permissão para enviar notas internas.", code: "FORBIDDEN" }, { status: 403 });
           }
 
           if (body.noteScope !== undefined && !["current", "general"].includes(body.noteScope)) return Response.json({ error: "Destino da nota inválido." }, { status: 400 });
@@ -176,11 +179,34 @@ export const Route = createFileRoute("/api/chats")({
           const now = new Date();
 
           const stored = await db.transaction(async (tx) => {
-            const [owned] = await tx.select({ id: conversations.id }).from(conversations).where(and(
-              eq(conversations.id, conversationId), eq(conversations.tenantId, session.tenantId),
-              eq(conversations.operatorId, session.operator.id), eq(conversations.queueState, "meus"), conversationReadCondition(session),
-            )).for("update").limit(1);
-            if (!owned) return false;
+            const [lockedConv] = await tx
+              .select({
+                id: conversations.id,
+                queueState: conversations.queueState,
+                operatorId: conversations.operatorId,
+              })
+              .from(conversations)
+              .where(
+                and(
+                  eq(conversations.id, conversationId),
+                  eq(conversations.tenantId, session.tenantId),
+                  ...(isInternalNote
+                    ? []
+                    : [
+                        eq(conversations.operatorId, session.operator.id),
+                        eq(conversations.queueState, "meus"),
+                      ]),
+                  conversationReadCondition(session),
+                ),
+              )
+              .for("update")
+              .limit(1);
+            if (!lockedConv) return false;
+            const effectiveQueueState = lockedConv.queueState ?? conv.queueState;
+            const effectiveOperatorId =
+              lockedConv.operatorId !== undefined ? lockedConv.operatorId : conv.operatorId;
+            const isCurrentOwner =
+              effectiveQueueState === "meus" && effectiveOperatorId === session.operator.id;
             if (body.clientMessageId) {
               const [existing] = await tx.select({ id: messages.id }).from(messages).where(and(
                 eq(messages.tenantId, session.tenantId), eq(messages.conversationId, conversationId), eq(messages.idempotencyKey, body.clientMessageId),
@@ -189,9 +215,11 @@ export const Route = createFileRoute("/api/chats")({
             }
             const state = isInternalNote ? await getDealContext(tx, session.tenantId, conversationId, session.operator.id) : null;
             const graceDeal = state && !state.context.currentDealId ? findActiveGraceDeal(state.deals, [state.context.currentDealId, state.context.previousDealId]) : null;
-            const generalNote = body.noteScope === "general";
+            const generalNote = body.noteScope === "general" || !isCurrentOwner;
             if (state && senderType !== "system") {
-              assertDealContextVersion(state.context, body.expectedContextVersion);
+              if (isCurrentOwner || body.expectedContextVersion !== undefined) {
+                assertDealContextVersion(state.context, body.expectedContextVersion);
+              }
               if (!state.context.currentDealId && !graceDeal && !generalNote) throw new DealContextError("Selecione a negociação deste atendimento ou permita salvar a nota com vínculo pendente.", "DEAL_CONTEXT_REQUIRED");
             }
             const selectedDealId = state?.context.currentDealId || graceDeal?.id || null;
@@ -223,11 +251,11 @@ export const Route = createFileRoute("/api/chats")({
             await tx.update(conversations).set({
               ...(isInternalNote || senderType === "system" ? {} : { lastMessageTime: now }),
               updatedAt: now,
-              unreadCount: 0,
+              ...(isCurrentOwner ? { unreadCount: 0 } : {}),
             }).where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, session.tenantId)));
             return true;
           });
-          if (!stored) return Response.json({ error: "O responsável pelo atendimento mudou. Atualize a conversa.", code: "FORBIDDEN" }, { status: 403 });
+          if (!stored) return Response.json({ error: isInternalNote ? "Sem acesso a esta conversa." : "O responsável pelo atendimento mudou. Atualize a conversa.", code: "FORBIDDEN" }, { status: 403 });
 
           try {
             const [contactRow] = conv.contactId

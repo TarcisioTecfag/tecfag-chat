@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
+import { Lock } from "lucide-react";
 import { ConversationDealsPanel } from "./ConversationDealsPanel";
+import { InlineChatNoteComposer } from "@/components/chat/InlineChatNoteComposer";
+import { usePermissions } from "@/hooks/usePermissions";
 import {
   cachedDealRequirement,
   fetchDealRequirement,
@@ -81,10 +84,17 @@ export function ConversationDealRequirement({
   error?: string;
   selectionRequired?: boolean;
 }) {
+  const { canSendInternalNotes } = usePermissions();
+  const [showNoteComposer, setShowNoteComposer] = useState(false);
+
+  useEffect(() => {
+    setShowNoteComposer(false);
+  }, [conversationId]);
+
   return (
     <div className="w-full max-h-[76vh] space-y-3 overflow-y-auto rounded-2xl border-2 border-red-600/70 dark:border-red-500/70 bg-card p-4 shadow-xl">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
-        <div>
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+        <div className="min-w-0">
           <p role="alert" className="text-sm font-bold text-foreground">
             {selectionRequired
               ? "Escolha a negociação atual deste atendimento"
@@ -96,7 +106,28 @@ export function ConversationDealRequirement({
               : "As mensagens recebidas estão preservadas. Associe um card ou crie uma negociação para continuar."}
           </p>
         </div>
+        {canSendInternalNotes && conversationId !== "valentina" && (
+          <button
+            type="button"
+            data-chat-annotation-trigger="deal-requirement"
+            onClick={() => setShowNoteComposer((prev) => !prev)}
+            className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-semibold shadow-xs transition-colors cursor-pointer shrink-0 ${
+              showNoteComposer
+                ? "border-amber-500 bg-amber-500/15 text-amber-700 dark:text-amber-400"
+                : "border-border/90 bg-background hover:bg-muted/70 hover:border-amber-500/50 text-foreground"
+            }`}
+          >
+            <Lock className="h-3.5 w-3.5 text-amber-500" />
+            <span>{showNoteComposer ? "Fechar Anotação" : "Anotação"}</span>
+          </button>
+        )}
       </div>
+      {showNoteComposer && canSendInternalNotes && conversationId !== "valentina" && (
+        <InlineChatNoteComposer
+          conversationId={conversationId}
+          onClose={() => setShowNoteComposer(false)}
+        />
+      )}
       {error && (
         <p role="alert" className="text-xs text-destructive">
           {error}

@@ -2677,19 +2677,21 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (intent && intent.tenantId !== tenant) return false;
     if (!targetChatId) return false;
 
-    const currentChat = conversations.find((c) => c.id === targetChatId);
-    if (!currentChat) return false;
+    const currentChat =
+      conversationsRef.current.find((c) => c.id === targetChatId) ||
+      conversations.find((c) => c.id === targetChatId);
+    if (!currentChat && !isInternalNote) return false;
 
     const safeInputText =
       targetChatId !== "valentina" && rawInputText
         ? resolveTemplateVariables(rawInputText, {
-            clientName: currentChat.name,
+            clientName: currentChat?.name || "Cliente",
             operatorName: operatorProfile.name,
             tenantId: tenant,
             clientCompanyName:
               (currentChat as any)?.companyName ||
-              currentChat.cnpjDetails?.nomeFantasia ||
-              currentChat.cnpjDetails?.razaoSocial ||
+              currentChat?.cnpjDetails?.nomeFantasia ||
+              currentChat?.cnpjDetails?.razaoSocial ||
               null,
           })
         : rawInputText;
@@ -3275,19 +3277,22 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return true;
     }
 
-    if (currentChat.queue !== "meus" || currentChat.operatorId !== currentOperatorId) {
+    if (
+      !isInternalNote &&
+      (!currentChat || currentChat.queue !== "meus" || currentChat.operatorId !== currentOperatorId)
+    ) {
       toast.error("Capture o atendimento antes de enviar mensagens.");
       return false;
     }
 
     const shouldSendReal =
-      currentChat.channel === "whatsapp" &&
+      Boolean(currentChat && currentChat.channel === "whatsapp") &&
       !isInternalNote;
     const clientMessageId =
       intent?.id || `cmsg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-    const optimisticMessageId = shouldSendReal && text.trim() && !attachments?.length && !metaTemplate
+    const optimisticMessageId = shouldSendReal && currentChat && text.trim() && !attachments?.length && !metaTemplate
       ? `pending-${clientMessageId}` : null;
-    if (optimisticMessageId) {
+    if (optimisticMessageId && currentChat) {
       const optTime = buildMonotonicMessageTime(currentChat.messages);
       const pendingTime = optTime.time;
       const nowIso = optTime.sentAtISO;
@@ -3331,9 +3336,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     console.log("[SendMessage Frontend] Diagnóstico de envio:", {
       tenant,
-      channel: currentChat.channel,
+      channel: currentChat?.channel,
       isInternalNote,
-      phone: currentChat.phone,
+      phone: currentChat?.phone,
       targetChatId,
       shouldSendReal,
       quotedMessage,
@@ -3608,8 +3613,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             : c.messages;
           return {
             ...c,
-            lastMessageTime: finalLastTime,
-            lastMessageAtISO: finalLastIso,
+            ...(isInternalNote ? {} : { lastMessageTime: finalLastTime, lastMessageAtISO: finalLastIso }),
             messages: [
               ...existingMessages,
               ...messagesToAdd.filter(

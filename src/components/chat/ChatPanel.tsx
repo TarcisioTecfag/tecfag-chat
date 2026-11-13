@@ -83,6 +83,7 @@ import {
 import { ValentinaAssistantModal } from "./ValentinaAssistantModal";
 import { ProductCatalogPicker } from "./ProductCatalogPicker";
 import { InlineChatTaskComposer } from "./InlineChatTaskComposer";
+import { InlineChatNoteComposer } from "./InlineChatNoteComposer";
 import {
   OperatorInitialQuickBar,
   OperatorAvatarWithInitial,
@@ -1512,8 +1513,10 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
 
   const [msgMode, setMsgMode] = useState<"client" | "internal" | "task">(initialTransientState?.msgMode ?? "client");
   const [showClosedWindowTaskComposer, setShowClosedWindowTaskComposer] = useState(false);
+  const [showInlineAnnotationComposer, setShowInlineAnnotationComposer] = useState(false);
   useEffect(() => {
     setShowClosedWindowTaskComposer(false);
+    setShowInlineAnnotationComposer(false);
   }, [activeChat?.id]);
   useEffect(() => {
     if (msgMode === "task" && (!canManageTags || activeChat?.id === "valentina")) {
@@ -4602,134 +4605,228 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
         >
           {/* ── BLOQUEIO: outro operador — oculta TUDO, mostra só o banner ── */}
           {activeChat.whatsappConnectionId && connectionsState.connections.find(c => c.id === activeChat.whatsappConnectionId)?.canSend !== true ? (
-            <div role="status" className="rounded-xl border border-border bg-muted/30 p-4 text-sm text-muted-foreground">Este número está disponível somente para visualização. Seu grupo não tem permissão para enviar mensagens por ele.</div>
+            <div className="mx-auto max-w-2xl space-y-2.5">
+              {showInlineAnnotationComposer && canSendInternalNotes && activeChat.id !== "valentina" && (
+                <InlineChatNoteComposer
+                  conversationId={activeChat.id}
+                  onClose={() => setShowInlineAnnotationComposer(false)}
+                />
+              )}
+              <div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
+                <span>Este número está disponível somente para visualização. Seu grupo não tem permissão para enviar mensagens por ele.</span>
+                {canSendInternalNotes && activeChat.id !== "valentina" && (
+                  <button
+                    type="button"
+                    data-chat-annotation-trigger="readonly-connection"
+                    onClick={() => setShowInlineAnnotationComposer((prev) => !prev)}
+                    className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-semibold shadow-xs transition-colors cursor-pointer shrink-0 ${
+                      showInlineAnnotationComposer
+                        ? "border-amber-500 bg-amber-500/15 text-amber-700 dark:text-amber-400"
+                        : "border-border/90 bg-background hover:bg-muted/70 hover:border-amber-500/50 text-foreground"
+                    }`}
+                  >
+                    <Lock className="h-3.5 w-3.5 text-amber-500" />
+                    <span>{showInlineAnnotationComposer ? "Fechar Anotação" : "Anotação"}</span>
+                  </button>
+                )}
+              </div>
+            </div>
           ) : dealRequirement.pending ? (
             <ConversationDealRequirement conversationId={activeChat.id} contactId={activeChat.contactId} customerName={activeChat.name} error={dealRequirement.error} selectionRequired={dealRequirement.currentRequired} />
           ) : !isOwner && activeChat.operatorId ? (
-            <div className="mx-auto max-w-2xl rounded-xl border border-border/80 border-l-[6px] border-l-primary bg-card p-5 shadow-xs">
-              <div className="flex items-start gap-3.5">
-                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                  <Lock className="h-4.5 w-4.5" />
-                </div>
-                <div className="flex-1 space-y-3">
-                  <div>
-                    <h4 className="text-sm font-bold text-foreground">
-                      Atendimento com {ownerOperator?.name ?? "outro operador"}
-                    </h4>
-                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                      Este atendimento está sob responsabilidade de{" "}
-                      {ownerOperator?.name ?? "outro operador"}. Somente o operador responsável pode
-                      responder mensagens nesta conversa.
-                    </p>
+            <div className="mx-auto max-w-2xl space-y-2.5">
+              {showInlineAnnotationComposer && canSendInternalNotes && activeChat.id !== "valentina" && (
+                <InlineChatNoteComposer
+                  conversationId={activeChat.id}
+                  onClose={() => setShowInlineAnnotationComposer(false)}
+                />
+              )}
+              <div className="rounded-xl border border-border/80 border-l-[6px] border-l-primary bg-card p-5 shadow-xs">
+                <div className="flex items-start gap-3.5">
+                  <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                    <Lock className="h-4.5 w-4.5" />
                   </div>
-                  <div className="flex flex-wrap items-center gap-3">
-                    {canOverride && (
-                      <button
-                        type="button"
-                        disabled={choosingWhatsappNumber}
-                        onClick={() => captureChat(activeChat.id)}
-                        className="inline-flex items-center gap-2 rounded-md border border-border/90 bg-background hover:bg-muted/70 hover:border-primary/50 px-4 py-2 text-xs font-semibold text-foreground shadow-xs transition-colors cursor-pointer"
-                      >
-                        <UserCheck className="h-3.5 w-3.5 text-primary" />
-                        <span>Assumir Atendimento</span>
-                      </button>
-                    )}
-                    {canTransfer && (
-                      <button
-                        type="button"
-                        onClick={() => setShowTransferModal(true)}
-                        className="inline-flex items-center gap-2 rounded-md border border-border/90 bg-background hover:bg-muted/70 hover:border-primary/50 px-4 py-2 text-xs font-semibold text-foreground shadow-xs transition-colors cursor-pointer"
-                      >
-                        <ArrowRightLeft className="h-3.5 w-3.5 text-primary" />
-                        <span>Transferir Atendimento</span>
-                      </button>
-                    )}
+                  <div className="flex-1 space-y-3">
+                    <div>
+                      <h4 className="text-sm font-bold text-foreground">
+                        Atendimento com {ownerOperator?.name ?? "outro operador"}
+                      </h4>
+                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                        Este atendimento está sob responsabilidade de{" "}
+                        {ownerOperator?.name ?? "outro operador"}. Somente o operador responsável pode
+                        responder mensagens nesta conversa.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3">
+                      {canOverride && (
+                        <button
+                          type="button"
+                          disabled={choosingWhatsappNumber}
+                          onClick={() => captureChat(activeChat.id)}
+                          className="inline-flex items-center gap-2 rounded-md border border-border/90 bg-background hover:bg-muted/70 hover:border-primary/50 px-4 py-2 text-xs font-semibold text-foreground shadow-xs transition-colors cursor-pointer"
+                        >
+                          <UserCheck className="h-3.5 w-3.5 text-primary" />
+                          <span>Assumir Atendimento</span>
+                        </button>
+                      )}
+                      {canSendInternalNotes && activeChat.id !== "valentina" && (
+                        <button
+                          type="button"
+                          data-chat-annotation-trigger="other-operator"
+                          onClick={() => setShowInlineAnnotationComposer((prev) => !prev)}
+                          className={`inline-flex items-center gap-2 rounded-md border px-4 py-2 text-xs font-semibold shadow-xs transition-colors cursor-pointer ${
+                            showInlineAnnotationComposer
+                              ? "border-amber-500 bg-amber-500/15 text-amber-700 dark:text-amber-400"
+                              : "border-border/90 bg-background hover:bg-muted/70 hover:border-amber-500/50 text-foreground"
+                          }`}
+                        >
+                          <Lock className="h-3.5 w-3.5 text-amber-500" />
+                          <span>{showInlineAnnotationComposer ? "Fechar Anotação" : "Anotação"}</span>
+                        </button>
+                      )}
+                      {canTransfer && (
+                        <button
+                          type="button"
+                          onClick={() => setShowTransferModal(true)}
+                          className="inline-flex items-center gap-2 rounded-md border border-border/90 bg-background hover:bg-muted/70 hover:border-primary/50 px-4 py-2 text-xs font-semibold text-foreground shadow-xs transition-colors cursor-pointer"
+                        >
+                          <ArrowRightLeft className="h-3.5 w-3.5 text-primary" />
+                          <span>Transferir Atendimento</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
           ) : !activeChat.operatorId && activeChat.queue !== "automacao" ? (
             /* ── BLOQUEIO: fila de espera ── */
-            <div className="mx-auto max-w-2xl rounded-xl border border-border/80 border-l-[6px] border-l-primary bg-card p-5 shadow-xs">
-              <div className="flex items-start gap-3.5">
-                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                  <Clock className="h-4.5 w-4.5" />
-                </div>
-                <div className="flex-1 space-y-3">
-                  <div>
-                    <h4 className="text-sm font-bold text-foreground">
-                      Cliente aguardando na fila de espera
-                    </h4>
-                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                      Este atendimento está na fila aguardando atribuição. Capture o atendimento
-                      para começar a responder o cliente ou direcione-o para outro operador.
-                    </p>
+            <div className="mx-auto max-w-2xl space-y-2.5">
+              {showInlineAnnotationComposer && canSendInternalNotes && activeChat.id !== "valentina" && (
+                <InlineChatNoteComposer
+                  conversationId={activeChat.id}
+                  onClose={() => setShowInlineAnnotationComposer(false)}
+                />
+              )}
+              <div className="rounded-xl border border-border/80 border-l-[6px] border-l-primary bg-card p-5 shadow-xs">
+                <div className="flex items-start gap-3.5">
+                  <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                    <Clock className="h-4.5 w-4.5" />
                   </div>
-                  <div className="flex flex-wrap items-center gap-3">
-                    {canCapture && (
-                      <button
-                        type="button"
-                        disabled={choosingWhatsappNumber}
-                        onClick={() => captureChat(activeChat.id)}
-                        className="inline-flex items-center gap-2 rounded-md border border-border/90 bg-background hover:bg-muted/70 hover:border-primary/50 px-4 py-2 text-xs font-semibold text-foreground shadow-xs transition-colors cursor-pointer"
-                      >
-                        <UserCheck className="h-3.5 w-3.5 text-primary" />
-                        <span>Capturar Atendimento</span>
-                      </button>
-                    )}
-                    {canTransfer && (
-                      <button
-                        type="button"
-                        onClick={() => setShowTransferModal(true)}
-                        className="inline-flex items-center gap-2 rounded-md border border-border/90 bg-background hover:bg-muted/70 hover:border-primary/50 px-4 py-2 text-xs font-semibold text-foreground shadow-xs transition-colors cursor-pointer"
-                      >
-                        <ArrowRightLeft className="h-3.5 w-3.5 text-primary" />
-                        <span>Direcionar Atendimento</span>
-                      </button>
-                    )}
+                  <div className="flex-1 space-y-3">
+                    <div>
+                      <h4 className="text-sm font-bold text-foreground">
+                        Cliente aguardando na fila de espera
+                      </h4>
+                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                        Este atendimento está na fila aguardando atribuição. Capture o atendimento
+                        para começar a responder o cliente ou direcione-o para outro operador.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3">
+                      {canCapture && (
+                        <button
+                          type="button"
+                          disabled={choosingWhatsappNumber}
+                          onClick={() => captureChat(activeChat.id)}
+                          className="inline-flex items-center gap-2 rounded-md border border-border/90 bg-background hover:bg-muted/70 hover:border-primary/50 px-4 py-2 text-xs font-semibold text-foreground shadow-xs transition-colors cursor-pointer"
+                        >
+                          <UserCheck className="h-3.5 w-3.5 text-primary" />
+                          <span>Capturar Atendimento</span>
+                        </button>
+                      )}
+                      {canSendInternalNotes && activeChat.id !== "valentina" && (
+                        <button
+                          type="button"
+                          data-chat-annotation-trigger="fila"
+                          onClick={() => setShowInlineAnnotationComposer((prev) => !prev)}
+                          className={`inline-flex items-center gap-2 rounded-md border px-4 py-2 text-xs font-semibold shadow-xs transition-colors cursor-pointer ${
+                            showInlineAnnotationComposer
+                              ? "border-amber-500 bg-amber-500/15 text-amber-700 dark:text-amber-400"
+                              : "border-border/90 bg-background hover:bg-muted/70 hover:border-amber-500/50 text-foreground"
+                          }`}
+                        >
+                          <Lock className="h-3.5 w-3.5 text-amber-500" />
+                          <span>{showInlineAnnotationComposer ? "Fechar Anotação" : "Anotação"}</span>
+                        </button>
+                      )}
+                      {canTransfer && (
+                        <button
+                          type="button"
+                          onClick={() => setShowTransferModal(true)}
+                          className="inline-flex items-center gap-2 rounded-md border border-border/90 bg-background hover:bg-muted/70 hover:border-primary/50 px-4 py-2 text-xs font-semibold text-foreground shadow-xs transition-colors cursor-pointer"
+                        >
+                          <ArrowRightLeft className="h-3.5 w-3.5 text-primary" />
+                          <span>Direcionar Atendimento</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
           ) : activeChat.queue === "automacao" ? (
             /* ── BLOQUEIO: automação ── */
-            <div className="mx-auto max-w-2xl rounded-xl border border-border/80 border-l-[6px] border-l-primary bg-card p-5 shadow-xs">
-              <div className="flex items-start gap-3.5">
-                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                  <Bot className="h-4.5 w-4.5" />
-                </div>
-                <div className="flex-1 space-y-3">
-                  <div>
-                    <h4 className="text-sm font-bold text-foreground">
-                      Com {aiPersona.name} (I.A)
-                    </h4>
-                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                      {aiPersona.name} está conduzindo o atendimento inicial deste cliente. Você
-                      pode assumir a qualquer momento para continuar o atendimento de forma humana.
-                    </p>
+            <div className="mx-auto max-w-2xl space-y-2.5">
+              {showInlineAnnotationComposer && canSendInternalNotes && activeChat.id !== "valentina" && (
+                <InlineChatNoteComposer
+                  conversationId={activeChat.id}
+                  onClose={() => setShowInlineAnnotationComposer(false)}
+                />
+              )}
+              <div className="rounded-xl border border-border/80 border-l-[6px] border-l-primary bg-card p-5 shadow-xs">
+                <div className="flex items-start gap-3.5">
+                  <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                    <Bot className="h-4.5 w-4.5" />
                   </div>
-                  <div className="flex flex-wrap items-center gap-3">
-                    {canCapture && (
-                      <button
-                        type="button"
-                        disabled={choosingWhatsappNumber}
-                        onClick={() => captureChat(activeChat.id)}
-                        className="inline-flex items-center gap-2 rounded-md border border-border/90 bg-background hover:bg-muted/70 hover:border-primary/50 px-4 py-2 text-xs font-semibold text-foreground shadow-xs transition-colors cursor-pointer"
-                      >
-                        <UserCheck className="h-3.5 w-3.5 text-primary" />
-                        <span>Assumir Atendimento</span>
-                      </button>
-                    )}
-                    {canTransfer && (
-                      <button
-                        type="button"
-                        onClick={() => setShowTransferModal(true)}
-                        className="inline-flex items-center gap-2 rounded-md border border-border/90 bg-background hover:bg-muted/70 hover:border-primary/50 px-4 py-2 text-xs font-semibold text-foreground shadow-xs transition-colors cursor-pointer"
-                      >
-                        <ArrowRightLeft className="h-3.5 w-3.5 text-primary" />
-                        <span>Transferir Atendimento</span>
-                      </button>
-                    )}
+                  <div className="flex-1 space-y-3">
+                    <div>
+                      <h4 className="text-sm font-bold text-foreground">
+                        Com {aiPersona.name} (I.A)
+                      </h4>
+                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                        {aiPersona.name} está conduzindo o atendimento inicial deste cliente. Você
+                        pode assumir a qualquer momento para continuar o atendimento de forma humana.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3">
+                      {canCapture && (
+                        <button
+                          type="button"
+                          disabled={choosingWhatsappNumber}
+                          onClick={() => captureChat(activeChat.id)}
+                          className="inline-flex items-center gap-2 rounded-md border border-border/90 bg-background hover:bg-muted/70 hover:border-primary/50 px-4 py-2 text-xs font-semibold text-foreground shadow-xs transition-colors cursor-pointer"
+                        >
+                          <UserCheck className="h-3.5 w-3.5 text-primary" />
+                          <span>Assumir Atendimento</span>
+                        </button>
+                      )}
+                      {canSendInternalNotes && activeChat.id !== "valentina" && (
+                        <button
+                          type="button"
+                          data-chat-annotation-trigger="automacao"
+                          onClick={() => setShowInlineAnnotationComposer((prev) => !prev)}
+                          className={`inline-flex items-center gap-2 rounded-md border px-4 py-2 text-xs font-semibold shadow-xs transition-colors cursor-pointer ${
+                            showInlineAnnotationComposer
+                              ? "border-amber-500 bg-amber-500/15 text-amber-700 dark:text-amber-400"
+                              : "border-border/90 bg-background hover:bg-muted/70 hover:border-amber-500/50 text-foreground"
+                          }`}
+                        >
+                          <Lock className="h-3.5 w-3.5 text-amber-500" />
+                          <span>{showInlineAnnotationComposer ? "Fechar Anotação" : "Anotação"}</span>
+                        </button>
+                      )}
+                      {canTransfer && (
+                        <button
+                          type="button"
+                          onClick={() => setShowTransferModal(true)}
+                          className="inline-flex items-center gap-2 rounded-md border border-border/90 bg-background hover:bg-muted/70 hover:border-primary/50 px-4 py-2 text-xs font-semibold text-foreground shadow-xs transition-colors cursor-pointer"
+                        >
+                          <ArrowRightLeft className="h-3.5 w-3.5 text-primary" />
+                          <span>Transferir Atendimento</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -4763,6 +4860,13 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                 activeDealLabel={dealContext.data?.currentDeal?.title || null}
               />
 
+              {showInlineAnnotationComposer && canSendInternalNotes && activeChat.id !== "valentina" && (
+                <InlineChatNoteComposer
+                  conversationId={activeChat.id}
+                  onClose={() => setShowInlineAnnotationComposer(false)}
+                />
+              )}
+
               {showClosedWindowTaskComposer && canManageTags && activeChat.id !== "valentina" && (
                 <InlineChatTaskComposer
                   conversationId={activeChat.id}
@@ -4793,7 +4897,10 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                             return;
                           }
                           const next = !showMetaTemplateModal;
-                          if (next) setShowClosedWindowTaskComposer(false);
+                          if (next) {
+                            setShowClosedWindowTaskComposer(false);
+                            setShowInlineAnnotationComposer(false);
+                          }
                           setShowMetaTemplateModal(next);
                           if (next) void loadMetaTemplates();
                         }}
@@ -4804,6 +4911,30 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                           {showMetaTemplateModal ? "Fechar Templates" : "Enviar Template"}
                         </span>
                       </button>
+                      {canSendInternalNotes && activeChat.id !== "valentina" && (
+                        <button
+                          type="button"
+                          data-chat-annotation-trigger="meta-24h-closed"
+                          onClick={() => {
+                            const next = !showInlineAnnotationComposer;
+                            if (next) {
+                              setShowMetaTemplateModal(false);
+                              setShowClosedWindowTaskComposer(false);
+                            }
+                            setShowInlineAnnotationComposer(next);
+                          }}
+                          className={`inline-flex items-center gap-1.5 md:gap-2 rounded-md border px-3 md:px-4 py-1.5 md:py-2 text-xs font-semibold shadow-xs transition-colors cursor-pointer ${
+                            showInlineAnnotationComposer
+                              ? "border-amber-500 bg-amber-500/15 text-amber-700 dark:text-amber-400"
+                              : "border-border/90 bg-background hover:bg-muted/70 hover:border-amber-500/50 text-foreground"
+                          }`}
+                        >
+                          <Lock className="h-3.5 w-3.5 text-amber-500" />
+                          <span>
+                            {showInlineAnnotationComposer ? "Fechar Anotação" : "Anotação"}
+                          </span>
+                        </button>
+                      )}
                       {canManageTags && activeChat.id !== "valentina" && (
                         <button
                           type="button"
@@ -4811,6 +4942,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                             const next = !showClosedWindowTaskComposer;
                             if (next) {
                               setShowMetaTemplateModal(false);
+                              setShowInlineAnnotationComposer(false);
                               void dealContext.refresh();
                             }
                             setShowClosedWindowTaskComposer(next);
@@ -5400,40 +5532,63 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
           )}
         </div>
       ) : (
-        <div className="px-5 pb-5">
-          <div className="mx-auto max-w-2xl rounded-xl border border-border/80 border-l-[6px] border-l-primary bg-card p-5 shadow-xs">
-            <div className="flex items-start gap-3.5">
-              <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                <CheckCircle2 className="h-4.5 w-4.5" />
-              </div>
-              <div className="flex-1 space-y-3">
-                <div>
-                  <h4 className="text-sm font-bold text-foreground">Atendimento Finalizado</h4>
-                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                    Este atendimento foi encerrado. Você pode reiniciar uma nova conversa com o
-                    cliente ou transferir este contato para outro operador ou setor.
-                  </p>
+        <div className="px-2.5 pb-2.5 md:px-5 md:pb-5">
+          <div className="mx-auto max-w-2xl space-y-2.5">
+            {showInlineAnnotationComposer && canSendInternalNotes && activeChat.id !== "valentina" && (
+              <InlineChatNoteComposer
+                conversationId={activeChat.id}
+                onClose={() => setShowInlineAnnotationComposer(false)}
+              />
+            )}
+            <div className="rounded-xl border border-border/80 border-l-[6px] border-l-primary bg-card p-5 shadow-xs">
+              <div className="flex items-start gap-3.5">
+                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                  <CheckCircle2 className="h-4.5 w-4.5" />
                 </div>
-                <div className="flex flex-wrap items-center gap-3">
-                  <button
-                    type="button"
-                    disabled={choosingWhatsappNumber}
-                    onClick={() => captureChat(activeChat.id)}
-                    className="inline-flex items-center gap-2 rounded-md border border-border/90 bg-background hover:bg-muted/70 hover:border-primary/50 px-4 py-2 text-xs font-semibold text-foreground shadow-xs transition-colors cursor-pointer"
-                  >
-                    <RotateCcw className="h-3.5 w-3.5 text-primary" />
-                    <span>Reativar Atendimento</span>
-                  </button>
-                  {canTransfer && (
+                <div className="flex-1 space-y-3">
+                  <div>
+                    <h4 className="text-sm font-bold text-foreground">Atendimento Finalizado</h4>
+                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                      Este atendimento foi encerrado. Você pode reiniciar uma nova conversa com o
+                      cliente ou transferir este contato para outro operador ou setor.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3">
                     <button
                       type="button"
-                      onClick={() => setShowTransferModal(true)}
+                      disabled={choosingWhatsappNumber}
+                      onClick={() => captureChat(activeChat.id)}
                       className="inline-flex items-center gap-2 rounded-md border border-border/90 bg-background hover:bg-muted/70 hover:border-primary/50 px-4 py-2 text-xs font-semibold text-foreground shadow-xs transition-colors cursor-pointer"
                     >
-                      <ArrowRightLeft className="h-3.5 w-3.5 text-primary" />
-                      <span>Transferir Atendimento</span>
+                      <RotateCcw className="h-3.5 w-3.5 text-primary" />
+                      <span>Reativar Atendimento</span>
                     </button>
-                  )}
+                    {canSendInternalNotes && activeChat.id !== "valentina" && (
+                      <button
+                        type="button"
+                        data-chat-annotation-trigger="finalizados"
+                        onClick={() => setShowInlineAnnotationComposer((prev) => !prev)}
+                        className={`inline-flex items-center gap-2 rounded-md border px-4 py-2 text-xs font-semibold shadow-xs transition-colors cursor-pointer ${
+                          showInlineAnnotationComposer
+                            ? "border-amber-500 bg-amber-500/15 text-amber-700 dark:text-amber-400"
+                            : "border-border/90 bg-background hover:bg-muted/70 hover:border-amber-500/50 text-foreground"
+                        }`}
+                      >
+                        <Lock className="h-3.5 w-3.5 text-amber-500" />
+                        <span>{showInlineAnnotationComposer ? "Fechar Anotação" : "Anotação"}</span>
+                      </button>
+                    )}
+                    {canTransfer && (
+                      <button
+                        type="button"
+                        onClick={() => setShowTransferModal(true)}
+                        className="inline-flex items-center gap-2 rounded-md border border-border/90 bg-background hover:bg-muted/70 hover:border-primary/50 px-4 py-2 text-xs font-semibold text-foreground shadow-xs transition-colors cursor-pointer"
+                      >
+                        <ArrowRightLeft className="h-3.5 w-3.5 text-primary" />
+                        <span>Transferir Atendimento</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>

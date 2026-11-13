@@ -254,23 +254,30 @@ test("cached-ID authorization endpoint returns only visible IDs, without loading
   assert.equal(h.queries.every((query) => query.source === "conversations"), true);
   assert.equal((await handler({ request: apiRequest({ checkAccessIds: Array(101).fill("conv-a") }) })).status, 400);
 });
-test("persisting a chat note rechecks capture inside the transaction before any write", async () => {
-  for (const stillOwner of [false, true]) {
+test("persisting a chat message rechecks capture inside the transaction, while internal notes lock visibility and allow pre-capture annotations", async () => {
+  for (const stillVisible of [false, true]) {
     let writes = 0, locked = false;
     const session = principal({ canSendInternalNotes: true });
-    const query = { from: () => query, where: () => query, then: (resolve) => resolve([{ operatorId: "agent-a", queueState: "meus" }]) };
-    const lock = { from: () => lock, where: () => lock, for: (kind) => { locked = kind === "update"; return lock; }, limit: async () => stillOwner ? [{ id: "conv-a" }] : [] };
+    const query = { from: () => query, where: () => query, then: (resolve) => resolve([{ operatorId: null, queueState: "fila" }]) };
+    const lock = { from: () => lock, where: () => lock, for: (kind) => { locked = kind === "update"; return lock; }, limit: async () => stillVisible ? [{ id: "conv-a", operatorId: null, queueState: "fila" }] : [] };
     const tx = { select: () => lock, insert: () => ({ values: async () => { writes++; } }), update: () => ({ set: () => ({ where: async () => { writes++; } }) }) };
     const handler = extractedHandler("src/routes/api/chats.ts", "POST", {
-      requireSession: async () => ({ session }), requireConversationWriteAccess: async () => null,
+      requireSession: async () => ({ session }),
+      requireConversationAccess: async () => null,
+      requireConversationWriteAccess: async () => null,
       db: { select: () => query, transaction: async (fn) => fn(tx) }, conversations: {}, messages: {},
       eq: (...x) => x, and: (...x) => x, conversationReadCondition: () => ({}),
       getDealContext: async () => ({ context: { currentDealId: "deal-a", version: 1 }, deals: [] }),
+      findActiveGraceDeal: () => null,
       assertDealContextVersion: (context, expected) => assert.equal(context.version, expected),
       recordConversationAction: async () => {}, DealContextError: class extends Error {},
     });
     const response = await handler({ request: apiRequest({ conversationId: "conv-a", content: "internal note", isInternalNote: true, expectedContextVersion: 1 }) });
-    assert.equal(response.status, stillOwner ? 200 : 403); assert.equal(locked, true); assert.equal(writes, stillOwner ? 2 : 0);
+    assert.equal(response.status, stillVisible ? 200 : 403); assert.equal(locked, true); assert.equal(writes, stillVisible ? 2 : 0);
+
+    // Regular outbound message (!isInternalNote) must still be blocked when uncaptured (queueState === "fila")
+    const blockedRegular = await handler({ request: apiRequest({ conversationId: "conv-a", content: "hello client", isInternalNote: false }) });
+    assert.equal(blockedRegular.status, 403);
   }
 });
 test("public CRM detail getters pass the conversation predicate to the actual service call", () => {

@@ -1657,4 +1657,136 @@ describe.skipIf(!process.env.PGLITE_TEST_MODULE)("Negociação atual: PostgreSQL
     expect(closedFromPaused.status).toBe("won");
     expect(closedFromPaused.pausedReason).toBeNull();
   });
+
+  test("anotação interna funciona antes da captura (fila/automação) sem capturar a conversa nem zerar unreadCount, bloqueando mensagem externa", async () => {
+    // 1. Conversa na fila (não captada) com 2 negociações abertas (sem currentDealId escolhido ainda) e unreadCount = 3
+    const fUncaptured = await fixture(2);
+    await db
+      .update(schema.conversations)
+      .set({ queueState: "fila", operatorId: null, unreadCount: 3 })
+      .where(
+        and(
+          eq(schema.conversations.tenantId, "context-a"),
+          eq(schema.conversations.id, fUncaptured.id),
+        ),
+      );
+
+    const uncapturedCtx = await state(fUncaptured.id);
+
+    // Abrir formulário de anotação antes da captura é aceito (200)
+    const openEvtRes = await eventApi.POST(
+      request(fUncaptured.id, {
+        eventType: "note.form_opened",
+        actionId: `uncaptured-open-${fUncaptured.id}`,
+        expectedContextVersion: uncapturedCtx.context.version,
+      }),
+    );
+    expect(openEvtRes.status).toBe(200);
+
+    // Mensagem normal (!isInternalNote) deve continuar bloqueada antes da captura (403)
+    const blockedMsgRes = await notes(
+      request(fUncaptured.id, {
+        conversationId: fUncaptured.id,
+        content: "Tentativa de mensagem sem capturar",
+        isInternalNote: false,
+      }),
+    );
+    expect(blockedMsgRes.status).toBe(403);
+
+    // Anotação interna (isInternalNote: true) antes da captura deve salvar (200) com vínculo pendente
+    const noteRes = await notes(
+      request(fUncaptured.id, {
+        conversationId: fUncaptured.id,
+        content: "Cliente pediu prioridade comercial antes da captura",
+        isInternalNote: true,
+        expectedContextVersion: uncapturedCtx.context.version,
+      }),
+    );
+    expect(noteRes.status).toBe(200);
+
+    // Conversa permanece intacta na fila, sem operador e com unreadCount = 3 preservado
+    const [convAfter] = await db
+      .select()
+      .from(schema.conversations)
+      .where(
+        and(
+          eq(schema.conversations.tenantId, "context-a"),
+          eq(schema.conversations.id, fUncaptured.id),
+        ),
+      );
+    expect(convAfter.queueState).toBe("fila");
+    expect(convAfter.operatorId).toBeNull();
+    expect(convAfter.unreadCount).toBe(3);
+
+    // Quando o atendimento é capturado e o card é selecionado, a anotação pré-captura é vinculada automaticamente ao card!
+    await db
+      .update(schema.conversations)
+      .set({ queueState: "meus", operatorId: "op-a" })
+      .where(
+        and(
+          eq(schema.conversations.tenantId, "context-a"),
+          eq(schema.conversations.id, fUncaptured.id),
+        ),
+      );
+    const afterCapture = await state(fUncaptured.id);
+    await db.transaction((tx: any) =>
+      selectDealContext(
+        tx,
+        "context-a",
+        fUncaptured.id,
+        fUncaptured.deals[0],
+        "op-a",
+        afterCapture.context.version,
+      ),
+    );
+    expect(
+      (await ledger(fUncaptured.id)).find(
+        (ev: any) =>
+          ev.eventType === "note.created" &&
+          ev.description?.includes("Cliente pediu prioridade comercial antes da captura"),
+      ),
+    ).toMatchObject({
+      dealId: fUncaptured.deals[0],
+      pendingBinding: false,
+    });
+
+    // 2. Conversa na fila (não captada) com 1 negociação aberta -> grava diretamente na atividade do card mesmo sem capturar!
+    const fSingle = await fixture(1);
+    await db
+      .update(schema.conversations)
+      .set({ queueState: "automacao", operatorId: null, unreadCount: 2 })
+      .where(
+        and(
+          eq(schema.conversations.tenantId, "context-a"),
+          eq(schema.conversations.id, fSingle.id),
+        ),
+      );
+    const singleCtx = await state(fSingle.id);
+    const singleNoteRes = await notes(
+      request(fSingle.id, {
+        conversationId: fSingle.id,
+        content: "Anotação durante triagem IA com 1 card ativo",
+        isInternalNote: true,
+        expectedContextVersion: singleCtx.context.version,
+      }),
+    );
+    expect(singleNoteRes.status).toBe(200);
+    expect(
+      (await events(fSingle.deals[0])).some(
+        (ev: any) => ev.description === "Anotação durante triagem IA com 1 card ativo",
+      ),
+    ).toBe(true);
+    const [singleConvAfter] = await db
+      .select()
+      .from(schema.conversations)
+      .where(
+        and(
+          eq(schema.conversations.tenantId, "context-a"),
+          eq(schema.conversations.id, fSingle.id),
+        ),
+      );
+    expect(singleConvAfter.queueState).toBe("automacao");
+    expect(singleConvAfter.operatorId).toBeNull();
+    expect(singleConvAfter.unreadCount).toBe(2);
+  });
 });

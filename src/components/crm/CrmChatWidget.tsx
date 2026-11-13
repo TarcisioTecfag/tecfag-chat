@@ -90,6 +90,7 @@ import { stripNotificationEmojis } from "@/lib/format-notification-text";
 import { shouldShowMiniChatWidget } from "@/lib/widget-visibility";
 import { isAppShellPath } from "@/lib/app-routes";
 import { QuotedMessagePreview } from "@/components/chat/ChatPanel";
+import { InlineChatNoteComposer } from "@/components/chat/InlineChatNoteComposer";
 import type { ApprovedMetaTemplate } from "@/components/chat/MetaTemplateSelectModal";
 import {
   MetaExperimentFallbackCard,
@@ -1292,7 +1293,12 @@ export function CrmChatWidget() {
     valentinaResetAt,
     resetValentinaChat,
   } = useChat();
-  const { canAccessView, canViewCrm } = usePermissions();
+  const { canAccessView, canViewCrm, canSendInternalNotes } = usePermissions();
+  const [showMiniNoteComposer, setShowMiniNoteComposer] = useState(false);
+
+  useEffect(() => {
+    setShowMiniNoteComposer(false);
+  }, [selectedChatId]);
 
   const [currentBrtDateStr, setCurrentBrtDateStr] = useState<string>(() => getBrtTodayDateStr());
   const [showOlderValentinaDays, setShowOlderValentinaDays] = useState(false);
@@ -4064,28 +4070,67 @@ export function CrmChatWidget() {
                                 <span>Verificando janela de atendimento de 24h...</span>
                               </div>
                             ) : (
-                              <div className="flex items-center justify-between gap-2">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
                                 <div className="flex items-center gap-1.5 text-muted-foreground min-w-0">
                                   <Clock className="h-3.5 w-3.5 text-primary shrink-0" />
                                   <span className="truncate">Janela de 24h encerrada.</span>
                                 </div>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    if (selected) {
-                                      void loadMetaTemplates(selected.id);
-                                      setShowMetaTemplateModal(true);
-                                    }
-                                  }}
-                                  className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-primary px-2.5 py-1 text-xs font-bold text-primary-foreground shadow-xs hover:bg-primary/90 transition cursor-pointer shrink-0"
-                                >
-                                  <LayoutTemplate className="h-3.5 w-3.5" />
-                                  Enviar Template
-                                </button>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (selected) {
+                                        setShowMiniNoteComposer(false);
+                                        void loadMetaTemplates(selected.id);
+                                        setShowMetaTemplateModal(true);
+                                      }
+                                    }}
+                                    className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-primary px-2.5 py-1 text-xs font-bold text-primary-foreground shadow-xs hover:bg-primary/90 transition cursor-pointer shrink-0"
+                                  >
+                                    <LayoutTemplate className="h-3.5 w-3.5" />
+                                    Enviar Template
+                                  </button>
+                                  {canSendInternalNotes &&
+                                    selected?.id &&
+                                    selected.id !== "valentina" &&
+                                    selected.id !== "__resolving__" && (
+                                      <button
+                                        type="button"
+                                        data-chat-annotation-trigger="mini-meta-24h-closed"
+                                        onClick={() => {
+                                          const next = !showMiniNoteComposer;
+                                          if (next) setShowMetaTemplateModal(false);
+                                          setShowMiniNoteComposer(next);
+                                        }}
+                                        className={`inline-flex items-center justify-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-bold shadow-xs transition cursor-pointer shrink-0 ${
+                                          showMiniNoteComposer
+                                            ? "border-amber-500 bg-amber-500/15 text-amber-700 dark:text-amber-400"
+                                            : "border-border/90 bg-background hover:bg-muted/70 hover:border-amber-500/50 text-foreground"
+                                        }`}
+                                      >
+                                        <Lock className="h-3 w-3 text-amber-500" />
+                                        <span>{showMiniNoteComposer ? "Fechar" : "Anotação"}</span>
+                                      </button>
+                                    )}
+                                </div>
                               </div>
                             )}
                           </div>
                         )}
+
+                        {showMiniNoteComposer &&
+                          canSendInternalNotes &&
+                          selected?.id &&
+                          selected.id !== "valentina" &&
+                          selected.id !== "__resolving__" && (
+                            <div className="mb-2">
+                              <InlineChatNoteComposer
+                                conversationId={selected.id}
+                                compact
+                                onClose={() => setShowMiniNoteComposer(false)}
+                              />
+                            </div>
+                          )}
 
                         {recordingState === "recording" ? (
                           /* Modo Gravação de Áudio Ativa */
@@ -4180,6 +4225,7 @@ export function CrmChatWidget() {
                                     onClick={() => {
                                       if (!selected) return;
                                       if (!showMetaTemplateModal) {
+                                        setShowMiniNoteComposer(false);
                                         void loadMetaTemplates(selected.id);
                                       }
                                       setShowMetaTemplateModal((prev) => !prev);
@@ -4192,6 +4238,30 @@ export function CrmChatWidget() {
                                     }`}
                                   >
                                     <LayoutTemplate className="h-4 w-4" />
+                                  </button>
+                                </SystemTooltip>
+                              )}
+                            {canSendInternalNotes &&
+                              selected?.id &&
+                              selected.id !== "valentina" &&
+                              selected.id !== "__resolving__" && (
+                                <SystemTooltip content="Anotação interna (visível só para a equipe)">
+                                  <button
+                                    type="button"
+                                    data-chat-annotation-trigger="mini-composer"
+                                    onClick={() => {
+                                      const next = !showMiniNoteComposer;
+                                      if (next) setShowMetaTemplateModal(false);
+                                      setShowMiniNoteComposer(next);
+                                    }}
+                                    aria-label="Anotação interna"
+                                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border transition cursor-pointer ${
+                                      showMiniNoteComposer
+                                        ? "border-amber-500/60 bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                                        : "border-border bg-background text-muted-foreground hover:border-amber-500/40 hover:bg-amber-500/5 hover:text-amber-600"
+                                    }`}
+                                  >
+                                    <Lock className="h-4 w-4" />
                                   </button>
                                 </SystemTooltip>
                               )}
