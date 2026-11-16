@@ -2,6 +2,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { db } from "../../db";
 import { messages } from "../../db/schema";
 import { metaAdapter } from "./adapters/meta";
+import { isMetaUnsupportedMessage } from "./meta-message-text";
 
 /**
  * Presença oficial da Meta Cloud API, no sentido EMPRESA → CLIENTE:
@@ -35,8 +36,12 @@ function remember<T>(map: Map<string, T>, key: string, value: T) {
 
 /** Último wamid recebido do cliente nesta conversa (inbound gravado como `meta:<tenant>:<wamid>`). */
 export async function findLastInboundWamid(tenantId: string, conversationId: string): Promise<string | null> {
-  const [last] = await db
-    .select({ externalId: messages.externalId })
+  const recentInbounds = await db
+    .select({
+      externalId: messages.externalId,
+      content: messages.content,
+      metaDetails: messages.metaDetails,
+    })
     .from(messages)
     .where(
       and(
@@ -46,14 +51,22 @@ export async function findLastInboundWamid(tenantId: string, conversationId: str
         eq(messages.provider, "meta")
       )
     )
-    .orderBy(desc(messages.sentAt))
-    .limit(1);
+    .orderBy(desc(messages.sentAt), desc(messages.id))
+    .limit(5);
 
   const prefix = `meta:${tenantId}:`;
-  const externalId = last?.externalId;
-  if (!externalId || !externalId.startsWith(prefix)) return null;
-  const wamid = externalId.slice(prefix.length);
-  return wamid || null;
+  for (const row of recentInbounds) {
+    // A Meta rejeita com (#100) Invalid parameter marcar como lido o wamid de mensagens "unsupported".
+    if (isMetaUnsupportedMessage(row.content, row.metaDetails as Record<string, any> | null)) {
+      continue;
+    }
+    const externalId = row.externalId;
+    if (!externalId || !externalId.startsWith(prefix)) continue;
+    const wamid = externalId.slice(prefix.length);
+    if (wamid) return wamid;
+  }
+
+  return null;
 }
 
 export async function sendMetaConversationPresence(

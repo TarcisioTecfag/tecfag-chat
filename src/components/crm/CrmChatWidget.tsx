@@ -101,6 +101,8 @@ import {
   MetaGenericDeliveryStatusBar,
   MetaUndeliverableNoticeCard,
 } from "@/components/chat/MetaExperimentFallbackCard";
+import { MetaUnsupportedNoticeCard } from "@/components/chat/MetaUnsupportedNoticeCard";
+import { analyzeMetaUnsupportedMessage } from "@/lib/whatsapp/meta-message-text";
 import {
   collectTemplateCustomGroups,
   formatTemplateFirstName,
@@ -222,6 +224,8 @@ function getAvatarBg(name: string, fallback?: string): string {
 
 function previewSnippet(text: string) {
   if (!text) return "Sem mensagens";
+  const unsupported = analyzeMetaUnsupportedMessage(text);
+  if (unsupported) return unsupported.previewLabel;
   if (!text.startsWith("[MEDIA:") && !text.startsWith("[LOCAL_MEDIA:")) {
     return stripNotificationEmojis(text).replace(/\*\*/g, "").replace(/\*/g, "").replace(/`/g, "");
   }
@@ -3435,19 +3439,49 @@ export function CrmChatWidget() {
                                       className="mb-1.5"
                                     />
                                   )}
-                                  <MiniMediaRenderer
-                                    text={
-                                      message.isWarning ||
-                                      message.sender === "valentina" ||
-                                      selected.id === "valentina"
-                                        ? stripNotificationEmojis(message.text)
-                                        : message.text
+                                  {(() => {
+                                    const unsupportedInfo =
+                                      !message.isWarning && selected.id !== "valentina"
+                                        ? analyzeMetaUnsupportedMessage(message.text, message.metaDetails)
+                                        : null;
+                                    if (unsupportedInfo) {
+                                      const canInsertInMiniChat =
+                                        !metaRestricted &&
+                                        selected.queue === "meus" &&
+                                        selected.operatorId === currentOperatorId;
+                                      return (
+                                        <MetaUnsupportedNoticeCard
+                                          info={unsupportedInfo}
+                                          compact
+                                          onUseSuggestedReply={
+                                            canInsertInMiniChat
+                                              ? (replyText) => {
+                                                  setDraft(replyText);
+                                                  requestAnimationFrame(() =>
+                                                    textareaRef.current?.focus(),
+                                                  );
+                                                }
+                                              : undefined
+                                          }
+                                        />
+                                      );
                                     }
-                                    isMe={false}
-                                    onImageClick={(url) => setPreviewImage(url)}
-                                    transcription={message.mediaInterpretation}
-                                    messageRowId={message.id}
-                                  />
+                                    return (
+                                      <MiniMediaRenderer
+                                        text={
+                                          message.isWarning ||
+                                          message.sender === "valentina" ||
+                                          selected.id === "valentina"
+                                            ? stripNotificationEmojis(message.text)
+                                            : message.text
+                                        }
+                                        isMe={false}
+                                        onImageClick={(url) => setPreviewImage(url)}
+                                        transcription={message.mediaInterpretation}
+                                        messageRowId={message.id}
+                                      />
+                                    );
+                                  })()}
 
                                   {/* Card interativo: Atraso de Resposta (SLA) */}
                                   {message.isWarning &&

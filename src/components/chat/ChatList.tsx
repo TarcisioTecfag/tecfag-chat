@@ -18,10 +18,13 @@ import { canReadConversation, conversationReadRules } from "@/lib/access-control
 import { getConversationPreviewMessage, getConversationPreviewTime } from "@/components/crm/CrmChatWidget";
 import { ContactPhoneTypeBadge } from "@/components/crm/ContactPhonesEditor";
 import { buildPhoneQueryPlan, matchesPhoneSearchQuery } from "@/lib/utils";
+import { analyzeMetaUnsupportedMessage } from "@/lib/whatsapp/meta-message-text";
 
 /** Converte conteúdo de mídia em label legível para o preview da lista */
 function formatLastMessage(text: string): { mediaType?: "document" | "image" | "video" | "audio" | "sticker"; label: string } {
   if (!text) return { label: "Sem mensagens" };
+  const unsupported = analyzeMetaUnsupportedMessage(text);
+  if (unsupported) return { label: unsupported.previewLabel };
   if (text.startsWith("[LOCAL_MEDIA:") || text.startsWith("[MEDIA:")) {
     const newlineIndex = text.indexOf("\n");
     const caption = newlineIndex !== -1 ? text.slice(newlineIndex + 1).trim() : "";

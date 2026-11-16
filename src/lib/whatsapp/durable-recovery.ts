@@ -7,7 +7,7 @@ import { dispatchStored } from "./dispatch";
 import { inboundProcessor } from "./inbound";
 import { metaAdapter } from "./adapters/meta";
 import { applyMetaStatus } from "./meta-status";
-import { isMetaMediaType } from "./meta-message-text";
+import { describeNonMediaMetaMessage, isMetaMediaType } from "./meta-message-text";
 import type { WhatsAppProviderType } from "./types";
 
 export interface RecoveryStats {
@@ -174,7 +174,7 @@ export class WhatsAppRecoveryService {
               text:
                 typeof raw.text === "string"
                   ? raw.text
-                  : raw.text?.body || raw[raw.type]?.caption || "",
+                  : raw.text?.body || raw[raw.type]?.caption || describeNonMediaMetaMessage(raw) || "",
               media,
               quotedExternalId: raw.context?.id,
               rawPayload: raw,

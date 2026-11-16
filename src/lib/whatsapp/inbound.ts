@@ -31,6 +31,7 @@ import { setAttendanceActor } from "../attendance-events";
 import { SlaEngine } from "../sla-engine";
 import { extractContinuityCode } from "../livechat/site-channel-policy";
 import { extractMetaReferralAttribution, isTestEntityTitle } from "../marketing/crm-attribution";
+import { analyzeMetaUnsupportedMessage, extractMetaUnsupportedDetails } from "./meta-message-text";
 import {
   deliverSdrDisabledRoutingEffects,
   isSdrEnabledForTenant,
@@ -175,7 +176,11 @@ export class InboundProcessor {
         if (conv.operatorId)
           void sendPushToOperator(tenantId, conv.operatorId, {
             title: msg.senderName,
-            body: msg.content,
+            body:
+              analyzeMetaUnsupportedMessage(
+                msg.content,
+                msg.metaDetails as Record<string, any> | null,
+              )?.previewLabel || msg.content,
             conversationId: conv.id,
             tenantId,
             url: "/?chatId=" + conv.id,
@@ -1088,6 +1093,16 @@ export class InboundProcessor {
         }
       }
 
+      const metaUnsupported = extractMetaUnsupportedDetails(rawPayload);
+      const messageMetaDetails: Record<string, any> = {};
+      if (metaReferralAttr) {
+        messageMetaDetails.marketingAttribution = metaReferralAttr;
+        messageMetaDetails.metaReferral = rawPayload?.referral || null;
+      }
+      if (metaUnsupported) {
+        messageMetaDetails.metaUnsupported = metaUnsupported;
+      }
+
       await db.insert(messages).values({
         id: messageId,
         tenantId,
@@ -1103,12 +1118,7 @@ export class InboundProcessor {
         provider,
         externalId: externalEventId || null,
         status: "accepted",
-        metaDetails: metaReferralAttr
-          ? {
-              marketingAttribution: metaReferralAttr,
-              metaReferral: rawPayload?.referral || null,
-            }
-          : {},
+        metaDetails: messageMetaDetails,
         sentAt: effectiveTimestamp,
         updatedAt: timestamp,
       });

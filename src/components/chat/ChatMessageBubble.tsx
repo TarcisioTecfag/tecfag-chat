@@ -43,6 +43,8 @@ import {
   MetaGenericDeliveryStatusBar,
   MetaUndeliverableNoticeCard,
 } from "./MetaExperimentFallbackCard";
+import { MetaUnsupportedNoticeCard } from "./MetaUnsupportedNoticeCard";
+import { analyzeMetaUnsupportedMessage } from "@/lib/whatsapp/meta-message-text";
 import type { ApprovedMetaTemplate } from "./MetaTemplateSelectModal";
 import {
   isMetaExperimentError,
@@ -828,6 +830,7 @@ export interface ChatMessageBubbleProps {
   onSaveSticker?: (messageId: string, url: string) => void;
   onOpenWarningChat?: (clientId: string, clientName?: string) => void;
   onSendWelcomeSuggestion?: (text: string) => void;
+  onUseSuggestedReply?: (replyText: string) => void;
 }
 
 function ChatMessageBubbleComponent({
@@ -870,10 +873,15 @@ function ChatMessageBubbleComponent({
   onSaveSticker,
   onOpenWarningChat,
   onSendWelcomeSuggestion,
+  onUseSuggestedReply,
 }: ChatMessageBubbleProps) {
   const navigate = useNavigate();
   const [dealSearchQuery, setDealSearchQuery] = React.useState("");
   const safeText = typeof m.text === "string" ? m.text : "";
+  const unsupportedInfo =
+    !isMe && !m.isInternalNote && !m.isWarning && !isSystem && activeChat.id !== "valentina"
+      ? analyzeMetaUnsupportedMessage(safeText, m.metaDetails)
+      : null;
   // ── 1. Mensagens de Sistema (ocultas por padrão no ícone ? discreto, agrupadas quando em sequência) ──
   if (isSystem) {
     return (
@@ -1454,17 +1462,24 @@ function ChatMessageBubbleComponent({
                     onClick={(e) => quotedTargetId && onScrollToQuoted(e, quotedTargetId)}
                   />
                 )}
-                {renderMessageContent(
-                  m.isWarning || (m as any).sender === "valentina" || activeChat.id === "valentina"
-                    ? stripNotificationEmojis(safeText)
-                    : safeText,
-                  onMediaClick,
-                  false,
-                  undefined,
-                  m.author,
-                  activeChat.name,
-                  m.mediaInterpretation,
-                  m.id,
+                {unsupportedInfo ? (
+                  <MetaUnsupportedNoticeCard
+                    info={unsupportedInfo}
+                    onUseSuggestedReply={onUseSuggestedReply}
+                  />
+                ) : (
+                  renderMessageContent(
+                    m.isWarning || (m as any).sender === "valentina" || activeChat.id === "valentina"
+                      ? stripNotificationEmojis(safeText)
+                      : safeText,
+                    onMediaClick,
+                    false,
+                    undefined,
+                    m.author,
+                    activeChat.name,
+                    m.mediaInterpretation,
+                    m.id,
+                  )
                 )}
 
                 {/* Card interativo: Atraso de Resposta */}
@@ -2109,6 +2124,7 @@ export const ChatMessageBubble = memo(
     }
     if (prev.displayQuotedContent !== next.displayQuotedContent) return false;
     if (prev.activeChat.id !== next.activeChat.id) return false;
+    if (Boolean(prev.onUseSuggestedReply) !== Boolean(next.onUseSuggestedReply)) return false;
 
     return true; // Pula re-renderização com segurança!
   }

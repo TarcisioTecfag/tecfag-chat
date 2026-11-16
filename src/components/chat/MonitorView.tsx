@@ -28,6 +28,8 @@ import { toast } from "sonner";
 import { getAiPersona } from "@/lib/ai-persona";
 import { buildPhoneQueryPlan, matchesPhoneSearchQuery } from "@/lib/utils";
 import { formatMetaErrorMessagePt } from "@/lib/whatsapp/meta-template-common";
+import { analyzeMetaUnsupportedMessage } from "@/lib/whatsapp/meta-message-text";
+import { MetaUnsupportedNoticeCard } from "@/components/chat/MetaUnsupportedNoticeCard";
 import { DealDetailModal } from "@/components/crm/DealDetailModal";
 import { CreateTaskModal, type EditingTaskData } from "@/components/crm/CreateTaskModal";
 import { CrmDatePicker } from "@/components/crm/CrmDatePicker";
@@ -6303,6 +6305,8 @@ const LIVE_BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
  */
 function formatLiveMessagePreview(raw?: string | null): string {
   if (!raw) return "Nenhuma mensagem recente";
+  const unsupported = analyzeMetaUnsupportedMessage(raw);
+  if (unsupported) return unsupported.previewLabel;
   const mediaMatch = raw.match(
     /^\[MEDIA:(image|video|audio|document|sticker)\]([^:]+)(?::([\s\S]+))?$/
   );
@@ -6645,12 +6649,21 @@ function LiveMessageBubble({
     );
   }
 
+  const unsupportedInfo =
+    !isAgent && !msg.isInternalNote
+      ? analyzeMetaUnsupportedMessage(content, (msg.metaDetails as Record<string, any> | null) || null)
+      : null;
+
   return (
     <div className={`flex ${isAgent ? "justify-end" : "justify-start"}`}>
       <div className={bubbleCls}>
         {renderInternalHeader()}
         {renderQuotedBlock()}
-        <p className="whitespace-pre-wrap break-words">{content}</p>
+        {unsupportedInfo ? (
+          <MetaUnsupportedNoticeCard info={unsupportedInfo} compact />
+        ) : (
+          <p className="whitespace-pre-wrap break-words">{content}</p>
+        )}
         {renderFailureNotice()}
         <div className={timeCls}>
           <span>

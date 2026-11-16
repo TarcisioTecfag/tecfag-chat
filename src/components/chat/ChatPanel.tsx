@@ -23,6 +23,7 @@ import {
   isMetaExperimentError,
   isMetaUndeliverableError,
 } from "@/lib/whatsapp/meta-template-common";
+import { analyzeMetaUnsupportedMessage } from "@/lib/whatsapp/meta-message-text";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Smile,
@@ -1015,6 +1016,18 @@ export function parseQuotedMedia(content: string | null | undefined): QuotedMedi
       thumbnailUrl: isVisual ? rawUrl : null,
       fallbackThumbnailUrl: null,
       fileName,
+    };
+  }
+
+  const unsupportedPreview = analyzeMetaUnsupportedMessage(content);
+  if (unsupportedPreview) {
+    return {
+      isMedia: false,
+      mediaType: null,
+      label: unsupportedPreview.previewLabel,
+      thumbnailUrl: null,
+      fallbackThumbnailUrl: null,
+      fileName: null,
     };
   }
 
@@ -2128,6 +2141,17 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     },
     [sendMessage]
   );
+
+  const handleApplyUnsupportedReply = useCallback((replyText: string) => {
+    setIsCatalogOpen(false);
+    setShowMetaTemplateModal(false);
+    setShowValentinaModal(false);
+    setMsgMode("client");
+    setText(replyText);
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+    });
+  }, []);
 
   // ── Presença em tempo real ────────────────────────────────────────────────
   // Só o responsável pela conversa capturada gera efeitos visíveis ao cliente.
@@ -4433,6 +4457,17 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                 : false;
 
             const foreignConversation = Boolean(m.conversationId && m.conversationId !== activeChat.id);
+            const canUseUnsupportedReply =
+              !foreignConversation &&
+              activeChat.id !== "valentina" &&
+              activeChat.queue !== "finalizados" &&
+              isOwner &&
+              !dealRequirement.pending &&
+              !(
+                activeChat.whatsappConnectionId &&
+                connectionsState.connections.find((c) => c.id === activeChat.whatsappConnectionId)?.canSend !== true
+              ) &&
+              !(isMetaWhatsappChat && metaWindow !== null && !metaWindow.open);
             return (
               <ChatMessageBubble
                 key={m.clientMessageId || m.id}
@@ -4555,6 +4590,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                 onSaveSticker={handleSaveSticker}
                 onOpenWarningChat={handleOpenWarningChat}
                 onSendWelcomeSuggestion={handleSendWelcomeSuggestion}
+                onUseSuggestedReply={canUseUnsupportedReply ? handleApplyUnsupportedReply : undefined}
               />
             );
           });
