@@ -159,8 +159,17 @@ export async function handleTrainingRequest(store: TrainingStore, input: string 
   if (path === "/api/crm/deals") {
     if (method === "GET") { let rows = search(store.deals); const stage = url.searchParams.get("stageId"), status = url.searchParams.get("status"); if (stage) rows = rows.filter((d) => d.stageId === stage); if (status && status !== "all") rows = rows.filter((d) => d.status === status); return reply({ deals: rows, total: rows.length, hasMore: false }); }
     if (!(body.title || "").trim() || !body.stageId || !body.pipelineId) return reply({ error: "Preencha o título, funil e etapa." }, 422);
-    const account = find(store.accounts, body.accountId) || null, contact = find(store.contacts, body.contactId);
-    const deal = { ...body, id: id("deal"), tenantId, value: body.value == null ? null : String(body.value), account, accountId: account?.id || null, status: "open", version: 1, contacts: contact ? [{ contactId: contact.id, contact, isPrimary: true }] : [], contactsCount: contact ? 1 : 0, conversationsCount: 0, customFields: body.customFields || {}, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    const account = find(store.accounts, body.accountId) || null;
+    let contact = find(store.contacts, body.contactId || (Array.isArray(body.contactIds) ? body.contactIds[0] : null));
+    if (!contact && body.contact?.name?.trim()) {
+      contact = { id: id("contact"), tenantId, name: body.contact.name.trim(), phone: body.contact.phone || null, email: body.contact.email || null, accountId: account?.id || null, mainChannel: "whatsapp", tags: [], createdAt: new Date().toISOString() };
+      store.contacts.unshift(contact);
+    }
+    if (!contact && account) {
+      contact = store.contacts.find((c) => c.accountId === account.id);
+    }
+    if (!contact) return reply({ error: "Toda negociação precisa ter pelo menos um contato vinculado. Selecione um contato existente ou cadastre um novo contato.", code: "CONTACT_REQUIRED" }, 409);
+    const deal = { ...body, id: id("deal"), tenantId, value: body.value == null ? null : String(body.value), account, accountId: account?.id || null, status: "open", version: 1, contacts: [{ contactId: contact.id, contact, isPrimary: true }], contactsCount: 1, conversationsCount: 0, customFields: body.customFields || {}, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
     store.deals.unshift(deal); return reply({ success: true, deal }, 201);
   }
   if (path.startsWith("/api/crm/deals/bulk")) {

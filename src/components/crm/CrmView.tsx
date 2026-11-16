@@ -710,6 +710,21 @@ export function CrmView() {
         });
 
         if (res.status === 409) {
+          const errData = await res.json().catch(() => ({}));
+          if (errData?.code === "CONTACT_REQUIRED") {
+            toast.error(
+              errData.error ||
+                "Esta negociação está sem contato cadastrado. Vincule um contato para poder alterá-la.",
+            );
+            fetchDeals();
+            fetchStagesSummary();
+            navigate({
+              to: "/crm/deals/$dealId",
+              params: { dealId },
+              search: { from: "crm" },
+            });
+            return;
+          }
           toast.error(
             "Conflito: esta negociação foi alterada por outro usuário. Atualizando quadro...",
           );
@@ -752,7 +767,7 @@ export function CrmView() {
         fetchStagesSummary();
       }
     },
-    [fetchDeals, fetchStagesSummary, activePipeline?.stages, operatorsMap],
+    [fetchDeals, fetchStagesSummary, activePipeline?.stages, operatorsMap, navigate],
   );
 
   const handleDealClick = useCallback(
@@ -772,10 +787,20 @@ export function CrmView() {
     setIsCreateDialogOpen(true);
   }, []);
 
-  const handleCreateTaskClick = useCallback((deal: DealCardData) => {
-    setTaskModalDeal(deal);
-    setIsTaskModalOpen(true);
-  }, []);
+  const handleCreateTaskClick = useCallback(
+    (deal: DealCardData) => {
+      if ((deal.contactsCount ?? 0) === 0) {
+        toast.error(
+          "Esta negociação está sem contato cadastrado. Vincule um contato no card antes de criar tarefas.",
+        );
+        handleDealClick(deal);
+        return;
+      }
+      setTaskModalDeal(deal);
+      setIsTaskModalOpen(true);
+    },
+    [handleDealClick],
+  );
 
   const handleClearAllFilters = useCallback(() => {
     setStatusFilter("all");

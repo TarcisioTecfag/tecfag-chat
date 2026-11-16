@@ -2,7 +2,7 @@ import { requireCrmDealAccess } from "../../../../../lib/access-control/crm-reco
 import { createFileRoute } from "@tanstack/react-router";
 import { requireSession } from "../../../../../lib/auth-session";
 import { requireCrmPermission } from "../../../../../lib/rbac";
-import { crmService, handleCrmError } from "../../../../../lib/crm/crm-service";
+import { assertDealHasLinkedContact, crmService, handleCrmError } from "../../../../../lib/crm/crm-service";
 import { recordCrmAction } from "../../../../../lib/crm/action-history";
 import {
   buildDealFileHttpResponse,
@@ -172,6 +172,8 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/files")({
               { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
             );
           }
+
+          await assertDealHasLinkedContact(db, tenantId, dealId);
 
           const contentType = request.headers.get("content-type") || "";
 

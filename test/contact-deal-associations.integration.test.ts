@@ -264,7 +264,7 @@ describe.skipIf(!process.env.PGLITE_TEST_MODULE)(
       expect(lateLink.dealId).toBe(existingCard.id);
     });
 
-    test("último vínculo de conversa não pode ser removido pelo chat nem por exclusão em lote, mas negociação permite remover contato ou ficar sem contato", async () => {
+    test("último vínculo de conversa e último contato da negociação são protegidos simetricamente", async () => {
       const contactId = await createContact();
       const secondContactId = await createContact();
       const convId = await createConversation(contactId);
@@ -279,6 +279,14 @@ describe.skipIf(!process.env.PGLITE_TEST_MODULE)(
       await expect(
         db.transaction((tx: any) => assertDealsCanBeRemoved(tx, "tenant-a", [first.id, second.id])),
       ).rejects.toThrow("negociação");
+
+      // Como contactId é o único contato de `first`, desvincular `convId` de `first` deixaria `first` sem contato -> bloqueado
+      await expect(
+        service.crmService.unlinkConversationDeal("tenant-a", convId, first.id, null),
+      ).rejects.toMatchObject({ code: "CONTACT_REQUIRED", statusCode: 409 });
+
+      // Ao adicionar `secondContactId` em `first`, desvincular `convId` de `first` é permitido e preserva `secondContactId` como principal
+      await service.crmService.addDealContact("tenant-a", first.id, secondContactId, "financial", false, "operator-a");
       await service.crmService.unlinkConversationDeal("tenant-a", convId, first.id, null);
       await db.transaction((tx: any) => syncConversationDeals(tx, "tenant-a", convId, contactId));
       const remainingLinks = await db
@@ -293,16 +301,17 @@ describe.skipIf(!process.env.PGLITE_TEST_MODULE)(
         );
       expect(remainingLinks.map((l: any) => l.dealId)).toEqual([second.id]);
 
-      // Na negociação (card), vincula um segundo contato, remove o primeiro (que era principal)
-      // e garante que o segundo se torna principal; em seguida remove o segundo, permitindo negociação sem contato.
+      // Na negociação `second`, vincula um segundo contato, remove o primeiro (que era principal)
+      // e garante que o segundo se torna principal; em seguida bloqueia remover o último contato restante.
       await service.crmService.addDealContact("tenant-a", second.id, secondContactId, "financial", false, "operator-a");
       const afterRemoveFirst = await service.crmService.removeDealContact("tenant-a", second.id, contactId, "operator-a");
       expect(afterRemoveFirst).toHaveLength(1);
       expect(afterRemoveFirst[0].contactId).toBe(secondContactId);
       expect(afterRemoveFirst[0].isPrimary).toBe(true);
 
-      const afterRemoveAll = await service.crmService.removeDealContact("tenant-a", second.id, secondContactId, "operator-a");
-      expect(afterRemoveAll).toHaveLength(0);
+      await expect(
+        service.crmService.removeDealContact("tenant-a", second.id, secondContactId, "operator-a"),
+      ).rejects.toMatchObject({ code: "CONTACT_REQUIRED", statusCode: 409 });
     });
 
     test("cadastro manual exige card/DDD e criação inválida faz rollback de contato e conversa", async () => {
@@ -370,8 +379,18 @@ describe.skipIf(!process.env.PGLITE_TEST_MODULE)(
       expect(original.name).toBe("Novo");
     });
 
-    test("abrir atendimento pelo CRM cria contato e vínculo completos, respeitando captura explícita", async () => {
-      const deal = await createDeal();
+    test("abrir atendimento pelo CRM em card legado sem contato cria contato e vínculo completos, respeitando captura explícita", async () => {
+      const legacyDealId = id("legacy-deal");
+      await db.insert(schema.crmDeals).values({
+        id: legacyDealId,
+        tenantId: "tenant-a",
+        pipelineId: "pipeline-a",
+        stageId: "stage-a",
+        title: "Card Legado Sem Contato",
+        operatorId: "operator-a",
+        status: "open",
+      });
+      const deal = { id: legacyDealId };
       const { Route } = await import("../src/routes/api/crm/deals/$dealId/conversations");
       const ensure = (Route.options as any).server.handlers.POST;
       const response = await ensure({
@@ -412,6 +431,121 @@ describe.skipIf(!process.env.PGLITE_TEST_MODULE)(
       });
       expect(again.status).toBe(200);
       expect((await again.json()).conversationId).toBe(conv.id);
+    });
+
+    test("criação de negociação exige contato (existente ou inline atômico) e cards legados sem contato bloqueiam edições até vincular", async () => {
+      // 1. Tentar criar card sem contato deve falhar com CONTACT_REQUIRED (409)
+      await expect(
+        service.crmService.createDeal(
+          "tenant-a",
+          "operator-a",
+          {
+            title: "Card Sem Contato",
+            pipelineId: "pipeline-a",
+            stageId: "stage-a",
+          },
+          db,
+        ),
+      ).rejects.toMatchObject({ code: "CONTACT_REQUIRED", statusCode: 409 });
+
+      // 2. Criar card com cadastro inline de contato deve persistir contato + vínculo atomicamente
+      const inlineDeal = await service.crmService.createDeal(
+        "tenant-a",
+        "operator-a",
+        {
+          title: "Card Com Contato Inline",
+          pipelineId: "pipeline-a",
+          stageId: "stage-a",
+          contact: {
+            name: "Cliente Inline",
+            phone: "(14) 99654-3210",
+            email: "inline-card@example.test",
+            role: "buyer",
+          },
+        },
+        db,
+      );
+      const inlineParticipants = await db
+        .select()
+        .from(schema.crmDealContacts)
+        .where(
+          and(
+            eq(schema.crmDealContacts.tenantId, "tenant-a"),
+            eq(schema.crmDealContacts.dealId, inlineDeal.id),
+          ),
+        );
+      expect(inlineParticipants).toHaveLength(1);
+      expect(inlineParticipants[0].isPrimary).toBe(true);
+
+      // 3. Card legado sem contato no banco deve bloquear mutações até vincular ao menos 1 contato
+      const legacyId = id("legacy-locked");
+      await db.insert(schema.crmDeals).values({
+        id: legacyId,
+        tenantId: "tenant-a",
+        pipelineId: "pipeline-a",
+        stageId: "stage-a",
+        title: "Card Legado Bloqueado",
+        operatorId: "operator-a",
+        status: "open",
+        version: 1,
+      });
+
+      await expect(
+        service.crmService.updateDeal("tenant-a", legacyId, "operator-a", {
+          title: "Tentativa de Edição",
+          expectedVersion: 1,
+        }),
+      ).rejects.toMatchObject({ code: "CONTACT_REQUIRED", statusCode: 409 });
+
+      await expect(
+        service.crmService.createDealActivity("tenant-a", legacyId, "operator-a", {
+          type: "note",
+          title: "Anotação bloqueada",
+          description: "Não deve salvar sem contato",
+        }),
+      ).rejects.toMatchObject({ code: "CONTACT_REQUIRED", statusCode: 409 });
+
+      await expect(
+        service.crmService.bulkUpdateDeals("tenant-a", "operator-a", {
+          action: "assign_operator",
+          dealIds: [legacyId],
+          operatorId: "operator-a",
+        }),
+      ).rejects.toMatchObject({ code: "CONTACT_REQUIRED", statusCode: 409 });
+
+      // Vincular um contato desbloqueia imediatamente todas as alterações no card legado
+      const rescueContactId = await createContact();
+      await service.crmService.addDealContact(
+        "tenant-a",
+        legacyId,
+        rescueContactId,
+        "buyer",
+        true,
+        "operator-a",
+      );
+
+      const updatedLegacy = await service.crmService.updateDeal(
+        "tenant-a",
+        legacyId,
+        "operator-a",
+        {
+          title: "Card Legado Desbloqueado",
+          expectedVersion: 1,
+        },
+      );
+      expect(updatedLegacy.title).toBe("Card Legado Desbloqueado");
+
+      const createdNote = await service.crmService.createDealActivity(
+        "tenant-a",
+        legacyId,
+        "operator-a",
+        {
+          type: "note",
+          title: "Anotação liberada",
+          description: "Salvo após vincular contato",
+        },
+      );
+      expect(createdNote.id).toBeTruthy();
     });
 
     test("entrada real preserva mensagem sem card, bloqueia captura/envio e associa o webhook RD posterior", async () => {

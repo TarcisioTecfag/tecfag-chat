@@ -59,6 +59,8 @@ import {
   ChevronUp,
   Search,
   ImageIcon,
+  UserPlus,
+  Lock,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
@@ -930,6 +932,39 @@ export function DealDetailModal({
   const [isLinkAccountDrawerOpen, setIsLinkAccountDrawerOpen] = useState(false);
   const [linkAccountDrawerMode, setLinkAccountDrawerMode] = useState<"search" | "create" | "edit">("search");
   const [openingChatContactId, setOpeningChatContactId] = useState<string | null>(null);
+  const autoOpenedMissingContactRef = React.useRef<string | null>(null);
+
+  const isMissingRequiredContact = Boolean(
+    !loading &&
+    deal &&
+    deal.id === dealId &&
+    (!Array.isArray(deal.contacts) || deal.contacts.length === 0)
+  );
+
+  const requireLinkedContactBeforeMutation = (): boolean => {
+    const activeContacts = (dealRef.current || deal)?.contacts;
+    if (!Array.isArray(activeContacts) || activeContacts.length === 0) {
+      toast.error(
+        "Esta negociação não possui contato vinculado. Vincule ou cadastre um contato para alterar o card."
+      );
+      setEditingContactIdForDrawer(null);
+      setIsAddContactDrawerOpen(true);
+      return false;
+    }
+    return true;
+  };
+
+  useEffect(() => {
+    if (!isOpen || !dealId) {
+      autoOpenedMissingContactRef.current = null;
+      return;
+    }
+    if (isMissingRequiredContact && autoOpenedMissingContactRef.current !== dealId) {
+      autoOpenedMissingContactRef.current = dealId;
+      setEditingContactIdForDrawer(null);
+      setIsAddContactDrawerOpen(true);
+    }
+  }, [isOpen, dealId, isMissingRequiredContact]);
 
   const handleOpenChatForContact = async (
     contactId: string,
@@ -1224,6 +1259,7 @@ export function DealDetailModal({
     incoming: FileList | File[],
     dropPoint?: { x: number; y: number }
   ) => {
+    if (!requireLinkedContactBeforeMutation()) return;
     const activeDeal = dealRef.current || deal;
     if (!activeDeal) return;
     const MAX_SIZE = 100 * 1024 * 1024;
@@ -1364,6 +1400,7 @@ export function DealDetailModal({
 
   const handleSaveInlineNote = async () => {
     if (!deal) return;
+    if (!requireLinkedContactBeforeMutation()) return;
     setIsSavingNote(true);
     try {
       // 1. Se houver imagens data: ou blob: coladas diretamente no DOM do editor, converte-as em File para upload real
@@ -1545,6 +1582,7 @@ export function DealDetailModal({
   };
 
   const handleStartEditNote = (activityId: string, currentText: string) => {
+    if (!requireLinkedContactBeforeMutation()) return;
     const cleanText = String(currentText || "");
     setEditingNoteId(activityId);
     setEditingNoteText(cleanText);
@@ -1609,6 +1647,7 @@ export function DealDetailModal({
   };
 
   const handleUploadFilesIntoEditedNote = async (incoming: FileList | File[]) => {
+    if (!requireLinkedContactBeforeMutation()) return;
     const activeDeal = dealRef.current || deal;
     if (!activeDeal) return;
     const MAX_SIZE = 100 * 1024 * 1024;
@@ -1706,6 +1745,7 @@ export function DealDetailModal({
   };
 
   const handleSaveEditedNote = async (activityId: string) => {
+    if (!requireLinkedContactBeforeMutation()) return;
     const activeDeal = dealRef.current || deal;
     if (!activeDeal || !activityId) return;
     const trimmed = editingNoteText.trim();
@@ -1962,6 +2002,7 @@ export function DealDetailModal({
 
   const handleSwitchPipeline = async (targetPipelineId: string) => {
     if (!deal || targetPipelineId === deal.pipelineId) return;
+    if (!requireLinkedContactBeforeMutation()) return;
     const targetPipe = availablePipelines.find((p) => p.id === targetPipelineId);
     const allTargetStages = targetPipe?.allStages || targetPipe?.stages || [];
     const firstStage = [...allTargetStages].sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0))[0];
@@ -2033,7 +2074,12 @@ export function DealDetailModal({
   };
 
   const handleRemoveParticipant = async (contactId: string) => {
-    if (!dealId || !confirm("Deseja remover este participante da negociação?")) return;
+    if (!dealId) return;
+    if ((deal?.contacts?.length || 0) <= 1) {
+      toast.error("Não é possível desvincular o único contato desta negociação. Vincule outro contato antes de remover este.");
+      return;
+    }
+    if (!confirm("Deseja remover este participante da negociação?")) return;
     try {
       const res = await fetch(`/api/crm/deals/${dealId}/contacts?contactId=${contactId}`, {
         method: "DELETE",
@@ -2137,6 +2183,7 @@ export function DealDetailModal({
   const handleAddProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!deal || !newProductName.trim() || !newProductUnitPrice) return;
+    if (!requireLinkedContactBeforeMutation()) return;
 
     setAddingProduct(true);
     try {
@@ -2240,6 +2287,7 @@ export function DealDetailModal({
 
   const handleApplyGlobalDiscount = async (overridePercent?: number) => {
     if (!deal) return;
+    if (!requireLinkedContactBeforeMutation()) return;
     setSavingGlobalDiscount(true);
     try {
       const val =
@@ -2284,6 +2332,7 @@ export function DealDetailModal({
 
   const handleRemoveProduct = async (dealProductId: string) => {
     if (!deal) return;
+    if (!requireLinkedContactBeforeMutation()) return;
     try {
       const res = await fetch(`/api/crm/deals/${deal.id}/products?dealProductId=${dealProductId}`, {
         method: "DELETE",
@@ -2302,6 +2351,7 @@ export function DealDetailModal({
 
   const handleGenerateProposal = async () => {
     if (!deal) return;
+    if (!requireLinkedContactBeforeMutation()) return;
     setGeneratingProposal(true);
     try {
       const res = await fetch(`/api/crm/deals/${deal.id}/proposals`, {
@@ -2333,6 +2383,7 @@ export function DealDetailModal({
 
   const handleUpdateProposalStatus = async (proposalId: string, status: string) => {
     if (!deal) return;
+    if (!requireLinkedContactBeforeMutation()) return;
     try {
       const res = await fetch(`/api/crm/deals/${deal.id}/proposals`, {
         method: "PATCH",
@@ -2386,6 +2437,7 @@ export function DealDetailModal({
   // Priorização IA (consulta ficha + conversa vinculada completa)
   const handleCalculateAiPriority = async () => {
     if (!deal) return;
+    if (!requireLinkedContactBeforeMutation()) return;
     try {
       setCalculatingPriority(true);
       const res = await fetch(`/api/crm/deals/${deal.id}/ai-priority`, {
@@ -2434,6 +2486,7 @@ export function DealDetailModal({
   // Upload Direto de Arquivos da Máquina (até 100MB)
   const handleFilesUpload = async (fileList: FileList | File[]) => {
     if (!deal || !fileList || fileList.length === 0) return;
+    if (!requireLinkedContactBeforeMutation()) return;
     const MAX_SIZE = 100 * 1024 * 1024; // 100MB
     const validFiles: File[] = [];
 
@@ -2485,6 +2538,7 @@ export function DealDetailModal({
   // Exclusão de Arquivo
   const handleDeleteFile = async (fileId: string) => {
     if (!deal) return;
+    if (!requireLinkedContactBeforeMutation()) return;
     try {
       const res = await fetch(`/api/crm/deals/${deal.id}/files`, {
         method: "DELETE",
@@ -2508,6 +2562,7 @@ export function DealDetailModal({
   const handleSaveQuestionnaire = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!deal) return;
+    if (!requireLinkedContactBeforeMutation()) return;
     const answers = [
       { question: "Volume mensal estimado de demanda", answer: questVolume || "Não informado" },
       { question: "Aplicação e especificação técnica do produto", answer: questApplication || "Padrão" },
@@ -2546,6 +2601,7 @@ export function DealDetailModal({
   ): Promise<boolean> => {
     const activeDeal = dealRef.current || deal;
     if (!activeDeal) return false;
+    if (!requireLinkedContactBeforeMutation()) return false;
     try {
       const payload: Record<string, any> = { ...patch };
       if (!options?.skipVersionCheck && activeDeal.version !== undefined) {
@@ -2558,6 +2614,13 @@ export function DealDetailModal({
       });
 
       if (res.status === 409) {
+        const errData = await res.json().catch(() => ({}));
+        if (errData?.code === "CONTACT_REQUIRED") {
+          toast.error(errData.error || "Esta negociação não possui contato vinculado. Vincule um contato antes de alterá-la.");
+          setEditingContactIdForDrawer(null);
+          setIsAddContactDrawerOpen(true);
+          return false;
+        }
         toast.error("Esta negociação foi alterada por outro operador. Os dados foram atualizados.");
         loadDealDetail();
         return false;
@@ -2586,6 +2649,7 @@ export function DealDetailModal({
   };
 
   const handleDealCustomFieldsChange = (nextDraft: Record<string, any>) => {
+    if (!requireLinkedContactBeforeMutation()) return;
     setCustomFieldDraft(nextDraft);
     latestDealCustomFieldsDraftRef.current = nextDraft;
     setSavedDealCustomFields(false);
@@ -2638,6 +2702,7 @@ export function DealDetailModal({
   // Mudar etapa
   const handleStageChange = async (newStageId: string) => {
     if (newStageId === deal.stageId) return;
+    if (!requireLinkedContactBeforeMutation()) return;
     const allPipeStages = deal?.pipeline?.allStages || deal?.pipeline?.stages || [];
     const targetStage = allPipeStages.find((s: any) => s.id === newStageId);
     if (targetStage && targetStage.isVisible === false) {
@@ -2813,6 +2878,7 @@ export function DealDetailModal({
   // Criar nova atividade / nota
   const handleCreateActivity = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!requireLinkedContactBeforeMutation()) return;
     if (!newActivityTitle.trim()) {
       toast.error("Informe o assunto da atividade.");
       return;
@@ -2850,6 +2916,7 @@ export function DealDetailModal({
 
   const handleOpenEditDealActivity = (act: any) => {
     if (!deal || !act) return;
+    if (!requireLinkedContactBeforeMutation()) return;
     if (act.status === "completed" || act.status === "done") {
       toast.info("Tarefas concluídas não podem ser editadas.");
       return;
@@ -2877,6 +2944,7 @@ export function DealDetailModal({
   // Alternar gaveta inline de conclusão com anotação/observação opcional no DIV da tarefa
   const handleToggleInlineCompleteActivity = (act: any) => {
     if (!deal || !act) return;
+    if (!requireLinkedContactBeforeMutation()) return;
     if (act.status === "completed" || act.status === "done") {
       toast.info("Esta tarefa já foi concluída e não pode ser reativada.");
       return;
@@ -2893,6 +2961,7 @@ export function DealDetailModal({
 
   const handleSaveInlineCompleteActivity = async (activityId: string) => {
     if (!deal || !activityId || isSavingInlineCompletion) return;
+    if (!requireLinkedContactBeforeMutation()) return;
     const trimmedNote = inlineCompletionNote.trim();
     setIsSavingInlineCompletion(true);
     try {
@@ -2931,6 +3000,7 @@ export function DealDetailModal({
   // Solicitar Confirmação antes de Concluir Atividade Comercial (atalho superior)
   const handleCompleteActivity = (activityId: string) => {
     if (!deal) return;
+    if (!requireLinkedContactBeforeMutation()) return;
     const found =
       deal.activities?.find((a: any) => a.id === activityId) ||
       (deal.nextTask?.id === activityId ? deal.nextTask : null);
@@ -2949,6 +3019,7 @@ export function DealDetailModal({
 
   const confirmCompleteActivity = async () => {
     if (!deal || !activityToCompleteConfirm) return;
+    if (!requireLinkedContactBeforeMutation()) return;
     const trimmedNote = modalCompletionNote.trim();
     setIsConfirmingActivityComplete(true);
     try {
@@ -2992,6 +3063,7 @@ export function DealDetailModal({
   // Reabrir Atividade Comercial (apenas para tarefas canceladas — tarefas concluídas são permanentes)
   const handleReopenActivity = async (activityId: string) => {
     if (!deal) return;
+    if (!requireLinkedContactBeforeMutation()) return;
     try {
       const res = await fetch(`/api/crm/deals/${deal.id}/activities/${activityId}`, {
         method: "PATCH",
@@ -3013,6 +3085,7 @@ export function DealDetailModal({
   // Cancelar Atividade Comercial
   const handleCancelActivity = async (activityId: string) => {
     if (!deal) return;
+    if (!requireLinkedContactBeforeMutation()) return;
     try {
       const res = await fetch(`/api/crm/deals/${deal.id}/activities/${activityId}`, {
         method: "PATCH",
@@ -3034,6 +3107,7 @@ export function DealDetailModal({
   // Reagendar Atividade Comercial
   const handleRescheduleActivity = async (activityId: string, newDueDate: string) => {
     if (!deal || !newDueDate) return;
+    if (!requireLinkedContactBeforeMutation()) return;
     setReschedulingLoading(true);
     try {
       const res = await fetch(`/api/crm/deals/${deal.id}/activities/${activityId}`, {
@@ -3059,7 +3133,9 @@ export function DealDetailModal({
 
   // Excluir Atividade Comercial
   const handleDeleteActivity = async (activityId: string) => {
-    if (!deal || !confirm("Deseja realmente remover esta atividade?")) return;
+    if (!deal) return;
+    if (!requireLinkedContactBeforeMutation()) return;
+    if (!confirm("Deseja realmente remover esta atividade?")) return;
     try {
       const res = await fetch(`/api/crm/deals/${deal.id}/activities/${activityId}`, {
         method: "DELETE",
@@ -3099,6 +3175,7 @@ export function DealDetailModal({
   // Remover evidência comercial
   const handleRemoveEvidence = async (evidenceId: string) => {
     if (!dealId) return;
+    if (!requireLinkedContactBeforeMutation()) return;
     try {
       const res = await fetch(`/api/crm/deals/${dealId}/evidence?evidenceId=${evidenceId}`, {
         method: "DELETE",
@@ -3658,7 +3735,10 @@ export function DealDetailModal({
                   {deal.status === "open" && (
                     <SystemTooltip content="Pausar negociação">
                       <button
-                        onClick={() => setShowPausePrompt(true)}
+                        onClick={() => {
+                          if (!requireLinkedContactBeforeMutation()) return;
+                          setShowPausePrompt(true);
+                        }}
                         className="flex h-8 items-center gap-1.5 rounded-full border border-border bg-card px-3 text-xs font-bold text-foreground hover:bg-muted transition-colors cursor-pointer"
                       >
                         <PauseCircle className="h-3.5 w-3.5 text-muted-foreground" />
@@ -3683,7 +3763,10 @@ export function DealDetailModal({
                     <>
                       <SystemTooltip content="Marcar como Perdido">
                         <button
-                          onClick={() => setShowLossPrompt(true)}
+                          onClick={() => {
+                            if (!requireLinkedContactBeforeMutation()) return;
+                            setShowLossPrompt(true);
+                          }}
                           className="flex h-8 items-center gap-1.5 rounded-full bg-primary/10 px-3 text-xs font-bold text-primary hover:bg-primary/20 transition-colors cursor-pointer"
                         >
                           <XCircle className="h-3.5 w-3.5" />
@@ -3692,7 +3775,10 @@ export function DealDetailModal({
                       </SystemTooltip>
                       <SystemTooltip content="Marcar como Ganho">
                         <button
-                          onClick={() => setShowWinPrompt(true)}
+                          onClick={() => {
+                            if (!requireLinkedContactBeforeMutation()) return;
+                            setShowWinPrompt(true);
+                          }}
                           className="flex h-8 items-center gap-1.5 rounded-full bg-primary px-3 text-xs font-bold text-primary-foreground shadow-sm hover:opacity-90 transition-opacity cursor-pointer"
                         >
                           <CheckCircle2 className="h-3.5 w-3.5" />
@@ -3855,6 +3941,39 @@ export function DealDetailModal({
           )}
         </div>
 
+        {/* Alerta de bloqueio em cards legados sem contato vinculado */}
+        {!loading && !loadError && deal && isMissingRequiredContact && (
+          <div
+            data-testid="deal-missing-contact-lock-banner"
+            className="flex flex-wrap items-center justify-between gap-3 border-b border-primary/30 bg-primary/10 px-5 py-2.5 shrink-0"
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+                <Lock className="h-3.5 w-3.5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-foreground">
+                  Contato obrigatório pendente — edições bloqueadas neste card
+                </p>
+                <p className="text-[11px] text-muted-foreground">
+                  Esta negociação legada está sem contato cadastrado. Vincule um contato existente ou cadastre um novo para liberar qualquer alteração.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setEditingContactIdForDrawer(null);
+                setIsAddContactDrawerOpen(true);
+              }}
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-primary px-3.5 text-xs font-bold text-primary-foreground shadow-xs hover:opacity-90 transition-opacity cursor-pointer shrink-0"
+            >
+              <UserPlus className="h-3.5 w-3.5" />
+              <span>Vincular ou cadastrar contato</span>
+            </button>
+          </div>
+        )}
+
         {/* Corpo Principal: Lado Esquerdo (Dados Comprador) + Lado Direito (Abas) */}
         {loading ? (
           <div className="flex flex-1 items-center justify-center p-12">
@@ -3922,6 +4041,7 @@ export function DealDetailModal({
                           <button
                             type="button"
                             onClick={() => {
+                              if (!requireLinkedContactBeforeMutation()) return;
                               setEditTitle(deal?.title || "");
                               setIsEditingTitle(true);
                             }}
@@ -3976,6 +4096,7 @@ export function DealDetailModal({
                           <button
                             type="button"
                             onClick={() => {
+                              if (!requireLinkedContactBeforeMutation()) return;
                               setEditValue(deal?.value ? String(deal.value).replace(".", ",") : "");
                               setIsEditingValue(true);
                             }}
@@ -4090,10 +4211,21 @@ export function DealDetailModal({
               </div>
 
               {/* 2. Card Contatos Participantes */}
-              <div data-tour="deal.participant-chats" className="crm-side-contacts order-2 rounded-sm border border-border bg-card p-3.5 space-y-2.5">
+              <div
+                data-tour="deal.participant-chats"
+                className={`crm-side-contacts rounded-sm border p-3.5 space-y-2.5 ${
+                  isMissingRequiredContact
+                    ? "order-first border-primary/50 bg-primary/5 ring-1 ring-primary/20"
+                    : "order-2 border-border bg-card"
+                }`}
+              >
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">
-                    Contatos ({deal?.contacts?.length || 0})
+                  <span
+                    className={`text-[10px] font-bold uppercase tracking-wider block ${
+                      isMissingRequiredContact ? "text-primary" : "text-muted-foreground"
+                    }`}
+                  >
+                    Contatos ({deal?.contacts?.length || 0}){isMissingRequiredContact ? " *" : ""}
                   </span>
                   <button
                     type="button"
@@ -4202,11 +4334,22 @@ export function DealDetailModal({
                             </SystemTooltip>
 
                             {/* Remover participante */}
-                            <SystemTooltip content="Desvincular participante da negociação">
+                            <SystemTooltip
+                              content={
+                                (deal?.contacts?.length || 0) <= 1
+                                  ? "Toda negociação precisa manter ao menos 1 contato vinculado"
+                                  : "Desvincular participante da negociação"
+                              }
+                            >
                               <button
                                 type="button"
                                 onClick={() => handleRemoveParticipant(c.contactId)}
-                                className="text-muted-foreground hover:text-rose-500 p-0.5 rounded-sm transition-colors cursor-pointer"
+                                disabled={(deal?.contacts?.length || 0) <= 1}
+                                className={`p-0.5 rounded-sm transition-colors ${
+                                  (deal?.contacts?.length || 0) <= 1
+                                    ? "text-muted-foreground/30 cursor-not-allowed"
+                                    : "text-muted-foreground hover:text-rose-500 cursor-pointer"
+                                }`}
                               >
                                 <X className="h-3.5 w-3.5" />
                               </button>
@@ -4331,7 +4474,22 @@ export function DealDetailModal({
                     );
                   })
                 ) : (
-                  <p className="text-[11px] text-muted-foreground/60 italic">Nenhum contato participante vinculado.</p>
+                  <div className="space-y-2 pt-0.5">
+                    <p className="text-[11px] text-foreground/80 leading-relaxed">
+                      Nenhum contato vinculado. Vincule ou cadastre um contato para liberar edições neste card.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingContactIdForDrawer(null);
+                        setIsAddContactDrawerOpen(true);
+                      }}
+                      className="flex h-8 w-full items-center justify-center gap-1.5 rounded-lg bg-primary px-3 text-xs font-bold text-primary-foreground hover:opacity-90 transition-opacity cursor-pointer"
+                    >
+                      <UserPlus className="h-3.5 w-3.5" />
+                      <span>Vincular contato obrigatório</span>
+                    </button>
+                  </div>
                 )}
               </div>
 
@@ -4344,6 +4502,7 @@ export function DealDetailModal({
                   <button
                     type="button"
                     onClick={() => {
+                      if (!requireLinkedContactBeforeMutation()) return;
                       setLinkAccountDrawerMode("search");
                       setIsLinkAccountDrawerOpen(true);
                     }}
@@ -4503,6 +4662,7 @@ export function DealDetailModal({
                         <button
                           type="button"
                           onClick={() => {
+                            if (!requireLinkedContactBeforeMutation()) return;
                             setEditingDealTask(null);
                             setIsCreateTaskModalOpen(true);
                           }}
@@ -4596,6 +4756,7 @@ export function DealDetailModal({
                                     <button
                                       type="button"
                                       onClick={() => {
+                                        if (!requireLinkedContactBeforeMutation()) return;
                                         setReschedulingActivityId(taskItem.id);
                                         setRescheduleDueDate(taskItem.dueDate ? taskItem.dueDate.slice(0, 16) : "");
                                         setActiveTab("tasks");
@@ -4637,6 +4798,7 @@ export function DealDetailModal({
                         <button
                           type="button"
                           onClick={() => {
+                            if (!requireLinkedContactBeforeMutation()) return;
                             setEditingDealTask(null);
                             setIsCreateTaskModalOpen(true);
                           }}
@@ -4898,6 +5060,7 @@ export function DealDetailModal({
                             <button
                               type="button"
                               onClick={() => {
+                                if (!requireLinkedContactBeforeMutation()) return;
                                 setEditingDealTask(null);
                                 setIsCreateTaskModalOpen(true);
                               }}
@@ -8015,6 +8178,7 @@ export function DealDetailModal({
           currentAccountName={deal.account?.name || null}
           linkedContacts={deal.contacts || []}
           initialEditContactId={editingContactIdForDrawer}
+          requiredMode={isMissingRequiredContact}
           onContactLinked={async () => {
             await loadDealDetail(true);
             onDealUpdated();

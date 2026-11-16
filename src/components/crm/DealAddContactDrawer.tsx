@@ -37,6 +37,7 @@ import {
   ArrowLeft,
   Check,
   Star,
+  AlertCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { maskPhone } from "@/lib/utils";
@@ -130,6 +131,7 @@ interface DealAddContactDrawerProps {
   currentAccountName?: string | null;
   linkedContacts?: LinkedDealContactItem[];
   initialEditContactId?: string | null;
+  requiredMode?: boolean;
   onContactLinked: () => void;
 }
 
@@ -141,6 +143,7 @@ export function DealAddContactDrawer({
   currentAccountName,
   linkedContacts = [],
   initialEditContactId = null,
+  requiredMode = false,
   onContactLinked,
 }: DealAddContactDrawerProps) {
   const [tab, setTab] = useState<"search" | "create">("search");
@@ -364,6 +367,10 @@ export function DealAddContactDrawer({
   // Desvincular contato da negociação
   const handleUnlinkContact = async (contactId: string, contactName?: string) => {
     if (!dealId) return;
+    if (linkedContacts.length <= 1) {
+      toast.error("Não é possível desvincular o único contato desta negociação. Vincule outro contato antes de remover este.");
+      return;
+    }
     setUnlinkingContactId(contactId);
     try {
       const res = await fetch(
@@ -449,7 +456,11 @@ export function DealAddContactDrawer({
       setReplaceCompanyPrompt(null);
       setSelectedContact(null);
       setSearchQuery("");
+      const wasEmptyBeforeLink = linkedContacts.length === 0 || requiredMode;
       onContactLinked();
+      if (wasEmptyBeforeLink) {
+        onClose();
+      }
     } catch (err: any) {
       toast.error(err.message || "Erro ao vincular contato.");
     } finally {
@@ -596,6 +607,18 @@ export function DealAddContactDrawer({
               ? "Altere os dados cadastrais, papel comercial ou vínculo deste contato na negociação."
               : "Visualize, edite ou desvincule os contatos atuais, busque na base ou cadastre um novo."}
           </SheetDescription>
+
+          {(requiredMode || linkedContacts.length === 0) && !editingContactId && (
+            <div className="mt-2.5 flex items-start gap-2 rounded-lg border border-primary/35 bg-primary/10 p-2.5 text-left text-[11px] text-foreground">
+              <AlertCircle className="h-4 w-4 shrink-0 text-primary mt-0.5" />
+              <div className="space-y-0.5 leading-snug">
+                <p className="font-bold text-primary">Vínculo de contato obrigatório</p>
+                <p className="text-muted-foreground">
+                  Esta negociação não possui contato cadastrado. Vincule um contato existente ou crie um novo para desbloquear qualquer alteração no card.
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Abas Superiores (ocultas durante edição individual) */}
           {!editingContactId && (
@@ -781,19 +804,29 @@ export function DealAddContactDrawer({
               </div>
 
               <div className="flex items-center justify-between gap-2 pt-3 border-t border-border/60">
-                <button
-                  type="button"
-                  onClick={() => handleUnlinkContact(editingContactId, editName)}
-                  disabled={unlinkingContactId === editingContactId || savingEdit}
-                  className="inline-flex items-center gap-1.5 rounded-sm border border-rose-500/30 bg-rose-500/5 px-3 py-2 text-xs font-semibold text-rose-600 hover:bg-rose-500/10 transition-colors cursor-pointer disabled:opacity-50"
+                <SystemTooltip
+                  content={
+                    linkedContacts.length <= 1
+                      ? "Toda negociação exige ao menos um contato vinculado. Adicione outro contato antes de desvincular este."
+                      : "Desvincular contato da negociação"
+                  }
                 >
-                  {unlinkingContactId === editingContactId ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Unlink className="h-3.5 w-3.5" />
-                  )}
-                  <span>Desvincular</span>
-                </button>
+                  <span className="inline-flex">
+                    <button
+                      type="button"
+                      onClick={() => handleUnlinkContact(editingContactId, editName)}
+                      disabled={linkedContacts.length <= 1 || unlinkingContactId === editingContactId || savingEdit}
+                      className="inline-flex items-center gap-1.5 rounded-sm border border-rose-500/30 bg-rose-500/5 px-3 py-2 text-xs font-semibold text-rose-600 hover:bg-rose-500/10 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      {unlinkingContactId === editingContactId ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Unlink className="h-3.5 w-3.5" />
+                      )}
+                      <span>Desvincular</span>
+                    </button>
+                  </span>
+                </SystemTooltip>
 
                 <div className="flex items-center gap-2">
                   <button
@@ -949,20 +982,28 @@ export function DealAddContactDrawer({
                                   </button>
                                 </SystemTooltip>
 
-                                <SystemTooltip content="Desvincular contato da negociação">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleUnlinkContact(item.contactId, cName)}
-                                    disabled={unlinkingContactId === item.contactId}
-                                    className="inline-flex items-center gap-1 rounded-sm border border-rose-500/25 bg-rose-500/5 px-2 py-1 text-[11px] font-semibold text-rose-600 hover:bg-rose-500/15 transition-colors cursor-pointer disabled:opacity-50"
-                                  >
-                                    {unlinkingContactId === item.contactId ? (
-                                      <Loader2 className="h-3 w-3 animate-spin" />
-                                    ) : (
-                                      <Unlink className="h-3 w-3" />
-                                    )}
-                                    <span>Desvincular</span>
-                                  </button>
+                                <SystemTooltip
+                                  content={
+                                    linkedContacts.length <= 1
+                                      ? "Toda negociação exige ao menos um contato vinculado. Adicione outro contato antes de desvincular este."
+                                      : "Desvincular contato da negociação"
+                                  }
+                                >
+                                  <span className="inline-flex">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleUnlinkContact(item.contactId, cName)}
+                                      disabled={linkedContacts.length <= 1 || unlinkingContactId === item.contactId}
+                                      className="inline-flex items-center gap-1 rounded-sm border border-rose-500/25 bg-rose-500/5 px-2 py-1 text-[11px] font-semibold text-rose-600 hover:bg-rose-500/15 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                                    >
+                                      {unlinkingContactId === item.contactId ? (
+                                        <Loader2 className="h-3 w-3 animate-spin" />
+                                      ) : (
+                                        <Unlink className="h-3 w-3" />
+                                      )}
+                                      <span>Desvincular</span>
+                                    </button>
+                                  </span>
                                 </SystemTooltip>
                               </div>
                             </div>

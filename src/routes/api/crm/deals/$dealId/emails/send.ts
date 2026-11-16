@@ -6,7 +6,7 @@ import { db } from "../../../../../../db";
 import { channelConfigs, contacts, crmDealContacts, crmDeals } from "../../../../../../db/schema";
 import { requireSession } from "../../../../../../lib/auth-session";
 import { requireCrmPermission } from "../../../../../../lib/rbac";
-import { crmService } from "../../../../../../lib/crm/crm-service";
+import { assertDealHasLinkedContact, crmService, CrmError } from "../../../../../../lib/crm/crm-service";
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const maxAttachmentBytes = 10 * 1024 * 1024;
@@ -59,6 +59,8 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/emails/send")({
           const [deal] = await db.select({ id: crmDeals.id }).from(crmDeals)
             .where(and(eq(crmDeals.tenantId, tenantId), eq(crmDeals.id, dealId))).limit(1);
           if (!deal) return Response.json({ error: "Negociação não encontrada." }, { status: 404 });
+
+          await assertDealHasLinkedContact(db, tenantId, dealId);
 
           const [recipient] = await db.select({ name: contacts.name, email: contacts.email })
             .from(crmDealContacts)
@@ -138,6 +140,9 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/emails/send")({
             return Response.json({ message: "E-mail enviado, mas o histórico não pôde ser atualizado.", messageId: info.messageId, logged: false }, { status: 202 });
           }
         } catch (error) {
+          if (error instanceof CrmError) {
+            return Response.json({ error: error.message, code: error.code }, { status: error.statusCode });
+          }
           console.error("[CRM Email] Falha ao enviar:", error);
           const message = error instanceof Error ? error.message : "Falha ao enviar e-mail.";
           return message.startsWith("Informe endereços")

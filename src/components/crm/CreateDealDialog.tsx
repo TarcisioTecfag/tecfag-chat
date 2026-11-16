@@ -19,6 +19,12 @@ import { toast } from "sonner";
 import { AccountPicker } from "./AccountPicker";
 import { CustomFieldsEditor } from "./CustomFieldsEditor";
 import { CatalogSelect } from "./CatalogSelect";
+import {
+  ContactPhonesEditor,
+  createEmptyContactPhoneInput,
+} from "./ContactPhonesEditor";
+import { PhoneContactSuggestions } from "./PhoneContactSuggestions";
+import type { ContactPhoneInput } from "@/lib/contact-phone-types";
 import type { CrmAccountDTO } from "../../lib/crm/crm-types";
 import {
   formatAccountDocumentInput,
@@ -136,6 +142,13 @@ export function CreateDealDialog({
     Array<{ id: string; name: string; phone?: string | null; email?: string | null; accountId?: string | null }>
   >(defaultContactId ? [{ id: defaultContactId, name: "Contato do atendimento vinculado" }] : []);
   const [isAddingMoreContact, setIsAddingMoreContact] = useState(false);
+  const [isCreatingNewContact, setIsCreatingNewContact] = useState(false);
+  const [newContactName, setNewContactName] = useState("");
+  const [newContactPhones, setNewContactPhones] = useState<ContactPhoneInput[]>([
+    createEmptyContactPhoneInput("commercial", true),
+  ]);
+  const [newContactEmail, setNewContactEmail] = useState("");
+  const [newContactCustomFields, setNewContactCustomFields] = useState<Record<string, unknown>>({});
   const [contactQuery, setContactQuery] = useState("");
   const [contactResults, setContactResults] = useState<Array<{ id: string; name: string; phone: string | null; email: string | null; accountId: string | null }>>([]);
   const [rating, setRating] = useState<number>(3);
@@ -167,7 +180,7 @@ export function CreateDealDialog({
   const [accountCustomFields, setAccountCustomFields] = useState<Record<string, unknown>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const showContactSearch = selectedContacts.length === 0 || isAddingMoreContact;
+  const showContactSearch = !isCreatingNewContact && (selectedContacts.length === 0 || isAddingMoreContact);
 
   useEffect(() => {
     if (defaultContactId) {
@@ -179,6 +192,11 @@ export function CreateDealDialog({
     setContactOriginalAccount(null);
     setPendingAccountReplacement(null);
     setIsAddingMoreContact(false);
+    setIsCreatingNewContact(false);
+    setNewContactName("");
+    setNewContactPhones([createEmptyContactPhoneInput("commercial", true)]);
+    setNewContactEmail("");
+    setNewContactCustomFields({});
     if (defaultConversationId) setSource("chat");
   }, [defaultContactId, defaultConversationId]);
 
@@ -379,6 +397,15 @@ export function CreateDealDialog({
       return;
     }
 
+    if (selectedContacts.length === 0 && !isCreatingNewContact) {
+      toast.error("Vincule um contato existente ou cadastre um novo contato para criar a negociação.");
+      return;
+    }
+    if (isCreatingNewContact && !newContactName.trim()) {
+      toast.error("Informe o nome completo do contato para vinculá-lo à negociação.");
+      return;
+    }
+
     const cleanDoc = accountDocument.replace(/\D/g, "");
     if (!selectedAccount && hasAccount && isCreatingNewAccount) {
       if (duplicateAccount) {
@@ -409,7 +436,13 @@ export function CreateDealDialog({
         }
       }
 
-      // Payload atômico: cria conta + negociação + nota na mesma transação
+      // Payload atômico: cria conta + contato (quando novo) + negociação + nota na mesma transação
+      const validNewPhones = isCreatingNewContact
+        ? newContactPhones.filter((p) => (p.phone || "").replace(/\D/g, "").length > 0)
+        : [];
+      const primaryNewPhone =
+        (validNewPhones.find((p) => p.isPrimary) || validNewPhones[0])?.phone || undefined;
+
       const payload: any = {
         title: title.trim(),
         pipelineId,
@@ -421,6 +454,20 @@ export function CreateDealDialog({
         campaign: campaign.trim() || undefined,
         contactId: selectedContacts[0]?.id || undefined,
         contactIds: selectedContacts.length > 0 ? selectedContacts.map((c) => c.id) : undefined,
+        ...(isCreatingNewContact && newContactName.trim()
+          ? {
+              contact: {
+                name: newContactName.trim(),
+                phone: primaryNewPhone,
+                ...(validNewPhones.length > 0 ? { phones: validNewPhones } : {}),
+                email: newContactEmail.trim() || undefined,
+                customFields:
+                  Object.keys(newContactCustomFields).length > 0
+                    ? newContactCustomFields
+                    : undefined,
+              },
+            }
+          : {}),
         conversationId: defaultConversationId || undefined,
         initialNote: note.trim() || undefined,
         customFields: dealCustomFields,
@@ -469,6 +516,11 @@ export function CreateDealDialog({
         setDealCustomFields({});
         setAccountCustomFields({});
         setIsAddingMoreContact(false);
+        setIsCreatingNewContact(false);
+        setNewContactName("");
+        setNewContactPhones([createEmptyContactPhoneInput("commercial", true)]);
+        setNewContactEmail("");
+        setNewContactCustomFields({});
         setContactQuery("");
         setIsCreatingNewAccount(false);
       } else {
@@ -866,24 +918,65 @@ export function CreateDealDialog({
           )}
 
           <div className="border-t border-border/60 pt-3 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Informações do contato</span>
-              {selectedContacts.length > 0 && !isAddingMoreContact && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsAddingMoreContact(true);
-                    setContactQuery("");
-                  }}
-                  className="inline-flex items-center gap-1 text-[11px] font-bold text-primary hover:underline cursor-pointer"
-                >
-                  <Plus className="h-3 w-3" />
-                  <span>Vincular mais contato</span>
-                </button>
-              )}
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                Informações do contato
+              </span>
+              <div className="flex items-center gap-3">
+                {selectedContacts.length > 0 && !isAddingMoreContact && !isCreatingNewContact && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsAddingMoreContact(true);
+                      setContactQuery("");
+                    }}
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-primary hover:underline cursor-pointer"
+                  >
+                    <Plus className="h-3 w-3" />
+                    <span>Vincular mais contato</span>
+                  </button>
+                )}
+                {!isCreatingNewContact ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsCreatingNewContact(true);
+                      setIsAddingMoreContact(false);
+                      const q = contactQuery.trim();
+                      if (q && !newContactName) {
+                        if (q.includes("@")) {
+                          setNewContactEmail(q);
+                        } else if (q.replace(/\D/g, "").length >= 8) {
+                          setNewContactPhones([{ ...createEmptyContactPhoneInput("commercial", true), phone: maskPhone(q) }]);
+                        } else {
+                          setNewContactName(q);
+                        }
+                      }
+                    }}
+                    className="inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:underline cursor-pointer"
+                  >
+                    <span>+ Criar novo contato</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsCreatingNewContact(false);
+                      setNewContactName("");
+                      setNewContactPhones([createEmptyContactPhoneInput("commercial", true)]);
+                      setNewContactEmail("");
+                      setNewContactCustomFields({});
+                    }}
+                    className="text-[11px] font-medium text-muted-foreground hover:text-foreground hover:underline cursor-pointer"
+                  >
+                    Voltar para busca
+                  </button>
+                )}
+              </div>
             </div>
             <label className="block text-xs font-bold text-foreground">
-              {selectedContacts.length > 1 ? `Contatos vinculados (${selectedContacts.length})` : "Contato"}
+              {selectedContacts.length > 1 ? `Contatos vinculados (${selectedContacts.length})` : "Contato"}{" "}
+              <span className="text-red-500">*</span>
             </label>
 
             {selectedContacts.length > 0 && (
@@ -929,6 +1022,80 @@ export function CreateDealDialog({
               </div>
             )}
 
+            {isCreatingNewContact && (
+              <div className="space-y-3 rounded-xl border border-border/70 bg-muted/10 p-3 animate-in fade-in duration-150">
+                <div>
+                  <label className="block text-[11px] font-semibold text-foreground mb-1">
+                    Nome Completo do Contato <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ex: Maria Fernanda Oliveira"
+                    value={newContactName}
+                    onChange={(e) => setNewContactName(e.target.value)}
+                    className="h-8 w-full rounded-lg border border-border bg-card px-2.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                </div>
+
+                <ContactPhonesEditor
+                  compact
+                  phones={newContactPhones}
+                  onChange={setNewContactPhones}
+                />
+
+                <PhoneContactSuggestions
+                  phone={(newContactPhones.find((p) => p.isPrimary) || newContactPhones[0])?.phone || ""}
+                  name={newContactName}
+                  endpoint="/api/crm/contacts"
+                  onSelect={(existing) => {
+                    setSelectedContacts((prev) =>
+                      prev.some((c) => c.id === existing.id)
+                        ? prev
+                        : [
+                            ...prev,
+                            {
+                              id: existing.id,
+                              name: existing.name,
+                              phone: existing.phone,
+                              email: existing.email || null,
+                              accountId: existing.accountId || null,
+                            },
+                          ],
+                    );
+                    setIsCreatingNewContact(false);
+                    setNewContactName("");
+                    setNewContactPhones([createEmptyContactPhoneInput("commercial", true)]);
+                    setNewContactEmail("");
+                    setNewContactCustomFields({});
+                    applyContactAccountToDeal(existing.id, existing.name);
+                    toast.success(`Contato existente "${existing.name}" vinculado à negociação.`);
+                  }}
+                />
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-foreground mb-1">E-mail (Opcional)</label>
+                  <div className="relative">
+                    <Mail className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+                    <input
+                      type="email"
+                      placeholder="contato@empresa.com.br"
+                      value={newContactEmail}
+                      onChange={(e) => setNewContactEmail(e.target.value)}
+                      className="h-8 w-full rounded-lg border border-border bg-card pl-7 pr-2.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                  </div>
+                </div>
+
+                <CustomFieldsEditor
+                  entity="contact"
+                  values={newContactCustomFields}
+                  onChange={setNewContactCustomFields}
+                  create
+                />
+              </div>
+            )}
+
             {showContactSearch && (
               <div className="relative space-y-1">
                 <div className="flex items-center gap-1.5">
@@ -938,7 +1105,7 @@ export function CreateDealDialog({
                     placeholder={
                       selectedContacts.length > 0
                         ? "Buscar outro contato por nome, telefone ou e-mail..."
-                        : "Buscar contato por nome, telefone ou e-mail"
+                        : "Buscar contato existente por nome, telefone ou e-mail *"
                     }
                     className="h-9 flex-1 rounded-lg border border-border bg-card px-3 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
                   />
@@ -989,7 +1156,32 @@ export function CreateDealDialog({
                         <span className="block font-semibold">{contact.name}</span>
                         <span className="text-muted-foreground">{contact.phone || contact.email || "Sem telefone"}</span>
                       </button>
-                    )) : <p className="px-3 py-2 text-xs text-muted-foreground">Nenhum contato encontrado.</p>}
+                    )) : (
+                      <div className="px-3 py-2.5 space-y-1.5">
+                        <p className="text-xs text-muted-foreground">Nenhum contato encontrado.</p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const q = contactQuery.trim();
+                            setIsCreatingNewContact(true);
+                            setIsAddingMoreContact(false);
+                            if (q.includes("@")) {
+                              setNewContactEmail(q);
+                            } else if (q.replace(/\D/g, "").length >= 8) {
+                              setNewContactPhones([{ ...createEmptyContactPhoneInput("commercial", true), phone: maskPhone(q) }]);
+                            } else {
+                              setNewContactName(q);
+                            }
+                            setContactQuery("");
+                            setContactResults([]);
+                          }}
+                          className="inline-flex items-center gap-1 text-xs font-bold text-primary hover:underline cursor-pointer"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          <span>Cadastrar &ldquo;{contactQuery.trim()}&rdquo; como novo contato</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

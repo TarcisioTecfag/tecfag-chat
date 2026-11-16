@@ -4,7 +4,7 @@ import { db } from "../../../../../db";
 import { crmDeals } from "../../../../../db/schema";
 import { requireCrmDealAccess } from "../../../../../lib/access-control/crm-record-access";
 import { requireSession } from "../../../../../lib/auth-session";
-import { crmService } from "../../../../../lib/crm/crm-service";
+import { assertDealHasLinkedContact, crmService, handleCrmError, CrmError } from "../../../../../lib/crm/crm-service";
 import {
   calculateFreightVolumesTotals,
   deleteDealFreightQuote,
@@ -142,6 +142,8 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/freight-quotes")({
             const permError = requireCrmPermission(session, "canEditDeals");
             if (permError) return permError;
 
+            await assertDealHasLinkedContact(db, tenantId, dealId);
+
             const selectedOption = body.selectedOption as FreightCarrierOption;
             const destination = body.destination as FreightDestinationInput;
             const volumes = (Array.isArray(body.volumes) ? body.volumes : []) as FreightQuoteVolumeInput[];
@@ -217,6 +219,7 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/freight-quotes")({
 
           return jsonResponse({ error: "Ação inválida." }, 400);
         } catch (err: any) {
+          if (err instanceof CrmError) return handleCrmError(err, corsHeaders);
           console.error("[CRM Deal Freight Quotes POST] Erro:", err);
           return jsonResponse(
             { error: err?.message || "Erro ao processar cotação de frete." },
@@ -239,6 +242,8 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/freight-quotes")({
           const permError = requireCrmPermission(session, "canEditDeals");
           if (permError) return permError;
 
+          await assertDealHasLinkedContact(db, tenantId, dealId);
+
           const url = new URL(request.url);
           const quoteId = url.searchParams.get("quoteId") || "";
           if (!quoteId) {
@@ -256,6 +261,7 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/freight-quotes")({
             quotes,
           });
         } catch (err: any) {
+          if (err instanceof CrmError) return handleCrmError(err, corsHeaders);
           console.error("[CRM Deal Freight Quotes DELETE] Erro:", err);
           return jsonResponse(
             { error: err?.message || "Erro ao remover cotação de frete." },

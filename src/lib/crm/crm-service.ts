@@ -39,7 +39,14 @@ import {
   contactChannelIdentities,
 } from "../../db/schema";
 import { getDealContext } from "./conversation-deal-context";
-import { getContactPhonesMap, type ContactPhoneItem } from "./contact-phones";
+import {
+  findContactByAnyPhone,
+  getContactPhonesMap,
+  normalizeContactPhonesInput,
+  syncContactPhones,
+  type ContactPhoneItem,
+} from "./contact-phones";
+import { shouldIgnoreJid } from "../baileys/jid-validator";
 import { buildPhoneQueryPlan } from "../utils";
 import {
   buildContactPhonesExistsSearchSql,
@@ -221,6 +228,64 @@ export class CrmConcurrencyError extends CrmError {
   constructor(message: string = "Conflito de versão concorrente.") {
     super(message, "CONCURRENCY_CONFLICT", 409);
     this.name = "CrmConcurrencyError";
+  }
+}
+
+export const DEAL_CREATION_CONTACT_REQUIRED_MESSAGE =
+  "Toda negociação precisa ter pelo menos um contato vinculado. Selecione um contato existente ou cadastre um novo contato.";
+
+export const DEAL_CONTACT_REQUIRED_MESSAGE =
+  "Esta negociação não possui contato vinculado. Vincule ou cadastre um contato para liberar alterações no card.";
+
+export const DEAL_LAST_CONTACT_REMOVAL_MESSAGE =
+  "Não é possível desvincular o único contato desta negociação. Vincule outro contato antes de remover este.";
+
+export class CrmDealContactRequiredError extends CrmError {
+  constructor(message: string = DEAL_CONTACT_REQUIRED_MESSAGE) {
+    super(message, "CONTACT_REQUIRED", 409);
+    this.name = "CrmDealContactRequiredError";
+  }
+}
+
+export async function assertDealHasLinkedContact(
+  executor: Pick<typeof db, "select">,
+  tenantId: string,
+  dealId: string,
+): Promise<void> {
+  const [participant] = await executor
+    .select({ id: crmDealContacts.id })
+    .from(crmDealContacts)
+    .where(and(eq(crmDealContacts.tenantId, tenantId), eq(crmDealContacts.dealId, dealId)))
+    .limit(1);
+
+  if (!participant) {
+    throw new CrmDealContactRequiredError();
+  }
+}
+
+export async function assertAllDealsHaveLinkedContact(
+  executor: Pick<typeof db, "select">,
+  tenantId: string,
+  dealIds: string[],
+): Promise<void> {
+  if (dealIds.length === 0) return;
+  const uniqueIds = [...new Set(dealIds)];
+  const withContactSet = new Set<string>();
+  for (let i = 0; i < uniqueIds.length; i += 500) {
+    const chunk = uniqueIds.slice(i, i + 500);
+    const rows = await executor
+      .select({ dealId: crmDealContacts.dealId })
+      .from(crmDealContacts)
+      .where(and(eq(crmDealContacts.tenantId, tenantId), inArray(crmDealContacts.dealId, chunk)));
+    for (const r of rows) withContactSet.add(r.dealId);
+  }
+  const missingCount = uniqueIds.filter((id) => !withContactSet.has(id)).length;
+  if (missingCount > 0) {
+    throw new CrmDealContactRequiredError(
+      missingCount === 1
+        ? "A negociação selecionada não possui contato vinculado. Abra o card e vincule um contato antes de alterá-la."
+        : `${missingCount} negociações selecionadas não possuem contato vinculado. Vincule um contato nos respectivos cards antes de alterá-las em massa.`,
+    );
   }
 }
 
@@ -2490,6 +2555,7 @@ export class CrmService {
         .select({ id: crmDeals.id })
         .from(crmDeals)
         .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)))
+        .for("update")
         .limit(1);
 
       if (!deal) {
@@ -2510,6 +2576,22 @@ export class CrmService {
 
       if (!existing) {
         return await this.getDealContacts(tenantId, dealId);
+      }
+
+      const [otherParticipant] = await tx
+        .select({ id: crmDealContacts.id })
+        .from(crmDealContacts)
+        .where(
+          and(
+            eq(crmDealContacts.tenantId, tenantId),
+            eq(crmDealContacts.dealId, dealId),
+            ne(crmDealContacts.id, existing.id)
+          )
+        )
+        .limit(1);
+
+      if (!otherParticipant) {
+        throw new CrmDealContactRequiredError(DEAL_LAST_CONTACT_REMOVAL_MESSAGE);
       }
 
       const [removedContact] = await tx
@@ -4163,6 +4245,13 @@ export class CrmService {
       rating?: number;
       contactId?: string; // Contato principal a associar
       contactIds?: string[]; // Múltiplos contatos a associar na criação
+      contact?: {
+        name: string;
+        phone?: string | null;
+        phones?: unknown;
+        email?: string | null;
+        customFields?: CustomFieldValues;
+      } | null; // Criação atômica de novo contato junto da negociação
       conversationId?: string; // Conversa de origem
       initialNote?: string | null;
       marketingOrigin?: boolean; // Imported RD conversions must not echo a new opportunity.
@@ -4316,20 +4405,165 @@ export class CrmService {
         }
       }
 
-      let linkedContactId = data.contactId || null;
+      const firstFromList = Array.isArray(data.contactIds)
+        ? data.contactIds.map((c) => String(c || "").trim()).find(Boolean) || null
+        : null;
+      let linkedContactId = (typeof data.contactId === "string" && data.contactId.trim()) || firstFromList || null;
 
       if (linkedContactId) await lockContactDeals(tx, tenantId, linkedContactId);
 
-      // 4. Validação de Contato no tenant (se fornecido)
-      if (data.contactId) {
+      // 4. Validação de Contato existente no tenant (se fornecido)
+      if (linkedContactId) {
         const [contact] = await tx
           .select({ id: contacts.id })
           .from(contacts)
-          .where(and(eq(contacts.id, data.contactId), eq(contacts.tenantId, tenantId)))
+          .where(and(eq(contacts.id, linkedContactId), eq(contacts.tenantId, tenantId)))
           .limit(1);
 
         if (!contact) {
-          throw new CrmCrossTenantError(`O contato informado (${data.contactId}) não pertence ao tenant ${tenantId}.`);
+          throw new CrmCrossTenantError(`O contato informado (${linkedContactId}) não pertence ao tenant ${tenantId}.`);
+        }
+      }
+
+      // 4b. Criação/resolução atômica de Contato inline na criação da negociação (se fornecido)
+      if (!linkedContactId && data.contact && typeof data.contact === "object") {
+        const contactName = typeof data.contact.name === "string" ? data.contact.name.trim() : "";
+        if (!contactName || contactName.length > 200) {
+          throw new CrmValidationError("Informe o nome do contato (até 200 caracteres).", "INVALID_CONTACT_NAME");
+        }
+
+        const candidateContactId = `cont-${crypto.randomUUID()}`;
+        const normalizedPhonesResult = normalizeContactPhonesInput(
+          data.contact.phones,
+          typeof data.contact.phone === "string" ? data.contact.phone : "",
+          candidateContactId,
+        );
+        if (normalizedPhonesResult.validationError) {
+          throw new CrmValidationError(normalizedPhonesResult.validationError, "PHONE_DDD_REQUIRED");
+        }
+
+        const primaryContactPhone = normalizedPhonesResult.primaryPhone || "";
+        const normalizedContactEmail =
+          typeof data.contact.email === "string" ? data.contact.email.trim().toLowerCase() : "";
+
+        if (
+          (primaryContactPhone.length > 0 && primaryContactPhone.length < 8) ||
+          primaryContactPhone.length > 40 ||
+          normalizedContactEmail.length > 254 ||
+          (normalizedContactEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedContactEmail))
+        ) {
+          throw new CrmValidationError("Telefone ou e-mail do contato inválido.", "INVALID_CONTACT_DATA");
+        }
+
+        for (const p of normalizedPhonesResult.phones) {
+          if (shouldIgnoreJid(p.phone)) {
+            throw new CrmValidationError(
+              "Telefone inválido: grupos, status e listas de transmissão não são aceitos como contato.",
+              "INVALID_CONTACT_PHONE",
+            );
+          }
+        }
+
+        if (primaryContactPhone || normalizedContactEmail) {
+          await tx.execute(
+            sql`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext(${primaryContactPhone || normalizedContactEmail}))`,
+          );
+        }
+
+        let reusedExistingContact: { id: string; accountId: string | null } | null = null;
+        for (const p of normalizedPhonesResult.phones) {
+          const found = await findContactByAnyPhone(tx, tenantId, p.phone);
+          if (found?.contact) {
+            reusedExistingContact = {
+              id: found.contact.id,
+              accountId: found.contact.accountId || null,
+            };
+            break;
+          }
+        }
+
+        if (!reusedExistingContact && !primaryContactPhone && normalizedContactEmail) {
+          const [existingByEmail] = await tx
+            .select({ id: contacts.id, accountId: contacts.accountId })
+            .from(contacts)
+            .where(and(eq(contacts.tenantId, tenantId), ilike(contacts.email, normalizedContactEmail)))
+            .limit(1);
+          if (existingByEmail) {
+            reusedExistingContact = {
+              id: existingByEmail.id,
+              accountId: existingByEmail.accountId || null,
+            };
+          }
+        }
+
+        if (reusedExistingContact) {
+          linkedContactId = reusedExistingContact.id;
+          await lockContactDeals(tx, tenantId, linkedContactId);
+          if (!reusedExistingContact.accountId && targetAccountId) {
+            await tx
+              .update(contacts)
+              .set({ accountId: targetAccountId })
+              .where(and(eq(contacts.tenantId, tenantId), eq(contacts.id, linkedContactId)));
+            await tx.insert(crmContactAccountHistory).values({
+              id: `cah-${crypto.randomUUID()}`,
+              tenantId,
+              contactId: linkedContactId,
+              accountId: targetAccountId,
+              reason: "Vínculo definido na criação de negociação",
+              changedByOperatorId: operatorId,
+              createdAt: now,
+            });
+          } else if (!targetAccountId && reusedExistingContact.accountId) {
+            targetAccountId = reusedExistingContact.accountId;
+          }
+        } else {
+          const contactCustomFields = validateFieldValues(
+            await listCustomFields(tenantId, "contact", tx),
+            data.contact.customFields,
+            { requireOnCreate: true },
+          );
+          const ownerForWallet =
+            data.operatorId !== undefined
+              ? data.operatorId
+              : data.ownerId !== undefined
+                ? data.ownerId
+                : operatorId;
+
+          await tx.insert(contacts).values({
+            id: candidateContactId,
+            tenantId,
+            name: contactName,
+            phone: primaryContactPhone || null,
+            email: normalizedContactEmail || null,
+            accountId: targetAccountId,
+            mainChannel: "whatsapp",
+            walletOperatorId: ownerForWallet || null,
+            customFields: contactCustomFields,
+            createdAt: now,
+          });
+
+          await syncContactPhones(
+            tx,
+            tenantId,
+            candidateContactId,
+            normalizedPhonesResult.phones,
+            primaryContactPhone || null,
+          );
+
+          if (targetAccountId) {
+            await tx.insert(crmContactAccountHistory).values({
+              id: `cah-${crypto.randomUUID()}`,
+              tenantId,
+              contactId: candidateContactId,
+              accountId: targetAccountId,
+              reason: "Vínculo definido na criação de negociação",
+              changedByOperatorId: operatorId,
+              createdAt: now,
+            });
+          }
+
+          linkedContactId = candidateContactId;
+          await lockContactDeals(tx, tenantId, linkedContactId);
         }
       }
 
@@ -4349,6 +4583,15 @@ export class CrmService {
         }
         linkedContactId = conv.contactId;
         await lockContactDeals(tx, tenantId, linkedContactId);
+      }
+
+      // 5b. Validação prévia rápida: exige ao menos uma fonte de contato para criar a negociação
+      if (
+        !linkedContactId &&
+        (!Array.isArray(data.contactIds) || data.contactIds.filter((c) => String(c || "").trim()).length === 0) &&
+        !targetAccountId
+      ) {
+        throw new CrmDealContactRequiredError(DEAL_CREATION_CONTACT_REQUIRED_MESSAGE);
       }
 
       // 6. Validação do Vendedor / Operador responsável no tenant (se fornecido)
@@ -4631,6 +4874,16 @@ export class CrmService {
 
       if (targetAccountId) await syncAccountDealContacts(tx, tenantId, dealId, targetAccountId, operatorId);
 
+      const [firstDealParticipant] = await tx
+        .select({ id: crmDealContacts.id })
+        .from(crmDealContacts)
+        .where(and(eq(crmDealContacts.tenantId, tenantId), eq(crmDealContacts.dealId, dealId)))
+        .limit(1);
+
+      if (!firstDealParticipant) {
+        throw new CrmDealContactRequiredError(DEAL_CREATION_CONTACT_REQUIRED_MESSAGE);
+      }
+
       if ((deal.status === "open" || deal.status === "paused") && linkedConversationIds.size > 0) {
         try {
           for (const convId of linkedConversationIds) {
@@ -4696,6 +4949,8 @@ export class CrmService {
       if (!current) {
         throw new CrmNotFoundError("Negociação não encontrada.");
       }
+
+      await assertDealHasLinkedContact(tx, tenantId, dealId);
 
       if (updates.expectedVersion !== undefined && current.version !== updates.expectedVersion) {
         throw new CrmConcurrencyError(
@@ -5692,6 +5947,9 @@ export class CrmService {
         };
       }
 
+      // Bloqueia qualquer alteração em massa em negociações legadas sem contato vinculado (exceto exclusão/lixeira)
+      await assertAllDealsHaveLinkedContact(tx, tenantId, foundDeals.map((d) => d.id));
+
       // Ação Especial 3: Criar Negociações para Empresas Vinculadas
       if (params.action === "create_deals_for_companies") {
         const createdIds: string[] = [];
@@ -5758,13 +6016,10 @@ export class CrmService {
             .where(and(eq(crmDealContacts.tenantId, tenantId), eq(crmDealContacts.dealId, deal.id)));
 
           for (const odc of originDealContacts) {
-            await linkContactToDeal(tx, tenantId, newDealId, odc.contactId, {
-              isPrimary: odc.isPrimary,
-              role: odc.role || "participant",
-              operatorId,
-            });
+            await linkContactToDeal(tx, tenantId, odc.contactId, newDealId, operatorId);
           }
 
+          await assertDealHasLinkedContact(tx, tenantId, newDealId);
           createdIds.push(newDealId);
         }
 
@@ -6285,11 +6540,12 @@ export class CrmService {
     operatorId: string | null
   ): Promise<boolean> {
     return await db.transaction(async (tx) => {
-      // Valida entidades no tenant
+      // Valida entidades no tenant e serializa remoção de participante
       const [deal] = await tx
         .select({ id: crmDeals.id })
         .from(crmDeals)
         .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)))
+        .for("update")
         .limit(1);
 
       if (!deal) throw new CrmCrossTenantError(`Negociação (${dealId}) não encontrada no tenant ${tenantId}.`);
@@ -6339,8 +6595,44 @@ export class CrmService {
           .innerJoin(conversations, and(eq(conversations.id, crmConversationDeals.conversationId), eq(conversations.tenantId, tenantId)))
           .where(and(eq(crmConversationDeals.tenantId, tenantId), eq(crmConversationDeals.dealId, dealId),
             eq(crmConversationDeals.isActive, true), eq(conversations.contactId, conv.contactId))).limit(1);
-        if (!remainingConversation) await tx.delete(crmDealContacts).where(and(
-          eq(crmDealContacts.tenantId, tenantId), eq(crmDealContacts.dealId, dealId), eq(crmDealContacts.contactId, conv.contactId)));
+        if (!remainingConversation) {
+          const [currentParticipant] = await tx
+            .select({ id: crmDealContacts.id })
+            .from(crmDealContacts)
+            .where(
+              and(
+                eq(crmDealContacts.tenantId, tenantId),
+                eq(crmDealContacts.dealId, dealId),
+                eq(crmDealContacts.contactId, conv.contactId),
+              ),
+            )
+            .limit(1);
+          if (currentParticipant) {
+            const [otherDealContact] = await tx
+              .select({ id: crmDealContacts.id })
+              .from(crmDealContacts)
+              .where(
+                and(
+                  eq(crmDealContacts.tenantId, tenantId),
+                  eq(crmDealContacts.dealId, dealId),
+                  ne(crmDealContacts.contactId, conv.contactId),
+                ),
+              )
+              .limit(1);
+            if (!otherDealContact) {
+              throw new CrmDealContactRequiredError(DEAL_LAST_CONTACT_REMOVAL_MESSAGE);
+            }
+            await tx
+              .delete(crmDealContacts)
+              .where(
+                and(
+                  eq(crmDealContacts.tenantId, tenantId),
+                  eq(crmDealContacts.dealId, dealId),
+                  eq(crmDealContacts.contactId, conv.contactId),
+                ),
+              );
+          }
+        }
         const [primary] = await tx.select({ id: crmDealContacts.id }).from(crmDealContacts)
           .where(and(eq(crmDealContacts.tenantId, tenantId), eq(crmDealContacts.dealId, dealId), eq(crmDealContacts.isPrimary, true))).limit(1);
         if (!primary) {
@@ -6557,6 +6849,8 @@ export class CrmService {
       if (!deal) {
         throw new CrmNotFoundError("Negociação não encontrada.");
       }
+
+      await assertDealHasLinkedContact(tx, tenantId, dealId);
 
       // 2. Busca a atividade no tenant e deal
       const [current] = await tx
@@ -6999,6 +7293,8 @@ export class CrmService {
         throw new CrmNotFoundError("Atividade não encontrada.");
       }
 
+      await assertDealHasLinkedContact(tx, tenantId, dealId);
+
       if (current.type === "note") {
         throw new CrmValidationError(
           "Notas comerciais são registros históricos permanentes e não podem ser excluídas.",
@@ -7074,6 +7370,8 @@ export class CrmService {
       if (!deal) {
         throw new CrmNotFoundError(`Negociação (${dealId}) não encontrada no tenant ${tenantId}.`);
       }
+
+      await assertDealHasLinkedContact(tx, tenantId, dealId);
 
       // 2. Se informada conversationId, valida no tenant
       if (data.conversationId) {
@@ -7222,6 +7520,8 @@ export class CrmService {
       throw new Error("Negociação não encontrada neste tenant.");
     }
 
+    await assertDealHasLinkedContact(db, tenantId, dealId);
+
     // 2. Valida existência da mensagem no tenant
     const [msg] = await db
       .select({ id: messages.id, content: messages.content })
@@ -7271,6 +7571,7 @@ export class CrmService {
     evidenceId: string,
     operatorId: string | null
   ): Promise<boolean> {
+    await assertDealHasLinkedContact(db, tenantId, dealId);
     const [deleted] = await db
       .delete(crmActivityMessages)
       .where(
@@ -7866,6 +8167,8 @@ export class CrmService {
         throw new Error(`Negociação ${dealId} não encontrada ou não pertence ao tenant ${tenantId}.`);
       }
 
+      await assertDealHasLinkedContact(tx, tenantId, dealId);
+
       // 2.2. Se productId informado, valida pertencimento ao tenant
       if (data.productId) {
         const [prod] = await tx
@@ -7974,6 +8277,8 @@ export class CrmService {
       if (!deal) {
         throw new CrmNotFoundError("Negociação não encontrada.");
       }
+
+      await assertDealHasLinkedContact(tx, tenantId, dealId);
 
       const [existing] = await tx
         .select()
@@ -8133,6 +8438,8 @@ export class CrmService {
         throw new CrmNotFoundError("Negociação não encontrada.");
       }
 
+      await assertDealHasLinkedContact(tx, tenantId, dealId);
+
       const items = await tx
         .select()
         .from(crmDealProducts)
@@ -8259,6 +8566,8 @@ export class CrmService {
         throw new Error(`Negociação ${dealId} não encontrada ou não pertence ao tenant ${tenantId}.`);
       }
 
+      await assertDealHasLinkedContact(tx, tenantId, dealId);
+
       // 2. Valida Item pertencente ao Deal e ao Tenant
       const [existing] = await tx
         .select()
@@ -8374,6 +8683,8 @@ export class CrmService {
       if (!deal) {
         throw new Error(`Negociação ${dealId} não encontrada ou não pertence ao tenant ${tenantId}.`);
       }
+
+      await assertDealHasLinkedContact(tx, tenantId, dealId);
 
       // 2. Lock transacional contra race conditions na numeração da proposta
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('crm_proposal_seq_' || ${tenantId}))`);
@@ -8519,6 +8830,8 @@ export class CrmService {
         throw new Error(`Proposta ${proposalId} não encontrada para o tenant ${tenantId}.`);
       }
 
+      await assertDealHasLinkedContact(tx, tenantId, existing.dealId);
+
       const updates: Partial<typeof crmProposals.$inferInsert> = {
         status,
         updatedAt: new Date(),
@@ -8593,6 +8906,8 @@ export class CrmService {
       if (!deal) {
         throw new Error(`Negociação ${dealId} não encontrada para o tenant ${tenantId}.`);
       }
+
+      await assertDealHasLinkedContact(tx, tenantId, dealId);
 
       // 2. Validação de tamanho (máximo 100MB = 104857600 bytes)
       const MAX_SIZE = 100 * 1024 * 1024;
@@ -8783,6 +9098,8 @@ export class CrmService {
         throw new Error(`Arquivo ${fileId} não encontrado para a negociação ${dealId}.`);
       }
 
+      await assertDealHasLinkedContact(tx, tenantId, dealId);
+
       await tx
         .delete(crmDealFiles)
         .where(and(eq(crmDealFiles.id, fileId), eq(crmDealFiles.tenantId, tenantId)));
@@ -8847,6 +9164,8 @@ export class CrmService {
       if (!deal) {
         throw new Error(`Negociação ${dealId} não encontrada para o tenant ${tenantId}.`);
       }
+
+      await assertDealHasLinkedContact(tx, tenantId, dealId);
 
       // 2. Se contactId informado, valida tenant
       if (data.contactId) {
@@ -8979,6 +9298,8 @@ export class CrmService {
         throw new Error(`Negociação ${dealId} não encontrada para o tenant ${tenantId}.`);
       }
 
+      await assertDealHasLinkedContact(tx, tenantId, dealId);
+
       if (!data.toAddress || !data.toAddress.includes("@")) {
         throw new Error("Endereço de e-mail do destinatário inválido.");
       }
@@ -9105,6 +9426,8 @@ export class CrmService {
     if (!deal) {
       throw new Error(`Negociação ${dealId} não encontrada para o tenant ${tenantId}.`);
     }
+
+    await assertDealHasLinkedContact(db, tenantId, dealId);
 
     const now = new Date();
     const dealValue = parseFloat(deal.value || "0");
