@@ -391,11 +391,26 @@ export const contacts = pgTable("contacts", {
   rdCrmDealLink: text("rd_crm_deal_link"),
   cnpjDetails: jsonb("cnpj_details").default({}).notNull(),
   customFields: jsonb("custom_fields").$type<Record<string, unknown>>().default({}).notNull(),
+  entryChannel: text("entry_channel"),
+  firstSource: text("first_source"),
+  firstCampaign: text("first_campaign"),
+  utmSource: text("utm_source"),
+  utmMedium: text("utm_medium"),
+  utmCampaign: text("utm_campaign"),
+  utmContent: text("utm_content"),
+  utmTerm: text("utm_term"),
+  clickId: text("click_id"),
+  landingPage: text("landing_page"),
+  sectorOrigin: text("sector_origin"),
+  isLegacy: boolean("is_legacy").default(false).notNull(),
+  isTest: boolean("is_test").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({
   tenantPhoneIdx: index("idx_contacts_tenant_phone").on(table.tenantId, table.phone),
   tenantWalletIdx: index("idx_contacts_tenant_wallet").on(table.tenantId, table.walletOperatorId),
   tenantAccountIdx: index("idx_contacts_tenant_account").on(table.tenantId, table.accountId),
+  marketingSyncIdx: index("idx_contacts_marketing_sync").on(table.tenantId, table.isTest, table.updatedAt, table.id),
 }));
 
 // Múltiplos números de telefone por contato (Comercial, Pessoal, Fixo, WhatsApp, Financeiro, Outro)
@@ -497,6 +512,7 @@ export const conversations = pgTable("conversations", {
   tenantContactUniqIdx: uniqueIndex("idx_conversations_tenant_contact_uniq").on(table.tenantId, table.contactId).where(sql`whatsapp_connection_id IS NULL`),
   tenantConnectionContactUniqIdx: uniqueIndex("idx_conversations_connection_contact_uniq").on(table.tenantId, table.whatsappConnectionId, table.contactId).where(sql`whatsapp_connection_id IS NOT NULL`),
   tenantOpQueueTimeIdx: index("idx_conversations_tenant_op_queue_msg_time").on(table.tenantId, table.operatorId, table.queueState, table.lastMessageTime),
+  tenantContactUpdatedIdx: index("idx_conversations_tenant_contact_updated").on(table.tenantId, table.contactId, table.updatedAt),
 }));
 
 // ─── 6. MENSAGENS (Histórico de Chat & Notas Internas) ───────────────────────
@@ -917,8 +933,19 @@ export const crmDeals = pgTable("crm_deals", {
   currency: text("currency").default("BRL").notNull(),
   expectedCloseDate: timestamp("expected_close_date"),
   operatorId: text("operator_id").references(() => operators.id, { onDelete: "set null" }), // Vendedor responsável
+  entryChannel: text("entry_channel"),
   source: text("source"),
   campaign: text("campaign"),
+  utmSource: text("utm_source"),
+  utmMedium: text("utm_medium"),
+  utmCampaign: text("utm_campaign"),
+  utmContent: text("utm_content"),
+  utmTerm: text("utm_term"),
+  clickId: text("click_id"),
+  landingPage: text("landing_page"),
+  originalPipelineId: text("original_pipeline_id"),
+  sectorOrigin: text("sector_origin"),
+  sectorCurrent: text("sector_current"),
   rating: integer("rating").default(0).notNull(), // 0 a 5 estrelas / qualificação
   lossReason: text("loss_reason"),
   pausedReason: text("paused_reason"),
@@ -931,7 +958,11 @@ export const crmDeals = pgTable("crm_deals", {
   aiPriorityReason: text("ai_priority_reason"),
   aiPriorityUpdatedAt: timestamp("ai_priority_updated_at"),
   lastActivityAt: timestamp("last_activity_at").defaultNow().notNull(),
+  wonAt: timestamp("won_at"),
+  lostAt: timestamp("lost_at"),
   closedAt: timestamp("closed_at"),
+  isLegacy: boolean("is_legacy").default(false).notNull(),
+  isTest: boolean("is_test").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({
@@ -945,6 +976,9 @@ export const crmDeals = pgTable("crm_deals", {
   tenantStatusClosedIdx: index("idx_crm_deals_tenant_status_closed").on(table.tenantId, table.status, table.closedAt),
   tenantPipeStageUpdatedIdx: index("idx_crm_deals_tenant_pipe_stage_updated").on(table.tenantId, table.pipelineId, table.stageId, table.updatedAt),
   tenantStatusUpdatedIdx: index("idx_crm_deals_tenant_status_updated").on(table.tenantId, table.status, table.updatedAt),
+  marketingSyncIdx: index("idx_crm_deals_marketing_sync").on(table.tenantId, table.isTest, table.updatedAt, table.id),
+  marketingCreatedIdx: index("idx_crm_deals_marketing_created").on(table.tenantId, table.isTest, table.createdAt, table.id),
+  marketingSectorsIdx: index("idx_crm_deals_marketing_sectors").on(table.tenantId, table.sectorOrigin, table.sectorCurrent),
 }));
 
 // ─── 14.6. PARTICIPANTES DA NEGOCIAÇÃO (Contatos N:N) ────────────────────────
@@ -958,6 +992,7 @@ export const crmDealContacts = pgTable("crm_deal_contacts", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({
   tenantDealContactIdx: uniqueIndex("idx_crm_deal_contacts_tenant_deal_contact_uniq").on(table.tenantId, table.dealId, table.contactId),
+  primaryLookupIdx: index("idx_crm_deal_contacts_primary_lookup").on(table.tenantId, table.dealId, table.isPrimary, table.createdAt),
 }));
 
 // ─── 14.7. VÍNCULO N:N CONVERSAS ↔ NEGOCIAÇÕES ─────────────────────────────
@@ -1023,6 +1058,8 @@ export const crmDealActivities = pgTable("crm_deal_activities", {
   tenantDealIdx: index("idx_crm_deal_activities_tenant_deal").on(table.tenantId, table.dealId),
   tenantStatusDueIdx: index("idx_crm_deal_activities_tenant_status_due").on(table.tenantId, table.status, table.dueDate),
   tenantAssigneeStatusDueIdx: index("idx_crm_activities_tenant_assignee_status_due").on(table.tenantId, table.assignedToOperatorId, table.status, table.dueDate),
+  activeTasksDueIdx: index("idx_crm_activities_active_tasks_due").on(table.tenantId, table.dueDate, table.createdAt).where(sql`status != 'cancelled' AND type NOT IN ('note', 'system_event')`),
+  pendingTasksDueIdx: index("idx_crm_activities_pending_tasks_due").on(table.tenantId, table.dueDate).where(sql`status = 'pending' AND type NOT IN ('note', 'system_event')`),
 }));
 
 // ─── 14.9. EVIDÊNCIAS DE MENSAGENS EM ATIVIDADES/DEALS ──────────────────────

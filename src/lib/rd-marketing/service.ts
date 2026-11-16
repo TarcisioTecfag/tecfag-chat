@@ -28,12 +28,16 @@ import { recordRdDiagnostic } from "./diagnostic-store";
 import { isRdActivityLead } from "./activity-events";
 import {
   availablePaths,
+  conversionForLead,
   deliveryIdentity,
   extractLeads,
   flowSettingsSchema,
   mapLead,
+  readPath,
   type FlowSettings,
 } from "./mapping";
+import { extractDetailedConversionUtm } from "./attribution";
+import { isTestEntityTitle, normalizeRdDealSource } from "../marketing/crm-attribution";
 
 export const hashToken = (value: string) => createHash("sha256").update(value).digest("hex");
 export const newWebhookToken = () => randomBytes(32).toString("hex");
@@ -180,6 +184,17 @@ export async function previewFlow(tenantId: string, input: unknown, payload: unk
 async function resolveContact(
   tenantId: string,
   mapped: Awaited<ReturnType<typeof prepareLead>>,
+  leadUtm: {
+    firstSource: string | null;
+    firstCampaign: string | null;
+    utmSource: string | null;
+    utmMedium: string | null;
+    utmCampaign: string | null;
+    utmContent: string | null;
+    utmTerm: string | null;
+    clickId: string | null;
+    landingPage: string | null;
+  },
   tx: Executor,
 ) {
   const phone = String(mapped.contact.phone || "");
@@ -257,6 +272,16 @@ async function resolveContact(
     const nextEmail = existing.email || (!emailOwnedByOther ? email : null) || null;
     const nextAccountId =
       existing.accountId || sortedMatches.find((m) => m.accountId)?.accountId || null;
+    const nextEntryChannel = existing.entryChannel || "rd_webhook";
+    const nextFirstSource = existing.firstSource || leadUtm.firstSource || null;
+    const nextFirstCampaign = existing.firstCampaign || leadUtm.firstCampaign || null;
+    const nextUtmSource = existing.utmSource || leadUtm.utmSource || null;
+    const nextUtmMedium = existing.utmMedium || leadUtm.utmMedium || null;
+    const nextUtmCampaign = existing.utmCampaign || leadUtm.utmCampaign || null;
+    const nextUtmContent = existing.utmContent || leadUtm.utmContent || null;
+    const nextUtmTerm = existing.utmTerm || leadUtm.utmTerm || null;
+    const nextClickId = existing.clickId || leadUtm.clickId || null;
+    const nextLandingPage = existing.landingPage || leadUtm.landingPage || null;
     await tx
       .update(contacts)
       .set({
@@ -264,6 +289,16 @@ async function resolveContact(
         email: nextEmail,
         accountId: nextAccountId,
         customFields,
+        entryChannel: nextEntryChannel,
+        firstSource: nextFirstSource,
+        firstCampaign: nextFirstCampaign,
+        utmSource: nextUtmSource,
+        utmMedium: nextUtmMedium,
+        utmCampaign: nextUtmCampaign,
+        utmContent: nextUtmContent,
+        utmTerm: nextUtmTerm,
+        clickId: nextClickId,
+        landingPage: nextLandingPage,
       })
       .where(and(eq(contacts.tenantId, tenantId), eq(contacts.id, existing.id)));
     return {
@@ -272,6 +307,16 @@ async function resolveContact(
       email: nextEmail,
       accountId: nextAccountId,
       customFields,
+      entryChannel: nextEntryChannel,
+      firstSource: nextFirstSource,
+      firstCampaign: nextFirstCampaign,
+      utmSource: nextUtmSource,
+      utmMedium: nextUtmMedium,
+      utmCampaign: nextUtmCampaign,
+      utmContent: nextUtmContent,
+      utmTerm: nextUtmTerm,
+      clickId: nextClickId,
+      landingPage: nextLandingPage,
     };
   }
   const [created] = await tx
@@ -283,6 +328,17 @@ async function resolveContact(
       phone: phone || null,
       email: email || null,
       mainChannel: "whatsapp",
+      entryChannel: "rd_webhook",
+      firstSource: leadUtm.firstSource || null,
+      firstCampaign: leadUtm.firstCampaign || null,
+      utmSource: leadUtm.utmSource || null,
+      utmMedium: leadUtm.utmMedium || null,
+      utmCampaign: leadUtm.utmCampaign || null,
+      utmContent: leadUtm.utmContent || null,
+      utmTerm: leadUtm.utmTerm || null,
+      clickId: leadUtm.clickId || null,
+      landingPage: leadUtm.landingPage || null,
+      isTest: isTestEntityTitle(String(mapped.contact.name)),
       customFields: mapped.contact.customFields as Record<string, unknown>,
     })
     .returning();
@@ -336,7 +392,40 @@ export async function receiveLeads(flow: Flow, payload: unknown) {
         continue;
       }
       const mapped = await prepareLead(tenantId, lead, settings, tx);
-      const contact = await resolveContact(tenantId, mapped, tx);
+      const selectedConvKey =
+        settings.attributionConversion === "last" ? "last_conversion" : "first_conversion";
+      const detailedUtm = extractDetailedConversionUtm(readPath(lead, selectedConvKey) || lead);
+      const convMeta = conversionForLead(lead);
+      const rawMappedSource = mapped.deal.source ? String(mapped.deal.source) : null;
+      const normalizedFirstSource = normalizeRdDealSource({
+        explicitSource: rawMappedSource,
+        utmSource: detailedUtm.utmSource,
+        utmMedium: detailedUtm.utmMedium,
+        utmCampaign: detailedUtm.utmCampaign,
+        clickId: detailedUtm.clickId,
+        entryChannel: "rd_webhook",
+      });
+      const conversionPointLabel =
+        detailedUtm.conversionIdentifier ||
+        convMeta.identifier ||
+        settings.name ||
+        (mapped.deal.campaign ? String(mapped.deal.campaign) : null);
+      const contact = await resolveContact(
+        tenantId,
+        mapped,
+        {
+          firstSource: normalizedFirstSource,
+          firstCampaign: conversionPointLabel,
+          utmSource: detailedUtm.utmSource,
+          utmMedium: detailedUtm.utmMedium,
+          utmCampaign: detailedUtm.utmCampaign,
+          utmContent: detailedUtm.utmContent,
+          utmTerm: detailedUtm.utmTerm,
+          clickId: detailedUtm.clickId,
+          landingPage: detailedUtm.landingPage,
+        },
+        tx,
+      );
       let accountId = contact.accountId;
       if (accountId) {
         const [account] = await tx
@@ -432,6 +521,14 @@ export async function receiveLeads(flow: Flow, payload: unknown) {
               : null,
           source: mapped.deal.source ? String(mapped.deal.source) : "Não informada",
           campaign: mapped.deal.campaign ? String(mapped.deal.campaign) : undefined,
+          entryChannel: "rd_webhook",
+          utmSource: detailedUtm.utmSource,
+          utmMedium: detailedUtm.utmMedium,
+          utmCampaign: detailedUtm.utmCampaign,
+          utmContent: detailedUtm.utmContent,
+          utmTerm: detailedUtm.utmTerm,
+          clickId: detailedUtm.clickId,
+          landingPage: detailedUtm.landingPage,
           value: mapped.deal.value ? String(mapped.deal.value) : null,
           initialNote: mapped.deal.initialNote ? String(mapped.deal.initialNote) : null,
           customFields: mapped.deal.customFields as CustomFieldValues,

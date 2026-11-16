@@ -18,6 +18,16 @@ import {
   readJournalSnapshot,
   type JournalFlow,
 } from "../triage/industrial-triage-journal";
+import {
+  formatMarketingSectorLabel,
+  isEffectiveCommercialWin,
+} from "../marketing/crm-attribution";
+import {
+  getMarketingAuditBatch,
+  listMarketingStageHistory,
+  parseFlexibleDateBound,
+  projectCanonicalDealSourceName,
+} from "../marketing/crm-reporting-service";
 
 // Tokens operacionais padrão (podem ser sobrescritos via variáveis de ambiente no Railway)
 export const DEFAULT_MCP_TECFAG_TOKEN = "mcp_tf_8f4e2a9c1d7b6e3f5a0c2d4e8b1f7a3c";
@@ -249,6 +259,7 @@ const TOOL_LABELS_PT: Record<string, string> = {
   mcp_sse_connect: "Conexão SSE Aberta (Link Único)",
   mcp_http_inspect: "Verificação / Acesso ao Link Único (GET)",
   mcp_auth_rejected: "Tentativa Bloqueada (Link Revogado / Inválido)",
+  get_marketing_audit_batch: "Auditoria de Marketing em Lote (15–50 Leads)",
   config_toggle_enabled: "Alteração de Status do Conector",
   config_rotate_primary_token: "Rotação do Link Único Principal",
   config_restore_default_token: "Restauração do Link Oficial Padrão",
@@ -1115,7 +1126,7 @@ export const MCP_TOOLS = [
   {
     name: "search_crm_deals",
     description:
-      "Busca e filtra negociações (cards) no CRM local (crm_deals). Permite filtrar por texto (título do card, empresa, CNPJ ou contato), funil (pipelineName), etapa (stageName), vendedor (operatorName), status ('open', 'won', 'lost', 'paused') ou apenas vendas fechadas/ganhas ('closed_won_effective').",
+      "Busca e filtra negociações (cards) no CRM local (crm_deals), excluindo automaticamente cards de teste (is_test=false por padrão). Permite filtrar por texto (título, empresa, CNPJ ou id_rd), funil (pipelineName), etapa (stageName), setor de origem/atual (sectorOrigin, sectorCurrent), origem de mídia (source / deal_source_name), ponto de conversão (campaign), campanha de mídia (utmCampaign), datas (createdFrom/To, wonFrom/To), vendedor (operatorName) e status ('open', 'won', 'lost', 'paused', 'closed_won_effective').",
     inputSchema: {
       type: "object",
       properties: {
@@ -1127,27 +1138,78 @@ export const MCP_TOOLS = [
         query: {
           type: "string",
           description:
-            "Busca textual por título da negociação, nome da empresa, CNPJ ou motivo de perda.",
+            "Busca textual por título da negociação, ID do RD (id_rd), nome da empresa, CNPJ ou motivo de perda.",
+        },
+        idRd: {
+          type: "string",
+          description: "Filtra pelo ID original do card no RD Station CRM (id_rd / rd_deal_id).",
         },
         pipelineName: {
           type: "string",
           description:
-            "Filtra pelo nome do funil (ex: 'FUNIL MÁQUINAS', 'FUNIL PERSONNALITÉ', 'FUNIL PEÇAS', 'SDR').",
+            "Filtra pelo nome do funil (ex: 'FUNIL MÁQUINAS', 'FUNIL PERSONNALITÉ', 'FUNIL PEÇAS', 'FUNIL CWR', 'SDR').",
         },
         stageName: {
           type: "string",
           description: "Filtra pelo nome da etapa (ex: 'FECHAMENTO', 'PROPOSTA', 'QUALIFICAÇÃO').",
         },
+        sectorOrigin: {
+          type: "string",
+          description:
+            "Filtra pelo setor imutável de origem ('semi_industrial', 'personnalite', 'projetos', 'pecas', 'pre_venda', 'suporte_tecnico', 'externo', 'financeiro').",
+        },
+        sectorCurrent: {
+          type: "string",
+          description: "Filtra pelo setor atual da negociação.",
+        },
+        source: {
+          type: "string",
+          description: "Filtra pela origem de mídia (ex: 'Busca Paga | Google', 'Busca Paga | Meta').",
+        },
+        campaign: {
+          type: "string",
+          description: "Filtra pelo ponto de conversão (campaign_name, ex: 'CRM | Form Meta - Envasadora').",
+        },
+        utmCampaign: {
+          type: "string",
+          description: "Filtra pela campanha da mídia (utm_campaign).",
+        },
         operatorName: {
           type: "string",
           description:
-            "Filtra pelo nome do vendedor/consultor responsável (ex: 'Jhordan', 'Melissa', 'Guilherme').",
+            "Filtra pelo nome do vendedor/consultor responsável (ex: 'Jhordan', 'Beatriz', 'Diana').",
         },
         status: {
           type: "string",
           enum: ["open", "won", "lost", "paused", "closed_won_effective"],
           description:
-            "Status do card ('open', 'won', 'lost', 'paused') ou 'closed_won_effective' para buscar vendas fechadas (status 'won' OU etapa 'FECHAMENTO').",
+            "Status do card ('open', 'won', 'lost', 'paused') ou 'closed_won_effective' para vendas fechadas (status 'won' OU etapas 'FECHAMENTO' / 'VENDA CONCLUÍDA').",
+        },
+        createdFrom: {
+          type: "string",
+          description: "Data inicial de criação (YYYY-MM-DD ou ISO).",
+        },
+        createdTo: {
+          type: "string",
+          description: "Data final de criação (YYYY-MM-DD ou ISO).",
+        },
+        wonFrom: {
+          type: "string",
+          description: "Data inicial de ganho/fechamento (YYYY-MM-DD ou ISO).",
+        },
+        wonTo: {
+          type: "string",
+          description: "Data final de ganho/fechamento (YYYY-MM-DD ou ISO).",
+        },
+        includeTests: {
+          type: "boolean",
+          default: false,
+          description: "Se true, inclui cards marcados como teste (is_test=true). Padrão: false.",
+        },
+        includeLegacy: {
+          type: "boolean",
+          default: true,
+          description: "Se false, oculta os cards históricos arquivados do RD (is_legacy=true). Padrão: true.",
         },
         limit: {
           type: "number",
@@ -1271,6 +1333,59 @@ export const MCP_TOOLS = [
           type: "string",
           enum: ["tecfag", "valem"],
           default: "tecfag",
+        },
+      },
+    },
+  },
+  {
+    name: "get_marketing_audit_batch",
+    description:
+      "Auditoria qualitativa de Marketing & Atendimento em lote (15 a 50 negociações/leads): retorna em uma única chamada o card completo (com chaves de cruzamento, id_rd, deal_source_name, campaign_name, UTMs e setores), histórico linear de etapas, atividades comerciais, triagem do bot SDR e transcrição cronológica das conversas vinculadas.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        tenantId: {
+          type: "string",
+          enum: ["tecfag", "valem"],
+          default: "tecfag",
+        },
+        dealIds: {
+          type: "array",
+          items: { type: "string" },
+          description: "Lista opcional de IDs específicos de negociações (máx 50).",
+        },
+        campaign: {
+          type: "string",
+          description: "Filtra pelo ponto de conversão (ex: 'CRM | Form Meta - Envasadora').",
+        },
+        utmCampaign: {
+          type: "string",
+          description: "Filtra pela campanha de mídia (utm_campaign).",
+        },
+        source: {
+          type: "string",
+          description: "Filtra pela origem de mídia (ex: 'Busca Paga | Meta', 'Busca Paga | Google').",
+        },
+        sectorOrigin: {
+          type: "string",
+          description: "Filtra pelo setor de origem.",
+        },
+        sectorCurrent: {
+          type: "string",
+          description: "Filtra pelo setor atual.",
+        },
+        createdFrom: {
+          type: "string",
+          description: "Data inicial de criação (YYYY-MM-DD).",
+        },
+        createdTo: {
+          type: "string",
+          description: "Data final de criação (YYYY-MM-DD).",
+        },
+        limit: {
+          type: "number",
+          default: 20,
+          description: "Tamanho do lote (padrão 20, máx 50).",
         },
       },
     },
@@ -1718,12 +1833,23 @@ export async function executeMcpTool(
     case "search_crm_deals": {
       const limit = clampLimit(args.limit, 25, 100);
       const query = String(args.query || "").trim();
+      const idRd = args.idRd ? String(args.idRd).trim() : null;
       const pipelineName = args.pipelineName ? String(args.pipelineName).trim() : null;
       const stageName = args.stageName ? String(args.stageName).trim() : null;
+      const sectorOrigin = args.sectorOrigin ? String(args.sectorOrigin).trim() : null;
+      const sectorCurrent = args.sectorCurrent ? String(args.sectorCurrent).trim() : null;
+      const source = args.source ? String(args.source).trim() : null;
+      const campaign = args.campaign ? String(args.campaign).trim() : null;
+      const utmCampaign = args.utmCampaign ? String(args.utmCampaign).trim() : null;
       const operatorName = args.operatorName ? String(args.operatorName).trim() : null;
       const status = args.status ? String(args.status).trim() : null;
+      const includeTests = args.includeTests === true;
+      const includeLegacy = args.includeLegacy !== false;
 
       const conditions = [sql`d.tenant_id = ${tenantId}`];
+      if (!includeTests) conditions.push(sql`d.is_test = false`);
+      if (!includeLegacy) conditions.push(sql`d.is_legacy = false`);
+      if (idRd) conditions.push(sql`d.rd_deal_id = ${idRd}`);
 
       if (pipelineName) {
         const pPattern = `%${pipelineName}%`;
@@ -1733,6 +1859,24 @@ export async function executeMcpTool(
         const sPattern = `%${stageName}%`;
         conditions.push(sql`st.name ILIKE ${sPattern}`);
       }
+      if (sectorOrigin) {
+        conditions.push(sql`d.sector_origin = ${sectorOrigin}`);
+      }
+      if (sectorCurrent) {
+        conditions.push(sql`d.sector_current = ${sectorCurrent}`);
+      }
+      if (source) {
+        const srcPat = `%${source}%`;
+        conditions.push(sql`(COALESCE(d.source, '') ILIKE ${srcPat} OR COALESCE(d.utm_source, '') ILIKE ${srcPat})`);
+      }
+      if (campaign) {
+        const cmpPat = `%${campaign}%`;
+        conditions.push(sql`COALESCE(d.campaign, '') ILIKE ${cmpPat}`);
+      }
+      if (utmCampaign) {
+        const ucmpPat = `%${utmCampaign}%`;
+        conditions.push(sql`COALESCE(d.utm_campaign, '') ILIKE ${ucmpPat}`);
+      }
       if (operatorName) {
         const opPattern = `%${operatorName}%`;
         conditions.push(sql`op.name ILIKE ${opPattern}`);
@@ -1740,15 +1884,29 @@ export async function executeMcpTool(
       if (status === "closed_won_effective") {
         conditions.push(sql`(
           d.status = 'won'
-          OR (d.status = 'open' AND (st.is_win_stage = true OR LOWER(st.name) LIKE 'fechamento%'))
+          OR (
+            d.status = 'open'
+            AND COALESCE(d.sector_current, '') NOT IN ('suporte_tecnico', 'financeiro')
+            AND (st.is_win_stage = true OR LOWER(st.name) ~ '^(fechamento|venda conclu[ií]da)')
+          )
         )`);
       } else if (status) {
         conditions.push(sql`d.status = ${status}`);
       }
+      const createdFrom = parseFlexibleDateBound(args.createdFrom ? String(args.createdFrom) : null, "start");
+      if (createdFrom) conditions.push(sql`d.created_at >= ${createdFrom}::timestamp`);
+      const createdTo = parseFlexibleDateBound(args.createdTo ? String(args.createdTo) : null, "end");
+      if (createdTo) conditions.push(sql`d.created_at <= ${createdTo}::timestamp`);
+      const wonFrom = parseFlexibleDateBound(args.wonFrom ? String(args.wonFrom) : null, "start");
+      if (wonFrom) conditions.push(sql`COALESCE(d.won_at, d.closed_at) >= ${wonFrom}::timestamp`);
+      const wonTo = parseFlexibleDateBound(args.wonTo ? String(args.wonTo) : null, "end");
+      if (wonTo) conditions.push(sql`COALESCE(d.won_at, d.closed_at) <= ${wonTo}::timestamp`);
+
       if (query) {
         const qPattern = `%${query}%`;
         conditions.push(sql`(
           d.title ILIKE ${qPattern}
+          OR COALESCE(d.rd_deal_id, '') ILIKE ${qPattern}
           OR COALESCE(acc.name, '') ILIKE ${qPattern}
           OR COALESCE(acc.trade_name, '') ILIKE ${qPattern}
           OR COALESCE(acc.document, '') ILIKE ${qPattern}
@@ -1763,19 +1921,35 @@ export async function executeMcpTool(
       const rows = await sql`
         SELECT
           d.id,
+          d.rd_deal_id,
+          d.rd_deal_url,
           d.title,
           d.value,
           d.currency,
           d.status,
           d.loss_reason,
           d.paused_reason,
+          d.entry_channel,
           d.source,
           d.campaign,
+          d.utm_source,
+          d.utm_medium,
+          d.utm_campaign,
+          d.utm_content,
+          d.utm_term,
+          d.click_id,
+          d.original_pipeline_id,
+          d.sector_origin,
+          d.sector_current,
           d.rating,
           d.ai_priority_score,
           d.ai_priority_level,
           d.expected_close_date,
+          d.won_at,
+          d.lost_at,
           d.closed_at,
+          d.is_legacy,
+          d.is_test,
           d.created_at,
           d.updated_at,
           p.id AS pipeline_id,
@@ -1796,7 +1970,7 @@ export async function executeMcpTool(
         LEFT JOIN operators op ON op.id = d.operator_id AND op.tenant_id = d.tenant_id
         LEFT JOIN crm_accounts acc ON acc.id = d.account_id AND acc.tenant_id = d.tenant_id
         WHERE ${whereClause}
-        ORDER BY COALESCE(d.closed_at, d.updated_at, d.created_at) DESC
+        ORDER BY COALESCE(d.won_at, d.closed_at, d.updated_at, d.created_at) DESC
         LIMIT ${limit}
       `;
 
@@ -1804,21 +1978,30 @@ export async function executeMcpTool(
         tenantId,
         returnedCount: rows.length,
         deals: rows.map((r: any) => {
-          const effectiveWon =
-            r.status === "won" ||
-            (r.status === "open" &&
-              isCommercialWinStage({
-                id: r.stage_id,
-                name: r.stage_name,
-                isWinStage: r.is_win_stage,
-              }));
+          const effectiveWon = isEffectiveCommercialWin({
+            status: r.status,
+            stageIsWin: r.is_win_stage,
+            stageName: r.stage_name,
+            sectorCurrent: r.sector_current,
+          });
+          const canonicalSource = projectCanonicalDealSourceName(r);
           return {
             id: r.id,
+            id_rd: r.rd_deal_id || null,
+            rd_deal_url: r.rd_deal_url || null,
             title: r.title,
             value: Number(r.value || 0),
             currency: r.currency,
             status: r.status,
+            win: effectiveWon,
             isEffectiveWon: effectiveWon,
+            winAt: effectiveWon ? r.won_at || r.closed_at || r.updated_at : null,
+            lostAt: r.status === "lost" ? r.lost_at || r.closed_at || r.updated_at : null,
+            sectorOrigin: r.sector_origin || null,
+            sectorOriginLabel: formatMarketingSectorLabel(r.sector_origin),
+            sectorCurrent: r.sector_current || null,
+            sectorCurrentLabel: formatMarketingSectorLabel(r.sector_current),
+            originalPipelineId: r.original_pipeline_id || r.pipeline_id,
             pipeline: { id: r.pipeline_id, name: r.pipeline_name },
             stage: {
               id: r.stage_id,
@@ -1837,12 +2020,20 @@ export async function executeMcpTool(
               : null,
             lossReason: r.loss_reason || null,
             pausedReason: r.paused_reason || null,
-            source: r.source || null,
+            entryChannel: r.entry_channel || null,
+            deal_source_name: canonicalSource,
+            source: canonicalSource,
+            campaign_name: r.campaign || null,
             campaign: r.campaign || null,
+            utmSource: r.utm_source || null,
+            utmMedium: r.utm_medium || null,
+            utmCampaign: r.utm_campaign || null,
             rating: r.rating,
             aiPriority: r.ai_priority_level
               ? { score: r.ai_priority_score, level: r.ai_priority_level }
               : null,
+            isLegacy: Boolean(r.is_legacy),
+            isTest: Boolean(r.is_test),
             closedAt: r.closed_at,
             createdAt: r.created_at,
             updatedAt: r.updated_at,
@@ -1859,6 +2050,7 @@ export async function executeMcpTool(
         SELECT
           d.*,
           p.name AS pipeline_name,
+          orig_p.name AS original_pipeline_name,
           st.name AS stage_name,
           st.is_win_stage,
           op.name AS operator_name,
@@ -1874,6 +2066,7 @@ export async function executeMcpTool(
           acc.address AS account_address
         FROM crm_deals d
         JOIN crm_pipelines p ON p.id = d.pipeline_id AND p.tenant_id = d.tenant_id
+        LEFT JOIN crm_pipelines orig_p ON orig_p.id = d.original_pipeline_id AND orig_p.tenant_id = d.tenant_id
         JOIN crm_stages st ON st.id = d.stage_id AND st.tenant_id = d.tenant_id
         LEFT JOIN operators op ON op.id = d.operator_id AND op.tenant_id = d.tenant_id
         LEFT JOIN crm_accounts acc ON acc.id = d.account_id AND acc.tenant_id = d.tenant_id
@@ -1892,10 +2085,11 @@ export async function executeMcpTool(
         activities,
         linkedConversations,
         recentEvents,
+        stageHistoryRes,
         fieldDefinitions,
       ] = await Promise.all([
         sql`
-          SELECT dc.role, dc.is_primary, c.id, c.name, c.phone, c.email, c.main_channel
+          SELECT dc.role, dc.is_primary, c.id, c.name, c.phone, c.email, c.cpf, c.cnpj, c.main_channel
           FROM crm_deal_contacts dc
           JOIN contacts c ON c.id = dc.contact_id AND c.tenant_id = dc.tenant_id
           WHERE dc.tenant_id = ${tenantId} AND dc.deal_id = ${dealId}
@@ -1914,7 +2108,7 @@ export async function executeMcpTool(
           ORDER BY created_at DESC
         `,
         sql`
-          SELECT id, type, title, description, status, due_date, completed_at, created_at
+          SELECT id, type, title, description, completion_note, status, due_date, completed_at, created_at
           FROM crm_deal_activities
           WHERE tenant_id = ${tenantId} AND deal_id = ${dealId}
           ORDER BY created_at DESC
@@ -1940,16 +2134,25 @@ export async function executeMcpTool(
           SELECT
             de.id,
             de.event_type,
+            de.from_stage_id,
+            de.to_stage_id,
             de.operator_id,
             op.name AS operator_name,
             de.metadata,
             de.created_at
           FROM crm_deal_events de
           LEFT JOIN operators op ON op.id = de.operator_id AND op.tenant_id = de.tenant_id
-          WHERE de.tenant_id = ${tenantId} AND de.deal_id = ${dealId}
+          WHERE de.tenant_id = ${tenantId}
+            AND de.deal_id = ${dealId}
+            AND de.event_type != 'conversation_action'
           ORDER BY de.created_at DESC
-          LIMIT 30
+          LIMIT 50
         `,
+        listMarketingStageHistory(
+          tenantId,
+          { dealId, includeTests: true, includeLegacy: true, limit: 1 },
+          sql,
+        ),
         sql`
           SELECT id, name, field_type
           FROM crm_custom_field_definitions
@@ -1968,31 +2171,58 @@ export async function executeMcpTool(
         labeledCustomFields[label] = v;
       }
 
+      const effectiveWon = isEffectiveCommercialWin({
+        status: deal.status,
+        stageIsWin: deal.is_win_stage,
+        stageName: deal.stage_name,
+        sectorCurrent: deal.sector_current,
+      });
+      const canonicalSource = projectCanonicalDealSourceName(deal);
+
       return {
         tenantId,
         deal: {
           id: deal.id,
+          id_rd: deal.rd_deal_id || null,
+          rd_deal_url: deal.rd_deal_url || null,
           title: deal.title,
           value: Number(deal.value || 0),
           currency: deal.currency,
           status: deal.status,
-          isEffectiveWon:
-            deal.status === "won" ||
-            (deal.status === "open" &&
-              isCommercialWinStage({
-                id: deal.stage_id,
-                name: deal.stage_name,
-                isWinStage: deal.is_win_stage,
-              })),
+          win: effectiveWon,
+          isEffectiveWon: effectiveWon,
+          winAt: effectiveWon ? deal.won_at || deal.closed_at || deal.updated_at : null,
+          lostAt: deal.status === "lost" ? deal.lost_at || deal.closed_at || deal.updated_at : null,
+          sectorOrigin: deal.sector_origin || null,
+          sectorOriginLabel: formatMarketingSectorLabel(deal.sector_origin),
+          sectorCurrent: deal.sector_current || null,
+          sectorCurrentLabel: formatMarketingSectorLabel(deal.sector_current),
+          originalPipeline: {
+            id: deal.original_pipeline_id || deal.pipeline_id,
+            name: deal.original_pipeline_name || deal.pipeline_name,
+          },
           pipeline: { id: deal.pipeline_id, name: deal.pipeline_name },
           stage: { id: deal.stage_id, name: deal.stage_name },
           operator: deal.operator_id
             ? { id: deal.operator_id, name: deal.operator_name, email: deal.operator_email }
             : null,
-          source: deal.source,
-          campaign: deal.campaign,
+          entryChannel: deal.entry_channel || null,
+          deal_source_name: canonicalSource,
+          source: canonicalSource,
+          sourceRaw: deal.source || null,
+          campaign_name: deal.campaign || null,
+          campaign: deal.campaign || null,
+          utmSource: deal.utm_source || null,
+          utmMedium: deal.utm_medium || null,
+          utmCampaign: deal.utm_campaign || null,
+          utmContent: deal.utm_content || null,
+          utmTerm: deal.utm_term || null,
+          clickId: deal.click_id || null,
+          landingPage: deal.landing_page || null,
           lossReason: deal.loss_reason,
           pausedReason: deal.paused_reason,
+          isLegacy: Boolean(deal.is_legacy),
+          isTest: Boolean(deal.is_test),
           expectedCloseDate: deal.expected_close_date,
           closedAt: deal.closed_at,
           createdAt: deal.created_at,
@@ -2021,6 +2251,7 @@ export async function executeMcpTool(
           total_price: Number(p.total_price || 0),
         })),
         proposals,
+        stageHistory: stageHistoryRes.items,
         recentActivities: activities,
         recentEvents,
         linkedConversations,
@@ -2290,6 +2521,7 @@ export async function executeMcpTool(
             closed_at
           FROM crm_deals
           WHERE tenant_id = ${tenantId}
+            AND is_test = false
             AND (
               status = 'open'
               OR COALESCE(closed_at, created_at) >= (${monthStart}::timestamp - INTERVAL '2 days')
@@ -2615,6 +2847,27 @@ export async function executeMcpTool(
           activeChatsNow: activeMap.get(op.id) || 0,
         })),
       };
+    }
+
+    case "get_marketing_audit_batch": {
+      const dealIds = Array.isArray(args.dealIds)
+        ? args.dealIds.map((id: unknown) => String(id || "").trim()).filter(Boolean)
+        : undefined;
+      return await getMarketingAuditBatch(
+        tenantId,
+        {
+          dealIds,
+          campaign: args.campaign ? String(args.campaign) : null,
+          utmCampaign: args.utmCampaign ? String(args.utmCampaign) : null,
+          source: args.source ? String(args.source) : null,
+          sectorOrigin: args.sectorOrigin ? String(args.sectorOrigin) : null,
+          sectorCurrent: args.sectorCurrent ? String(args.sectorCurrent) : null,
+          createdFrom: args.createdFrom ? String(args.createdFrom) : null,
+          createdTo: args.createdTo ? String(args.createdTo) : null,
+          limit: clampLimit(args.limit, 20, 50),
+        },
+        sql,
+      );
     }
 
     default:

@@ -28,6 +28,13 @@ import {
 import { eq, and, desc, asc, gte, inArray, or, sql } from "drizzle-orm";
 import { getAiPersona } from "../ai-persona";
 import { ensureCatalogOption } from "../crm/catalogs";
+import {
+  isEffectiveCommercialWin,
+  isTestEntityTitle,
+  loadDealSectorResolutionContext,
+  resolveDealCurrentSector,
+  resolveInheritedMarketingAttribution,
+} from "../marketing/crm-attribution";
 
 export const SDR_DEAL_REUSE_WINDOW_HOURS = 3;
 export const SDR_DEAL_REUSE_WINDOW_MS = SDR_DEAL_REUSE_WINDOW_HOURS * 60 * 60 * 1000;
@@ -875,8 +882,59 @@ export async function ensureLocalCrmDealBeforeTransfer(
         documento: validDoc || undefined,
       };
 
-      const sdrSourceLabel = `WhatsApp SDR (${persona.name})`;
-      await ensureCatalogOption(tenantId, "source", sdrSourceLabel, tx);
+      const inheritedAttr = await resolveInheritedMarketingAttribution(tx, tenantId, {
+        contactId,
+        conversationId,
+        explicitEntryChannel: "whatsapp_sdr",
+      });
+      const sectorCtx = await loadDealSectorResolutionContext(
+        tx,
+        tenantId,
+        pipelineId,
+        stageId,
+        targetOperatorId || null,
+      );
+      const isTestDeal =
+        isTestEntityTitle(dealTitle) ||
+        sectorCtx.pipelineName?.toLowerCase().includes("funil de teste");
+      const resolvedSector = resolveDealCurrentSector({
+        isTest: Boolean(isTestDeal),
+        pipelineId,
+        pipelineName: sectorCtx.pipelineName || pipelineName,
+        stageId,
+        stageName: sectorCtx.stageName || stageName,
+        operatorDivision: sectorCtx.operatorDivision,
+        operatorSectorNames: sectorCtx.operatorSectorNames,
+        customFields: dealCustomFields,
+      });
+
+      if (inheritedAttr.source) {
+        try {
+          await ensureCatalogOption(tenantId, "source", inheritedAttr.source, tx);
+        } catch {}
+      }
+      if (inheritedAttr.campaign) {
+        try {
+          await ensureCatalogOption(tenantId, "campaign", inheritedAttr.campaign, tx);
+        } catch {}
+      }
+
+      if (contactId) {
+        await tx
+          .update(contacts)
+          .set({
+            sectorOrigin: sql`COALESCE(${contacts.sectorOrigin}, ${resolvedSector})`,
+            entryChannel: sql`COALESCE(${contacts.entryChannel}, 'whatsapp')`,
+          })
+          .where(and(eq(contacts.tenantId, tenantId), eq(contacts.id, contactId)));
+      }
+
+      const initialWon = isEffectiveCommercialWin({
+        status: "open",
+        stageIsWin: sectorCtx.stageIsWin,
+        stageName: sectorCtx.stageName || stageName,
+        sectorCurrent: resolvedSector,
+      });
 
       // B4. Inserir o novo Deal em crm_deals (100% Local, sem enqueueRdCommercial)
       const [createdDeal] = await tx
@@ -893,8 +951,22 @@ export async function ensureLocalCrmDealBeforeTransfer(
           currency: "BRL",
           expectedCloseDate: null,
           operatorId: targetOperatorId || null,
-          source: sdrSourceLabel,
-          campaign: null,
+          entryChannel: inheritedAttr.entryChannel || "whatsapp_sdr",
+          source: inheritedAttr.source || null,
+          campaign: inheritedAttr.campaign || null,
+          utmSource: inheritedAttr.utmSource || null,
+          utmMedium: inheritedAttr.utmMedium || null,
+          utmCampaign: inheritedAttr.utmCampaign || null,
+          utmContent: inheritedAttr.utmContent || null,
+          utmTerm: inheritedAttr.utmTerm || null,
+          clickId: inheritedAttr.clickId || null,
+          landingPage: inheritedAttr.landingPage || null,
+          originalPipelineId: pipelineId,
+          sectorOrigin: resolvedSector,
+          sectorCurrent: resolvedSector,
+          wonAt: initialWon ? now : null,
+          isLegacy: false,
+          isTest: Boolean(isTestDeal),
           rating: 0,
           customFields: dealCustomFields,
           version: 1,
@@ -984,7 +1056,11 @@ export async function ensureLocalCrmDealBeforeTransfer(
             pipelineName,
             stageId,
             stageName,
-            source: sdrSourceLabel,
+            entryChannel: createdDeal.entryChannel,
+            source: createdDeal.source,
+            campaign: createdDeal.campaign,
+            sectorOrigin: createdDeal.sectorOrigin,
+            sectorCurrent: createdDeal.sectorCurrent,
             origin: "auto_sdr",
             actorName: persona.name,
             actorType: "ai_sdr",

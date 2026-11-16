@@ -16,6 +16,7 @@ import { SessionManager } from "../baileys/session-manager";
 import { SdrDebouncer } from "../valentina/sdr-debouncer";
 import { reopenIndustrialSiteConversation } from "./site-conversation-store";
 import { readSiteContext, type SiteContext } from "./site-context";
+import { extractSiteContextAttribution } from "../marketing/crm-attribution";
 import { setAttendanceActor } from "../attendance-events";
 import {
   SITE_CHANNEL,
@@ -194,6 +195,7 @@ export async function handleIndustrialSiteMessage(tenantId: string, visitor: LcV
 
   const now = new Date();
   const siteContext = readSiteContext(item.siteContext);
+  const siteAttribution = extractSiteContextAttribution(siteContext, "Chat Site");
   const [inserted] = await db
     .insert(messages)
     .values({
@@ -208,13 +210,48 @@ export async function handleIndustrialSiteMessage(tenantId: string, visitor: LcV
       provider: SITE_PROVIDER,
       externalId: item.siteMessageId,
       status: "delivered",
-      ...(siteContext ? { metaDetails: { siteContext } } : {}),
+      ...(siteContext
+        ? {
+            metaDetails: {
+              siteContext,
+              ...(siteAttribution ? { marketingAttribution: siteAttribution } : {}),
+            },
+          }
+        : {}),
       sentAt: now,
       updatedAt: now,
     })
     .onConflictDoNothing()
     .returning();
   if (!inserted) return { accepted: true as const, duplicate: true, conversationId: conv.id };
+
+  if (siteAttribution) {
+    try {
+      await db
+        .update(contacts)
+        .set({
+          firstSource: siteAttribution.source,
+          firstCampaign: siteAttribution.campaign,
+          utmSource: siteAttribution.utmSource,
+          utmMedium: siteAttribution.utmMedium,
+          utmCampaign: siteAttribution.utmCampaign,
+          utmContent: siteAttribution.utmContent,
+          utmTerm: siteAttribution.utmTerm,
+          clickId: siteAttribution.clickId,
+          landingPage: siteAttribution.landingPage,
+          sectorOrigin: sql`COALESCE(${contacts.sectorOrigin}, 'pre_venda')`,
+        })
+        .where(
+          and(
+            eq(contacts.tenantId, tenantId),
+            eq(contacts.id, conv.contactId),
+            sql`${contacts.firstSource} IS NULL`,
+          ),
+        );
+    } catch {
+      // Ignora em mocks parciais
+    }
+  }
 
   await db
     .update(conversations)

@@ -30,6 +30,7 @@ import { checkAndSendOperatorStatusAutoReply } from "./status-auto-reply";
 import { setAttendanceActor } from "../attendance-events";
 import { SlaEngine } from "../sla-engine";
 import { extractContinuityCode } from "../livechat/site-channel-policy";
+import { extractMetaReferralAttribution, isTestEntityTitle } from "../marketing/crm-attribution";
 import {
   deliverSdrDisabledRoutingEffects,
   isSdrEnabledForTenant,
@@ -607,6 +608,8 @@ export class InboundProcessor {
         throw new Error("Telefone já vinculado a outro BSUID; associação manual necessária");
       }
 
+      const metaReferralAttr = extractMetaReferralAttribution(rawPayload);
+
       if (!contact) {
         const contactId = `cont-${crypto.randomUUID()}`;
         const newContactName =
@@ -625,6 +628,17 @@ export class InboundProcessor {
             whatsappUserId: userId || null,
             whatsappUsername: whatsappUsername || null,
             mainChannel: "whatsapp",
+            entryChannel: "whatsapp",
+            firstSource: metaReferralAttr?.source || null,
+            firstCampaign: metaReferralAttr?.campaign || null,
+            utmSource: metaReferralAttr?.utmSource || null,
+            utmMedium: metaReferralAttr?.utmMedium || null,
+            utmCampaign: metaReferralAttr?.utmCampaign || null,
+            utmContent: metaReferralAttr?.utmContent || null,
+            utmTerm: metaReferralAttr?.utmTerm || null,
+            clickId: metaReferralAttr?.clickId || null,
+            landingPage: metaReferralAttr?.landingPage || null,
+            isTest: isTestEntityTitle(newContactName),
             responsibleName: "Na Fila",
             createdAt: timestamp,
           })
@@ -633,6 +647,38 @@ export class InboundProcessor {
         contact = createdContact;
       } else {
         const identityUpdates: Partial<typeof contacts.$inferInsert> = {};
+        if (!contact.entryChannel) {
+          identityUpdates.entryChannel = "whatsapp";
+        }
+        if (metaReferralAttr) {
+          if (!contact.firstSource && metaReferralAttr.source) {
+            identityUpdates.firstSource = metaReferralAttr.source;
+          }
+          if (!contact.firstCampaign && metaReferralAttr.campaign) {
+            identityUpdates.firstCampaign = metaReferralAttr.campaign;
+          }
+          if (!contact.utmSource && metaReferralAttr.utmSource) {
+            identityUpdates.utmSource = metaReferralAttr.utmSource;
+          }
+          if (!contact.utmMedium && metaReferralAttr.utmMedium) {
+            identityUpdates.utmMedium = metaReferralAttr.utmMedium;
+          }
+          if (!contact.utmCampaign && metaReferralAttr.utmCampaign) {
+            identityUpdates.utmCampaign = metaReferralAttr.utmCampaign;
+          }
+          if (!contact.utmContent && metaReferralAttr.utmContent) {
+            identityUpdates.utmContent = metaReferralAttr.utmContent;
+          }
+          if (!contact.utmTerm && metaReferralAttr.utmTerm) {
+            identityUpdates.utmTerm = metaReferralAttr.utmTerm;
+          }
+          if (!contact.clickId && metaReferralAttr.clickId) {
+            identityUpdates.clickId = metaReferralAttr.clickId;
+          }
+          if (!contact.landingPage && metaReferralAttr.landingPage) {
+            identityUpdates.landingPage = metaReferralAttr.landingPage;
+          }
+        }
         if (userId && !contact.whatsappUserId && !isSecondaryMatchedPhone) {
           identityUpdates.whatsappUserId = userId;
         }
@@ -1057,6 +1103,12 @@ export class InboundProcessor {
         provider,
         externalId: externalEventId || null,
         status: "accepted",
+        metaDetails: metaReferralAttr
+          ? {
+              marketingAttribution: metaReferralAttr,
+              metaReferral: rawPayload?.referral || null,
+            }
+          : {},
         sentAt: effectiveTimestamp,
         updatedAt: timestamp,
       });

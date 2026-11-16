@@ -272,9 +272,23 @@ const migrations = [
     ),
   },
   {
+    name: "0060_tasks_performance_optimization",
+    url: new URL(
+      "../src/db/migrations/0060_tasks_performance_optimization.sql",
+      import.meta.url,
+    ),
+  },
+  {
     name: "0061_paused_deal_conversation_context",
     url: new URL(
       "../src/db/migrations/0061_paused_deal_conversation_context.sql",
+      import.meta.url,
+    ),
+  },
+  {
+    name: "0062_marketing_crm_attribution_and_sectors",
+    url: new URL(
+      "../src/db/migrations/0062_marketing_crm_attribution_and_sectors.sql",
       import.meta.url,
     ),
   },
@@ -592,6 +606,10 @@ if (!databaseUrl) {
     `;
     if (!appliedAssistenciaChatVisibility) {
       await sql.begin(async (tx) => {
+        await tx`
+          ALTER TABLE access_groups
+          ADD COLUMN IF NOT EXISTS permissions jsonb DEFAULT '{}'::jsonb NOT NULL
+        `;
         const updatedGroups = await tx`
           UPDATE access_groups
           SET permissions = jsonb_set(permissions, '{chat,restrictToOwnChats}', 'false'::jsonb, true)
@@ -614,6 +632,35 @@ if (!databaseUrl) {
     } else {
       console.log(
         `[platform migration] ${fixAssistenciaChatVisibilityName} já aplicada anteriormente.`,
+      );
+    }
+
+    // 10c. Backfill único das dimensões de Marketing × CRM (Setor de origem/atual, arquivo histórico RD vs. funil de testes, entry_channel, won_at/lost_at — 16/11/2026)
+    const marketingCrmBackfillName =
+      "backfill_marketing_crm_dimensions_2026_11_16_v1";
+    const [appliedMarketingCrmBackfill] = await sql`
+      SELECT name FROM app_deploy_migrations WHERE name = ${marketingCrmBackfillName}
+    `;
+    if (!appliedMarketingCrmBackfill) {
+      console.log(
+        `[platform migration] Iniciando execução única de ${marketingCrmBackfillName}...`,
+      );
+      const { runMarketingCrmDimensionsBackfill } = await import(
+        "./backfill-marketing-crm-dimensions.mjs"
+      );
+      const summary = await runMarketingCrmDimensionsBackfill(sql);
+      await sql`
+        INSERT INTO app_deploy_migrations (name)
+        VALUES (${marketingCrmBackfillName})
+        ON CONFLICT (name) DO NOTHING
+      `;
+      console.log(
+        `[platform migration] ${marketingCrmBackfillName} concluída com sucesso:`,
+        summary,
+      );
+    } else {
+      console.log(
+        `[platform migration] ${marketingCrmBackfillName} já aplicada anteriormente.`,
       );
     }
 

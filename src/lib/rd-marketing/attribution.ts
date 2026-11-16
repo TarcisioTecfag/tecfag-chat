@@ -112,3 +112,130 @@ export function conversionAttribution(value: unknown) {
     ),
   };
 }
+
+export interface DetailedConversionUtm {
+  utmSource: string | null;
+  utmMedium: string | null;
+  utmCampaign: string | null;
+  utmContent: string | null;
+  utmTerm: string | null;
+  clickId: string | null;
+  landingPage: string | null;
+  conversionIdentifier: string | null;
+}
+
+export function extractDetailedConversionUtm(value: unknown): DetailedConversionUtm {
+  const conversion = record(value);
+  const payload = Object.hasOwn(conversion, "payload") ? record(conversion.payload) : conversion;
+  const content = record(payload.content);
+  const traffic = payload.traffic_source ?? content.traffic_source;
+  const structuredTraffic = record(traffic);
+
+  let sessionParams: URLSearchParams | null = null;
+  let sessionObj: Fields = record(null);
+  let sessionExtra: Fields = record(null);
+  if (typeof traffic === "string" && traffic.startsWith("encoded_") && traffic.length <= 16384) {
+    const base64 = traffic.slice(8);
+    if (base64 && /^[A-Za-z0-9+/_-]+={0,2}$/.test(base64) && base64.length % 4 !== 1) {
+      try {
+        const bytes = Uint8Array.from(
+          atob(base64.replace(/-/g, "+").replace(/_/g, "/")),
+          (ch) => ch.charCodeAt(0),
+        );
+        const tracking = record(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)));
+        sessionObj = record(tracking.current_session);
+        if (typeof sessionObj.value === "string" && sessionObj.value.length <= 8192) {
+          sessionParams = new URLSearchParams(sessionObj.value);
+        }
+        sessionExtra = record(sessionObj.extra_params);
+      } catch {
+        // ignore invalid encoded tracking
+      }
+    }
+  }
+
+  const query =
+    typeof traffic === "string" && /(?:^|[?&])utm_(?:source|campaign|medium|content|term)=/.test(traffic)
+      ? new URLSearchParams(traffic.startsWith("?") ? traffic.slice(1) : traffic)
+      : null;
+
+  return {
+    utmSource: text(
+      payload.cf_utm_source,
+      payload.utm_source,
+      content.cf_utm_source,
+      content.utm_source,
+      structuredTraffic.utm_source,
+      query?.get("utm_source"),
+      sessionParams?.get("utm_source"),
+      sessionObj.utm_source,
+      sessionExtra.utm_source,
+    ),
+    utmMedium: text(
+      payload.cf_utm_medium,
+      payload.utm_medium,
+      content.cf_utm_medium,
+      content.utm_medium,
+      structuredTraffic.utm_medium,
+      query?.get("utm_medium"),
+      sessionParams?.get("utm_medium"),
+      sessionObj.utm_medium,
+      sessionExtra.utm_medium,
+    ),
+    utmCampaign: text(
+      payload.cf_utm_campaign,
+      payload.utm_campaign,
+      content.cf_utm_campaign,
+      content.utm_campaign,
+      structuredTraffic.utm_campaign,
+      query?.get("utm_campaign"),
+      sessionParams?.get("utm_campaign"),
+      sessionObj.utm_campaign,
+      sessionExtra.utm_campaign,
+    ),
+    utmContent: text(
+      payload.cf_utm_content,
+      payload.utm_content,
+      content.cf_utm_content,
+      content.utm_content,
+      structuredTraffic.utm_content,
+      query?.get("utm_content"),
+      sessionParams?.get("utm_content"),
+      sessionObj.utm_content,
+      sessionExtra.utm_content,
+    ),
+    utmTerm: text(
+      payload.cf_utm_term,
+      payload.utm_term,
+      content.cf_utm_term,
+      content.utm_term,
+      structuredTraffic.utm_term,
+      query?.get("utm_term"),
+      sessionParams?.get("utm_term"),
+      sessionObj.utm_term,
+      sessionExtra.utm_term,
+    ),
+    clickId: text(
+      payload.gclid,
+      payload.fbclid,
+      content.gclid,
+      content.fbclid,
+      sessionParams?.get("gclid"),
+      sessionParams?.get("fbclid"),
+      sessionExtra.gclid,
+      sessionExtra.fbclid,
+    ),
+    landingPage: text(
+      content.conversion_url,
+      payload.conversion_url,
+      content.page_url,
+      payload.page_url,
+    ),
+    conversionIdentifier: text(
+      payload.event_identifier,
+      conversion.event_identifier,
+      content.identificador,
+      payload.identificador,
+    ),
+  };
+}

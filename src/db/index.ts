@@ -428,6 +428,49 @@ export async function verifyDatabaseCompatibility(): Promise<void> {
       );
       CREATE UNIQUE INDEX IF NOT EXISTS idx_crm_deal_file_chunks_file_idx ON crm_deal_file_chunks(file_id, chunk_index);
       CREATE INDEX IF NOT EXISTS idx_crm_deal_file_chunks_tenant_file ON crm_deal_file_chunks(tenant_id, file_id);
+      CREATE INDEX IF NOT EXISTS idx_crm_activities_active_tasks_due
+        ON crm_deal_activities (tenant_id, due_date ASC, created_at DESC)
+        WHERE status != 'cancelled' AND type NOT IN ('note', 'system_event');
+      CREATE INDEX IF NOT EXISTS idx_crm_activities_pending_tasks_due
+        ON crm_deal_activities (tenant_id, due_date ASC)
+        WHERE status = 'pending' AND type NOT IN ('note', 'system_event');
+      CREATE INDEX IF NOT EXISTS idx_crm_activities_assigned_ops_gin
+        ON crm_deal_activities USING gin (assigned_to_operator_ids);
+      CREATE INDEX IF NOT EXISTS idx_crm_deal_contacts_primary_lookup
+        ON crm_deal_contacts (tenant_id, deal_id, is_primary DESC, created_at ASC);
+      CREATE INDEX IF NOT EXISTS idx_conversations_tenant_contact_updated
+        ON conversations (tenant_id, contact_id, updated_at DESC);
+
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT NOW();
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS entry_channel TEXT;
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS first_source TEXT;
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS first_campaign TEXT;
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS utm_source TEXT;
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS utm_medium TEXT;
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS utm_campaign TEXT;
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS utm_content TEXT;
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS utm_term TEXT;
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS click_id TEXT;
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS landing_page TEXT;
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS sector_origin TEXT;
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS is_legacy BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS is_test BOOLEAN NOT NULL DEFAULT FALSE;
+
+      ALTER TABLE crm_deals ADD COLUMN IF NOT EXISTS entry_channel TEXT;
+      ALTER TABLE crm_deals ADD COLUMN IF NOT EXISTS utm_source TEXT;
+      ALTER TABLE crm_deals ADD COLUMN IF NOT EXISTS utm_medium TEXT;
+      ALTER TABLE crm_deals ADD COLUMN IF NOT EXISTS utm_campaign TEXT;
+      ALTER TABLE crm_deals ADD COLUMN IF NOT EXISTS utm_content TEXT;
+      ALTER TABLE crm_deals ADD COLUMN IF NOT EXISTS utm_term TEXT;
+      ALTER TABLE crm_deals ADD COLUMN IF NOT EXISTS click_id TEXT;
+      ALTER TABLE crm_deals ADD COLUMN IF NOT EXISTS landing_page TEXT;
+      ALTER TABLE crm_deals ADD COLUMN IF NOT EXISTS original_pipeline_id TEXT;
+      ALTER TABLE crm_deals ADD COLUMN IF NOT EXISTS sector_origin TEXT;
+      ALTER TABLE crm_deals ADD COLUMN IF NOT EXISTS sector_current TEXT;
+      ALTER TABLE crm_deals ADD COLUMN IF NOT EXISTS won_at TIMESTAMP;
+      ALTER TABLE crm_deals ADD COLUMN IF NOT EXISTS lost_at TIMESTAMP;
+      ALTER TABLE crm_deals ADD COLUMN IF NOT EXISTS is_legacy BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE crm_deals ADD COLUMN IF NOT EXISTS is_test BOOLEAN NOT NULL DEFAULT FALSE;
     `);
     console.log("[db] ✓ Compatibilidade do schema verificada com sucesso.");
   } catch (e: any) {
