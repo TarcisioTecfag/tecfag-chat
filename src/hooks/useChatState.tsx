@@ -5198,7 +5198,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               const initialsBg = "";
 
               const isCurrentOpen = isCurrentlyViewingConversation(message.conversationId);
-              const newUnread = isCurrentOpen ? 0 : 1;
+              const newUnread = isClientMsg && !isCurrentOpen ? 1 : 0;
 
               if (isCurrentOpen && isClientMsg) {
               fetch(`${BACKEND_URL}/api/chats`, {

@@ -1201,6 +1201,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     updateTemplate,
     deleteTemplate,
     currentOperatorId,
+    sessionRole,
     operatorProfile,
     currentGroup,
     setSelectedChatId,
@@ -3522,19 +3523,31 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
         <div className="flex items-center gap-1 md:gap-2 relative shrink-0">
           {activeChat.id !== "valentina" &&
             activeChat.channel === "whatsapp" &&
-            (connectionsState.canSwitchDuringAttendance ||
-              (activeChat.queue !== "meus" &&
-                (activeChat.queue === "finalizados" || !activeChat.operatorId))) &&
-            canCapture && (
+            connectionsState.enabled &&
+            (sessionRole === "admin" ||
+              connectionsState.canUseNumberPicker ||
+              connectionsState.connections.some(
+                (row) =>
+                  !row.corporate && row.enabled && row.canSend === true && row.status === "connected",
+              )) &&
+            (sessionRole === "admin" ||
+              isOwner ||
+              ((!activeChat.operatorId || activeChat.queue === "finalizados") && canCapture)) && (
               <WhatsappNumberPicker
                 key={activeChat.id}
                 conversationId={activeChat.id}
                 version={activeChat.version ?? 1}
                 connectionId={activeChat.whatsappConnectionId}
-                onPrepared={async (id, queueState) => {
+                onPrepared={async (id, queueState, preparedOperatorId) => {
                   await refreshConversations(id);
                   setActiveQueue(
-                    queueState === "meus" ? "todos" : queueState === "automacao" ? "automacao" : "fila",
+                    queueState === "meus"
+                      ? preparedOperatorId && preparedOperatorId !== currentOperatorId
+                        ? "todos"
+                        : "meus"
+                      : queueState === "automacao"
+                        ? "automacao"
+                        : "fila",
                   );
                   setSelectedChatId(id);
                 }}

@@ -10,7 +10,9 @@ export function personalAttendanceState(
   previous: { queueState: string; operatorId: string | null } | undefined,
   event: { historical: boolean; fromMe: boolean; ownerOperatorId?: string | null },
 ) {
-  const keepClosed = previous?.queueState === "finalizados" && (event.historical || event.fromMe);
+  const keepClosed =
+    previous?.queueState === "finalizados" &&
+    (event.historical || (event.fromMe && !event.ownerOperatorId));
   const keepCapture = previous?.queueState === "meus" && !!previous.operatorId;
   if (keepCapture) {
     return {

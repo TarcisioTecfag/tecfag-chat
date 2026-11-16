@@ -708,6 +708,30 @@ export async function ensureLinkedDeviceConversationDeal(
       }
 
       if (resolvedCurrentDealId) {
+        const cleanContactName = String(contactName || "").trim();
+        const isValidRealName =
+          cleanContactName.length > 0 &&
+          !/^(?:cliente|contato|lead|whatsapp)\s*\([^)]*\)$/i.test(cleanContactName) &&
+          !/^(?:contato|cliente|contato whatsapp|lead whatsapp|contato sem nome|sem nome)$/i.test(
+            cleanContactName,
+          ) &&
+          !/^\d{6,20}$/.test(cleanContactName.replace(/[\s()+.\-/]/g, ""));
+        if (isValidRealName) {
+          const matchedDeal = existingDeals.find((d) => d.id === resolvedCurrentDealId);
+          const currentTitle = String(matchedDeal?.title || "").trim();
+          const isPlaceholderTitle =
+            !currentTitle ||
+            /^(?:cliente|contato|lead|whatsapp)\s*\([^)]*\)$/i.test(currentTitle) ||
+            /^(?:contato|cliente|contato whatsapp|lead whatsapp)$/i.test(currentTitle) ||
+            /^\d{6,20}$/.test(currentTitle.replace(/[\s()+.\-/]/g, ""));
+          if (matchedDeal && isPlaceholderTitle && currentTitle !== cleanContactName) {
+            await tx
+              .update(crmDeals)
+              .set({ title: cleanContactName, updatedAt: now })
+              .where(and(eq(crmDeals.tenantId, tenantId), eq(crmDeals.id, resolvedCurrentDealId)));
+          }
+        }
+
         const [existingParticipant] = await tx
           .select({ id: crmDealContacts.id })
           .from(crmDealContacts)

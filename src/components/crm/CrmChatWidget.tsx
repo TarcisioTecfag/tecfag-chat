@@ -90,6 +90,7 @@ import { stripNotificationEmojis } from "@/lib/format-notification-text";
 import { shouldShowMiniChatWidget } from "@/lib/widget-visibility";
 import { isAppShellPath } from "@/lib/app-routes";
 import { QuotedMessagePreview } from "@/components/chat/ChatPanel";
+import { WhatsappNumberPicker } from "@/components/chat/WhatsappNumberPicker";
 import {
   enqueueInlineNoteFiles,
   hasDraggedFiles,
@@ -1280,6 +1281,7 @@ export function CrmChatWidget() {
     captureChat,
     conversations,
     currentOperatorId,
+    sessionRole,
     isAuthenticated,
     logSystemEvent,
     markAsRead,
@@ -2920,31 +2922,54 @@ export function CrmChatWidget() {
                             </button>
                           </SystemTooltip>
                         ) : (
-                          <SystemTooltip
-                            content={
-                              showSystemInfo
-                                ? "Ocultar informações do sistema"
-                                : "Mostrar informações do sistema"
-                            }
-                          >
-                            <button
-                              type="button"
-                              onClick={() => setShowSystemInfo((v) => !v)}
-                              aria-pressed={showSystemInfo}
-                              aria-label={
+                          <>
+                            {selected.id !== "__resolving__" &&
+                              selected.channel === "whatsapp" &&
+                              (sessionRole === "admin" ||
+                                selected.operatorId === currentOperatorId ||
+                                !selected.operatorId ||
+                                selected.queue === "finalizados") && (
+                                <WhatsappNumberPicker
+                                  key={selected.id}
+                                  compact
+                                  conversationId={selected.id}
+                                  version={selected.version ?? 1}
+                                  connectionId={selected.whatsappConnectionId}
+                                  onPrepared={async (id) => {
+                                    await refreshConversations(id);
+                                    setOpenedChatIds((prev) =>
+                                      prev.includes(id) ? prev : [...prev, id],
+                                    );
+                                    setSelectedChatId(id);
+                                  }}
+                                />
+                              )}
+                            <SystemTooltip
+                              content={
                                 showSystemInfo
                                   ? "Ocultar informações do sistema"
                                   : "Mostrar informações do sistema"
                               }
-                              className={`rounded-lg p-1.5 transition-colors cursor-pointer ${
-                                showSystemInfo
-                                  ? "bg-primary/15 text-primary"
-                                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                              }`}
                             >
-                              <CircleHelp className="h-4 w-4" />
-                            </button>
-                          </SystemTooltip>
+                              <button
+                                type="button"
+                                onClick={() => setShowSystemInfo((v) => !v)}
+                                aria-pressed={showSystemInfo}
+                                aria-label={
+                                  showSystemInfo
+                                    ? "Ocultar informações do sistema"
+                                    : "Mostrar informações do sistema"
+                                }
+                                className={`rounded-lg p-1.5 transition-colors cursor-pointer ${
+                                  showSystemInfo
+                                    ? "bg-primary/15 text-primary"
+                                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                                }`}
+                              >
+                                <CircleHelp className="h-4 w-4" />
+                              </button>
+                            </SystemTooltip>
+                          </>
                         )}
                         <SystemTooltip content="Abrir no Chat completo">
                           <button

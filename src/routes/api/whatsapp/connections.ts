@@ -7,6 +7,14 @@ import {
   operators,
   whatsappConnections,
   whatsappConnectionGroupAccess,
+  whatsappConnectionContacts,
+  contactChannelIdentities,
+  conversations,
+  messages,
+  mediaFiles,
+  pendingInbounds,
+  agentFlowStates,
+  crmActionHistory,
   accessGroups,
 } from "../../../db/schema";
 import { requireSession } from "../../../lib/auth-session";
@@ -118,10 +126,21 @@ export const Route = createFileRoute("/api/whatsapp/connections")({
           })
           .from(channelConfigs)
           .where(eq(channelConfigs.tenantId, session.tenantId));
+        const isAdmin = session.operator.role === "admin";
+        const hasConnectedPersonalBaileys = rows.some(
+          (row) =>
+            row.enabled &&
+            row.provider === "baileys" &&
+            row.ownerOperatorId === session.operator.id &&
+            row.baileysSessionStatus === "connected" &&
+            Boolean(row.leaseUntil && row.leaseUntil.getTime() > Date.now()),
+        );
+        const canUseNumberPicker = isAdmin || hasConnectedPersonalBaileys;
         return Response.json(
           {
             enabled: true,
-            canSwitchDuringAttendance: session.operator.role === "admin",
+            canUseNumberPicker,
+            canSwitchDuringAttendance: canUseNumberPicker,
             canManage,
             accessGroups: groups,
             encryptionReady: connectionEncryptionReady(),
@@ -285,6 +304,189 @@ export const Route = createFileRoute("/api/whatsapp/connections")({
             { error: "Gerencie a conexão principal nas configurações existentes." },
             { status: 400 },
           );
+        if (body.action === "delete") {
+          if (session.operator.role !== "admin" || !canManageWhatsappConnection(session))
+            return Response.json({ error: "Permissão insuficiente." }, { status: 403 });
+          try {
+            if (typeof SessionManager.disposeConnection === "function") {
+              await SessionManager.disposeConnection(tenantId, id);
+            } else {
+              await SessionManager.forConnection(tenantId, id)
+                .disconnectSession(tenantId)
+                .catch(() => {});
+            }
+          } catch {
+            // Prossegue com a remoção segura no banco mesmo que o socket já estivesse encerrado
+          }
+          try {
+            const deletion = await db.transaction(async (tx) => {
+              const [targetConn] = await tx
+                .select()
+                .from(whatsappConnections)
+                .where(
+                  and(eq(whatsappConnections.tenantId, tenantId), eq(whatsappConnections.id, id)),
+                )
+                .for("update");
+              if (!targetConn) return null;
+
+              const affectedGrants = await tx
+                .select({ groupId: whatsappConnectionGroupAccess.groupId })
+                .from(whatsappConnectionGroupAccess)
+                .where(
+                  and(
+                    eq(whatsappConnectionGroupAccess.tenantId, tenantId),
+                    eq(whatsappConnectionGroupAccess.connectionId, id),
+                  ),
+                );
+
+              const linkedConvs = await tx
+                .select({ id: conversations.id })
+                .from(conversations)
+                .where(
+                  and(
+                    eq(conversations.tenantId, tenantId),
+                    eq(conversations.whatsappConnectionId, id),
+                  ),
+                );
+              const convIds = linkedConvs.map((c) => c.id);
+
+              if (convIds.length > 0) {
+                const flowRes: any = await tx.execute(
+                  sql`SELECT to_regclass('public.agent_flow_states') AS reg`,
+                );
+                const hasFlowTable = Boolean(
+                  Array.isArray(flowRes) ? flowRes[0]?.reg : flowRes?.rows?.[0]?.reg,
+                );
+                if (hasFlowTable && agentFlowStates) {
+                  await tx
+                    .delete(agentFlowStates)
+                    .where(
+                      and(
+                        eq(agentFlowStates.tenantId, tenantId),
+                        inArray(agentFlowStates.conversationId, convIds),
+                      ),
+                    );
+                }
+                await tx
+                  .delete(mediaFiles)
+                  .where(
+                    and(
+                      eq(mediaFiles.tenantId, tenantId),
+                      inArray(mediaFiles.conversationId, convIds),
+                    ),
+                  );
+                await tx
+                  .delete(messages)
+                  .where(
+                    and(
+                      eq(messages.tenantId, tenantId),
+                      or(
+                        inArray(messages.conversationId, convIds),
+                        eq(messages.whatsappConnectionId, id),
+                      ),
+                    ),
+                  );
+                await tx
+                  .delete(conversations)
+                  .where(
+                    and(
+                      eq(conversations.tenantId, tenantId),
+                      inArray(conversations.id, convIds),
+                    ),
+                  );
+              } else {
+                await tx
+                  .delete(messages)
+                  .where(
+                    and(
+                      eq(messages.tenantId, tenantId),
+                      eq(messages.whatsappConnectionId, id),
+                    ),
+                  );
+              }
+
+              await tx
+                .delete(pendingInbounds)
+                .where(
+                  and(
+                    eq(pendingInbounds.tenantId, tenantId),
+                    eq(pendingInbounds.whatsappConnectionId, id),
+                  ),
+                );
+              await tx
+                .delete(whatsappConnectionContacts)
+                .where(
+                  and(
+                    eq(whatsappConnectionContacts.tenantId, tenantId),
+                    eq(whatsappConnectionContacts.connectionId, id),
+                  ),
+                );
+              await tx
+                .delete(contactChannelIdentities)
+                .where(
+                  and(
+                    eq(contactChannelIdentities.tenantId, tenantId),
+                    eq(contactChannelIdentities.connectionId, id),
+                  ),
+                );
+              await tx
+                .delete(whatsappConnectionGroupAccess)
+                .where(
+                  and(
+                    eq(whatsappConnectionGroupAccess.tenantId, tenantId),
+                    eq(whatsappConnectionGroupAccess.connectionId, id),
+                  ),
+                );
+              await tx
+                .delete(whatsappConnections)
+                .where(
+                  and(eq(whatsappConnections.tenantId, tenantId), eq(whatsappConnections.id, id)),
+                );
+
+              await tx.insert(crmActionHistory).values({
+                id: randomUUID(),
+                tenantId,
+                operatorId: session.operator.id,
+                operatorName: session.operator.name,
+                action: "delete_whatsapp_connection",
+                entityType: "whatsapp_connection",
+                itemCount: 1,
+                details: {
+                  connectionId: id,
+                  name: targetConn.name,
+                  pairedPhone: targetConn.baileysPairedPhone,
+                  ownerOperatorId: targetConn.ownerOperatorId,
+                  deletedConversations: convIds.length,
+                },
+              });
+
+              return {
+                groupIds: [...new Set(affectedGrants.map((g) => g.groupId))],
+              };
+            });
+
+            if (!deletion) {
+              return Response.json({ error: "Conexão não encontrada." }, { status: 404 });
+            }
+
+            for (const groupId of deletion.groupIds) {
+              try {
+                SessionManager.getInstance().notifyPublic(tenantId, {
+                  type: "connection_access_changed",
+                  groupId,
+                });
+              } catch {}
+            }
+
+            return Response.json({ deleted: true, id }, { headers });
+          } catch (err) {
+            console.error("[WhatsApp] Erro ao excluir conexão Baileys:", err);
+            return Response.json(
+              { error: "Não foi possível excluir a conexão Baileys." },
+              { status: 500 },
+            );
+          }
+        }
         if (!ownsConnection(session, connection))
           return Response.json(
             { error: "Somente o titular ou administrador autorizado pode gerenciar o pareamento." },
@@ -327,16 +529,7 @@ export const Route = createFileRoute("/api/whatsapp/connections")({
           return Response.json({ status: "connecting" }, { status: 202 });
         }
         if (body.action === "disconnect") {
-          if (
-            connection.leaseUntil &&
-            connection.leaseUntil.getTime() > Date.now() &&
-            !manager.getSession(tenantId)
-          )
-            return Response.json(
-              { error: "Sessão ativa em outra instância. Desconecte pelo servidor responsável." },
-              { status: 409 },
-            );
-          await manager.disconnectSession(tenantId);
+          await manager.disconnectSession(tenantId).catch(() => {});
           const [revoked] = await db
             .update(whatsappConnections)
             .set({
@@ -352,17 +545,13 @@ export const Route = createFileRoute("/api/whatsapp/connections")({
               and(
                 eq(whatsappConnections.tenantId, tenantId),
                 eq(whatsappConnections.id, id),
-                or(
-                  isNull(whatsappConnections.leaseUntil),
-                  sql`${whatsappConnections.leaseUntil} < now()`,
-                ),
               ),
             )
             .returning({ id: whatsappConnections.id });
           if (!revoked)
             return Response.json(
-              { error: "A conexão foi assumida por outra instância. Atualize o status." },
-              { status: 409 },
+              { error: "Conexão não encontrada." },
+              { status: 404 },
             );
           return Response.json({ status: "disconnected" });
         }

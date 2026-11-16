@@ -707,13 +707,22 @@ export class InboundProcessor {
         ) {
           identityUpdates.whatsappUsername = whatsappUsername;
         }
-        if (
-          senderName &&
-          (contact.name === contact.phone ||
-            contact.name === "Contato WhatsApp" ||
-            (contact.phone && contact.name === `+${contact.phone}`))
-        ) {
-          identityUpdates.name = senderName.trim();
+        const cleanInboundSenderName = senderName?.trim() || "";
+        const isSenderNameReal =
+          cleanInboundSenderName.length > 0 &&
+          !/^(?:cliente|contato|lead|whatsapp)\s*\([^)]*\)$/i.test(cleanInboundSenderName) &&
+          !/^\d{6,20}$/.test(cleanInboundSenderName.replace(/[\s()+.\-/]/g, ""));
+        const isExistingNamePlaceholderOrPhone =
+          !contact.name ||
+          contact.name === contact.phone ||
+          contact.name === "Contato WhatsApp" ||
+          contact.name === "Contato" ||
+          contact.name === "Cliente" ||
+          (contact.phone && contact.name === `+${contact.phone}`) ||
+          /^(?:cliente|contato|lead|whatsapp)\s*\([^)]*\)$/i.test(contact.name) ||
+          /^\d{6,20}$/.test(contact.name.replace(/[\s()+.\-/]/g, ""));
+        if (isSenderNameReal && isExistingNamePlaceholderOrPhone) {
+          identityUpdates.name = cleanInboundSenderName;
         } else if (
           whatsappUsername !== undefined &&
           contact.whatsappUsername &&

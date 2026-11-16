@@ -29,11 +29,20 @@ import path from "path";
 import { useDrizzleAuthState } from "./drizzle-auth";
 import { multiConnectionEnabled, connectionScope, baileysEventId, personalAttendanceState } from "../whatsapp/connection-policy";
 import { readBaileysConfig, updateBaileysConfig, acquireConnectionLease, renewConnectionLease, releaseConnectionLease, conversationConnectionCondition, storeConnectionQr } from "../whatsapp/connections";
-import { captureConnectionPeer, findConnectionContact, bindConnectionIdentity, syncConnectionContact } from "../whatsapp/connection-contacts";
+import {
+  captureConnectionPeer,
+  findConnectionContact,
+  bindConnectionIdentity,
+  syncConnectionContact,
+  resolveConnectionIdentityAlias,
+  isPlaceholderOrPhoneContactName,
+  pickWhatsappContactDisplayName,
+} from "../whatsapp/connection-contacts";
 import { db } from "../../db";
 import {
   channelConfigs,
   whatsappConnections,
+  whatsappConnectionContacts,
   operators,
   contacts,
   conversations,
@@ -177,19 +186,77 @@ export function extractWhatsappCallDetails(
   return { text, isVideo, outcome, durationSecs };
 }
 
+const NON_CHAT_ONLY_MESSAGE_KEYS = new Set([
+  "protocolMessage",
+  "senderKeyDistributionMessage",
+  "reactionMessage",
+  "pollUpdateMessage",
+  "keepInChatMessage",
+  "pinInChatMessage",
+  "messageContextInfo",
+]);
+
+export function unwrapBaileysMessageContent(rawContent: any): any | null {
+  if (!rawContent || typeof rawContent !== "object") return null;
+  let current = rawContent;
+  for (let depth = 0; depth < 6; depth++) {
+    if (current?.deviceSentMessage?.message) {
+      current = current.deviceSentMessage.message;
+      continue;
+    }
+    if (current?.ephemeralMessage?.message) {
+      current = current.ephemeralMessage.message;
+      continue;
+    }
+    if (current?.documentWithCaptionMessage?.message) {
+      current = current.documentWithCaptionMessage.message;
+      continue;
+    }
+    if (current?.editedMessage?.message?.protocolMessage?.editedMessage) {
+      current = current.editedMessage.message.protocolMessage.editedMessage;
+      continue;
+    }
+    if (current?.editedMessage?.message) {
+      current = current.editedMessage.message;
+      continue;
+    }
+    if (current?.associatedChildMessage?.message) {
+      current = current.associatedChildMessage.message;
+      continue;
+    }
+    break;
+  }
+  return current && typeof current === "object" ? current : null;
+}
+
 export function normalizeInboundCallMessage(msg: any): any | null {
   if (!msg?.key?.id || !msg?.key?.remoteJid) return null;
-  const hasCallLog = Boolean(msg.message?.callLogMesssage || msg.message?.callLogMessage);
+  const unwrapped = unwrapBaileysMessageContent(msg.message);
+  const hasCallLog = Boolean(
+    msg.message?.callLogMesssage ||
+      msg.message?.callLogMessage ||
+      unwrapped?.callLogMesssage ||
+      unwrapped?.callLogMessage,
+  );
   const isStubCall = CALL_MISSED_STUB_TYPES.has(msg.messageStubType);
   if (!hasCallLog && !isStubCall) {
-    return msg.message ? msg : null;
+    if (!unwrapped) return null;
+    const meaningfulKeys = Object.keys(unwrapped).filter(
+      (k) => unwrapped[k] != null && !NON_CHAT_ONLY_MESSAGE_KEYS.has(k),
+    );
+    if (meaningfulKeys.length === 0) return null;
+    return unwrapped === msg.message ? msg : { ...msg, message: unwrapped };
   }
   const normalizedId = String(msg.key.id).startsWith("call-")
     ? String(msg.key.id)
     : `call-${msg.key.id}`;
+  const callPayload =
+    msg.message?.callLogMesssage ||
+    msg.message?.callLogMessage ||
+    unwrapped?.callLogMesssage ||
+    unwrapped?.callLogMessage;
   const isVideo = Boolean(
-    msg.message?.callLogMesssage?.isVideo ||
-      msg.message?.callLogMessage?.isVideo ||
+    callPayload?.isVideo ||
       msg.messageStubType === 41 ||
       msg.messageStubType === 46 ||
       msg.messageStubType === "CALL_MISSED_VIDEO" ||
@@ -201,16 +268,15 @@ export function normalizeInboundCallMessage(msg: any): any | null {
       ...msg.key,
       id: normalizedId,
     },
-    message:
-      msg.message?.callLogMesssage || msg.message?.callLogMessage
-        ? msg.message
-        : {
-            callLogMesssage: {
-              isVideo,
-              callOutcome: 1, // MISSED
-              durationSecs: 0,
-            },
+    message: callPayload
+      ? { callLogMesssage: callPayload }
+      : {
+          callLogMesssage: {
+            isVideo,
+            callOutcome: 1, // MISSED
+            durationSecs: 0,
           },
+        },
   };
 }
 
@@ -258,6 +324,19 @@ export class SessionManager {
   private leaseCheckRunning = false;
   private leaseRecoveryTimer: ReturnType<typeof setTimeout> | null = null;
   private leaseRecoveryVersion = 0;
+  private contactDirectory = new Map<
+    string,
+    Map<
+      string,
+      {
+        agendaName?: string;
+        verifiedName?: string;
+        chatName?: string;
+        notifyName?: string;
+        phoneJid?: string;
+      }
+    >
+  >();
   private static extraManagers = runtimeSingleton("WhatsappExtraSessionManagers", () => new Map<string, SessionManager>());
   private constructor(private readonly connectionId: string | null = null) {}
 
@@ -267,6 +346,120 @@ export class SessionManager {
     let manager = this.extraManagers.get(key);
     if (!manager) { manager = new SessionManager(connectionId); this.extraManagers.set(key, manager); }
     return manager;
+  }
+
+  public static async disposeConnection(tenantId: string, connectionId: string): Promise<void> {
+    if (!connectionId) return;
+    const key = connectionScope(tenantId, connectionId);
+    const manager = this.extraManagers.get(key);
+    if (!manager) return;
+    manager.cancelLeaseRecovery();
+    const pendingInit = manager.initMutex.get(tenantId);
+    manager.initMutex.delete(tenantId);
+    const sock = manager.sessions.get(tenantId);
+    if (sock) {
+      manager.sessions.delete(tenantId);
+      try {
+        await sock.logout();
+      } catch {}
+      try {
+        sock.end(undefined);
+      } catch {}
+    }
+    if (pendingInit) {
+      void pendingInit
+        .then((s) => {
+          try {
+            s?.end(undefined);
+          } catch {}
+        })
+        .catch(() => {});
+    }
+    manager.sessionStatuses.set(tenantId, "disconnected");
+    manager.sessionQrs.delete(tenantId);
+    manager.contactDirectory.delete(tenantId);
+    await manager.stopLease(tenantId, true);
+    this.extraManagers.delete(key);
+  }
+
+  private normalizeDirectoryJid(rawJid?: string | null): string | null {
+    if (!rawJid || typeof rawJid !== "string") return null;
+    const trimmed = rawJid.trim();
+    if (!trimmed.includes("@")) return null;
+    const [userPart, domain] = trimmed.split("@");
+    const cleanUser = userPart.split(":")[0].split("-")[0];
+    if (!cleanUser || !domain) return null;
+    return `${cleanUser}@${domain}`;
+  }
+
+  private rememberDirectoryEntry(
+    tenantId: string,
+    rawJid: string | null | undefined,
+    patch: {
+      agendaName?: string | null;
+      verifiedName?: string | null;
+      chatName?: string | null;
+      notifyName?: string | null;
+      phoneJid?: string | null;
+    },
+  ) {
+    const primaryKey = this.normalizeDirectoryJid(rawJid);
+    const altPhoneKey = this.normalizeDirectoryJid(patch.phoneJid);
+    if (!primaryKey && !altPhoneKey) return;
+    let map = this.contactDirectory.get(tenantId);
+    if (!map) {
+      map = new Map();
+      this.contactDirectory.set(tenantId, map);
+    }
+    const keys = [primaryKey, altPhoneKey].filter((k): k is string => Boolean(k));
+    for (const key of keys) {
+      const prev = map.get(key) || {};
+      map.set(key, {
+        agendaName: patch.agendaName?.trim() || prev.agendaName,
+        verifiedName: patch.verifiedName?.trim() || prev.verifiedName,
+        chatName: patch.chatName?.trim() || prev.chatName,
+        notifyName: patch.notifyName?.trim() || prev.notifyName,
+        phoneJid: altPhoneKey || prev.phoneJid,
+      });
+    }
+  }
+
+  private lookupDirectoryName(
+    tenantId: string,
+    candidateJids: Array<string | null | undefined>,
+    phone?: string | null,
+  ): string | null {
+    const map = this.contactDirectory.get(tenantId);
+    if (!map) return null;
+    const agendaCandidates: Array<string | undefined> = [];
+    const verifiedCandidates: Array<string | undefined> = [];
+    const chatCandidates: Array<string | undefined> = [];
+    const notifyCandidates: Array<string | undefined> = [];
+    for (const rawJid of candidateJids) {
+      const key = this.normalizeDirectoryJid(rawJid);
+      if (!key) continue;
+      const entry = map.get(key);
+      if (!entry) continue;
+      if (entry.agendaName) agendaCandidates.push(entry.agendaName);
+      if (entry.verifiedName) verifiedCandidates.push(entry.verifiedName);
+      if (entry.chatName) chatCandidates.push(entry.chatName);
+      if (entry.notifyName) notifyCandidates.push(entry.notifyName);
+    }
+    return pickWhatsappContactDisplayName(
+      [...agendaCandidates, ...verifiedCandidates, ...chatCandidates, ...notifyCandidates],
+      phone,
+    );
+  }
+
+  private isOwnAccountJid(tenantId: string, candidateJid?: string | null): boolean {
+    if (!candidateJid || typeof candidateJid !== "string") return false;
+    const sock = this.sessions.get(tenantId);
+    if (!sock?.user) return false;
+    const normCandidate = this.normalizeDirectoryJid(candidateJid);
+    if (!normCandidate) return false;
+    const ownPn = this.normalizeDirectoryJid(sock.user.id);
+    const ownLid = this.normalizeDirectoryJid((sock.user as any).lid);
+    return (Boolean(ownPn) && normCandidate === ownPn) || (Boolean(ownLid) && normCandidate === ownLid);
   }
 
   private updateConfig(tenantId: string, values: Partial<typeof channelConfigs.$inferInsert>) {
@@ -836,14 +1029,42 @@ export class SessionManager {
       if (this.sessions.get(tenantId) !== sock) return;
       for (const msg of event.messages) {
         const normalized = normalizeInboundCallMessage(msg);
-        if (normalized)
-          await this.captureInbound(tenantId, normalized, event.type !== "notify").catch(() =>
+        if (normalized) {
+          const msgTsSec = Number(normalized.messageTimestamp || Date.now() / 1000);
+          const isRecentFromMe =
+            Boolean(normalized.key?.fromMe) &&
+            Number.isFinite(msgTsSec) &&
+            Date.now() - msgTsSec * 1000 <= 5 * 60_000;
+          const treatAsHistorical = event.type !== "notify" && !isRecentFromMe;
+          await this.captureInbound(tenantId, normalized, treatAsHistorical).catch(() =>
             console.error("[Baileys] Evento não processado; recuperação pendente."),
           );
+        }
       }
     });
     sock.ev.on("messaging-history.set", async (event: any) => {
       if (this.sessions.get(tenantId) !== sock) return;
+      if (Array.isArray(event.chats) && event.chats.length > 0) {
+        for (const rawChat of event.chats) {
+          if (!rawChat?.id || shouldIgnoreJid(rawChat.id)) continue;
+          const pnJid =
+            typeof rawChat.pnJid === "string" && rawChat.pnJid.endsWith("@s.whatsapp.net")
+              ? rawChat.pnJid
+              : rawChat.id.endsWith("@s.whatsapp.net")
+                ? rawChat.id
+                : null;
+          this.rememberDirectoryEntry(tenantId, rawChat.id, {
+            chatName: rawChat.name || rawChat.displayName || null,
+            notifyName: rawChat.notify || null,
+            phoneJid: pnJid,
+          });
+        }
+      }
+      if (Array.isArray(event.contacts) && event.contacts.length > 0) {
+        await handleContactsSync(event.contacts).catch(() =>
+          console.warn("[Baileys] Contato do histórico inicial aguardando sincronização."),
+        );
+      }
       for (const msg of event.messages || []) {
         const normalized = normalizeInboundCallMessage(msg);
         if (normalized)
@@ -958,66 +1179,105 @@ export class SessionManager {
     const handleContactsSync = async (contactsList: any[]) => {
       console.log(`[Baileys Contacts] Sincronizando/Atualizando ${contactsList.length} contatos para o tenant ${tenantId}`);
       for (const rawContact of contactsList) {
+        const jid = rawContact?.id;
+        if (!jid || shouldIgnoreJid(jid)) {
+          if (jid) console.log(`[Baileys Contacts] JID ignorado (${ignoreReason(jid)}): ${jid}`);
+          continue;
+        }
+        let resolvedSyncPhoneJid: string | undefined = jid.endsWith("@s.whatsapp.net")
+          ? jid
+          : typeof rawContact.phoneNumber === "string" && rawContact.phoneNumber.endsWith("@s.whatsapp.net")
+            ? rawContact.phoneNumber
+            : typeof rawContact.phoneNumber === "string" && rawContact.phoneNumber.trim()
+              ? `${rawContact.phoneNumber.trim().replace(/\D/g, "")}@s.whatsapp.net`
+              : rawContact.pnJid || rawContact.jidAlt || undefined;
+        if (!resolvedSyncPhoneJid?.endsWith("@s.whatsapp.net") && jid.endsWith("@lid")) {
+          try {
+            const mapped = await sock.signalRepository?.lidMapping?.getPNForLID?.(jid);
+            if (mapped?.endsWith("@s.whatsapp.net")) resolvedSyncPhoneJid = mapped;
+          } catch {}
+        }
+        this.rememberDirectoryEntry(tenantId, jid, {
+          agendaName: rawContact.name || null,
+          verifiedName: rawContact.verifiedName || null,
+          notifyName: rawContact.notify || null,
+          phoneJid: resolvedSyncPhoneJid?.endsWith("@s.whatsapp.net") ? resolvedSyncPhoneJid : null,
+        });
+
         if (this.connectionId) {
-          if (!rawContact.id || shouldIgnoreJid(rawContact.id)) continue;
-          let phoneJid = rawContact.id.endsWith("@s.whatsapp.net") ? rawContact.id : rawContact.phoneNumber;
-          if (!phoneJid?.endsWith("@s.whatsapp.net") && rawContact.id.endsWith("@lid")) phoneJid = await sock.signalRepository.lidMapping.getPNForLID(rawContact.id);
-          await syncConnectionContact(tenantId, this.connectionId, rawContact.id, phoneJid, rawContact.name || rawContact.notify).catch(() => console.error("[WhatsApp] Contato da conexão adicional aguardando sincronização."));
+          const bestAlias = pickWhatsappContactDisplayName([
+            rawContact.name,
+            rawContact.verifiedName,
+            rawContact.notify,
+          ]);
+          await syncConnectionContact(
+            tenantId,
+            this.connectionId,
+            jid,
+            resolvedSyncPhoneJid,
+            bestAlias || rawContact.name || rawContact.verifiedName || rawContact.notify,
+          )
+            .then((synced) => {
+              if (synced?.updatedName) {
+                this.notify(tenantId, {
+                  type: "contact_updated",
+                  contactId: synced.contactId,
+                  contact: { id: synced.contactId, name: synced.updatedName },
+                });
+              }
+            })
+            .catch(() =>
+              console.error("[WhatsApp] Contato da conexão adicional aguardando sincronização."),
+            );
           continue;
         }
-        const jid = rawContact.id;
-        if (!jid) continue;
 
-        // ── FILTRO DE GRUPOS / STATUS / BROADCAST ──────────────────────────────
-        // Ignorar grupos (@g.us), status (status@broadcast), listas de transmissão
-        // e canais (@newsletter). NÃO usar o número para detectar grupos — números
-        // americanos também começam com '1' e são clientes legítimos.
-        if (shouldIgnoreJid(jid)) {
-          console.log(`[Baileys Contacts] JID ignorado (${ignoreReason(jid)}): ${jid}`);
-          continue;
-        }
-        // ── FIM FILTRO ─────────────────────────────────────────────────────────
-
-        // Extrai o nome de exibição
-        const name = rawContact.name || rawContact.verifiedName || rawContact.notify || `Contato (${jid.split("@")[0]})`;
-        
         // Verifica se há JID alternativo ou número de telefone explícito
-        let phoneJid = jid;
-        if (jid.endsWith("@lid")) {
-          if (rawContact.phoneNumber) {
-            phoneJid = `${rawContact.phoneNumber}@s.whatsapp.net`;
-          } else if (rawContact.pnJid) {
-            phoneJid = rawContact.pnJid;
-          } else if (rawContact.jidAlt) {
-            phoneJid = rawContact.jidAlt;
-          }
-        }
-
+        const phoneJid =
+          resolvedSyncPhoneJid && resolvedSyncPhoneJid.endsWith("@s.whatsapp.net")
+            ? resolvedSyncPhoneJid
+            : jid;
         const isResolved = !phoneJid.endsWith("@lid");
 
         // Extrai o número limpo
         let phone = phoneJid.split("@")[0];
         if (phone.includes("-")) phone = phone.split("-")[0];
         if (phone.includes(":")) phone = phone.split(":")[0];
+        const canonicalSyncPhone = isResolved ? normalizeCanonicalPhone(phone) || phone : phone;
+
+        const preferredName = pickWhatsappContactDisplayName(
+          [rawContact.name, rawContact.verifiedName, rawContact.notify],
+          canonicalSyncPhone,
+        );
+        const name = preferredName || `Contato (${jid.split("@")[0]})`;
 
         try {
           // Busca se o contato já existe no banco — PRIMEIRO pelo JID, depois pelo phone.
-          // A busca por phone é o fallback crítico para evitar duplicação quando o JID
-          // muda (reinstalação do WhatsApp, troca de dispositivo, @lid → @s.whatsapp.net).
           let contact = await db.query.contacts.findFirst({
             where: (contactsTable, { eq: dEq, and: dAnd, or: dOr }) =>
               dAnd(
                 dEq(contactsTable.tenantId, tenantId),
                 dOr(
                   dEq(contactsTable.whatsappJid, jid),
-                  dEq(contactsTable.phone, phone)
-                )
-              )
+                  dEq(contactsTable.phone, canonicalSyncPhone),
+                  dEq(contactsTable.phone, phone),
+                ),
+              ),
           });
 
           if (!contact && phone.length >= 8) {
-            [contact] = await db.select().from(contacts)
-              .where(and(eq(contacts.tenantId, tenantId), sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${phone}`))
+            [contact] = await db
+              .select()
+              .from(contacts)
+              .where(
+                and(
+                  eq(contacts.tenantId, tenantId),
+                  or(
+                    sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${phone}`,
+                    sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${canonicalSyncPhone}`,
+                  ),
+                ),
+              )
               .limit(1);
           }
 
@@ -1027,7 +1287,7 @@ export class SessionManager {
               id: contactId,
               tenantId,
               name,
-              phone,
+              phone: isResolved ? canonicalSyncPhone : phone,
               whatsappJid: jid,
               mainChannel: "whatsapp",
               avatar: rawContact.imgUrl || null,
@@ -1035,24 +1295,40 @@ export class SessionManager {
               createdAt: new Date(),
             });
           } else {
-            // Contato existe — atualizar JID e/ou phone se estiverem desatualizados
+            // Contato existe — atualizar JID, phone e auto-curar nome se era apenas número/placeholder
             const updates: any = {};
 
-            // Atualiza o JID se o contato existia mas foi encontrado pelo phone
-            // (o JID pode ter mudado por reinstalação ou troca de dispositivo)
             if (contact.whatsappJid !== jid && isResolved) {
               updates.whatsappJid = jid;
             }
 
-            // Atualiza telefone se o anterior era LID e agora resolvemos o número real
-            if (!this.connectionId && contact.phone !== phone && isResolved) {
-              updates.phone = phone;
+            if (!this.connectionId && contact.phone !== canonicalSyncPhone && isResolved) {
+              updates.phone = canonicalSyncPhone;
+            }
+
+            if (
+              preferredName &&
+              isPlaceholderOrPhoneContactName(contact.name, contact.phone || canonicalSyncPhone)
+            ) {
+              updates.name = preferredName;
             }
 
             if (Object.keys(updates).length > 0) {
-              await db.update(contacts)
+              await db
+                .update(contacts)
                 .set(updates)
                 .where(and(eq(contacts.id, contact.id), eq(contacts.tenantId, tenantId)));
+              if (updates.name) {
+                this.notify(tenantId, {
+                  type: "contact_updated",
+                  contactId: contact.id,
+                  contact: {
+                    id: contact.id,
+                    name: updates.name,
+                    phone: updates.phone ?? contact.phone,
+                  },
+                });
+              }
             }
           }
         } catch (e: any) {
@@ -1061,8 +1337,28 @@ export class SessionManager {
       }
     };
 
+    const handleChatsSync = (chatsList: any[]) => {
+      if (!Array.isArray(chatsList)) return;
+      for (const rawChat of chatsList) {
+        if (!rawChat?.id || shouldIgnoreJid(rawChat.id)) continue;
+        const pnJid =
+          typeof rawChat.pnJid === "string" && rawChat.pnJid.endsWith("@s.whatsapp.net")
+            ? rawChat.pnJid
+            : rawChat.id.endsWith("@s.whatsapp.net")
+              ? rawChat.id
+              : null;
+        this.rememberDirectoryEntry(tenantId, rawChat.id, {
+          chatName: rawChat.name || rawChat.displayName || null,
+          notifyName: rawChat.notify || null,
+          phoneJid: pnJid,
+        });
+      }
+    };
+
     sock.ev.on("contacts.upsert", handleContactsSync);
     sock.ev.on("contacts.update", handleContactsSync);
+    sock.ev.on("chats.upsert", handleChatsSync);
+    sock.ev.on("chats.update", handleChatsSync);
 
     return sock;
   }
@@ -1134,19 +1430,41 @@ export class SessionManager {
 
   private async captureInbound(tenantId: string, rawMsg: any, historical = false) {
     if (!rawMsg.key?.id || !rawMsg.key?.remoteJid || shouldIgnoreJid(rawMsg.key.remoteJid)) return;
-    if (this.connectionId) {
-      if (!await this.ensureConnectionOwnership(tenantId)) return;
-      let phoneJid = rawMsg.key.remoteJid.endsWith("@s.whatsapp.net") ? rawMsg.key.remoteJid : rawMsg.key.remoteJidAlt;
-      if (!phoneJid?.endsWith("@s.whatsapp.net")) phoneJid = await this.getSession(tenantId)?.signalRepository.lidMapping.getPNForLID(rawMsg.key.remoteJid);
-      const phone = phoneJid?.endsWith("@s.whatsapp.net") ? phoneJid.split("@")[0].split(":")[0] : undefined;
-      if (!await captureConnectionPeer(tenantId, this.connectionId, rawMsg.key.remoteJid, phone)) return;
-    }
+    if (this.isOwnAccountJid(tenantId, rawMsg.key.remoteJid)) return;
+    const rawAltCandidate =
+      rawMsg.key.remoteJidAlt && !this.isOwnAccountJid(tenantId, rawMsg.key.remoteJidAlt)
+        ? String(rawMsg.key.remoteJidAlt)
+        : undefined;
     const wire = proto.WebMessageInfo.toObject(proto.WebMessageInfo.fromObject(rawMsg), {
       bytes: String,
       longs: String,
     });
     const timestamp = Number(wire.messageTimestamp || Date.now() / 1000);
     historical ||= Date.now() - timestamp * 1000 > 5 * 60_000;
+    const activeFromMe = Boolean(rawMsg.key.fromMe) && !historical;
+    if (this.connectionId) {
+      if (!(await this.ensureConnectionOwnership(tenantId))) return;
+      let phoneJid = rawMsg.key.remoteJid.endsWith("@s.whatsapp.net")
+        ? rawMsg.key.remoteJid
+        : rawAltCandidate?.endsWith("@s.whatsapp.net")
+          ? rawAltCandidate
+          : undefined;
+      if (!phoneJid?.endsWith("@s.whatsapp.net")) {
+        phoneJid = await this.getSession(tenantId)?.signalRepository?.lidMapping?.getPNForLID?.(
+          rawMsg.key.remoteJid,
+        );
+      }
+      const phone = phoneJid?.endsWith("@s.whatsapp.net")
+        ? phoneJid.split("@")[0].split(":")[0]
+        : undefined;
+      if (
+        !(await captureConnectionPeer(tenantId, this.connectionId, rawMsg.key.remoteJid, phone, {
+          activeFromMe,
+        }))
+      )
+        return;
+    }
+    if (rawAltCandidate) (wire as any).__remoteJidAlt = rawAltCandidate;
     const externalEventId = baileysEventId(tenantId, this.connectionId, rawMsg.key);
     const id = "inb_b_" + createHash("sha256").update(externalEventId).digest("hex");
     await db
@@ -1160,7 +1478,13 @@ export class SessionManager {
         status: "pending",
         attempts: 0,
         nextRetryAt: new Date(),
-        payload: { kind: "baileys_message", connectionId: this.connectionId, message: wire, historical },
+        payload: {
+          kind: "baileys_message",
+          connectionId: this.connectionId,
+          message: wire,
+          historical,
+          remoteJidAlt: rawAltCandidate || null,
+        },
       })
       .onConflictDoNothing();
     return this.recoverInbound(tenantId, wire, historical);
@@ -1195,6 +1519,14 @@ export class SessionManager {
         .limit(1);
       if (!existing) {
         const raw: any = proto.WebMessageInfo.fromObject(wire);
+        const restoredAlt =
+          wire.__remoteJidAlt ||
+          (event.payload as any)?.remoteJidAlt ||
+          wire.key?.remoteJidAlt ||
+          null;
+        if (restoredAlt && raw.key) {
+          raw.key.remoteJidAlt = restoredAlt;
+        }
         raw.__historical = historical ?? Boolean((event.payload as any).historical);
         raw.__externalEventId = externalEventId;
         raw.__localMessageId =
@@ -1236,18 +1568,36 @@ export class SessionManager {
     // O WhatsApp pode entregar o cliente pelo LID mesmo quando a conversa foi criada pelo telefone.
     let resolvedPhoneJid = jid;
     if (jid.endsWith("@lid")) {
-      if (rawMsg.key?.remoteJidAlt && typeof rawMsg.key.remoteJidAlt === "string" && rawMsg.key.remoteJidAlt.endsWith("@s.whatsapp.net")) {
-        resolvedPhoneJid = rawMsg.key.remoteJidAlt;
-      } else if (rawMsg.pnJid && typeof rawMsg.pnJid === "string" && rawMsg.pnJid.endsWith("@s.whatsapp.net")) {
-        resolvedPhoneJid = rawMsg.pnJid;
-      } else if (rawMsg.senderPn && typeof rawMsg.senderPn === "string" && rawMsg.senderPn.endsWith("@s.whatsapp.net")) {
-        resolvedPhoneJid = rawMsg.senderPn;
+      const altJid =
+        rawMsg.key?.remoteJidAlt && !this.isOwnAccountJid(tenantId, rawMsg.key.remoteJidAlt)
+          ? rawMsg.key.remoteJidAlt
+          : null;
+      const pnJidCandidate =
+        rawMsg.pnJid && !this.isOwnAccountJid(tenantId, rawMsg.pnJid) ? rawMsg.pnJid : null;
+      const senderPnCandidate =
+        !rawMsg.key?.fromMe && rawMsg.senderPn && !this.isOwnAccountJid(tenantId, rawMsg.senderPn)
+          ? rawMsg.senderPn
+          : null;
+      if (altJid && typeof altJid === "string" && altJid.endsWith("@s.whatsapp.net")) {
+        resolvedPhoneJid = altJid;
+      } else if (pnJidCandidate && typeof pnJidCandidate === "string" && pnJidCandidate.endsWith("@s.whatsapp.net")) {
+        resolvedPhoneJid = pnJidCandidate;
+      } else if (senderPnCandidate && typeof senderPnCandidate === "string" && senderPnCandidate.endsWith("@s.whatsapp.net")) {
+        resolvedPhoneJid = senderPnCandidate;
       } else if (sock) {
         try {
-          const mappedPhoneJid = await sock.signalRepository.lidMapping.getPNForLID(jid);
-          if (mappedPhoneJid?.endsWith("@s.whatsapp.net")) resolvedPhoneJid = mappedPhoneJid;
+          const mappedPhoneJid = await sock.signalRepository?.lidMapping?.getPNForLID?.(jid);
+          if (mappedPhoneJid?.endsWith("@s.whatsapp.net") && !this.isOwnAccountJid(tenantId, mappedPhoneJid)) {
+            resolvedPhoneJid = mappedPhoneJid;
+          }
         } catch (error) {
           console.warn(`[Baileys] Não foi possível resolver LID para tenant ${tenantId}:`, error);
+        }
+      }
+      if (resolvedPhoneJid.endsWith("@lid")) {
+        const cachedDir = this.contactDirectory.get(tenantId)?.get(this.normalizeDirectoryJid(jid) || "");
+        if (cachedDir?.phoneJid?.endsWith("@s.whatsapp.net")) {
+          resolvedPhoneJid = cachedDir.phoneJid;
         }
       }
     }
@@ -1261,7 +1611,24 @@ export class SessionManager {
       phone = phone.split(":")[0];
     }
 
-    const name = !rawMsg.key?.fromMe && rawMsg.pushName ? rawMsg.pushName : `Cliente (${phone})`;
+    if (!rawMsg.key?.fromMe && rawMsg.pushName) {
+      this.rememberDirectoryEntry(tenantId, jid, {
+        notifyName: rawMsg.pushName,
+        phoneJid: resolvedPhoneJid.endsWith("@s.whatsapp.net") ? resolvedPhoneJid : null,
+      });
+    }
+
+    const preliminaryDirName = this.lookupDirectoryName(
+      tenantId,
+      [jid, resolvedPhoneJid],
+      phone,
+    );
+    const preliminaryPushName = !rawMsg.key?.fromMe ? rawMsg.pushName : null;
+    let preferredContactName = pickWhatsappContactDisplayName(
+      [preliminaryDirName, preliminaryPushName],
+      phone,
+    );
+    let name = preferredContactName || `Cliente (${phone})`;
     const messageId = rawMsg.__localMessageId || rawMsg.key.id;
     const eventTime = new Date(Number(rawMsg.messageTimestamp || Date.now() / 1000) * 1000);
 
@@ -1530,6 +1897,30 @@ export class SessionManager {
 
       const canonicalPhone = normalizeCanonicalPhone(phone) || phone;
       const isSecondaryMatchedPhone = Boolean(matchedPhone && !matchedPhone.isPrimary);
+      const canonicalPhoneJid = resolvedPhoneJid.endsWith("@s.whatsapp.net")
+        ? `${canonicalPhone}@s.whatsapp.net`
+        : null;
+      const dirNameAfterCanonical = this.lookupDirectoryName(
+        tenantId,
+        [jid, resolvedPhoneJid, canonicalPhoneJid],
+        canonicalPhone,
+      );
+      const identityAlias =
+        this.connectionId && typeof resolveConnectionIdentityAlias === "function"
+          ? await resolveConnectionIdentityAlias(
+              db,
+              tenantId,
+              this.connectionId,
+              [jid, resolvedPhoneJid, ...(canonicalPhoneJid ? [canonicalPhoneJid] : [])],
+              canonicalPhone,
+            ).catch(() => null)
+          : null;
+      preferredContactName = pickWhatsappContactDisplayName(
+        [dirNameAfterCanonical, identityAlias, !rawMsg.key?.fromMe ? rawMsg.pushName : null],
+        canonicalPhone,
+      );
+      name = preferredContactName || `Cliente (${phone})`;
+
       if (!contact) {
         // Criar contato se não existir (inicialmente sem foto para velocidade máxima)
         await db.insert(contacts).values({
@@ -1545,20 +1936,40 @@ export class SessionManager {
         });
       } else {
         const updates: any = {};
-        if (!contact.whatsappJid && !isSecondaryMatchedPhone) {
+        if (!this.connectionId && !contact.whatsappJid && !isSecondaryMatchedPhone) {
           updates.whatsappJid = jid;
         }
 
         // Se o telefone salvo era o LID (que não foi resolvido) ou estava corrompido e agora conseguimos resolver o número real (apenas no telefone principal)
         const isResolved = !resolvedPhoneJid.endsWith("@lid");
-        if (!isSecondaryMatchedPhone && contact.phone !== canonicalPhone && isResolved) {
+        if (!this.connectionId && !isSecondaryMatchedPhone && contact.phone !== canonicalPhone && isResolved) {
           updates.phone = canonicalPhone;
+        }
+
+        if (
+          preferredContactName &&
+          isPlaceholderOrPhoneContactName(contact.name, contact.phone || canonicalPhone)
+        ) {
+          updates.name = preferredContactName;
         }
 
         if (Object.keys(updates).length > 0) {
           await db.update(contacts)
             .set(updates)
             .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, tenantId)));
+          const updatedContact: typeof contacts.$inferSelect = { ...contact, ...updates };
+          contact = updatedContact;
+          if (updates.name) {
+            this.notify(tenantId, {
+              type: "contact_updated",
+              contactId,
+              contact: {
+                id: contactId,
+                name: updates.name,
+                phone: updates.phone ?? updatedContact.phone,
+              },
+            });
+          }
         }
       }
 
@@ -1568,7 +1979,40 @@ export class SessionManager {
         }).catch(() => null);
       }
 
-      if (this.connectionId) await bindConnectionIdentity(db, tenantId, this.connectionId, contactId, jid, name);
+      if (this.connectionId) {
+        await bindConnectionIdentity(
+          db,
+          tenantId,
+          this.connectionId,
+          contactId,
+          jid,
+          preferredContactName || undefined,
+        );
+        if (resolvedPhoneJid.endsWith("@s.whatsapp.net") && resolvedPhoneJid !== jid) {
+          await bindConnectionIdentity(
+            db,
+            tenantId,
+            this.connectionId,
+            contactId,
+            resolvedPhoneJid,
+            preferredContactName || undefined,
+          );
+        }
+        if (rawMsg.key?.fromMe && !rawMsg.__historical) {
+          await db
+            .insert(whatsappConnectionContacts)
+            .values({
+              id: `wcc-${createHash("sha256")
+                .update(`${tenantId}:${this.connectionId}:${contactId}`)
+                .digest("hex")
+                .slice(0, 28)}`,
+              tenantId,
+              connectionId: this.connectionId,
+              contactId,
+            })
+            .onConflictDoNothing();
+        }
+      }
 
       // Buscar foto de perfil em background (sem await para não atrasar o processamento de mensagens!)
       if (!this.connectionId && jid && (!contact || !contact.avatar)) {
@@ -1809,8 +2253,22 @@ export class SessionManager {
         }
       } else if (!rawMsg.__historical) {
         // Se a mensagem veio do operador (WhatsApp Web conectado ou painel)
-        if (conversation?.queueState === "fila") {
-          targetQueue = "meus";
+        if (!conversation) {
+          if (contact?.walletOperatorId) {
+            targetQueue = "meus";
+            targetOperatorId = contact.walletOperatorId;
+          } else {
+            targetQueue = "fila";
+            targetOperatorId = null;
+          }
+        } else if (conversation.queueState === "fila" || conversation.queueState === "finalizados") {
+          if (conversation.operatorId || contact?.walletOperatorId) {
+            targetQueue = "meus";
+            targetOperatorId = conversation.operatorId || contact?.walletOperatorId || null;
+          } else {
+            targetQueue = "fila";
+            targetOperatorId = null;
+          }
         }
       }
 
@@ -1851,6 +2309,9 @@ export class SessionManager {
         });
         targetQueue = personalState.queueState;
         targetOperatorId = personalState.operatorId;
+      } else if (!conversation && !isFromMe && contact?.walletOperatorId) {
+        targetQueue = "meus";
+        targetOperatorId = contact.walletOperatorId;
       }
       if (!conversation) {
         // Criar conversa
@@ -1861,8 +2322,8 @@ export class SessionManager {
           contactPhoneId: matchedPhone?.id || null,
           contactPhone: matchedPhone?.phone || (resolvedPhoneJid.endsWith("@s.whatsapp.net") ? canonicalPhone : null),
           whatsappConnectionId: this.connectionId,
-          queueState: this.connectionId ? targetQueue : isFromMe ? "meus" : contact?.walletOperatorId ? "meus" : "fila",
-          operatorId: this.connectionId ? targetOperatorId : !isFromMe && contact?.walletOperatorId ? contact.walletOperatorId : null,
+          queueState: targetQueue,
+          operatorId: targetOperatorId,
           unreadCount,
           lastMessageText: text,
           lastMessageTime: eventTime,
@@ -2121,18 +2582,8 @@ export class SessionManager {
           quotedMessageId,
           quotedMessageSender,
           quotedMessageContent,
-          queue: this.connectionId || sdrDisabledRouted ? targetQueue : !conversation
-            ? isFromMe
-              ? "meus"
-              : contact?.walletOperatorId
-                ? "meus"
-                : "fila"
-            : targetQueue,
-          operatorId: this.connectionId || sdrDisabledRouted ? targetOperatorId : !conversation
-            ? !isFromMe && contact?.walletOperatorId
-              ? contact.walletOperatorId
-              : null
-            : targetOperatorId,
+          queue: targetQueue,
+          operatorId: targetOperatorId,
           walletOperatorId:
             contact?.walletOperatorId || (conversation as any)?.walletOperatorId || null,
         },

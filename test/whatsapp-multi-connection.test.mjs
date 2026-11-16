@@ -1458,12 +1458,29 @@ test("choose number, save, capture, finish and choose again preserve independent
   assert.equal(claim.status, 200, await claim.clone().text());
   const captured = await claim.json();
   assert.equal(await access.requireConversationWriteAccess(who, prepared.conversationId), null);
+  // Without a connected Baileys, a non-admin cannot switch during active attendance;
+  // with a connected Baileys, they can switch their own attendance directly.
+  await db
+    .update(schema.whatsappConnections)
+    .set({ baileysSessionStatus: "disconnected" })
+    .where(
+      orm.and(
+        orm.eq(schema.whatsappConnections.tenantId, tenant),
+        orm.eq(schema.whatsappConnections.id, "number-6"),
+      ),
+    );
   const locked = await saveNumber(prepared.conversationId, captured.version, "corporate");
   assert.equal(locked.status, 409);
   assert.equal((await locked.json()).code, "ATTENDANCE_NUMBER_LOCKED");
-  const occupied = await saveNumber("workflow-company", 1, "number-6");
-  assert.equal(occupied.status, 409);
-  assert.equal((await occupied.json()).code, "TARGET_ATTENDANCE_ACTIVE");
+  await db
+    .update(schema.whatsappConnections)
+    .set({ baileysSessionStatus: "connected", leaseUntil: new Date(Date.now() + 60_000) })
+    .where(
+      orm.and(
+        orm.eq(schema.whatsappConnections.tenantId, tenant),
+        orm.eq(schema.whatsappConnections.id, "number-6"),
+      ),
+    );
   const finish = await queue.POST({
     request: apiRequest({
       conversationId: prepared.conversationId,
@@ -1702,6 +1719,15 @@ test("a failed number-selection audit rolls back the waiting thread and selectiv
     await db.select().from(schema.whatsappConnectionContacts).where(contactCondition),
     [],
   );
+  await db
+    .update(schema.whatsappConnections)
+    .set({ baileysSessionStatus: "disconnected", leaseUntil: null, leaseToken: null })
+    .where(
+      orm.and(
+        orm.eq(schema.whatsappConnections.tenantId, tenant),
+        orm.eq(schema.whatsappConnections.id, "number-5"),
+      ),
+    );
 });
 
 test("master can select another number during attendance without rewriting or taking another operator's thread", async () => {
@@ -2056,4 +2082,369 @@ test("linked Baileys phone auto-creates current deal only when contact has no de
     .where(orm.eq(schema.crmDealContacts.contactId, "customer"));
   assert.equal(customerDealLinks.length, 1);
   assert.equal(customerDealLinks[0].dealId, "deal-meta-existing");
+});
+
+test("1) number picker appears by default for connected Baileys owners + admins, hides for unconnected operators, and allows switching own active attendance", async () => {
+  // At this point: number-2 (seller-b) is connected; seller-a has all numbers disconnected.
+  let who = session("seller-a");
+  const route = isolatedModule("src/routes/api/whatsapp/connections.ts", {
+    "node:crypto": await import("node:crypto"),
+    "@tanstack/react-router": routeStub,
+    "drizzle-orm": orm,
+    "../../../db": { db },
+    "../../../db/schema": schema,
+    "../../../lib/auth-session": { requireSession: async () => ({ session: who }) },
+    "../../../lib/baileys/session-manager": {
+      SessionManager: {
+        getInstance: () => ({ notifyPublic() {} }),
+        forConnection: () => ({ disconnectSession: async () => {} }),
+        disposeConnection: async () => {},
+      },
+    },
+    "../../../lib/whatsapp/connection-crypto": crypto,
+    "../../../lib/whatsapp/connection-policy": policy,
+    "../../../lib/whatsapp/prepare-conversation": preparation,
+    "../../../lib/access-control/conversation-access": access,
+    "../../../lib/access-control/conversation-policy": loadAccessSource(
+      "src/lib/access-control/conversation-policy.ts",
+    ),
+    "../../../lib/access-control/channel-permissions": loadAccessSource(
+      "src/lib/access-control/channel-permissions.ts",
+    ),
+  }).Route.server.handlers;
+
+  // Unconnected non-admin operator: picker hidden
+  const unconnectedState = await (await route.GET({ request: apiRequest(undefined, "GET") })).json();
+  assert.equal(unconnectedState.canUseNumberPicker, false);
+  assert.equal(unconnectedState.canSwitchDuringAttendance, false);
+
+  // Connected Baileys owner (seller-b owns connected number-2): picker visible by default
+  who = session("seller-b");
+  const connectedOwnerState = await (await route.GET({ request: apiRequest(undefined, "GET") })).json();
+  assert.equal(connectedOwnerState.canUseNumberPicker, true);
+  assert.equal(connectedOwnerState.canSwitchDuringAttendance, true);
+
+  // Admin: picker always visible even without owning a connected Baileys
+  who = session("admin-a", "admin");
+  const adminState = await (await route.GET({ request: apiRequest(undefined, "GET") })).json();
+  assert.equal(adminState.canUseNumberPicker, true);
+  assert.equal(adminState.canSwitchDuringAttendance, true);
+
+  // Connect number-1 for seller-a and verify seller-a can switch their own "meus" corporate chat ("official") directly to "personal-a"
+  await db
+    .update(schema.whatsappConnections)
+    .set({
+      baileysSessionStatus: "connected",
+      leaseToken: "picker-lease-1",
+      leaseUntil: new Date(Date.now() + 120_000),
+    })
+    .where(
+      orm.and(
+        orm.eq(schema.whatsappConnections.tenantId, tenant),
+        orm.eq(schema.whatsappConnections.id, "number-1"),
+      ),
+    );
+  const [officialRow] = await db
+    .select()
+    .from(schema.conversations)
+    .where(orm.eq(schema.conversations.id, "official"));
+  const switched = await preparation.prepareWhatsappConversation(session("seller-a"), {
+    sourceConversationId: "official",
+    expectedVersion: officialRow.version,
+    connectionId: "number-1",
+  });
+  assert.equal(switched.conversationId, "personal-a");
+  assert.equal(switched.queueState, "meus");
+  assert.equal(switched.operatorId, "seller-a");
+
+  // Seller-b still cannot hijack seller-a's active "official" attendance
+  await assert.rejects(
+    preparation.prepareWhatsappConversation(session("seller-b"), {
+      sourceConversationId: "official",
+      expectedVersion: officialRow.version,
+      connectionId: "number-2",
+    }),
+    (err) => err.code === "ATTENDANCE_NUMBER_LOCKED",
+  );
+});
+
+test("2 & 3) active outbound WhatsApp message (fromMe) outside system auto-captures into 'meus' even on 'selected' policy and uses saved WhatsApp contact name instead of phone digits", async () => {
+  const cpConfig = pg.getTableConfig(schema.contactPhones);
+  const cpCols = cpConfig.columns.map((c) => {
+    const type = c.getSQLType();
+    const defaultValue = type.includes("timestamp")
+      ? " DEFAULT now()"
+      : type === "integer"
+        ? " DEFAULT 0"
+        : type === "boolean"
+          ? " DEFAULT false"
+          : "";
+    return `"${c.name}" ${type}${c.name === "id" ? " PRIMARY KEY" : defaultValue}`;
+  });
+  await client.exec(`CREATE TABLE IF NOT EXISTS "${cpConfig.name}" (${cpCols.join(",")})`);
+
+  const singletons = new Map();
+  const peers = loadAccessSource("src/lib/whatsapp/connection-contacts.ts", {
+    "../../db": { db },
+    "../../db/schema": schema,
+    "drizzle-orm": orm,
+    "../utils": { buildPhoneSearchTerms: (phone) => [phone] },
+  });
+  const contactDealsQuery = loadAccessSource("src/lib/crm/contact-deals-query.ts", {
+    "../../db/schema": schema,
+    "drizzle-orm": orm,
+  });
+  const dealAssociations = loadAccessSource("src/lib/crm/deal-associations.ts", {
+    "../../db/schema": schema,
+    "drizzle-orm": orm,
+    "./contact-deals-query": contactDealsQuery,
+  });
+  const { SessionManager } = isolatedModule("src/lib/baileys/session-manager.ts", {
+    "node:crypto": await import("node:crypto"),
+    "node:async_hooks": await import("node:async_hooks"),
+    path: await import("node:path"),
+    "../../db": { db },
+    "../../db/schema": schema,
+    "drizzle-orm": orm,
+    "../runtime-singleton": {
+      runtimeSingleton: (key, create) => {
+        if (!singletons.has(key)) singletons.set(key, create());
+        return singletons.get(key);
+      },
+    },
+    "../whatsapp/connections": connectionService,
+    "../whatsapp/connection-policy": policy,
+    "../whatsapp/connection-contacts": peers,
+    "../crm/deal-associations": dealAssociations,
+    "../utils": {
+      urlToBase64: async () => null,
+      buildPhoneSearchTerms: (p) => [p],
+      normalizeCanonicalPhone: (p) => String(p || "").replace(/\D/g, ""),
+    },
+    "../sla-engine": {
+      SlaEngine: {
+        getInstance: () => ({
+          openClientSlaCycle: async () => {},
+          closeOpenSlaCycles: async () => {},
+        }),
+      },
+    },
+    "../ai-persona": {
+      getAiPersona: () => ({ name: "Fagner", triagePolicy: "generic" }),
+      isSdrTenant: () => false,
+    },
+    "./jid-validator": loadAccessSource("src/lib/baileys/jid-validator.ts"),
+    "@whiskeysockets/baileys": {
+      proto: {
+        WebMessageInfo: { fromObject: (value) => ({ ...value }), toObject: (value) => value },
+      },
+    },
+  });
+
+  // Ensure db.query helpers exist for handleIncomingMessage
+  db.query = {
+    contacts: {
+      findFirst: async () => undefined,
+    },
+    conversations: {
+      findFirst: async ({ where }) => {
+        const rows = await db
+          .select()
+          .from(schema.conversations)
+          .where(
+            where(schema.conversations, {
+              eq: orm.eq,
+              and: orm.and,
+            }),
+          )
+          .limit(1);
+        return rows[0];
+      },
+    },
+  };
+
+  // number-1 has capturePolicy = "selected" and ownerOperatorId = "seller-a"
+  const token = await connectionService.acquireConnectionLease(tenant, "number-4");
+  const mgr = SessionManager.forConnection(tenant, "number-4");
+  mgr.leaseToken = token;
+  mgr.sessions.set(tenant, {
+    user: { id: "5511900001111:1@s.whatsapp.net", lid: "999999@lid" },
+    signalRepository: {
+      lidMapping: {
+        getPNForLID: async (lid) =>
+          lid === "antonio_lid@lid" ? "5511988887777@s.whatsapp.net" : undefined,
+      },
+    },
+  });
+
+  // Simulate WhatsApp address-book name synced in memory (should NOT write unselected contact to DB yet)
+  mgr.rememberDirectoryEntry(tenant, "antonio_lid@lid", {
+    agendaName: "Padaria São José - Sr. Antônio",
+    phoneJid: "5511988887777@s.whatsapp.net",
+  });
+
+  // Operator sends an active outbound message directly from WhatsApp app (fromMe: true, wrapped in deviceSentMessage)
+  await mgr.captureInbound(
+    tenant,
+    {
+      key: {
+        id: "active-out-1",
+        remoteJid: "antonio_lid@lid",
+        remoteJidAlt: "5511900001111@s.whatsapp.net", // operator's own PN in senderAlt must be ignored!
+        fromMe: true,
+      },
+      messageTimestamp: Math.floor(Date.now() / 1000),
+      message: {
+        deviceSentMessage: {
+          message: {
+            conversation: "Bom dia Sr. Antônio! Segue o orçamento da seladora.",
+          },
+        },
+      },
+    },
+    false,
+  );
+
+  // Verify contact was created with the saved WhatsApp name (NOT phone digits and NOT operator's own phone!)
+  const [createdContact] = await db
+    .select()
+    .from(schema.contacts)
+    .where(
+      orm.and(
+        orm.eq(schema.contacts.tenantId, tenant),
+        orm.eq(schema.contacts.phone, "5511988887777"),
+      ),
+    );
+  assert.ok(createdContact, "Active outbound message must create the contact");
+  assert.equal(createdContact.name, "Padaria São José - Sr. Antônio");
+
+  // Verify conversation was captured automatically in "meus" assigned to seller-a
+  const [capturedConv] = await db
+    .select()
+    .from(schema.conversations)
+    .where(
+      orm.and(
+        orm.eq(schema.conversations.tenantId, tenant),
+        orm.eq(schema.conversations.contactId, createdContact.id),
+        orm.eq(schema.conversations.whatsappConnectionId, "number-4"),
+      ),
+    );
+  assert.ok(capturedConv, "Active outbound message must create/capture the conversation");
+  assert.equal(capturedConv.queueState, "meus");
+  assert.equal(capturedConv.operatorId, "seller-a");
+
+  // Verify subsequent reply from Sr. Antônio (fromMe: false) is now ALSO captured automatically!
+  await mgr.captureInbound(
+    tenant,
+    {
+      key: {
+        id: "antonio-reply-1",
+        remoteJid: "antonio_lid@lid",
+        fromMe: false,
+      },
+      pushName: "Antônio",
+      messageTimestamp: Math.floor(Date.now() / 1000),
+      message: {
+        conversation: "Bom dia! Pode faturar o pedido.",
+      },
+    },
+    false,
+  );
+
+  const threadMsgs = await db
+    .select()
+    .from(schema.messages)
+    .where(orm.eq(schema.messages.conversationId, capturedConv.id));
+  assert.equal(threadMsgs.length, 2);
+
+  // Verify existing contact saved only with phone number gets auto-healed when WhatsApp name arrives
+  await db.insert(schema.contacts).values({
+    id: "numeric-name-contact",
+    tenantId: tenant,
+    name: "5511966665555",
+    phone: "5511966665555",
+    mainChannel: "whatsapp",
+  });
+  await db.insert(schema.whatsappConnectionContacts).values({
+    id: "sel-numeric",
+    tenantId: tenant,
+    connectionId: "number-4",
+    contactId: "numeric-name-contact",
+  });
+  await peers.syncConnectionContact(
+    tenant,
+    "number-4",
+    "5511966665555@s.whatsapp.net",
+    "5511966665555@s.whatsapp.net",
+    " Indústria Metalúrgica Rocha ",
+  );
+  const [healedContact] = await db
+    .select()
+    .from(schema.contacts)
+    .where(orm.eq(schema.contacts.id, "numeric-name-contact"));
+  assert.equal(healedContact.name, "Indústria Metalúrgica Rocha");
+
+  await connectionService.releaseConnectionLease(tenant, "number-4", token);
+});
+
+test("4) admin can delete unused/test Baileys connections cleanly even with test messages/threads while preserving CRM contacts and deals", async () => {
+  let who = session("seller-a");
+  let disposedId = null;
+  const route = isolatedModule("src/routes/api/whatsapp/connections.ts", {
+    "node:crypto": await import("node:crypto"),
+    "@tanstack/react-router": routeStub,
+    "drizzle-orm": orm,
+    "../../../db": { db },
+    "../../../db/schema": schema,
+    "../../../lib/auth-session": { requireSession: async () => ({ session: who }) },
+    "../../../lib/baileys/session-manager": {
+      SessionManager: {
+        getInstance: () => ({ notifyPublic() {} }),
+        forConnection: () => ({ disconnectSession: async () => {} }),
+        disposeConnection: async (_t, id) => {
+          disposedId = id;
+        },
+      },
+    },
+    "../../../lib/whatsapp/connection-crypto": crypto,
+    "../../../lib/whatsapp/connection-policy": policy,
+    "../../../lib/whatsapp/prepare-conversation": preparation,
+    "../../../lib/access-control/conversation-access": access,
+    "../../../lib/access-control/conversation-policy": loadAccessSource(
+      "src/lib/access-control/conversation-policy.ts",
+    ),
+    "../../../lib/access-control/channel-permissions": loadAccessSource(
+      "src/lib/access-control/channel-permissions.ts",
+    ),
+  }).Route.server.handlers;
+
+  // Non-admin cannot delete a Baileys connection
+  const forbidden = await route.POST({
+    request: apiRequest({ action: "delete", connectionId: "number-4" }),
+  });
+  assert.equal(forbidden.status, 403);
+
+  // Admin deletes number-4 (which has conversations, messages, pendingInbounds, whatsappConnectionContacts, contactChannelIdentities)
+  who = session("admin-a", "admin");
+  const deletedRes = await route.POST({
+    request: apiRequest({ action: "delete", connectionId: "number-4" }),
+  });
+  assert.equal(deletedRes.status, 200);
+  const deletedBody = await deletedRes.json();
+  assert.equal(deletedBody.deleted, true);
+  assert.equal(disposedId, "number-4");
+
+  const remainingConn = await db
+    .select()
+    .from(schema.whatsappConnections)
+    .where(orm.eq(schema.whatsappConnections.id, "number-4"));
+  assert.equal(remainingConn.length, 0);
+
+  // CRM contacts created via that Baileys remain intact!
+  const [preservedContact] = await db
+    .select()
+    .from(schema.contacts)
+    .where(orm.eq(schema.contacts.phone, "5511988887777"));
+  assert.ok(preservedContact);
+  assert.equal(preservedContact.name, "Padaria São José - Sr. Antônio");
 });

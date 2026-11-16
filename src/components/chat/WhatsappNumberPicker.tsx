@@ -12,21 +12,28 @@ export function WhatsappNumberPicker({
   connectionId,
   onPrepared,
   onChoosing,
+  compact = false,
 }: {
   conversationId: string;
   version: number;
   connectionId?: string | null;
-  onPrepared: (id: string, queueState: string) => Promise<void>;
-  onChoosing: (choosing: boolean) => void;
+  onPrepared: (id: string, queueState: string, operatorId?: string | null) => Promise<void>;
+  onChoosing?: (choosing: boolean) => void;
+  compact?: boolean;
 }) {
-  const { tenant } = useChat();
-  const { enabled, connections, refresh, canSwitchDuringAttendance } =
+  const { tenant, sessionRole } = useChat();
+  const { enabled, connections, refresh, canUseNumberPicker, canSwitchDuringAttendance } =
     useWhatsappConnections(tenant);
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState(connectionId || "corporate");
   const [busy, setBusy] = useState(false);
-  useEffect(() => () => onChoosing(false), [onChoosing]);
-  if (!enabled) return null;
+  useEffect(() => () => onChoosing?.(false), [onChoosing]);
+  const hasConnectedPersonalBaileys = connections.some(
+    (row) => !row.corporate && row.enabled && row.canSend === true && row.status === "connected",
+  );
+  const allowedToSeePicker =
+    sessionRole === "admin" || canUseNumberPicker || hasConnectedPersonalBaileys;
+  if (!enabled || !allowedToSeePicker) return null;
   const available = connections.filter(
     (row) => row.enabled && row.canSend === true && row.status === "connected",
   );
@@ -35,7 +42,7 @@ export function WhatsappNumberPicker({
     if (busy) return;
     setSelected(connectionId || "corporate");
     setOpen(value);
-    onChoosing(value);
+    onChoosing?.(value);
     if (value) void refresh().catch(() => toast.error("Não foi possível atualizar os números."));
   };
   return (
@@ -44,8 +51,13 @@ export function WhatsappNumberPicker({
         <PopoverTrigger asChild>
           <button
             type="button"
-            data-tour="chat.sender" aria-label="Escolher número de WhatsApp"
-            className="grid h-8 w-8 md:h-9 md:w-9 place-items-center rounded-xl border border-border bg-card text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+            data-tour="chat.sender"
+            aria-label="Escolher número de WhatsApp"
+            className={
+              compact
+                ? "rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer"
+                : "grid h-8 w-8 md:h-9 md:w-9 place-items-center rounded-xl border border-border bg-card text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+            }
           >
             <Smartphone className="h-4 w-4" />
           </button>
@@ -65,7 +77,7 @@ export function WhatsappNumberPicker({
               key={row.id}
               disabled={busy}
               onClick={() => setSelected(row.id)}
-              className={`flex w-full items-center justify-between gap-2 rounded-lg border p-2.5 text-left text-xs ${selected === row.id ? "border-primary bg-primary/10" : "border-border hover:bg-muted"}`}
+              className={`flex w-full items-center justify-between gap-2 rounded-lg border p-2.5 text-left text-xs cursor-pointer ${selected === row.id ? "border-primary bg-primary/10" : "border-border hover:bg-muted"}`}
             >
               <span className="min-w-0">
                 <span className="block truncate font-semibold">{row.name}</span>
@@ -83,23 +95,25 @@ export function WhatsappNumberPicker({
           </p>
         )}
         <p className="text-xs text-muted-foreground">
-          {canSwitchDuringAttendance
-            ? "Como administrador master, você pode escolher outro número sem finalizar. Cada número mantém seu próprio atendimento e responsável."
-            : "Salve a escolha e depois capture o atendimento. Para trocar durante um atendimento, finalize-o primeiro."}
+          {sessionRole === "admin"
+            ? "Como administrador, você pode escolher outro número a qualquer momento. Cada número mantém seu próprio atendimento e responsável."
+            : canSwitchDuringAttendance
+              ? "Escolha por qual número conectado deseja falar com este contato. Cada número mantém seu próprio atendimento sincronizado."
+              : "Salve a escolha e depois capture o atendimento. Para trocar durante um atendimento, finalize-o primeiro."}
         </p>
         <div className="flex justify-end gap-2">
           <button
             type="button"
             disabled={busy}
             onClick={() => chooseOpen(false)}
-            className="rounded-lg border border-border px-3 py-2 text-xs"
+            className="rounded-lg border border-border px-3 py-2 text-xs cursor-pointer"
           >
             Cancelar
           </button>
           <button
             type="button"
             disabled={busy || !available.some((row) => row.id === selected)}
-            className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-xs font-bold text-primary-foreground disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-xs font-bold text-primary-foreground disabled:opacity-50 cursor-pointer"
             onClick={async () => {
               setBusy(true);
               try {
@@ -109,9 +123,9 @@ export function WhatsappNumberPicker({
                   expectedVersion: version,
                   connectionId: selected,
                 });
-                await onPrepared(result.conversationId, result.queueState);
+                await onPrepared(result.conversationId, result.queueState, result.operatorId);
                 setOpen(false);
-                onChoosing(false);
+                onChoosing?.(false);
                 toast.success(
                   result.queueState === "meus"
                     ? "Conversa do número selecionado aberta."

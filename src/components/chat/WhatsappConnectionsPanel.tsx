@@ -21,6 +21,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   Smartphone,
+  Trash2,
   User,
   X,
 } from "lucide-react";
@@ -63,11 +64,13 @@ export function WhatsappConnectionsPanel({ compact = false }: { compact?: boolea
   const [ownerPopoverOpen, setOwnerPopoverOpen] = useState(false);
   const [ownerSearch, setOwnerSearch] = useState("");
   const [capturePopoverOpen, setCapturePopoverOpen] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   useEffect(() => {
     setPairing(null);
     setQr("");
     setPairError("");
+    setConfirmDeleteId(null);
   }, [tenant]);
 
   useEffect(() => {
@@ -318,44 +321,119 @@ export function WhatsappConnectionsPanel({ compact = false }: { compact?: boolea
                 </div>
 
                 {/* Botões de Ação */}
-                {c.canPair && (
-                  <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
-                    <SystemTooltip content="Gerar e exibir o QR Code para conectar o WhatsApp pelo celular">
-                      <button
-                        type="button"
-                        className={`inline-flex h-9 items-center gap-1.5 rounded-xl px-3.5 text-xs font-bold transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-2xs ${
-                          isConnected
-                            ? "border border-border bg-card text-foreground hover:bg-muted"
-                            : "bg-primary text-primary-foreground hover:opacity-90 shadow-soft"
-                        }`}
-                        disabled={busy || !c.enabled}
-                        onClick={async () => {
-                          if (await action({ action: "connect", connectionId: c.id })) {
-                            setPairing(c.id);
-                          }
-                        }}
-                      >
-                        <QrCode className="h-3.5 w-3.5 shrink-0" />
-                        <span>Conectar / QR</span>
-                      </button>
-                    </SystemTooltip>
+                {(c.canPair || canManage) && (
+                  <div className="flex flex-wrap items-center gap-2 shrink-0 self-end sm:self-center">
+                    {c.canPair && (
+                      <SystemTooltip content="Gerar e exibir o QR Code para conectar o WhatsApp pelo celular">
+                        <button
+                          type="button"
+                          className={`inline-flex h-9 items-center gap-1.5 rounded-xl px-3.5 text-xs font-bold transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-2xs ${
+                            isConnected
+                              ? "border border-border bg-card text-foreground hover:bg-muted"
+                              : "bg-primary text-primary-foreground hover:opacity-90 shadow-soft"
+                          }`}
+                          disabled={busy || !c.enabled}
+                          onClick={async () => {
+                            if (await action({ action: "connect", connectionId: c.id })) {
+                              setPairing(c.id);
+                            }
+                          }}
+                        >
+                          <QrCode className="h-3.5 w-3.5 shrink-0" />
+                          <span>Conectar / QR</span>
+                        </button>
+                      </SystemTooltip>
+                    )}
 
-                    <SystemTooltip content="Desconectar sessão e remover o pareamento atual deste número">
-                      <button
-                        type="button"
-                        className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-red-500/25 bg-red-500/10 px-3.5 text-xs font-bold text-red-600 dark:text-red-400 hover:bg-red-500/20 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                        disabled={busy}
-                        onClick={async () => {
-                          if (await action({ action: "disconnect", connectionId: c.id })) {
-                            setPairing(null);
-                            setQr("");
-                          }
-                        }}
+                    {c.canPair && (isConnected || isPairingThis) && (
+                      <SystemTooltip content="Desconectar sessão ativa deste número sem remover o cadastro">
+                        <button
+                          type="button"
+                          className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3.5 text-xs font-bold text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                          disabled={busy}
+                          onClick={async () => {
+                            if (await action({ action: "disconnect", connectionId: c.id })) {
+                              if (pairing === c.id) {
+                                setPairing(null);
+                                setQr("");
+                              }
+                              toast.success("Sessão desconectada.");
+                            }
+                          }}
+                        >
+                          <PowerOff className="h-3.5 w-3.5 shrink-0" />
+                          <span>Desconectar</span>
+                        </button>
+                      </SystemTooltip>
+                    )}
+
+                    {canManage && (
+                      <Popover
+                        open={confirmDeleteId === c.id}
+                        onOpenChange={(open) => setConfirmDeleteId(open ? c.id : null)}
                       >
-                        <PowerOff className="h-3.5 w-3.5 shrink-0" />
-                        <span>Desconectar</span>
-                      </button>
-                    </SystemTooltip>
+                        <SystemTooltip content="Excluir permanentemente esta conexão Baileys">
+                          <PopoverTrigger asChild>
+                            <button
+                              type="button"
+                              aria-label={`Excluir conexão ${c.name}`}
+                              disabled={busy}
+                              className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-red-500/25 bg-red-500/10 px-3.5 text-xs font-bold text-red-600 dark:text-red-400 hover:bg-red-500/20 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              <Trash2 className="h-3.5 w-3.5 shrink-0" />
+                              <span>Excluir</span>
+                            </button>
+                          </PopoverTrigger>
+                        </SystemTooltip>
+                        <PopoverContent
+                          align="end"
+                          sideOffset={6}
+                          className="w-[300px] max-w-[calc(100vw-24px)] rounded-2xl border border-border bg-card p-4 shadow-2xl space-y-3 z-[220]"
+                        >
+                          <div className="space-y-1">
+                            <p className="text-xs font-extrabold text-foreground">
+                              Excluir conexão &ldquo;{c.name}&rdquo;?
+                            </p>
+                            <p className="text-[11px] text-muted-foreground leading-relaxed">
+                              A sessão Baileys será encerrada e removida da lista. Os contatos e
+                              negociações do CRM permanecem preservados.
+                            </p>
+                          </div>
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => setConfirmDeleteId(null)}
+                              className="h-8 rounded-lg border border-border bg-muted/40 px-3 text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer disabled:opacity-50"
+                            >
+                              Cancelar
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={async () => {
+                                if (await action({ action: "delete", connectionId: c.id })) {
+                                  if (pairing === c.id) {
+                                    setPairing(null);
+                                    setQr("");
+                                  }
+                                  setConfirmDeleteId(null);
+                                  toast.success("Conexão Baileys excluída com sucesso.");
+                                }
+                              }}
+                              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-red-600 px-3 text-xs font-bold text-white hover:bg-red-700 transition cursor-pointer disabled:opacity-50"
+                            >
+                              {busy ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-3.5 w-3.5" />
+                              )}
+                              <span>Confirmar exclusão</span>
+                            </button>
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+                    )}
                   </div>
                 )}
               </div>

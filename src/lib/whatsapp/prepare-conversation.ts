@@ -44,8 +44,24 @@ export async function prepareWhatsappConversation(
   if (!multiConnectionEnabled(tenantId))
     fail("Múltiplas conexões não habilitadas.", "FEATURE_DISABLED");
   const rules = conversationReadRules(session);
+  const [ownConnectedBaileys] = master
+    ? []
+    : await db
+        .select({ id: whatsappConnections.id })
+        .from(whatsappConnections)
+        .where(
+          and(
+            eq(whatsappConnections.tenantId, tenantId),
+            eq(whatsappConnections.ownerOperatorId, session.operator.id),
+            eq(whatsappConnections.enabled, true),
+            eq(whatsappConnections.baileysSessionStatus, "connected"),
+            sql`${whatsappConnections.leaseUntil} > now()`,
+          ),
+        )
+        .limit(1);
+  const canSwitchOwnAttendance = master || Boolean(ownConnectedBaileys);
   if (
-    session.permissions.chat.canCaptureChat !== true ||
+    (session.permissions.chat.canCaptureChat !== true && !canSwitchOwnAttendance) ||
     !rules.enabled ||
     !rules.channels.includes("whatsapp")
   )
@@ -80,9 +96,20 @@ export async function prepareWhatsappConversation(
       fail("Atendimento alterado. Atualize a conversa.", "CONCURRENCY_CONFLICT");
     if (current.version !== input.expectedVersion)
       fail("O atendimento mudou. Atualize antes de escolher o número.", "CONCURRENCY_CONFLICT");
-    if (current.queueState === "meus" && !master)
+    const isOwnActiveAttendance =
+      current.queueState === "meus" && current.operatorId === session.operator.id;
+    if (
+      current.queueState === "meus" &&
+      !master &&
+      !(canSwitchOwnAttendance && isOwnActiveAttendance)
+    )
       fail("Finalize o atendimento antes de trocar o número.", "ATTENDANCE_NUMBER_LOCKED");
-    if (current.queueState !== "finalizados" && current.operatorId && !master)
+    if (
+      current.queueState !== "finalizados" &&
+      current.operatorId &&
+      current.operatorId !== session.operator.id &&
+      !master
+    )
       fail("Este atendimento já tem um responsável.", "ATTENDANCE_NUMBER_LOCKED");
     const [contact] = await tx
       .select({ mainChannel: contacts.mainChannel })
@@ -147,13 +174,23 @@ export async function prepareWhatsappConversation(
           (row) => !row.contactPhoneId || row.contactPhoneId === current.contactPhoneId,
         )
       : allCandidates;
-    if (!master && candidates.some((row) => row.queueState === "meus"))
+    const activeConflict = candidates.some(
+      (row) =>
+        row.queueState === "meus" &&
+        (!canSwitchOwnAttendance || (!master && row.operatorId !== session.operator.id)),
+    );
+    if (!master && activeConflict)
       fail(
         "Já existe um atendimento em andamento por este número. Finalize-o antes de preparar outro.",
         "TARGET_ATTENDANCE_ACTIVE",
       );
     const existing =
-      (master && candidates.find((row) => row.queueState === "meus")) || candidates[0];
+      (canSwitchOwnAttendance &&
+        candidates.find(
+          (row) =>
+            row.queueState === "meus" && (master || row.operatorId === session.operator.id),
+        )) ||
+      candidates[0];
     if (existing) {
       const [visible] = await tx
         .select({ id: conversations.id })
@@ -166,15 +203,28 @@ export async function prepareWhatsappConversation(
           ),
         )
         .limit(1);
-      if (!visible) fail("Atendimento de destino não encontrado.", "NOT_FOUND", 404);
+      if (!visible && !(isOwnActiveAttendance && !existing.operatorId))
+        fail("Atendimento de destino não encontrado.", "NOT_FOUND", 404);
     }
     const reopen = existing?.queueState === "finalizados";
-    if ((!existing || reopen) && (!rules.queues.includes("fila") || rules.ownOnly))
+    const promoteWaitingToOwn =
+      isOwnActiveAttendance && existing?.queueState === "fila" && !existing.operatorId;
+    if (isOwnActiveAttendance) {
+      if (!rules.queues.includes("meus"))
+        fail(
+          "Seu grupo precisa de acesso aos seus atendimentos para usar este número.",
+          "FORBIDDEN",
+          403,
+        );
+    } else if ((!existing || reopen) && (!rules.queues.includes("fila") || rules.ownOnly)) {
       fail(
         "Seu grupo precisa de acesso à fila de espera para preparar este atendimento.",
         "FORBIDDEN",
         403,
       );
+    }
+    const desiredQueueState = isOwnActiveAttendance ? "meus" : "fila";
+    const desiredOperatorId = isOwnActiveAttendance ? session.operator.id : null;
     let target = existing;
     if (!existing) {
       await setAttendanceActor(tx, tenantId, session.operator.name, session.operator.id);
@@ -187,18 +237,18 @@ export async function prepareWhatsappConversation(
           contactPhoneId: current.contactPhoneId ?? null,
           contactPhone: current.contactPhone ?? null,
           whatsappConnectionId: input.connectionId,
-          queueState: "fila",
-          operatorId: null,
+          queueState: desiredQueueState,
+          operatorId: desiredOperatorId,
           version: 1,
         })
         .returning();
-    } else if (reopen) {
+    } else if (reopen || promoteWaitingToOwn) {
       await setAttendanceActor(tx, tenantId, session.operator.name, session.operator.id);
       [target] = await tx
         .update(conversations)
         .set({
-          queueState: "fila",
-          operatorId: null,
+          queueState: desiredQueueState,
+          operatorId: desiredOperatorId,
           version: sql`${conversations.version} + 1`,
           updatedAt: new Date(),
         })
@@ -238,7 +288,7 @@ export async function prepareWhatsappConversation(
         conversationId: target.id,
         connectionId: input.connectionId,
         queueState: target.queueState,
-        captured: false,
+        captured: target.queueState === "meus",
       },
     });
     return {

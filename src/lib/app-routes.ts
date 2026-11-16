@@ -335,6 +335,7 @@ export const MODULE_ROUTE_SPECS: Record<ViewId, ModuleRouteSpec> = {
       email: "email",
       livechat: "livechat",
       mcp: "mcp",
+      api: "api",
       intelipost: "intelipost",
     },
     slugToTab: {
@@ -347,6 +348,10 @@ export const MODULE_ROUTE_SPECS: Record<ViewId, ModuleRouteSpec> = {
       livechat: "livechat",
       mcp: "mcp",
       "conector-mcp": "mcp",
+      api: "api",
+      "biblioteca-api": "api",
+      "api-docs": "api",
+      "documentacao-api": "api",
       intelipost: "intelipost",
       frete: "intelipost",
     },
