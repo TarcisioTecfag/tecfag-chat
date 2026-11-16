@@ -584,6 +584,39 @@ if (!databaseUrl) {
       );
     }
 
+    // 10b. Saneamento único do conflito restrictToOwnChats=true + canViewAllChats=true no grupo Assistência Técnica (group-1791375897099) da Tecfag (16/11/2026)
+    const fixAssistenciaChatVisibilityName =
+      "fix_tecfag_assistencia_tecnica_chat_visibility_2026_11_16_v1";
+    const [appliedAssistenciaChatVisibility] = await sql`
+      SELECT name FROM app_deploy_migrations WHERE name = ${fixAssistenciaChatVisibilityName}
+    `;
+    if (!appliedAssistenciaChatVisibility) {
+      await sql.begin(async (tx) => {
+        const updatedGroups = await tx`
+          UPDATE access_groups
+          SET permissions = jsonb_set(permissions, '{chat,restrictToOwnChats}', 'false'::jsonb, true)
+          WHERE tenant_id = 'tecfag'
+            AND id = 'group-1791375897099'
+            AND permissions IS NOT NULL
+            AND (permissions -> 'chat' ->> 'canViewAllChats') = 'true'
+            AND (permissions -> 'chat' ->> 'restrictToOwnChats') = 'true'
+          RETURNING id, name
+        `;
+        await tx`
+          INSERT INTO app_deploy_migrations (name)
+          VALUES (${fixAssistenciaChatVisibilityName})
+          ON CONFLICT (name) DO NOTHING
+        `;
+        console.log(
+          `[platform migration] ${fixAssistenciaChatVisibilityName} concluída (${updatedGroups.length} grupo(s) atualizado(s)).`,
+        );
+      });
+    } else {
+      console.log(
+        `[platform migration] ${fixAssistenciaChatVisibilityName} já aplicada anteriormente.`,
+      );
+    }
+
     // 11. Higienização contínua de sectors.operator_ids (remove IDs de operadores órfãos/excluídos e deduplica por setor)
     try {
       const [allSectors, allOperators] = await Promise.all([

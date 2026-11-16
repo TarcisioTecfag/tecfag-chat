@@ -1112,11 +1112,23 @@ export function GroupsView() {
     if (!targetGroup) return;
 
     const currentPerms = normalizeGroupPermissions(targetGroup);
+    const categoryPatch: Record<string, any> = { [key]: value };
+    if (category === "chat") {
+      if (key === "restrictToOwnChats" && value === true) {
+        categoryPatch.canViewAllChats = false;
+        categoryPatch.canOverrideChat = false;
+      } else if (key === "canViewAllChats" && value === true) {
+        categoryPatch.restrictToOwnChats = false;
+      } else if (key === "canOverrideChat" && value === true) {
+        categoryPatch.restrictToOwnChats = false;
+        categoryPatch.canViewAllChats = true;
+      }
+    }
     const updatedPerms: GroupPermissions = {
       ...currentPerms,
       [category]: {
         ...(currentPerms[category] as any),
-        [key]: value,
+        ...categoryPatch,
       },
     };
 
@@ -2910,8 +2922,30 @@ export function GroupsView() {
 
                     {openSections.chat && (
                       <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        {perms.chat.restrictToOwnChats && (perms.chat.canViewAllChats || perms.chat.canOverrideChat) && (
+                          <div className="sm:col-span-2 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-xs">
+                            <div className="flex items-start gap-2.5 flex-1 min-w-[220px]">
+                              <AlertCircle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+                              <div>
+                                <span className="font-bold text-foreground block">
+                                  Conflito de permissões ativo neste grupo
+                                </span>
+                                <span className="text-[11px] text-muted-foreground leading-snug block">
+                                  A trava <strong>Restringir somente aos próprios atendimentos</strong> está marcada e bloqueia abrir conversas que estão com outros operadores, mesmo com <em>Visualizar Todos os Chats</em> ou <em>Assumir Atendimento Alheio</em> habilitados.
+                                </span>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => updateGroupCategoryPatch(selectedGroupId, "chat", { restrictToOwnChats: false, canViewAllChats: true })}
+                              className="shrink-0 rounded-lg bg-primary px-3 py-1.5 text-[11px] font-bold text-primary-foreground shadow-soft hover:opacity-90 transition cursor-pointer"
+                            >
+                              Desativar restrição e liberar acesso
+                            </button>
+                          </div>
+                        )}
                         <button type="button" className="sm:col-span-2 rounded-xl border border-border p-3 text-left text-xs font-bold hover:bg-muted"
-                          onClick={() => { void updateAccessGroup(selectedGroupId, { permissions: { ...perms, chat: { ...perms.chat, ...OWN_CONVERSATIONS_PRESET } }, canViewAllChats: false }); }}>
+                          onClick={() => { void updateAccessGroup(selectedGroupId, { permissions: { ...perms, chat: { ...perms.chat, ...OWN_CONVERSATIONS_PRESET } }, canViewAllChats: false, canOverrideChat: false }); }}>
                           Aplicar visibilidade: somente Meus
                         </button>
                         {[
@@ -2919,7 +2953,7 @@ export function GroupsView() {
                           { key: "canTransferChat",          label: "Transferir Atendimentos", desc: "Enviar diretamente a um operador ou para a fila de um setor; atendimento alheio também exige Assumir Atendimento Alheio" },
                           { key: "canFinishChat",            label: "Encerrar Atendimentos", desc: "Finalizar atendimentos ativos e arquivar" },
                           { key: "canViewAllChats",          label: "Visualizar Todos os Chats", desc: "Ver conversas atribuídas a outros (leitura)" },
-                          { key: "restrictToOwnChats",       label: "Restringir somente aos próprios atendimentos", desc: "Bloqueia conversas sem responsável e de outros operadores, inclusive na visão Todos" },
+                          { key: "restrictToOwnChats",       label: "Restringir somente aos próprios atendimentos", desc: "Trava restritiva: bloqueia abrir conversas sem responsável ou que estejam com outros operadores (desativa Visualizar Todos os Chats)" },
                           { key: "canViewQueueMine",         label: "Visualizar fila Meus", desc: "Permitir conversas em atendimento humano dentro do alcance concedido" },
                           { key: "canViewQueueWaiting",      label: "Visualizar fila de espera", desc: "Permitir consultar e capturar conversas da fila, se tiver direito de captura" },
                           { key: "canViewQueueBot",          label: "Visualizar Automação", desc: "Permitir consultar conversas que estão com o bot" },
@@ -2934,19 +2968,31 @@ export function GroupsView() {
                           if (!matchesSearch(label, desc)) return null;
                           const isChecked = perms.chat[key as keyof typeof perms.chat] ?? false;
                           const isAdminOnly = key === "canOverrideChat";
+                          const isRestriction = key === "restrictToOwnChats";
                           return (
                             <label key={key} className={`flex items-start gap-3 rounded-xl border p-3 transition cursor-pointer ${
-                              isAdminOnly ? "border-destructive/30 bg-destructive/10 hover:bg-destructive/15" : "border-border bg-muted/20 hover:bg-muted/30"
+                              isAdminOnly
+                                ? "border-destructive/30 bg-destructive/10 hover:bg-destructive/15"
+                                : isRestriction
+                                  ? "border-amber-500/35 bg-amber-500/10 hover:bg-amber-500/15"
+                                  : "border-border bg-muted/20 hover:bg-muted/30"
                             }`}>
                               <Checkbox
                                 checked={isChecked}
                                 onCheckedChange={(checked) => updateGroupGranular(selectedGroupId, "chat", key, !!checked)}
-                                className={`shrink-0 mt-0.5 ${isAdminOnly ? "border-destructive data-[state=checked]:bg-destructive data-[state=checked]:text-destructive-foreground" : ""}`}
+                                className={`shrink-0 mt-0.5 ${
+                                  isAdminOnly
+                                    ? "border-destructive data-[state=checked]:bg-destructive data-[state=checked]:text-destructive-foreground"
+                                    : isRestriction
+                                      ? "border-amber-500 data-[state=checked]:bg-amber-500 data-[state=checked]:text-white"
+                                      : ""
+                                }`}
                               />
                               <div>
                                 <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
                                   {label}
                                   {isAdminOnly && <span className="text-[9px] font-bold text-destructive bg-destructive/15 border border-destructive/20 px-1.5 py-0.5 rounded">Crítico</span>}
+                                  {isRestriction && <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400 bg-amber-500/15 border border-amber-500/25 px-1.5 py-0.5 rounded">Trava</span>}
                                 </span>
                                 <span className="text-[10px] text-muted-foreground block leading-snug">{desc}</span>
                               </div>

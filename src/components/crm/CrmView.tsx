@@ -140,6 +140,7 @@ export function CrmView() {
     operators: globalOperators,
     operatorProfile,
     refreshConversations,
+    setActiveQueue,
     setActiveView,
     setSelectedChatId,
   } = useChat();
@@ -793,6 +794,8 @@ export function CrmView() {
       if (!deal) return;
       try {
         let targetConversationId = deal.primaryConversationId || null;
+        let resolvedReadOnly = false;
+        let resolvedQueueState: string | null = null;
 
         if (!targetConversationId && deal.primaryContactId) {
           const res = await fetch(
@@ -807,6 +810,8 @@ export function CrmView() {
           if (res.ok) {
             const data = await res.json();
             targetConversationId = data?.conversationId || null;
+            resolvedReadOnly = Boolean(data?.readOnly);
+            resolvedQueueState = typeof data?.queueState === "string" ? data.queueState : null;
           }
         }
 
@@ -830,6 +835,17 @@ export function CrmView() {
 
         if (targetConversationId) {
           await refreshConversations(targetConversationId);
+          if (resolvedReadOnly) {
+            setActiveQueue(
+              resolvedQueueState === "fila"
+                ? "fila"
+                : resolvedQueueState === "automacao"
+                  ? "automacao"
+                  : "todos",
+            );
+          } else if (deal.operatorId && deal.operatorId !== currentOperatorId) {
+            setActiveQueue("todos");
+          }
           setSelectedChatId(targetConversationId);
         }
       } catch {
@@ -841,7 +857,7 @@ export function CrmView() {
 
     window.addEventListener("crm:open-full-chat", handleOpenFullChatEvent);
     return () => window.removeEventListener("crm:open-full-chat", handleOpenFullChatEvent);
-  }, [refreshConversations, setSelectedChatId, setActiveView, navigate]);
+  }, [refreshConversations, setActiveQueue, currentOperatorId, setSelectedChatId, setActiveView, navigate]);
 
   useEffect(() => {
     const handleDealValueUpdated = (ev: Event) => {

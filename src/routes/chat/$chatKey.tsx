@@ -13,7 +13,7 @@ function ChatLinkPage() {
   const { chatKey } = Route.useParams();
   const navigate = useNavigate();
   const {
-    activeChat, activeView, conversations, isAuthenticated, selectedChatId, setActiveQueue,
+    activeChat, activeView, conversations, currentOperatorId, isAuthenticated, selectedChatId, setActiveQueue,
     setActiveView, setSelectedChatId, refreshConversations,
   } = useChat();
   const [resolved, setResolved] = useState<{ key: string; id: string } | null>(null);
@@ -34,6 +34,11 @@ function ChatLinkPage() {
     // Uma troca feita na lista já atualizou o chat no estado compartilhado.
     // Navegar para a nova URL não precisa buscar nem remontar a tela inteira.
     if (activeChat && (activeChat.id === chatKey || getChatLinkKey(activeChat, conversations) === chatKey)) {
+      if (activeChat.queue === "fila" || activeChat.queue === "automacao" || activeChat.queue === "finalizados") {
+        setActiveQueue(activeChat.queue);
+      } else if (activeChat.operatorId !== currentOperatorId) {
+        setActiveQueue("todos");
+      }
       setResolved({ key: chatKey, id: activeChat.id });
       return;
     }
