@@ -150,7 +150,16 @@ export async function runTecfagPecasRdCrmMigration(sql, options = {}) {
     `;
 
     const opByKey = new Map();
-    for (const spec of payload.operatorSpecs || []) {
+    for (const rawSpec of payload.operatorSpecs || []) {
+      const spec =
+        rawSpec.key === "deborah_rayane"
+          ? {
+              ...rawSpec,
+              id: "op-1794601994898",
+              email: "ouvidoria@tecfag.com.br",
+              name: "Deborah Alves",
+            }
+          : rawSpec;
       const specEmail = String(spec.email || "").trim().toLowerCase();
       let found =
         (specEmail

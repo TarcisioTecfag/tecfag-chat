@@ -244,9 +244,9 @@ export const ACTIVE_OPERATOR_SPECS = [
   },
   {
     key: "deborah_rayane",
-    id: "op-1791377124750",
-    email: "vendas15@tecfag.com.br",
-    name: "Déborah Rayane",
+    id: "op-1794601994898",
+    email: "ouvidoria@tecfag.com.br",
+    name: "Deborah Alves",
     rdNames: ["Deborah Alves - 94", "Deborah Alves", "Déborah Rayane"],
   },
   // Demais operadores ativos no tenant Tecfag

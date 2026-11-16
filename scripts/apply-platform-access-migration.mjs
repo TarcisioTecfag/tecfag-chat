@@ -555,7 +555,36 @@ if (!databaseUrl) {
       console.log(`[platform migration] ${tecfagSuporteRdCrmMigrationName} já aplicada anteriormente.`);
     }
 
-    // 10. Higienização contínua de sectors.operator_ids (remove IDs de operadores órfãos/excluídos e deduplica por setor)
+    // 10. Reatribuição integral de Déborah Rayane (vendas15@tecfag.com.br / op-1791377124750) -> Deborah Alves (ouvidoria@tecfag.com.br / op-1794601994898) + exclusão limpa do operador legado (16/11/2026)
+    const deborahAlvesReassignName =
+      "reassign_tecfag_deborah_alves_ouvidoria_2026_11_16_v1";
+    const [appliedDeborahAlvesReassign] = await sql`
+      SELECT name FROM app_deploy_migrations WHERE name = ${deborahAlvesReassignName}
+    `;
+    if (!appliedDeborahAlvesReassign) {
+      console.log(
+        `[platform migration] Iniciando execução única de ${deborahAlvesReassignName}...`,
+      );
+      const { runReassignDeborahAlvesOperator } = await import(
+        "./reassign-deborah-alves-operator.mjs"
+      );
+      const summary = await runReassignDeborahAlvesOperator(sql);
+      await sql`
+        INSERT INTO app_deploy_migrations (name)
+        VALUES (${deborahAlvesReassignName})
+        ON CONFLICT (name) DO NOTHING
+      `;
+      console.log(
+        `[platform migration] ${deborahAlvesReassignName} concluída com sucesso:`,
+        summary,
+      );
+    } else {
+      console.log(
+        `[platform migration] ${deborahAlvesReassignName} já aplicada anteriormente.`,
+      );
+    }
+
+    // 11. Higienização contínua de sectors.operator_ids (remove IDs de operadores órfãos/excluídos e deduplica por setor)
     try {
       const [allSectors, allOperators] = await Promise.all([
         sql`SELECT id, tenant_id, name, operator_ids FROM sectors`,

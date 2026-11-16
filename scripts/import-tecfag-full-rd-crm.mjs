@@ -115,14 +115,23 @@ export async function runTecfagFullRdCrmMigration(sql) {
     `;
 
     const opByKey = new Map();
-    for (const spec of payload.operatorSpecs || []) {
+    for (const rawSpec of payload.operatorSpecs || []) {
+      const spec =
+        rawSpec.key === "deborah_rayane"
+          ? {
+              ...rawSpec,
+              id: "op-1794601994898",
+              email: "ouvidoria@tecfag.com.br",
+              name: "Deborah Alves",
+            }
+          : rawSpec;
       let found =
-        existingOps.find((o) => o.id === spec.id) ||
         existingOps.find(
           (o) =>
-            String(o.email || "").toLowerCase() ===
-            String(spec.email || "").toLowerCase(),
+            String(o.email || "").trim().toLowerCase() ===
+            String(spec.email || "").trim().toLowerCase(),
         ) ||
+        existingOps.find((o) => o.id === spec.id) ||
         existingOps.find((o) => normKey(o.name) === normKey(spec.name)) ||
         null;
 
