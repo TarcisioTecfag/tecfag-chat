@@ -59,11 +59,14 @@ export function Login() {
 
     setIsLoading(true);
     try {
-      const success = await login(selectedTenant, email, password);
+      let serverError: string | null = null;
+      const success = await login(selectedTenant, email, password, (msg) => {
+        serverError = msg;
+      });
       if (success) {
         toast.success(`Login efetuado com sucesso no ${selectedTenant === "tecfag" ? "Tecfag" : "Valem"}!`);
       } else {
-        toast.error("Credenciais inválidas para a empresa selecionada. Tente novamente.");
+        toast.error(serverError || "Credenciais inválidas para a empresa selecionada. Tente novamente.");
       }
     } catch (err) {
       toast.error("Ocorreu um erro ao tentar entrar.");

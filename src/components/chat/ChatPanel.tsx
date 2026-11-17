@@ -107,6 +107,7 @@ import {
 import { MarkEvidenceModal } from "@/components/crm/MarkEvidenceModal";
 import { AiAvatar } from "@/components/ui/AiAvatar";
 import { ChatMessageBubble } from "./ChatMessageBubble";
+import { ZoomableImageModal } from "./ZoomableImageModal";
 import { AgenticThoughtTrace } from "@/components/valentina/chat-blocks/AgenticThoughtTrace";
 import { io as socketIO, type Socket } from "socket.io-client";
 import {
@@ -5746,11 +5747,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             onClick={(e) => e.stopPropagation()}
           >
             {activeMedia.type === "image" ? (
-              <img
-                src={activeMedia.url}
-                alt="Visualização"
-                className="max-w-full max-h-[80vh] object-contain rounded-xl shadow-2xl select-none"
-              />
+              <ZoomableImageModal url={activeMedia.url} onClose={() => setActiveMedia(null)} />
             ) : (
               <video
                 src={activeMedia.url}

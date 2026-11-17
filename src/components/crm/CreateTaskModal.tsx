@@ -145,7 +145,7 @@ export function CreateTaskModal({
     if (Array.isArray(initialOperatorsProp) && initialOperatorsProp.length > 0) return;
     if (fallbackOperators.length > 0) return;
     let mounted = true;
-    fetch("/api/operators")
+    fetch("/api/operators?lite=true")
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (!mounted || !data) return;

@@ -120,7 +120,8 @@ export async function transcribeAudio(
     console.log(`[Transcriber VertexAI] Transcrição concluída: ${cleaned.substring(0, 80)}...`);
     return cleaned || null;
   } catch (err: any) {
-    console.error("[Transcriber VertexAI] Erro ao transcrever áudio:", err?.message ?? err);
+    console.error("[Transcriber VertexAI] Erro ao transcrever áudio (stack/detail):", JSON.stringify(err, null, 2));
+    console.error("[Transcriber VertexAI] Erro ao transcrever áudio (message):", err?.message ?? err);
     return null;
   }
 }

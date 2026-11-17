@@ -28,6 +28,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { invalidateCommercialBiCache } from "./CommercialBiView";
 import { getDeterministicConsultantAvatar } from "@/lib/commercial/avatar-matcher";
 
 export type ConsultantRow = {
@@ -189,6 +190,7 @@ export const CommercialConsultantsView = React.memo(function CommercialConsultan
         toast.success(
           `${consultant.name} agora está ${nextTvState ? "visível" : "oculto"} no BI TV.`,
         );
+        invalidateCommercialBiCache();
         if (onRefresh) await onRefresh();
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Erro ao atualizar TV");
@@ -274,6 +276,7 @@ export const CommercialConsultantsView = React.memo(function CommercialConsultan
 
       toast.success(`Consultor ${editingConsultant.name} atualizado com sucesso!`);
       setEditingConsultant(null);
+      invalidateCommercialBiCache();
       if (onRefresh) await onRefresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro ao salvar.");
@@ -304,6 +307,7 @@ export const CommercialConsultantsView = React.memo(function CommercialConsultan
 
       toast.success(`${deletingConsultant.name} foi removido da equipe comercial.`);
       setDeletingConsultant(null);
+      invalidateCommercialBiCache();
       if (onRefresh) await onRefresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro ao desvincular.");
@@ -341,6 +345,7 @@ export const CommercialConsultantsView = React.memo(function CommercialConsultan
       setSelectedOperatorId("");
       setModalUserSearch("");
       setModalUserPage(1);
+      invalidateCommercialBiCache();
       if (onRefresh) await onRefresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro ao adicionar consultor.");

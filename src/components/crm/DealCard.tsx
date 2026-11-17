@@ -28,6 +28,25 @@ const BRL_CURRENCY_FORMATTER = new Intl.NumberFormat("pt-BR", {
   currency: "BRL",
 });
 
+// Singletons de formatação de data e horário da próxima tarefa no tooltip do card
+const TASK_SCHEDULE_DATE_FORMATTER = new Intl.DateTimeFormat("pt-BR", {
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+});
+
+const TASK_SCHEDULE_TIME_FORMATTER = new Intl.DateTimeFormat("pt-BR", {
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
+export function formatTaskScheduleTooltip(dueDate?: string | Date | null): string {
+  if (!dueDate) return "Sem data e horário programados";
+  const parsed = dueDate instanceof Date ? dueDate : new Date(dueDate);
+  if (Number.isNaN(parsed.getTime())) return "Sem data e horário programados";
+  return `Programada para ${TASK_SCHEDULE_DATE_FORMATTER.format(parsed)} às ${TASK_SCHEDULE_TIME_FORMATTER.format(parsed)}`;
+}
+
 // Contenção de layout/pintura por card para isolar repaints na GPU/CPU
 const CARD_CONTAIN_STYLE: React.CSSProperties = {
   contain: "layout paint style",
@@ -748,18 +767,21 @@ export const DealCard = React.memo(function DealCard({
       <div className="mt-1.5 pt-1.5 border-t border-border/50">
         <div data-tour="crm.card-task" className="flex items-center justify-between gap-2 h-7 px-2 rounded-lg border bg-muted/40 border-border/50 text-xs">
           {effectiveNextTask ? (
-            <div className="flex items-center gap-1.5 min-w-0 flex-1">
-              <Clock
-                className={`h-3 w-3 shrink-0 ${
-                  effectiveNextTask.isOverdue
-                    ? "text-red-600 dark:text-red-400"
-                    : effectiveNextTask.isToday
-                    ? "text-amber-600 dark:text-amber-400"
-                    : "text-muted-foreground"
-                }`}
-              />
-              <CardTooltip content={effectiveNextTask.title.replace(/^Hoje:\s*/i, "")} disabled={isOverlay}>
-                <span className="truncate text-foreground/80 cursor-default text-[11px]">
+            <CardTooltip
+              content={formatTaskScheduleTooltip(effectiveNextTask.dueDate)}
+              disabled={isOverlay}
+            >
+              <div className="flex items-center gap-1.5 min-w-0 flex-1 cursor-default">
+                <Clock
+                  className={`h-3 w-3 shrink-0 ${
+                    effectiveNextTask.isOverdue
+                      ? "text-red-600 dark:text-red-400"
+                      : effectiveNextTask.isToday
+                      ? "text-amber-600 dark:text-amber-400"
+                      : "text-muted-foreground"
+                  }`}
+                />
+                <span className="truncate text-foreground/80 text-[11px]">
                   {effectiveNextTask.isOverdue ? (
                     <strong className="text-red-600 dark:text-red-400 mr-1 font-bold">
                       Atrasada:
@@ -771,8 +793,8 @@ export const DealCard = React.memo(function DealCard({
                   ) : null}
                   {effectiveNextTask.title.replace(/^Hoje:\s*/i, "")}
                 </span>
-              </CardTooltip>
-            </div>
+              </div>
+            </CardTooltip>
           ) : (
             <div className="flex items-center gap-1.5 min-w-0 flex-1 text-[11px] text-muted-foreground">
               {isCooling ? (

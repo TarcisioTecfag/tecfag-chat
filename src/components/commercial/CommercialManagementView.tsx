@@ -29,6 +29,7 @@ import { CommercialDiretrizesBreakdownModal } from "./CommercialDiretrizesBreakd
 import type { DiretrizesConsultantRow } from "@/lib/commercial/diretrizes-crm-data";
 import { toDiretrizesPresentation } from "@/lib/commercial/presentation-data";
 import { buildConsultantAvatarResolver, getDeterministicConsultantAvatar } from "@/lib/commercial/avatar-matcher";
+import { invalidateCommercialBiCache } from "./CommercialBiView";
 
 const COMMERCIAL_TABS = [
   { id: "consultants", label: "Consultores", icon: Users },
@@ -115,6 +116,7 @@ async function postJson(url: string, body: unknown) {
   });
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || "Falha ao salvar configuração comercial.");
+  invalidateCommercialBiCache();
   return data;
 }
 

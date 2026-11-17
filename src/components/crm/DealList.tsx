@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { DealCardData } from "./DealCard";
+import { DealCardData, formatTaskScheduleTooltip } from "./DealCard";
 import {
   Building2,
   User,
@@ -460,10 +460,12 @@ export function DealList({
                             </div>
 
                             {nextTask ? (
-                              <div className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-medium border border-border/80 bg-muted/40 text-foreground max-w-[160px] truncate">
-                                <Clock className={`h-2.5 w-2.5 shrink-0 ${nextTask.isOverdue ? "text-red-500" : "text-muted-foreground"}`} />
-                                <span className="truncate">{nextTask.title}</span>
-                              </div>
+                              <SystemTooltip content={formatTaskScheduleTooltip(nextTask.dueDate)}>
+                                <div className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-medium border border-border/80 bg-muted/40 text-foreground max-w-[160px] truncate cursor-default">
+                                  <Clock className={`h-2.5 w-2.5 shrink-0 ${nextTask.isOverdue ? "text-red-500" : "text-muted-foreground"}`} />
+                                  <span className="truncate">{nextTask.title}</span>
+                                </div>
+                              </SystemTooltip>
                             ) : (
                               <button
                                 type="button"
@@ -693,13 +695,7 @@ export function DealList({
                       {/* Próxima Tarefa */}
                       <td className="py-3 px-3 max-w-[150px]">
                         {nextTask ? (
-                          <SystemTooltip
-                            content={`${nextTask.title} (${
-                              nextTask.dueDate
-                                ? new Date(nextTask.dueDate).toLocaleDateString("pt-BR")
-                                : "Sem prazo"
-                            })`}
-                          >
+                          <SystemTooltip content={formatTaskScheduleTooltip(nextTask.dueDate)}>
                             <div className="inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[10px] font-medium border border-border/80 bg-muted/40 text-foreground truncate cursor-default">
                               <Clock className={`h-2.5 w-2.5 shrink-0 ${nextTask.isOverdue ? "text-red-500" : "text-muted-foreground"}`} />
                               <span className="truncate">{nextTask.title}</span>

@@ -18,6 +18,7 @@ import {
   requireSession,
   sanitizeOperator,
   revokeAllOperatorSessions,
+  resetLoginRateLimit,
 } from "../../lib/auth-session.js";
 import { hashPassword, needsPasswordMigration } from "../../lib/auth-crypto.js";
 import { revokeAccountSessions } from "../../lib/platform-access.js";
@@ -52,6 +53,54 @@ export const Route = createFileRoute("/api/operators")({
         const url = new URL(request.url);
         const action = url.searchParams.get("action");
         const id = url.searchParams.get("id");
+        const isLite = url.searchParams.get("lite") === "true";
+
+        if (isLite && !action) {
+          try {
+            const liteList = await db
+              .select({
+                id: operators.id,
+                name: operators.name,
+                email: operators.email,
+                role: operators.role,
+                status: operators.status,
+                isOnline: operators.isOnline,
+                lastSeenAt: operators.lastSeenAt,
+                usageDate: operators.usageDate,
+                usageSecondsToday: operators.usageSecondsToday,
+              })
+              .from(operators)
+              .where(eq(operators.tenantId, tenantId));
+
+            const mappedLite = liteList.map((op) => {
+              const presence = computeOperatorPresenceSnapshot(op as any, tenantId, session.operator.id);
+              return {
+                id: op.id,
+                name: op.name,
+                email: op.email,
+                role: op.role,
+                status: op.status,
+                isOnline: presence.isOnline,
+              };
+            });
+
+            const sortedLite = sortAlphabeticallyByName(mappedLite);
+
+            return new Response(JSON.stringify(sortedLite), {
+              headers: {
+                ...corsHeaders,
+                "Content-Type": "application/json",
+                "Cache-Control": "private, max-age=30",
+              },
+            });
+          } catch (e: any) {
+            console.error("[GET /api/operators?lite=true] Erro:", e);
+            return new Response(JSON.stringify({ error: e.message }), {
+              status: 500,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+        }
 
         // GET ?action=count-linked&id=<operatorId> — auditoria detalhada de patrimônio e vínculos
         if (action === "count-linked" && id) {
@@ -470,6 +519,12 @@ export const Route = createFileRoute("/api/operators")({
                   .set({ passwordHash: safePasswordHash })
                   .where(eq(operators.accountId, existing.accountId));
                 await revokeAccountSessions(existing.accountId, keepCurrentSessionId);
+                for (const t of ["tecfag", "valem"]) {
+                  resetLoginRateLimit(`${t}:${finalEmail}`);
+                  if (previousEmail !== finalEmail) {
+                    resetLoginRateLimit(`${t}:${previousEmail}`);
+                  }
+                }
               } else {
                 const matchedPlatformAccount = await db.query.platformAccounts.findFirst({
                   where: or(
@@ -484,6 +539,10 @@ export const Route = createFileRoute("/api/operators")({
                     .where(eq(platformAccounts.id, matchedPlatformAccount.id));
                 }
                 await revokeAllOperatorSessions(existing.id, keepCurrentSessionId);
+                resetLoginRateLimit(`${tenantId}:${finalEmail}`);
+                if (previousEmail !== finalEmail) {
+                  resetLoginRateLimit(`${tenantId}:${previousEmail}`);
+                }
               }
             }
 

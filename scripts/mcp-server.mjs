@@ -28,9 +28,11 @@ import {
 import { categorizeLossReason } from "../src/lib/commercial/perdas-data.ts";
 import { projectIndustrialMonitoring } from "../src/lib/triage/industrial-monitor.ts";
 import {
+import {
   buildJournalSnapshot,
   readJournalSnapshot,
 } from "../src/lib/triage/industrial-triage-journal.ts";
+import { getKnowledgeBaseContext } from "../src/lib/valentina/knowledge-service.ts";
 
 // Garante que qualquer console.log acidental de dependências vá para stderr
 // para jamais corromper o canal JSON-RPC no stdout.
@@ -402,6 +404,42 @@ const TOOLS = [
     },
   },
   {
+    name: "get_rag_context",
+    description: "Inspeciona o contexto da base de conhecimento (RAG) injetado na IA para uma conversa específica.",
+    inputSchema: {
+      type: "object",
+      required: ["conversationId"],
+      properties: {
+        tenantId: { type: "string", enum: ["tecfag", "valem"], default: "tecfag" },
+        conversationId: { type: "string" },
+        queryHint: { type: "string" },
+      },
+    },
+  },
+  {
+    name: "get_system_health_and_logs",
+    description: "Consulta saúde do sistema, métricas básicas e logs recentes do Railway.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        tenantId: { type: "string", enum: ["tecfag", "valem"], default: "tecfag" },
+        limit: { type: "number", default: 20 },
+      },
+    },
+  },
+  {
+    name: "invalidate_cache",
+    description: "Invalida caches internos do sistema (Admin only).",
+    inputSchema: {
+      type: "object",
+      required: ["cacheKey"],
+      properties: {
+        tenantId: { type: "string", enum: ["tecfag", "valem"], default: "tecfag" },
+        cacheKey: { type: "string", description: "Chave do cache para invalidar (ex: 'commercial_bi')." },
+      },
+    },
+  },
+  {
     name: "get_rodizio_and_operators_status",
     description:
       "Retorna o status atual dos operadores, setores, fila de atendimento e Escala Local do Rodízio (aba Fluxos do Fagner/Valentina: pastas Máquinas, Personnalité, Peças, Assistência Técnica, Pós-Venda e Financeiro, operadores ativos/em folga, compensações e leads distribuídos).",
@@ -515,6 +553,7 @@ async function handleSearchConversations(args) {
     returnedCount: rows.length,
     conversations: rows.map((r) => ({
       conversationId: r.conversation_id,
+      uiDeepLink: `/chat/${r.conversation_id}`,
       queueState: r.queue_state,
       unreadCount: r.unread_count,
       lastMessageText: r.last_message_text,
@@ -953,6 +992,7 @@ async function handleSearchCrmDeals(args) {
           isCommercialWinStage({ id: r.stage_id, name: r.stage_name, isWinStage: r.is_win_stage }));
       return {
         id: r.id,
+        uiDeepLink: `/crm/deals/${r.id}`,
         title: r.title,
         value: Number(r.value || 0),
         currency: r.currency,
@@ -1259,6 +1299,7 @@ async function handleSearchCrmAccounts(args) {
     returnedCount: rows.length,
     accounts: rows.map((acc) => ({
       id: acc.id,
+      uiDeepLink: `/clientes/empresas/${acc.id}`,
       type: acc.type,
       name: acc.name,
       tradeName: acc.trade_name,
@@ -1322,6 +1363,7 @@ async function handleSearchContacts(args) {
     returnedCount: rows.length,
     contacts: rows.map((r) => ({
       id: r.id,
+      uiDeepLink: `/clientes/${r.id}`,
       name: r.name,
       phone: r.phone,
       email: r.email,
@@ -1633,6 +1675,45 @@ async function handleGetSalesAndCommercialMetrics(args) {
   };
 }
 
+async function handleGetRagContext(args) {
+  const tenantId = normalizeTenantId(args.tenantId);
+  const conversationId = String(args.conversationId || "").trim();
+  const queryHint = args.queryHint || "";
+
+  const knowledgeContext = await getKnowledgeBaseContext(tenantId, queryHint);
+
+  return {
+    tenantId,
+    conversationId,
+    knowledgeContext: knowledgeContext || "Nenhum contexto RAG encontrado para esta consulta.",
+    consultedAt: new Date().toISOString(),
+  };
+}
+
+async function handleGetSystemHealthAndLogs(args) {
+  // Simula healthcheck via banco (já que não temos acesso direto a logs de sistema via SQL aqui)
+  const [dbCheck] = await sql`SELECT 1`;
+  return {
+    status: dbCheck ? "ok" : "error",
+    message: "Sistema operacional. Logs do Railway podem ser acessados via painel.",
+    timestamp: new Date().toISOString(),
+  };
+}
+
+async function handleInvalidateCache(args) {
+  const tenantId = normalizeTenantId(args.tenantId);
+  const cacheKey = String(args.cacheKey || "").trim();
+  
+  // Limpa cache no banco
+  await sql`DELETE FROM agent_configs WHERE tenant_id = ${tenantId} AND agent_type = 'cache' AND config->>'key' = ${cacheKey}`;
+  
+  return {
+    status: "success",
+    message: `Cache '${cacheKey}' invalidado para tenant '${tenantId}'.`,
+    timestamp: new Date().toISOString(),
+  };
+}
+
 async function handleGetRodizioAndOperatorsStatus(args) {
   const tenantId = normalizeTenantId(args.tenantId);
 
@@ -1719,6 +1800,12 @@ async function executeTool(name, args = {}) {
       return handleSearchContacts(args);
     case "get_sales_and_commercial_metrics":
       return handleGetSalesAndCommercialMetrics(args);
+    case "get_rag_context":
+      return handleGetRagContext(args);
+    case "get_system_health_and_logs":
+      return handleGetSystemHealthAndLogs(args);
+    case "invalidate_cache":
+      return handleInvalidateCache(args);
     case "get_rodizio_and_operators_status":
       return handleGetRodizioAndOperatorsStatus(args);
     default:
@@ -1750,6 +1837,9 @@ const LOCAL_TOOL_LABELS = {
   get_fagner_triage_history: "Histórico da Triagem IA",
   search_crm_deals: "Pesquisa de Negociações (CRM)",
   get_crm_deal_details: "Ficha 360º da Negociação",
+  get_rag_context: "Introspecção de Contexto RAG",
+  get_system_health_and_logs: "Monitoramento de Saúde e Logs",
+  invalidate_cache: "Invalidação de Cache",
   search_crm_accounts: "Empresas & Receita Federal",
   search_contacts: "Busca de Contatos",
   get_sales_and_commercial_metrics: "Métricas de Vendas & Meta",

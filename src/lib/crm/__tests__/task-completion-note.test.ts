@@ -2,6 +2,7 @@
 import { describe, expect, test } from "bun:test";
 import { createTrainingStore, handleTrainingRequest } from "../../onboarding/frame-store";
 import { DEFAULT_ADMIN_PERMISSIONS } from "../../rbac";
+import { formatTaskScheduleTooltip } from "../../../components/crm/DealCard";
 
 function makeStore() {
   return createTrainingStore({
@@ -95,5 +96,12 @@ describe("CRM Task Completion with Optional Annotation (completionNote)", () => 
       (t) => (t.dealId === dealId || t.deal?.id === dealId) && t.type === "note"
     );
     expect(dealNotes).toHaveLength(0);
+  });
+
+  test("formats deal card task hover tooltip with scheduled date and time instead of task title", () => {
+    const sampleDate = new Date(2026, 10, 11, 14, 35, 0);
+    expect(formatTaskScheduleTooltip(sampleDate)).toBe("Programada para 11/11/2026 às 14:35");
+    expect(formatTaskScheduleTooltip(null)).toBe("Sem data e horário programados");
+    expect(formatTaskScheduleTooltip("invalid-date")).toBe("Sem data e horário programados");
   });
 });

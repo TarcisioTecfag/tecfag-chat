@@ -6,6 +6,7 @@ import {
   requireSession,
   sanitizeOperator,
   revokeAllOperatorSessions,
+  resetLoginRateLimit,
 } from "../../../lib/auth-session.js";
 import { hashPassword, needsPasswordMigration } from "../../../lib/auth-crypto.js";
 import { revokeAccountSessions } from "../../../lib/platform-access.js";
@@ -84,6 +85,7 @@ export const Route = createFileRoute("/api/operators/profile")({
             updateFields.passwordHash = safePasswordHash;
             updateFields.mustChangePassword = false;
 
+            const targetEmail = (email ?? session.operator.email).trim().toLowerCase();
             if (session.accountId) {
               await db
                 .update(platformAccounts)
@@ -94,13 +96,16 @@ export const Route = createFileRoute("/api/operators/profile")({
                 .set({ passwordHash: safePasswordHash, mustChangePassword: false })
                 .where(eq(operators.accountId, session.accountId));
               await revokeAccountSessions(session.accountId, session.sessionId);
+              for (const t of ["tecfag", "valem"]) {
+                resetLoginRateLimit(`${t}:${targetEmail}`);
+              }
             } else {
-              const targetEmail = (email ?? session.operator.email).trim().toLowerCase();
               await db
                 .update(platformAccounts)
                 .set({ passwordHash: safePasswordHash })
                 .where(sql`lower(${platformAccounts.email}) = ${targetEmail}`);
               await revokeAllOperatorSessions(operatorId, session.sessionId);
+              resetLoginRateLimit(`${tenantId}:${targetEmail}`);
             }
           }
 

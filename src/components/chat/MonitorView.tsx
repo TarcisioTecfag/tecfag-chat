@@ -9486,12 +9486,33 @@ function GlobalTasksTab({
         setError(data.error || "Não foi possível carregar as tarefas globais.");
         setTasks([]);
       } else {
-        const fetchedTasks: GlobalTaskItem[] = Array.isArray(data.tasks) ? data.tasks : [];
+        const opsCatalog: Array<{
+          id: string;
+          name: string;
+          email: string | null;
+          avatar: string | null;
+          isOnline: boolean;
+        }> = Array.isArray(data.operators) ? data.operators : [];
+        const avatarByOpId = new Map<string, string | null>(
+          opsCatalog.map((op) => [op.id, op.avatar ?? null]),
+        );
+        const rawFetchedTasks: GlobalTaskItem[] = Array.isArray(data.tasks) ? data.tasks : [];
+        const fetchedTasks: GlobalTaskItem[] = rawFetchedTasks.map((t) => ({
+          ...t,
+          operatorAvatar:
+            t.operatorAvatar ?? (t.operatorId ? avatarByOpId.get(t.operatorId) ?? null : null),
+          assignedOperators: Array.isArray(t.assignedOperators)
+            ? t.assignedOperators.map((ao) => ({
+                ...ao,
+                avatar: ao.avatar ?? avatarByOpId.get(ao.id) ?? null,
+              }))
+            : t.assignedOperators,
+        }));
         setTasks(fetchedTasks);
         setSummary(data.summary ?? null);
         setOperatorBreakdown(Array.isArray(data.operatorBreakdown) ? data.operatorBreakdown : []);
         setPipelines(Array.isArray(data.pipelines) ? data.pipelines : []);
-        setOperatorsCatalog(Array.isArray(data.operators) ? data.operators : []);
+        setOperatorsCatalog(opsCatalog);
         const overdueCnt =
           data.summary?.overdueTasksCount ??
           fetchedTasks.filter((t) => t.status !== "done" && t.status !== "completed" && t.dueDate && new Date(t.dueDate) < new Date()).length;

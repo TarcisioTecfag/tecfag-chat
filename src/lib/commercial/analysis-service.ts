@@ -709,6 +709,7 @@ export async function getResponsibilityAnalysis(options: AnalysisOptions & { mon
       and(
         eq(commercialConsultantProfiles.tenantId, options.tenantId),
         options.division ? eq(commercialConsultantProfiles.division, options.division) : undefined,
+        options.includeHidden ? undefined : eq(commercialConsultantProfiles.activeOnTv, true),
       ),
     );
   const consultantMap = new Map(consultants.map((item) => [item.operatorId, item]));

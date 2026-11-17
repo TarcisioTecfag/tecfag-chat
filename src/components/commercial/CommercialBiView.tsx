@@ -192,6 +192,10 @@ interface BiDataCacheEntry {
 const biMemoryCache = new Map<string, BiDataCacheEntry>();
 const BI_CACHE_TTL_MS = 60_000;
 
+export function invalidateCommercialBiCache() {
+  biMemoryCache.clear();
+}
+
 export const LiveClockHeader = memo(function LiveClockHeader() {
   const [currentTime, setCurrentTime] = useState(() => new Date());
   useEffect(() => {

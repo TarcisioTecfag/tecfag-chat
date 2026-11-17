@@ -39,3 +39,12 @@ vertex-key.json
 gravacoes_pabx_192.168.10.10/
 .codex-audit/
 
+
+# Arquivos pesados / dados locais (nunca versionar)
+.tmp-*/
+.git-rewrite/
+/Todas as ligações Todo o periodo tecfag ativo/
+*.rar
+*.wav
+*.exe
+*.crypt14

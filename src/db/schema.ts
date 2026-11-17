@@ -12,6 +12,17 @@ export const tenants = pgTable("tenants", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const webhookSubscriptions = pgTable("webhook_subscriptions", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  name: text("name").notNull(),
+  url: text("url").notNull(),
+  secret: text("secret").notNull(),
+  events: jsonb("events").$type<string[]>().notNull(),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => ({ tenantIdx: index("idx_webhook_subscriptions_tenant").on(t.tenantId) }));
+
 // ─── 2. CONFIGURAÇÕES DE CANAL (Credenciais / Conexão) ──────────────────────
 export const channelConfigs = pgTable("channel_configs", {
   id: text("id").primaryKey(),

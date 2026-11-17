@@ -11,6 +11,7 @@ import { ConfiguracaoTab as VoiceConfigTab } from "@/components/voice/Configurac
 import { LiveChatSettingsTab } from "./LiveChatSettingsTab";
 import { McpSettingsTab } from "./McpSettingsTab";
 import { ApiLibrarySettingsTab } from "./ApiLibrarySettingsTab";
+import { WebhookSettingsTab } from "./WebhookSettingsTab";
 import { IntelipostSettingsTab } from "./IntelipostSettingsTab";
 import { usePermissions } from "@/hooks/usePermissions";
 import { CustomFieldsSettingsModal } from "@/components/crm/CustomFieldsSettingsModal";
@@ -27,8 +28,8 @@ import { SystemTooltip } from "@/components/ui/tooltip";
 import { motion } from "framer-motion";
 import { getInitialTabFromUrl, parseAppRoute, useSyncModuleTabWithUrl } from "@/lib/app-routes";
 
-type SettingsTab = "whatsapp" | "voz" | "rd" | "crm" | "email" | "livechat" | "mcp" | "api" | "intelipost";
-const SETTINGS_TABS: readonly SettingsTab[] = ["whatsapp", "voz", "rd", "crm", "email", "livechat", "mcp", "api", "intelipost"];
+type SettingsTab = "whatsapp" | "voz" | "rd" | "crm" | "email" | "livechat" | "mcp" | "api" | "intelipost" | "webhook";
+const SETTINGS_TABS: readonly SettingsTab[] = ["whatsapp", "voz", "rd", "crm", "email", "livechat", "mcp", "api", "intelipost", "webhook"];
 
 export function SettingsView() {
   const {
@@ -601,6 +602,7 @@ export function SettingsView() {
     { id: "livechat" as const, label: "Live Chat (Site)", icon: Globe },
     { id: "mcp" as const, label: "Conector MCP (Claude / IA)", icon: Sparkles },
     { id: "api" as const, label: "Biblioteca de API", icon: BookOpen },
+    { id: "webhook" as const, label: "Webhooks de Saída", icon: Globe },
   ];
 
   const allowedTabs = allTabs.filter((t) =>
@@ -682,6 +684,7 @@ export function SettingsView() {
 
       {/* Tab Body */}
       <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-background/50 space-y-6">
+        {activeTab === "webhook" && <WebhookSettingsTab tenant={tenant || "valem"} />}
         {/* ABA 1: WHATSAPP MULTI-TENANT (META OU BAILEYS) */}
         {activeTab === "whatsapp" && (
           <div className="space-y-6 w-full">

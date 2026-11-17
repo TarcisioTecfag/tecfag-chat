@@ -1,5 +1,11 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useNavigate } from "@tanstack/react-router";
+import {
+  useQuery,
+  useInfiniteQuery,
+  useQueryClient,
+  keepPreviousData,
+} from "@tanstack/react-query";
 import { useTrainingSurface } from "@/hooks/useTrainingSurface";
 import { useChat } from "@/hooks/useChatState";
 import { useTabNavigation } from "@/hooks/useTabNavigation";
@@ -74,6 +80,59 @@ interface TaskData {
   operatorName?: string | null;
   operatorEmail?: string | null;
   operatorAvatar?: string | null;
+}
+
+interface TasksSummaryData {
+  pendingCount: number;
+  overdueCount: number;
+  completedCount: number;
+  totalCount: number;
+}
+
+interface TasksApiResponse {
+  tasks: TaskData[];
+  summary?: TasksSummaryData;
+  totalMatching?: number;
+  hasMore?: boolean;
+  configured?: boolean;
+}
+
+interface DayTaskMetrics {
+  tasks: TaskData[];
+  total: number;
+  completed: number;
+  overdue: number;
+  calls: number;
+  whats: number;
+  meetings: number;
+  emails: number;
+  lunches: number;
+  visits: number;
+  others: number;
+}
+
+const EMPTY_TASKS: TaskData[] = [];
+
+const EMPTY_DAY_METRICS: DayTaskMetrics = {
+  tasks: EMPTY_TASKS,
+  total: 0,
+  completed: 0,
+  overdue: 0,
+  calls: 0,
+  whats: 0,
+  meetings: 0,
+  emails: 0,
+  lunches: 0,
+  visits: 0,
+  others: 0,
+};
+
+const ALL_MODAL_PAGE_SIZE = 80;
+
+function toLocalDayKey(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
+    date.getDate(),
+  ).padStart(2, "0")}`;
 }
 
 const ALL_TASK_TYPES = ["call", "whatsapp", "meeting", "email", "task", "lunch", "visit"] as const;
@@ -262,6 +321,7 @@ const TASK_VIEW_MODES = ["month", "week", "day"] as const;
 
 export function TasksView() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const {
     tenant,
     setSelectedChatId,
@@ -275,11 +335,8 @@ export function TasksView() {
   const canAccessTeamTasks =
     sessionRole === "admin" || hasPermission("monitor", "canAccessTeamTasks");
 
-  const [tasks, setTasks] = useState<TaskData[]>([]);
-  const [loading, setLoading] = useState(true);
   const [isCreateTaskModalOpen, setIsCreateTaskModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<EditingTaskData | null>(null);
-  const [operatorsList, setOperatorsList] = useState<Array<{ id: string; name: string }>>([]);
 
   // Escopo de visualização e filtro de operador (Admin / permissão de equipe)
   const [taskScope, setTaskScope] = useState<"all" | "mine" | "delegated">("all");
@@ -329,13 +386,21 @@ export function TasksView() {
   const [selectedDayStatus, setSelectedDayStatus] = useState<"all" | "pending" | "overdue" | "done">("all");
   const [selectedDayType, setSelectedDayType] = useState<string>("all");
 
-  // Estados do Modal "Todas" (Filtro e Busca global)
+  // Estados do Modal "Todas" (Filtro e Busca global paginada)
   const [isAllTasksModalOpen, setIsAllTasksModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "open" | "overdue" | "completed">("all");
   const [typeFilterGlobal, setTypeFilterGlobal] = useState<string>("all");
   const [dateFilter, setDateFilter] = useState("");
   const [isBulkRescheduling, setIsBulkRescheduling] = useState(false);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery.trim());
+    }, 220);
+    return () => window.clearTimeout(t);
+  }, [searchQuery]);
 
   const today = new Date();
   const [currentMonth, setCurrentMonth] = useState(today.getMonth());
@@ -343,6 +408,177 @@ export function TasksView() {
   const [selectedDate, setSelectedDate] = useState<Date>(today);
 
   const notifiedTasksRef = useRef<Set<string>>(new Set());
+
+  const days = useMemo(() => getDaysInMonth(currentYear, currentMonth), [currentYear, currentMonth]);
+  const weekDays = useMemo(() => getWeekDays(selectedDate), [selectedDate]);
+  const startWeekDay = weekDays[0];
+  const endWeekDay = weekDays[6];
+
+  // ─── Carrega lista leve de operadores com cache (sem avatares Base64) ────
+  const { data: operatorsList = [] } = useQuery({
+    queryKey: ["tasks-operators-lite", tenant || "session"],
+    queryFn: async () => {
+      const res = await fetch("/api/operators?lite=true");
+      if (!res.ok) return [] as Array<{ id: string; name: string }>;
+      const data = await res.json();
+      const list = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.operators)
+        ? data.operators
+        : [];
+      return list
+        .filter((op: any) => op && op.id && op.name)
+        .map((op: any) => ({ id: String(op.id), name: String(op.name) }));
+    },
+    staleTime: 5 * 60_000,
+    gcTime: 30 * 60_000,
+  });
+
+  // ─── Janela deslizante de 3 meses para o Calendário + Resumo Global ──────
+  const calendarWindow = useMemo(() => {
+    const from = new Date(currentYear, currentMonth - 1, 1, 0, 0, 0, 0);
+    const to = new Date(currentYear, currentMonth + 2, 0, 23, 59, 59, 999);
+    const key = `${currentYear}-${String(currentMonth + 1).padStart(2, "0")}`;
+    return {
+      fromIso: from.toISOString(),
+      toIso: to.toISOString(),
+      key,
+    };
+  }, [currentYear, currentMonth]);
+
+  const effectiveOperatorFilterKey = canAccessTeamTasks ? selectedOperatorFilter : "self";
+
+  const buildScopeSearchParams = useCallback(() => {
+    const params = new URLSearchParams();
+    if (tenant) params.set("tenantId", tenant);
+    params.set("scope", taskScope);
+    if (canAccessTeamTasks && selectedOperatorFilter !== "all") {
+      params.set("operatorFilterId", selectedOperatorFilter);
+    } else if (canAccessTeamTasks && selectedOperatorFilter === "all" && taskScope === "all") {
+      params.set("all", "true");
+    }
+    return params;
+  }, [tenant, taskScope, canAccessTeamTasks, selectedOperatorFilter]);
+
+  const calendarQuery = useQuery<TasksApiResponse>({
+    queryKey: [
+      "kanban-tasks",
+      "calendar",
+      tenant || "session",
+      taskScope,
+      effectiveOperatorFilterKey,
+      calendarWindow.key,
+    ],
+    queryFn: async () => {
+      const params = buildScopeSearchParams();
+      params.set("from", calendarWindow.fromIso);
+      params.set("to", calendarWindow.toIso);
+      params.set("includeSummary", "true");
+      params.set("upcomingAlert", "true");
+      const res = await fetch(`/api/tasks?${params.toString()}`);
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        return { tasks: [] };
+      }
+      return {
+        tasks: Array.isArray(data.tasks) ? data.tasks : [],
+        summary: data.summary,
+        totalMatching: data.totalMatching,
+        hasMore: data.hasMore,
+      };
+    },
+    staleTime: 45_000,
+    gcTime: 15 * 60_000,
+    placeholderData: keepPreviousData,
+  });
+
+  const tasks = calendarQuery.data?.tasks ?? EMPTY_TASKS;
+  const loading = calendarQuery.isPending && tasks.length === 0;
+  const isRefreshingTasks = calendarQuery.isFetching && !loading;
+
+  // ─── Query Paginada Sob Demanda para o Modal "Todas" ─────────────────────
+  const modalDateBounds = useMemo(() => {
+    if (!dateFilter) return null;
+    const parts = dateFilter.split("-").map(Number);
+    if (parts.length !== 3 || parts.some((n) => Number.isNaN(n))) return null;
+    const [y, m, d] = parts;
+    const start = new Date(y, m - 1, d, 0, 0, 0, 0);
+    const end = new Date(y, m - 1, d, 23, 59, 59, 999);
+    return { fromIso: start.toISOString(), toIso: end.toISOString() };
+  }, [dateFilter]);
+
+  const allTasksModalQuery = useInfiniteQuery<TasksApiResponse>({
+    queryKey: [
+      "kanban-tasks",
+      "modal-list",
+      tenant || "session",
+      taskScope,
+      effectiveOperatorFilterKey,
+      statusFilter,
+      typeFilterGlobal,
+      dateFilter,
+      debouncedSearchQuery,
+    ],
+    enabled: isAllTasksModalOpen,
+    initialPageParam: 0,
+    queryFn: async ({ pageParam }) => {
+      const params = buildScopeSearchParams();
+      params.set("limit", String(ALL_MODAL_PAGE_SIZE));
+      params.set("offset", String(pageParam));
+      if (statusFilter !== "all") params.set("statusFilter", statusFilter);
+      if (typeFilterGlobal !== "all") params.set("type", typeFilterGlobal);
+      if (debouncedSearchQuery) params.set("q", debouncedSearchQuery);
+      if (modalDateBounds) {
+        params.set("from", modalDateBounds.fromIso);
+        params.set("to", modalDateBounds.toIso);
+      }
+      const res = await fetch(`/api/tasks?${params.toString()}`);
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        return { tasks: [], totalMatching: 0, hasMore: false };
+      }
+      return {
+        tasks: Array.isArray(data.tasks) ? data.tasks : [],
+        summary: data.summary,
+        totalMatching: data.totalMatching,
+        hasMore: data.hasMore,
+      };
+    },
+    getNextPageParam: (lastPage, allPages) => {
+      if (!lastPage.hasMore) return undefined;
+      return allPages.reduce((acc, p) => acc + (p.tasks?.length || 0), 0);
+    },
+    staleTime: 30_000,
+    gcTime: 10 * 60_000,
+  });
+
+  const fetchTasks = useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey: ["kanban-tasks"] });
+  }, [queryClient]);
+
+  // Helper otimista para refletir edições locais em todas as queries de tarefas em memória
+  const mutateCachedTasksOptimistically = useCallback(
+    (updater: (prev: TaskData[]) => TaskData[]) => {
+      queryClient.setQueriesData<TasksApiResponse>(
+        { queryKey: ["kanban-tasks", "calendar"] },
+        (old) => {
+          if (!old) return old;
+          return { ...old, tasks: updater(old.tasks) };
+        },
+      );
+      queryClient.setQueriesData<{ pages: TasksApiResponse[]; pageParams: unknown[] }>(
+        { queryKey: ["kanban-tasks", "modal-list"] },
+        (old) => {
+          if (!old || !Array.isArray(old.pages)) return old;
+          return {
+            ...old,
+            pages: old.pages.map((p) => ({ ...p, tasks: updater(p.tasks) })),
+          };
+        },
+      );
+    },
+    [queryClient],
+  );
 
   useTrainingSurface("tasks", (step) => {
     if (loading) return false;
@@ -353,53 +589,6 @@ export function TasksView() {
     else if (step.id === "tasks.month") setViewMode("month");
     return true;
   });
-
-  const days = getDaysInMonth(currentYear, currentMonth);
-  const weekDays = getWeekDays(selectedDate);
-  const startWeekDay = weekDays[0];
-  const endWeekDay = weekDays[6];
-
-  // ─── Carrega operadores para CreateTaskModal e filtro Admin ──────────────
-  useEffect(() => {
-    fetch("/api/operators")
-      .then((r) => r.json())
-      .then((data) => {
-        if (Array.isArray(data)) {
-          setOperatorsList(data.map((op: any) => ({ id: op.id, name: op.name })));
-        }
-      })
-      .catch((err) => console.warn("[TasksView] Erro ao carregar operadores:", err));
-  }, [tenant]);
-
-  // ─── Fetch tasks from API (100% Kanban CRM Local) ───────────────────────
-  const fetchTasks = useCallback(async () => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams();
-      if (tenant) params.set("tenantId", tenant);
-      params.set("scope", taskScope);
-      if (canAccessTeamTasks && selectedOperatorFilter !== "all") {
-        params.set("operatorFilterId", selectedOperatorFilter);
-      } else if (canAccessTeamTasks && selectedOperatorFilter === "all" && taskScope === "all") {
-        params.set("all", "true");
-      }
-      const res = await fetch(`/api/tasks?${params.toString()}`);
-      const data = await res.json();
-      if (data.error) {
-        setTasks([]);
-      } else {
-        setTasks(data.tasks || []);
-      }
-    } catch (e: any) {
-      setTasks([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [tenant, taskScope, canAccessTeamTasks, selectedOperatorFilter]);
-
-  useEffect(() => {
-    fetchTasks();
-  }, [fetchTasks]);
 
   // ─── Alerta de Compromisso Próximo (15 minutos antes) ───────────────────
   useEffect(() => {
@@ -488,10 +677,11 @@ export function TasksView() {
         throw new Error(result.error || "Não foi possível concluir a tarefa.");
       }
 
-      setTasks((prev) =>
+      const completedIso = new Date().toISOString();
+      mutateCachedTasksOptimistically((prev) =>
         prev.map((t) =>
           t.id === targetTask.id
-            ? { ...t, status: "done", completedAt: new Date().toISOString() }
+            ? { ...t, status: "done", completedAt: completedIso }
             : t,
         ),
       );
@@ -501,9 +691,7 @@ export function TasksView() {
           : "Tarefa concluída com sucesso!",
       );
       setTaskToComplete(null);
-      if (scheduleNextFollowUp) {
-        fetchTasks();
-      }
+      void queryClient.invalidateQueries({ queryKey: ["kanban-tasks"] });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro ao concluir a tarefa.");
     } finally {
@@ -520,7 +708,9 @@ export function TasksView() {
     const iso = newDate.toISOString();
     const prevDueDate = task.dueDate;
 
-    setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, dueDate: iso } : t)));
+    mutateCachedTasksOptimistically((prev) =>
+      prev.map((t) => (t.id === task.id ? { ...t, dueDate: iso } : t)),
+    );
     setRescheduleTaskId(null);
 
     try {
@@ -543,8 +733,11 @@ export function TasksView() {
           minute: "2-digit",
         })}`,
       );
+      void queryClient.invalidateQueries({ queryKey: ["kanban-tasks"] });
     } catch (err: any) {
-      setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, dueDate: prevDueDate } : t)));
+      mutateCachedTasksOptimistically((prev) =>
+        prev.map((t) => (t.id === task.id ? { ...t, dueDate: prevDueDate } : t)),
+      );
       toast.error(err?.message || "Não foi possível reagendar a tarefa.");
     }
   };
@@ -576,6 +769,39 @@ export function TasksView() {
     }
   };
 
+  const handleBulkRescheduleAllOverdue = async (targetDate: Date, expectedCount: number) => {
+    if (expectedCount <= 0) return;
+    setIsBulkRescheduling(true);
+    try {
+      const res = await fetch("/api/tasks", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "bulk_reschedule",
+          rescheduleAllOverdue: true,
+          scope: taskScope,
+          operatorFilterId:
+            canAccessTeamTasks && selectedOperatorFilter !== "all"
+              ? selectedOperatorFilter
+              : null,
+          all: canAccessTeamTasks && selectedOperatorFilter === "all" && taskScope === "all",
+          dueDate: targetDate.toISOString(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || "Não foi possível reagendar as tarefas atrasadas.");
+      }
+      const updated = typeof data.updatedCount === "number" ? data.updatedCount : expectedCount;
+      toast.success(`${updated} tarefa(s) reagendada(s) com sucesso!`);
+      await fetchTasks();
+    } catch (err: any) {
+      toast.error(err?.message || "Erro ao reagendar tarefas em lote.");
+    } finally {
+      setIsBulkRescheduling(false);
+    }
+  };
+
   // ─── Cancelar ou Excluir Tarefa ─────────────────────────────────────────
   const handleConfirmCancelOrDelete = async () => {
     if (!taskActionConfirm) return;
@@ -596,7 +822,7 @@ export function TasksView() {
           const data = await res.json().catch(() => ({}));
           throw new Error(data.error || "Não foi possível cancelar a tarefa.");
         }
-        setTasks((prev) => prev.filter((t) => t.id !== task.id));
+        mutateCachedTasksOptimistically((prev) => prev.filter((t) => t.id !== task.id));
         toast.success("Tarefa cancelada.");
       } else {
         const res = await fetch(`/api/tasks?taskId=${encodeURIComponent(task.id)}`, {
@@ -606,10 +832,11 @@ export function TasksView() {
           const data = await res.json().catch(() => ({}));
           throw new Error(data.error || "Não foi possível excluir a tarefa.");
         }
-        setTasks((prev) => prev.filter((t) => t.id !== task.id));
+        mutateCachedTasksOptimistically((prev) => prev.filter((t) => t.id !== task.id));
         toast.success("Tarefa excluída permanentemente.");
       }
       setTaskActionConfirm(null);
+      void queryClient.invalidateQueries({ queryKey: ["kanban-tasks"] });
     } catch (err: any) {
       toast.error(err?.message || "Erro ao processar ação na tarefa.");
     } finally {
@@ -758,16 +985,108 @@ export function TasksView() {
     setSelectedDate(now);
   };
 
-  // ─── Filter tasks for selected date ─────────────────────────────────────
-  const getTasksForDate = (date: Date) =>
-    tasks.filter((t) => {
-      if (!t.dueDate) return false;
-      return isSameDay(new Date(t.dueDate), date);
-    });
+  // ─── Indexação O(1) por dia + contadores com fallback para demo ─────────
+  const { dayMetricsByKey, localSummaryFallback } = useMemo(() => {
+    const map = new Map<string, DayTaskMetrics>();
+    const nowMs = Date.now();
+    let pending = 0;
+    let overdue = 0;
+    let completed = 0;
+
+    for (const t of tasks) {
+      const done = isTaskDone(t);
+      const isCancelled = t.status === "cancelled";
+      const dueDateObj = t.dueDate ? new Date(t.dueDate) : null;
+      const dueValid = dueDateObj !== null && !Number.isNaN(dueDateObj.getTime());
+      const isOverdueItem = !done && !isCancelled && dueValid && dueDateObj!.getTime() < nowMs;
+
+      if (done) completed++;
+      else if (!isCancelled) pending++;
+      if (isOverdueItem) overdue++;
+
+      if (!dueValid) continue;
+      const key = toLocalDayKey(dueDateObj!);
+      let bucket = map.get(key);
+      if (!bucket) {
+        bucket = {
+          tasks: [],
+          total: 0,
+          completed: 0,
+          overdue: 0,
+          calls: 0,
+          whats: 0,
+          meetings: 0,
+          emails: 0,
+          lunches: 0,
+          visits: 0,
+          others: 0,
+        };
+        map.set(key, bucket);
+      }
+      bucket.tasks.push(t);
+      bucket.total++;
+      if (done) bucket.completed++;
+      if (isOverdueItem) bucket.overdue++;
+
+      switch (t.type) {
+        case "call":
+          bucket.calls++;
+          break;
+        case "whatsapp":
+          bucket.whats++;
+          break;
+        case "meeting":
+          bucket.meetings++;
+          break;
+        case "email":
+          bucket.emails++;
+          break;
+        case "lunch":
+          bucket.lunches++;
+          break;
+        case "visit":
+          bucket.visits++;
+          break;
+        default:
+          bucket.others++;
+          break;
+      }
+    }
+
+    return {
+      dayMetricsByKey: map,
+      localSummaryFallback: {
+        pendingCount: pending,
+        overdueCount: overdue,
+        completedCount: completed,
+        totalCount: pending + completed,
+      },
+    };
+  }, [tasks]);
+
+  const modalLoadedTasks = useMemo(() => {
+    const pages = allTasksModalQuery.data?.pages;
+    if (!pages || pages.length === 0) return EMPTY_TASKS;
+    const seen = new Set<string>();
+    const combined: TaskData[] = [];
+    for (const page of pages) {
+      for (const item of page.tasks || []) {
+        if (seen.has(item.id)) continue;
+        seen.add(item.id);
+        combined.push(item);
+      }
+    }
+    return combined;
+  }, [allTasksModalQuery.data?.pages]);
+
+  const getTasksForDate = useCallback(
+    (date: Date) => dayMetricsByKey.get(toLocalDayKey(date))?.tasks ?? EMPTY_TASKS,
+    [dayMetricsByKey],
+  );
 
   const selectedTasks = getTasksForDate(selectedDate);
-  const pendingCount = tasks.filter((t) => !isTaskDone(t)).length;
-  const globalOverdueTasks = tasks.filter((t) => isTaskOverdue(t));
+  const pendingCount = calendarQuery.data?.summary?.pendingCount ?? localSummaryFallback.pendingCount;
+  const overdueCount = calendarQuery.data?.summary?.overdueCount ?? localSummaryFallback.overdueCount;
 
   // ─── Subcomponente de Ações Rápidas da Tarefa (Reagendar, Editar, Cancelar, Excluir) ──
   const renderTaskQuickActions = (task: TaskData, compact = false) => {
@@ -1071,7 +1390,7 @@ export function TasksView() {
               <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-primary/10 text-primary border border-primary/20">
                 Kanban CRM
               </span>
-              {globalOverdueTasks.length > 0 && (
+              {overdueCount > 0 && (
                 <SystemTooltip content="Ver todas as tarefas em atraso e reagendar">
                   <button
                     type="button"
@@ -1082,7 +1401,7 @@ export function TasksView() {
                     className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold bg-red-500/15 text-red-600 dark:text-red-400 border border-red-500/30 hover:bg-red-500/25 transition cursor-pointer"
                   >
                     <AlertTriangle className="h-3 w-3" />
-                    {globalOverdueTasks.length} atrasada{globalOverdueTasks.length > 1 ? "s" : ""}
+                    {overdueCount} atrasada{overdueCount > 1 ? "s" : ""}
                   </button>
                 </SystemTooltip>
               )}
@@ -1232,7 +1551,7 @@ export function TasksView() {
             Todas
           </button>
 
-          {/* 5. Hoje */}
+          {/* 5. Hoje + Sincronizar */}
           <button
             type="button"
             onClick={goToday}
@@ -1240,6 +1559,17 @@ export function TasksView() {
           >
             Hoje
           </button>
+
+          <SystemTooltip content="Atualizar agenda">
+            <button
+              type="button"
+              onClick={() => void fetchTasks()}
+              disabled={isRefreshingTasks}
+              className="rounded-xl border border-border p-2 text-muted-foreground hover:text-foreground transition-all hover:bg-card hover:shadow-xs cursor-pointer disabled:opacity-60"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${isRefreshingTasks ? "animate-spin text-primary" : ""}`} />
+            </button>
+          </SystemTooltip>
 
           {/* 6. Nova Tarefa (por último) */}
           <button
@@ -1323,18 +1653,20 @@ export function TasksView() {
                 const isCurrentMonth = date.getMonth() === currentMonth;
                 const isToday = isSameDay(date, today);
                 const isSelected = isSameDay(date, selectedDate);
-                const dayTasks = getTasksForDate(date);
-                const total = dayTasks.length;
-                const completed = dayTasks.filter((t) => isTaskDone(t)).length;
-                const overdue = dayTasks.filter((t) => isTaskOverdue(t)).length;
-
-                const calls = dayTasks.filter((t) => t.type === "call").length;
-                const whats = dayTasks.filter((t) => t.type === "whatsapp").length;
-                const meetings = dayTasks.filter((t) => t.type === "meeting").length;
-                const emails = dayTasks.filter((t) => t.type === "email").length;
-                const lunches = dayTasks.filter((t) => t.type === "lunch").length;
-                const visits = dayTasks.filter((t) => t.type === "visit").length;
-                const others = total - (calls + whats + meetings + emails + lunches + visits);
+                const metrics = dayMetricsByKey.get(toLocalDayKey(date)) ?? EMPTY_DAY_METRICS;
+                const {
+                  tasks: dayTasks,
+                  total,
+                  completed,
+                  overdue,
+                  calls,
+                  whats,
+                  meetings,
+                  emails,
+                  lunches,
+                  visits,
+                  others,
+                } = metrics;
 
                 return (
                   <motion.button
@@ -1733,9 +2065,9 @@ export function TasksView() {
                   return (
                     <motion.div
                       key={task.id}
-                      initial={{ opacity: 0, y: 10 }}
+                      initial={{ opacity: 0, y: 8 }}
                       animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: index * 0.03 }}
+                      transition={{ duration: 0.16, delay: Math.min(index * 0.015, 0.12) }}
                       className={`group rounded-2xl border p-4 transition-all hover:shadow-md ${
                         isDone
                           ? "border-border/60 bg-muted/20 opacity-75"
@@ -2255,22 +2587,23 @@ export function TasksView() {
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  {globalOverdueTasks.length > 0 && (
+                  {overdueCount > 0 && (
                     <button
                       type="button"
                       disabled={isBulkRescheduling}
                       onClick={() => {
                         const target = new Date();
                         target.setHours(target.getHours() + 1, 0, 0, 0);
-                        handleBulkRescheduleOverdue(
-                          globalOverdueTasks.map((t) => t.id),
-                          target,
-                        );
+                        void handleBulkRescheduleAllOverdue(target, overdueCount);
                       }}
                       className="inline-flex items-center gap-1.5 rounded-xl bg-red-500/15 text-red-600 dark:text-red-400 border border-red-500/30 px-3 py-1.5 text-xs font-bold hover:bg-red-500/25 transition cursor-pointer disabled:opacity-50"
                     >
-                      <CalendarClock className="h-3.5 w-3.5" />
-                      Reagendar {globalOverdueTasks.length} atrasada(s) para Hoje
+                      {isBulkRescheduling ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <CalendarClock className="h-3.5 w-3.5" />
+                      )}
+                      Reagendar {overdueCount} atrasada(s) para Hoje
                     </button>
                   )}
                   <button
@@ -2331,7 +2664,7 @@ export function TasksView() {
                           : status === "open"
                             ? "Em aberto"
                             : status === "overdue"
-                              ? `Atrasadas (${globalOverdueTasks.length})`
+                              ? `Atrasadas (${overdueCount})`
                               : "Concluídas"}
                       </button>
                     ))}
@@ -2371,7 +2704,29 @@ export function TasksView() {
               {/* Tasks List */}
               <div className="flex-1 overflow-y-auto p-6 bg-background/10 space-y-3">
                 {(() => {
-                  const filtered = tasks.filter((t) => {
+                  if (allTasksModalQuery.isPending && modalLoadedTasks.length === 0) {
+                    return (
+                      <div className="space-y-3 animate-in fade-in duration-150">
+                        {[1, 2, 3, 4, 5].map((i) => (
+                          <div
+                            key={i}
+                            className="rounded-2xl border border-border bg-card p-4 flex items-center justify-between gap-4 shadow-2xs"
+                          >
+                            <div className="flex items-center gap-3 flex-1">
+                              <Skeleton className="h-5 w-5 rounded-full shrink-0" />
+                              <div className="space-y-2 flex-1">
+                                <Skeleton className="h-4 w-2/5 rounded" />
+                                <Skeleton className="h-3 w-1/4 rounded" />
+                              </div>
+                            </div>
+                            <Skeleton className="h-9 w-28 rounded-xl shrink-0" />
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  }
+
+                  const filtered = modalLoadedTasks.filter((t) => {
                     if (searchQuery.trim()) {
                       const q = searchQuery.toLowerCase().trim();
                       const matchName = t.name.toLowerCase().includes(q);
@@ -2390,7 +2745,7 @@ export function TasksView() {
                     if (typeFilterGlobal !== "all" && t.type !== typeFilterGlobal) return false;
                     if (dateFilter) {
                       if (!t.dueDate) return false;
-                      const localDateStr = new Date(t.dueDate).toLocaleDateString("sv-SE");
+                      const localDateStr = toLocalDayKey(new Date(t.dueDate));
                       if (localDateStr !== dateFilter) return false;
                     }
                     return true;
@@ -2408,150 +2763,181 @@ export function TasksView() {
                     );
                   }
 
-                  return filtered.map((task) => {
-                    const isDone = isTaskDone(task);
-                    const isOverdue = isTaskOverdue(task);
-                    return (
-                      <div
-                        key={task.id}
-                        className="rounded-2xl border border-border bg-card p-4 transition-all hover:shadow-md flex flex-col md:flex-row md:items-center justify-between gap-4"
-                        style={{ borderLeft: `3.5px solid ${getTaskTypeColor(task.type)}` }}
-                      >
-                        <div className="flex items-start gap-3 flex-1 min-w-0">
-                          <SystemTooltip
-                            content={
-                              isDone
-                                ? "Tarefa concluída (não pode ser reativada)"
-                                : "Clique para concluir a tarefa"
-                            }
+                  const totalMatchingServer = allTasksModalQuery.data?.pages?.[0]?.totalMatching;
+
+                  return (
+                    <>
+                      {filtered.map((task) => {
+                        const isDone = isTaskDone(task);
+                        const isOverdue = isTaskOverdue(task);
+                        return (
+                          <div
+                            key={task.id}
+                            className="rounded-2xl border border-border bg-card p-4 transition-all hover:shadow-md flex flex-col md:flex-row md:items-center justify-between gap-4"
+                            style={{ borderLeft: `3.5px solid ${getTaskTypeColor(task.type)}` }}
                           >
-                            <button
-                              type="button"
-                              onClick={() => handleRequestCompleteTask(task)}
-                              className={`mt-0.5 shrink-0 ${isDone ? "cursor-default" : "cursor-pointer"}`}
-                            >
-                              {isDone ? (
-                                <CheckCircle2 className="h-5 w-5 text-primary" />
-                              ) : (
-                                <Circle className="h-5 w-5 text-muted-foreground hover:text-primary transition-colors" />
-                              )}
-                            </button>
-                          </SystemTooltip>
-
-                          <div className="min-w-0 flex-1">
-                            <p
-                              className={`text-sm font-semibold leading-tight ${
-                                isDone ? "line-through text-muted-foreground" : "text-foreground"
-                              }`}
-                            >
-                              {task.name}
-                            </p>
-
-                            <div className="flex flex-wrap items-center gap-2 mt-1.5">
-                              <span
-                                className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white"
-                                style={{ background: getTaskTypeColor(task.type) }}
+                            <div className="flex items-start gap-3 flex-1 min-w-0">
+                              <SystemTooltip
+                                content={
+                                  isDone
+                                    ? "Tarefa concluída (não pode ser reativada)"
+                                    : "Clique para concluir a tarefa"
+                                }
                               >
-                                {getTaskTypeIcon(task.type)}
-                                {getTaskTypeLabel(task.type)}
-                              </span>
-                              {task.operatorName && (
-                                <span className="text-[10px] text-muted-foreground font-medium bg-muted/60 px-1.5 py-0.5 rounded-md border border-border/40">
-                                  {task.operatorName}
-                                </span>
-                              )}
-                              {task.dueDate && (
-                                <span
-                                  className={`flex items-center gap-1 text-[11px] ${
-                                    isOverdue ? "text-red-500 font-semibold" : "text-muted-foreground"
-                                  }`}
-                                >
-                                  <Clock className="h-3 w-3" />
-                                  {new Date(task.dueDate).toLocaleDateString("pt-BR")} às {formatTime(task.dueDate)}
-                                  {isOverdue && " (Atrasada)"}
-                                </span>
-                              )}
-                            </div>
-
-                            {task.deal?.name && (
-                              <SystemTooltip content="Abrir negociação no Kanban">
                                 <button
                                   type="button"
-                                  onClick={(e) => {
-                                    setIsAllTasksModalOpen(false);
-                                    handleNavigateToDeal(task.deal!.id, e);
-                                  }}
-                                  className="mt-1.5 flex items-center gap-1 text-[11px] text-primary hover:underline font-medium cursor-pointer"
+                                  onClick={() => handleRequestCompleteTask(task)}
+                                  className={`mt-0.5 shrink-0 ${isDone ? "cursor-default" : "cursor-pointer"}`}
                                 >
-                                  <ExternalLink className="h-3 w-3 shrink-0" />
-                                  <span className="truncate">{task.deal.name}</span>
+                                  {isDone ? (
+                                    <CheckCircle2 className="h-5 w-5 text-primary" />
+                                  ) : (
+                                    <Circle className="h-5 w-5 text-muted-foreground hover:text-primary transition-colors" />
+                                  )}
                                 </button>
                               </SystemTooltip>
-                            )}
 
-                            {task.description && (
-                              <p className="mt-1.5 text-[11px] text-muted-foreground line-clamp-1 leading-relaxed">
-                                {task.description}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-3 shrink-0">
-                          {(task.client.name || task.client.phone) && (
-                            <div className="text-right hidden sm:block">
-                              {task.client.name && (
-                                <p className="text-xs font-semibold text-foreground">{task.client.name}</p>
-                              )}
-                              {task.client.phone && (
-                                <p className="text-[10px] text-muted-foreground mt-0.5">
-                                  {formatPhone(task.client.phone)}
+                              <div className="min-w-0 flex-1">
+                                <p
+                                  className={`text-sm font-semibold leading-tight ${
+                                    isDone ? "line-through text-muted-foreground" : "text-foreground"
+                                  }`}
+                                >
+                                  {task.name}
                                 </p>
+
+                                <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                                  <span
+                                    className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white"
+                                    style={{ background: getTaskTypeColor(task.type) }}
+                                  >
+                                    {getTaskTypeIcon(task.type)}
+                                    {getTaskTypeLabel(task.type)}
+                                  </span>
+                                  {task.operatorName && (
+                                    <span className="text-[10px] text-muted-foreground font-medium bg-muted/60 px-1.5 py-0.5 rounded-md border border-border/40">
+                                      {task.operatorName}
+                                    </span>
+                                  )}
+                                  {task.dueDate && (
+                                    <span
+                                      className={`flex items-center gap-1 text-[11px] ${
+                                        isOverdue ? "text-red-500 font-semibold" : "text-muted-foreground"
+                                      }`}
+                                    >
+                                      <Clock className="h-3 w-3" />
+                                      {new Date(task.dueDate).toLocaleDateString("pt-BR")} às {formatTime(task.dueDate)}
+                                      {isOverdue && " (Atrasada)"}
+                                    </span>
+                                  )}
+                                </div>
+
+                                {task.deal?.name && (
+                                  <SystemTooltip content="Abrir negociação no Kanban">
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        setIsAllTasksModalOpen(false);
+                                        handleNavigateToDeal(task.deal!.id, e);
+                                      }}
+                                      className="mt-1.5 flex items-center gap-1 text-[11px] text-primary hover:underline font-medium cursor-pointer"
+                                    >
+                                      <ExternalLink className="h-3 w-3 shrink-0" />
+                                      <span className="truncate">{task.deal.name}</span>
+                                    </button>
+                                  </SystemTooltip>
+                                )}
+
+                                {task.description && (
+                                  <p className="mt-1.5 text-[11px] text-muted-foreground line-clamp-1 leading-relaxed">
+                                    {task.description}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-3 shrink-0">
+                              {(task.client.name || task.client.phone) && (
+                                <div className="text-right hidden sm:block">
+                                  {task.client.name && (
+                                    <p className="text-xs font-semibold text-foreground">{task.client.name}</p>
+                                  )}
+                                  {task.client.phone && (
+                                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                                      {formatPhone(task.client.phone)}
+                                    </p>
+                                  )}
+                                </div>
+                              )}
+
+                              {renderTaskQuickActions(task)}
+
+                              {task.chatConversationId ? (
+                                <motion.button
+                                  type="button"
+                                  whileHover={{ scale: 1.03 }}
+                                  whileTap={{ scale: 0.97 }}
+                                  onClick={() => {
+                                    openChat(task);
+                                    setIsAllTasksModalOpen(false);
+                                  }}
+                                  className="flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-semibold text-white transition-all cursor-pointer shadow-sm"
+                                  style={{ background: "var(--primary)" }}
+                                >
+                                  <MessageSquare className="h-3.5 w-3.5" />
+                                  Atendimento
+                                </motion.button>
+                              ) : task.chatContactId ? (
+                                <motion.button
+                                  type="button"
+                                  whileHover={{ scale: 1.03 }}
+                                  whileTap={{ scale: 0.97 }}
+                                  onClick={() => {
+                                    handleStartChatWithContact(task.chatContactId!);
+                                    setIsAllTasksModalOpen(false);
+                                  }}
+                                  className="flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-semibold text-primary bg-primary/10 border border-primary/20 hover:bg-primary/20 transition-all cursor-pointer shadow-sm"
+                                >
+                                  <MessageSquare className="h-3.5 w-3.5" />
+                                  Iniciar Atendimento
+                                </motion.button>
+                              ) : (
+                                <div className="flex items-center gap-1.5 rounded-xl border border-dashed border-border px-4 py-2 text-xs text-muted-foreground select-none">
+                                  <MessageSquare className="h-3.5 w-3.5" />
+                                  Sem Chat
+                                </div>
                               )}
                             </div>
+                          </div>
+                        );
+                      })}
+
+                      {(allTasksModalQuery.hasNextPage || typeof totalMatchingServer === "number") && (
+                        <div className="pt-3 pb-1 flex flex-col items-center gap-2.5">
+                          {typeof totalMatchingServer === "number" && (
+                            <span className="text-[11px] font-medium text-muted-foreground">
+                              Exibindo {filtered.length} de {totalMatchingServer} tarefa(s)
+                            </span>
                           )}
-
-                          {renderTaskQuickActions(task)}
-
-                          {task.chatConversationId ? (
-                            <motion.button
+                          {allTasksModalQuery.hasNextPage && (
+                            <button
                               type="button"
-                              whileHover={{ scale: 1.03 }}
-                              whileTap={{ scale: 0.97 }}
-                              onClick={() => {
-                                openChat(task);
-                                setIsAllTasksModalOpen(false);
-                              }}
-                              className="flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-semibold text-white transition-all cursor-pointer shadow-sm"
-                              style={{ background: "var(--primary)" }}
+                              disabled={allTasksModalQuery.isFetchingNextPage}
+                              onClick={() => void allTasksModalQuery.fetchNextPage()}
+                              className="inline-flex items-center gap-2 rounded-xl border border-border bg-card hover:bg-muted px-4 py-2 text-xs font-bold text-foreground transition cursor-pointer disabled:opacity-60 shadow-2xs"
                             >
-                              <MessageSquare className="h-3.5 w-3.5" />
-                              Atendimento
-                            </motion.button>
-                          ) : task.chatContactId ? (
-                            <motion.button
-                              type="button"
-                              whileHover={{ scale: 1.03 }}
-                              whileTap={{ scale: 0.97 }}
-                              onClick={() => {
-                                handleStartChatWithContact(task.chatContactId!);
-                                setIsAllTasksModalOpen(false);
-                              }}
-                              className="flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-semibold text-primary bg-primary/10 border border-primary/20 hover:bg-primary/20 transition-all cursor-pointer shadow-sm"
-                            >
-                              <MessageSquare className="h-3.5 w-3.5" />
-                              Iniciar Atendimento
-                            </motion.button>
-                          ) : (
-                            <div className="flex items-center gap-1.5 rounded-xl border border-dashed border-border px-4 py-2 text-xs text-muted-foreground select-none">
-                              <MessageSquare className="h-3.5 w-3.5" />
-                              Sem Chat
-                            </div>
+                              {allTasksModalQuery.isFetchingNextPage ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                              ) : (
+                                <ChevronDown className="h-3.5 w-3.5 text-primary" />
+                              )}
+                              Carregar mais tarefas
+                            </button>
                           )}
                         </div>
-                      </div>
-                    );
-                  });
+                      )}
+                    </>
+                  );
                 })()}
               </div>
             </motion.div>

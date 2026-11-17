@@ -319,6 +319,7 @@ type ChatContextType = {
     tenantOrEmail: "tecfag" | "valem" | string,
     emailOrPass: string,
     maybePass?: string,
+    onError?: (errorMessage: string, status?: number) => void,
   ) => Promise<boolean>;
   logout: () => void;
 };
@@ -5876,6 +5877,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     tenantOrEmail: "tecfag" | "valem" | string,
     emailOrPass: string,
     maybePass?: string,
+    onError?: (errorMessage: string, status?: number) => void,
   ): Promise<boolean> => {
     let targetTenant: "tecfag" | "valem";
     let targetEmail: string;
@@ -5955,10 +5957,16 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       } else {
         const errData = await response.json().catch(() => ({}));
-        console.warn("[Login] Falha de autenticação:", errData.error || response.statusText);
+        const errMsg =
+          typeof errData?.error === "string" && errData.error.trim().length > 0
+            ? errData.error.trim()
+            : response.statusText || "Credenciais inválidas para a empresa selecionada. Tente novamente.";
+        console.warn("[Login] Falha de autenticação:", errMsg);
+        onError?.(errMsg, response.status);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("[Login] Erro ao conectar ao serviço de autenticação:", err);
+      onError?.(err?.message || "Não foi possível conectar ao servidor de autenticação.");
     }
 
     return false;

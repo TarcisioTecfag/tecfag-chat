@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../db/index.js";
 import { operators } from "../../../db/schema.js";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { verifyPassword, hashPassword, needsPasswordMigration } from "../../../lib/auth-crypto.js";
 import { getAvailableTenants, getPlatformMembership } from "../../../lib/platform-access.js";
 import { platformAccounts } from "../../../db/schema.js";
@@ -61,11 +61,11 @@ export const Route = createFileRoute("/api/auth/login")({
             );
           }
 
-          // Buscar operador estritamente dentro do tenant selecionado
+          // Buscar operador estritamente dentro do tenant selecionado (tolerante a caixa/espaços legados)
           const matchedOp = await db.query.operators.findFirst({
             where: and(
               eq(operators.tenantId, tenantId),
-              eq(operators.email, email)
+              sql`lower(btrim(${operators.email})) = ${email}`
             ),
           });
 
@@ -87,8 +87,15 @@ export const Route = createFileRoute("/api/auth/login")({
             });
           }
           const storedHash = platformMembership?.account.passwordHash ?? matchedOp.passwordHash;
-          // Validação segura com scrypt / timingSafeEqual
-          const isPasswordValid = verifyPassword(password, storedHash);
+          // Validação segura com scrypt / timingSafeEqual (com fallback para senha colada com espaço nas pontas)
+          const directPasswordValid = verifyPassword(password, storedHash);
+          const trimmedPassword = password.trim();
+          const matchedWithTrimmed =
+            !directPasswordValid &&
+            trimmedPassword !== password &&
+            trimmedPassword.length > 0 &&
+            verifyPassword(trimmedPassword, storedHash);
+          const isPasswordValid = directPasswordValid || matchedWithTrimmed;
           if (!isPasswordValid) {
             recordFailedLogin(rateLimitKey);
             return new Response(
@@ -101,8 +108,9 @@ export const Route = createFileRoute("/api/auth/login")({
           resetLoginRateLimit(rateLimitKey);
 
           // Migração suave de senha se ainda não estiver em scrypt
+          const effectivePassword = matchedWithTrimmed ? trimmedPassword : password;
           if (needsPasswordMigration(storedHash)) {
-            const upgradedHash = hashPassword(password);
+            const upgradedHash = hashPassword(effectivePassword);
             if (platformMembership) {
               await db.update(platformAccounts).set({ passwordHash: upgradedHash })
                 .where(eq(platformAccounts.id, platformMembership.account.id));
