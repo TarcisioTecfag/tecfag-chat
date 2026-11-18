@@ -760,31 +760,45 @@ export function ApiLibrarySettingsTab() {
           </div>
 
           {/* Pílulas de Categoria */}
-          <div className="flex flex-wrap gap-1">
-            {(
-              [
-                ["all", `Todas (${counts.all})`],
-                ["rest", `API REST (${counts.rest})`],
-                ["mcp", `MCP IA (${counts.mcp})`],
-                ["webhook", `Webhooks (${counts.webhook})`],
-              ] as const
-            ).map(([key, label]) => {
-              const active = categoryFilter === key;
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => setCategoryFilter(key)}
-                  className={`rounded-lg px-2.5 py-1 text-[11px] font-bold transition-colors cursor-pointer ${
-                    active
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
-                  }`}
-                >
-                  {label}
-                </button>
-              );
-            })}
+          <div className="flex flex-wrap gap-1 items-center justify-between">
+            <div className="flex flex-wrap gap-1">
+              {(
+                [
+                  ["all", `Todas (${counts.all})`],
+                  ["rest", `API REST (${counts.rest})`],
+                  ["mcp", `MCP IA (${counts.mcp})`],
+                  ["webhook", `Webhooks (${counts.webhook})`],
+                ] as const
+              ).map(([key, label]) => {
+                const active = categoryFilter === key;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setCategoryFilter(key)}
+                    className={`rounded-lg px-2.5 py-1 text-[11px] font-bold transition-colors cursor-pointer ${
+                      active
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            
+            {/* BOTÃO EXPORTAR PDF */}
+            <SystemTooltip content="Baixar documentação compilada (PDF)">
+              <a
+                href="/api/settings/mcp-docs/export"
+                download="mcp-docs.pdf"
+                className="inline-flex items-center gap-1 rounded-lg border border-border bg-card px-2 py-1 text-[11px] font-bold text-foreground hover:border-primary/50 transition-colors cursor-pointer"
+              >
+                <FileJson className="h-3 w-3 text-primary" />
+                PDF
+              </a>
+            </SystemTooltip>
           </div>
 
           {/* Lista Agrupada */}
