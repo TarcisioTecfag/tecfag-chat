@@ -634,6 +634,23 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
     ];
   }, [options]);
 
+  const deduplicationOptionsList: CustomSelectOption[] = [
+    {
+      value: "event",
+      label: "Um card por conversão (Recomendado — Padrão)",
+      icon: Layers,
+      tooltip:
+        "Cada preenchimento de formulário cria uma nova oportunidade comercial no funil, mantendo o histórico de contatos unificado",
+    },
+    {
+      value: "lead",
+      label: "Apenas um card por lead (Ignora novas conversões)",
+      icon: UserCheck,
+      tooltip:
+        "Mantém apenas uma oportunidade ativa no CRM por lead. Novas conversões do mesmo contato não gerarão novos negócios",
+    },
+  ];
+
   const templateOptionsList: CustomSelectOption[] = useMemo(() => {
     return [
       {
