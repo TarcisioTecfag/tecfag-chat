@@ -59,7 +59,7 @@ import { rememberRdMarketingFlow, restoreRdMarketingFlow } from "@/lib/rd-market
 import { RdMarketingDiagnostics } from "./RdMarketingDiagnostics";
 import { RdMarketingConnection } from "./RdMarketingConnection";
 import { RdMarketingSyncSettings } from "./RdMarketingSyncSettings";
-import { CreateTemplateModal } from "./CreateTemplateModal";
+import { ComprehensiveTemplateCreator } from "./ComprehensiveTemplateCreator";
 
 type Field = {
   id: string;
@@ -779,7 +779,7 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
       <RdMarketingConnection key={tenant} />
       <RdMarketingSyncSettings key={`sync:${tenant}`} />
       {/* 1. CABEÇALHO DA INTEGRAÇÃO COM BARRA DE SELEÇÃO DE FLUXO */}
-      <CreateTemplateModal open={createTemplateOpen} onOpenChange={setCreateTemplateOpen} onCreated={load} />
+      <ComprehensiveTemplateCreator open={createTemplateOpen} onOpenChange={setCreateTemplateOpen} onCreated={load} />
       <div className="rounded-3xl border border-border bg-card p-6 shadow-soft transition-all">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5 border-b border-border pb-6">
           <div className="flex items-start gap-4">
