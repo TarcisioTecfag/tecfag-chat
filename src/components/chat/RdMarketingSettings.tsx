@@ -59,7 +59,7 @@ import { rememberRdMarketingFlow, restoreRdMarketingFlow } from "@/lib/rd-market
 import { RdMarketingDiagnostics } from "./RdMarketingDiagnostics";
 import { RdMarketingConnection } from "./RdMarketingConnection";
 import { RdMarketingSyncSettings } from "./RdMarketingSyncSettings";
-import { ComprehensiveTemplateCreator } from "./ComprehensiveTemplateCreator";
+import { MetaTemplateManagerModal } from "./MetaTemplateManagerModal";
 
 type Field = {
   id: string;
@@ -405,6 +405,7 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
   const [copied, setCopied] = useState(false);
   const [simulatorOpen, setSimulatorOpen] = useState(false);
   const [createTemplateOpen, setCreateTemplateOpen] = useState(false);
+  const [isOfficialManagerOpen, setIsOfficialManagerOpen] = useState(false);
   const [refreshingLogs, setRefreshingLogs] = useState(false);
 
   async function load(signal?: AbortSignal) {
@@ -780,6 +781,7 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
       <RdMarketingSyncSettings key={`sync:${tenant}`} />
       {/* 1. CABEÇALHO DA INTEGRAÇÃO COM BARRA DE SELEÇÃO DE FLUXO */}
       <ComprehensiveTemplateCreator open={createTemplateOpen} onOpenChange={setCreateTemplateOpen} onCreated={load} />
+      <MetaTemplateManagerModal open={isOfficialManagerOpen} onOpenChange={setIsOfficialManagerOpen} tenant={tenant} />
       <div className="rounded-3xl border border-border bg-card p-6 shadow-soft transition-all">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5 border-b border-border pb-6">
           <div className="flex items-start gap-4">
@@ -870,6 +872,13 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
                 Novo Fluxo
               </button>
             </SystemTooltip>
+            <button
+              type="button"
+              className="h-10 px-4 inline-flex items-center justify-center gap-2 rounded-xl bg-muted/60 hover:bg-muted text-foreground text-xs font-bold transition-all border border-border hover:border-primary/40 cursor-pointer"
+              onClick={() => setIsOfficialManagerOpen(true)}
+            >
+              Gerenciar Templates Oficial
+            </button>
             <SystemTooltip content="Criar um novo template de mensagem aprovado pela Meta">
               <button
                 type="button"
