@@ -301,6 +301,12 @@ export function phoneRegistrationError(rawPhone: string | null | undefined): str
   }
 
   const national = digits.startsWith("55") && [12, 13].includes(digits.length) ? digits.slice(2) : digits;
+  
+  // Permite telefones internacionais (que não começam com 55 e não seguem o formato de DDD brasileiro)
+  if (!digits.startsWith("55") && digits.length >= 7 && digits.length <= 15) {
+    return null;
+  }
+
   if (![10, 11].includes(national.length) || !BRAZIL_DDDS.has(national.slice(0, 2))) {
     return "Informe o telefone com DDD. O número sem DDD serve apenas para buscar possíveis contatos existentes.";
   }
