@@ -273,13 +273,13 @@ function CustomSelect({
                         {opt.onDelete && (
                           <button
                             type="button"
-                            className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors cursor-pointer"
+                            className="p-2 rounded-lg text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-all cursor-pointer z-50 pointer-events-auto"
                             onClick={(e) => {
                               e.stopPropagation();
                               opt.onDelete!(e);
                             }}
                           >
-                            <Trash2 className="h-3.5 w-3.5" />
+                            <Trash2 className="h-4 w-4" />
                           </button>
                         )}
                         {isSelected && <Check className="h-3.5 w-3.5 shrink-0 text-primary" />}
