@@ -56,7 +56,7 @@ interface NamedApiKeyItem {
 }
 
 type CategoryFilter = "all" | ApiEntryKind;
-type DetailSubTab = "docs" | "snippets" | "playground";
+type DetailSubTab = "docs" | "snippets" | "playground" | "guide";
 type SnippetLanguage = "python" | "curl" | "node" | "env";
 
 const PRODUCTION_FALLBACK_URL = "https://tecfagchat.up.railway.app";
@@ -120,6 +120,16 @@ export function ApiLibrarySettingsTab() {
   const [snippetLang, setSnippetLang] = useState<SnippetLanguage>("python");
   const [pythonUseEnv, setPythonUseEnv] = useState(true);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  
+  // Documentação renderizada na interface
+  const [docsContent, setDocsContent] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/settings/mcp-docs/export")
+      .then(res => res.text())
+      .then(text => setDocsContent(text))
+      .catch(() => setDocsContent("Não foi possível carregar a documentação."));
+  }, []);
 
   // Estado do Playground Interativo
   const [playgroundValues, setPlaygroundValues] = useState<Record<string, string>>({});
@@ -974,6 +984,19 @@ export function ApiLibrarySettingsTab() {
                   Testar ao Vivo
                 </button>
               )}
+
+              <button
+                type="button"
+                onClick={() => setDetailTab("guide")}
+                className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold transition-colors cursor-pointer ${
+                  detailTab === "guide"
+                    ? "bg-violet-600 text-white"
+                    : "bg-violet-500/10 border border-violet-500/30 text-violet-600 dark:text-violet-400 hover:bg-violet-500/20"
+                }`}
+              >
+                <BookOpen className="h-3.5 w-3.5" />
+                Guia & Boas Práticas
+              </button>
             </div>
           </div>
 
@@ -1100,6 +1123,15 @@ export function ApiLibrarySettingsTab() {
                     </tbody>
                   </table>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* CONTEÚDO DA SUB-ABA: GUIA */}
+          {detailTab === "guide" && (
+            <div className="p-4 md:p-6 space-y-6">
+              <div className="text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap">
+                {docsContent}
               </div>
             </div>
           )}
