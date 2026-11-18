@@ -104,6 +104,7 @@ interface CustomSelectOption {
   icon?: React.ComponentType<{ className?: string }>;
   badge?: React.ReactNode;
   group?: string;
+  onDelete?: (e: React.MouseEvent) => void;
 }
 
 interface CustomSelectProps {
@@ -268,7 +269,21 @@ function CustomSelect({
                         <span className="truncate">{opt.label}</span>
                         {opt.badge && <span className="shrink-0">{opt.badge}</span>}
                       </div>
-                      {isSelected && <Check className="h-3.5 w-3.5 shrink-0 text-primary" />}
+                      <div className="flex items-center gap-2">
+                        {opt.onDelete && (
+                          <button
+                            type="button"
+                            className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors cursor-pointer"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              opt.onDelete!(e);
+                            }}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                        {isSelected && <Check className="h-3.5 w-3.5 shrink-0 text-primary" />}
+                      </div>
                     </button>
                   );
 
@@ -448,9 +463,24 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
       ),
     });
 
-  async function perform(action: "save" | "preview" | "rotate") {
+  async function perform(action: "save" | "preview" | "rotate" | "delete", deleteId?: string) {
     setBusy(true);
     try {
+      if (action === "delete") {
+        const response = await fetch("/api/settings/rd-marketing/delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: deleteId }),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error);
+        await load();
+        setId("");
+        setForm(blank());
+        toast.success("Fluxo excluído com sucesso.");
+        return;
+      }
+
       const response = await fetch("/api/settings/rd-marketing", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -577,6 +607,12 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
         tooltip: f.settings.enabled
           ? "Fluxo ativo recebendo leads e criando cards no CRM"
           : "Fluxo pausado (novos webhooks não geram cards)",
+        onDelete: (e) => {
+          e.preventDefault();
+          if (confirm(`Tem certeza que deseja excluir o fluxo '${f.settings.name || f.id}'?`)) {
+            perform("delete", f.id);
+          }
+        },
       });
     }
     return list;
