@@ -81,6 +81,16 @@ export const Route = createFileRoute("/api/settings/rd-marketing")({
           }
           if (body.action === "preview")
             return Response.json(await previewFlow(tenantId, body.settings, body.payload));
+          
+          if (body.action === "delete") {
+            if (typeof body.id !== "string")
+              throw new CrmError("Informe o fluxo para exclusão.", "BAD_REQUEST", 400);
+            await db
+              .delete(rdMarketingFlows)
+              .where(and(eq(rdMarketingFlows.tenantId, tenantId), eq(rdMarketingFlows.id, body.id)));
+            return Response.json({ success: true }, { status: 200 });
+          }
+
           const id = typeof body.id === "string" ? body.id : "";
           const [existing] = id
             ? await db

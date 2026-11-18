@@ -467,10 +467,10 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
     setBusy(true);
     try {
       if (action === "delete") {
-        const response = await fetch("/api/settings/rd-marketing/delete", {
+        const response = await fetch("/api/settings/rd-marketing", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: deleteId }),
+          body: JSON.stringify({ action: "delete", id: deleteId }),
         });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error);
