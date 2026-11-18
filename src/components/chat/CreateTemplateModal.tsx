@@ -41,7 +41,14 @@ export function CreateTemplateModal({ open, onOpenChange, onCreated }: { open: b
           <Textarea placeholder="Texto da mensagem..." value={bodyText} onChange={(e) => setBodyText(e.target.value)} />
         </div>
         <DialogFooter>
-          <Button onClick={create} disabled={busy}>Criar e Enviar</Button>
+          <Button 
+            onClick={create} 
+            disabled={busy}
+            className="inline-flex items-center gap-1.5 rounded-xl bg-primary hover:opacity-90 px-4 py-2 text-xs font-bold text-primary-foreground transition-all cursor-pointer shadow-soft"
+          >
+            {busy && <span className="animate-spin">⏳</span>}
+            Criar e Enviar
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -837,7 +837,7 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
             <SystemTooltip content="Criar um novo template de mensagem aprovado pela Meta">
               <button
                 type="button"
-                className="h-10 px-4 inline-flex items-center justify-center gap-2 rounded-xl bg-primary/10 hover:bg-primary/20 text-primary text-xs font-bold transition-all border border-primary/20 cursor-pointer"
+                className="h-10 px-4 inline-flex items-center justify-center gap-2 rounded-xl bg-primary/10 hover:bg-primary/20 text-primary text-xs font-bold transition-all border border-primary/20 cursor-pointer shadow-soft active:scale-[0.98]"
                 onClick={() => setCreateTemplateOpen(true)}
               >
                 <Plus className="h-4 w-4" />

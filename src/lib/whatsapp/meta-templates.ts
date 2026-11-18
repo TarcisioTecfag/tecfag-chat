@@ -761,6 +761,8 @@ export async function getMetaTemplateLocalMetadataMap(
   Map<
     string,
     {
+      name: string;
+      language: string;
       bindings: TemplateBindings;
       customGroups: string[];
       allPipelines: boolean;
@@ -787,6 +789,8 @@ export async function getMetaTemplateLocalMetadataMap(
   const map = new Map<
     string,
     {
+      name: string;
+      language: string;
       bindings: TemplateBindings;
       customGroups: string[];
       allPipelines: boolean;
@@ -797,6 +801,8 @@ export async function getMetaTemplateLocalMetadataMap(
   for (const row of rows) {
     const scope = normalizeMetaTemplateScope(row);
     const entry = {
+      name: row.name,
+      language: row.language,
       bindings: row.bindings || {},
       customGroups: normalizeCustomGroups(row.customGroups),
       allPipelines: scope.allPipelines,
@@ -804,7 +810,6 @@ export async function getMetaTemplateLocalMetadataMap(
       stageIds: scope.stageIds,
     };
     map.set(String(row.metaTemplateId), entry);
-    map.set(`${row.name}:${row.language}`, entry);
   }
   return map;
 }
