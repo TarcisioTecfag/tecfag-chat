@@ -13,7 +13,9 @@ import {
   previewFlow,
   validateFlow,
 } from "../../../lib/rd-marketing/service";
+import { getMetaTemplateLocalMetadataMap } from "../../../lib/whatsapp/meta-templates";
 import { integrationError, readIntegrationJson } from "../../../lib/rd-marketing/http";
+
 import {
   claimRdEvent,
   listRdEvents,
@@ -35,13 +37,14 @@ export const Route = createFileRoute("/api/settings/rd-marketing")({
             { status: 403 },
           );
         try {
-          const [data, options, events] = await Promise.all([
+          const [data, options, events, metaTemplates] = await Promise.all([
             listFlows(tenantId),
             flowOptions(tenantId),
             listRdEvents(tenantId),
+            getMetaTemplateLocalMetadataMap(tenantId),
           ]);
           return Response.json(
-            { ...data, options, events },
+            { ...data, options, events, metaTemplates: Object.fromEntries(metaTemplates) },
             { headers: { "Cache-Control": "no-store" } },
           );
         } catch (error) {

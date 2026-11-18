@@ -1,5 +1,7 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { outboundQueue } from "../whatsapp/outbound";
 import { and, eq, ne, or, sql, desc, isNull } from "drizzle-orm";
+
 import { db } from "../../db";
 import {
   contacts,
@@ -554,6 +556,26 @@ export async function receiveLeads(flow: Flow, payload: unknown) {
         dealId: deal.id,
         message: "Contato vinculado e card criado no CRM.",
       });
+      if (settings.whatsappTemplateId) {
+        try {
+          const conversationId = `conv-${randomUUID()}`;
+          await tx.insert(conversations).values({
+            id: conversationId,
+            tenantId,
+            contactId: contact.id,
+            whatsappConnectionId: null, // Provedor vai resolver
+            queueState: "automacao",
+          });
+          await outboundQueue.enqueueAndSend({
+            tenantId,
+            conversationId,
+            text: `[Automação RD: Template ${settings.whatsappTemplateId}]`,
+            templateName: settings.whatsappTemplateId,
+          });
+        } catch (err) {
+          console.error("[RD Marketing] Erro ao disparar template:", err);
+        }
+      }
       outcomes.push({ status: "created", dealId: deal.id });
     }
     return outcomes;

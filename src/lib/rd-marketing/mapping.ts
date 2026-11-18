@@ -46,8 +46,10 @@ export const flowSettingsSchema = z
     operatorId: z.string().max(200).nullable().default(null),
     deduplication: z.enum(["lead", "event"]).default("event"),
     eventIdPath: safePath.default("rd_conversion.id"),
+    whatsappTemplateId: z.string().nullable().optional(),
     attributionConversion: z.enum(["first", "last"]).optional(),
     campaignFromFlow: z.boolean().optional(),
+
     requireAttribution: z.boolean().optional(),
     mappings: z
       .array(

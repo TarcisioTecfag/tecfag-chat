@@ -377,7 +377,9 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
   const [logs, setLogs] = useState<Log[]>([]);
   const [events, setEvents] = useState<InboxEvent[]>([]);
   const [options, setOptions] = useState<Options | null>(null);
+  const [metaTemplates, setMetaTemplates] = useState<Record<string, any>>({});
   const [id, setId] = useState("");
+
   const [form, setForm] = useState<FlowSettings>(blank);
   const [url, setUrl] = useState("");
   const [payload, setPayload] = useState(sample);
@@ -399,8 +401,9 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
       setLogs(data.logs);
       setEvents(data.events || []);
       setOptions(data.options);
+      setMetaTemplates(data.metaTemplates || {});
     }
-    return data as { flows: Flow[]; logs: Log[]; options: Options };
+    return data as { flows: Flow[]; logs: Log[]; options: Options; metaTemplates: Record<string, any> };
   }
 
   useEffect(() => {
@@ -631,22 +634,22 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
     ];
   }, [options]);
 
-  const deduplicationOptionsList: CustomSelectOption[] = [
-    {
-      value: "event",
-      label: "Um card por conversão (Recomendado — Padrão)",
-      icon: Layers,
-      tooltip:
-        "Cada preenchimento de formulário cria uma nova oportunidade comercial no funil, mantendo o histórico de contatos unificado",
-    },
-    {
-      value: "lead",
-      label: "Apenas um card por lead (Ignora novas conversões)",
-      icon: UserCheck,
-      tooltip:
-        "Mantém apenas uma oportunidade ativa no CRM por lead. Novas conversões do mesmo contato não gerarão novos negócios",
-    },
-  ];
+  const templateOptionsList: CustomSelectOption[] = useMemo(() => {
+    return [
+      {
+        value: "",
+        label: "Nenhum (Apenas criar card no CRM)",
+        icon: XCircle,
+        tooltip: "Não enviar mensagem automática após a criação do card.",
+      },
+      ...Object.entries(metaTemplates).map(([id, tpl]) => ({
+        value: id,
+        label: `${tpl.name} (${tpl.language})`,
+        icon: FileText,
+        tooltip: `Template Meta aprovado: ${tpl.name}`,
+      })),
+    ];
+  }, [metaTemplates]);
 
   const attributionOptionsList: CustomSelectOption[] = [
     {
@@ -1016,6 +1019,31 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
                 placeholder="Selecione a estratégia de cards..."
                 tooltip="Escolha a estratégia de criação de cards no CRM"
                 icon={Layers}
+              />
+            </div>
+
+            {/* Template WhatsApp (CustomSelect) */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                  <FileText className="h-3.5 w-3.5 text-primary" />
+                  Template Automático de WhatsApp
+                </label>
+                <SystemTooltip content="Template aprovado pela Meta enviado automaticamente após criação do card">
+                  <span className="text-muted-foreground hover:text-foreground cursor-pointer">
+                    <Info className="h-3.5 w-3.5" />
+                  </span>
+                </SystemTooltip>
+              </div>
+              <CustomSelect
+                value={form.whatsappTemplateId || ""}
+                onChange={(val) => change({ whatsappTemplateId: val || null })}
+                options={templateOptionsList}
+                placeholder="Selecione um template..."
+                tooltip="Template aprovado pela Meta que será enviado ao cliente"
+                searchable={true}
+                searchPlaceholder="Buscar template..."
+                icon={FileText}
               />
             </div>
 
