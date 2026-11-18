@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { requireSession } from "../../../lib/auth-session";
-import { createMetaTemplate } from "../../../lib/whatsapp/meta-templates";
+import { requireSession } from "../../../../lib/auth-session";
+import { createMetaTemplate } from "../../../../lib/whatsapp/meta-templates";
 
 export const Route = createFileRoute("/api/settings/rd-marketing/templates")({
   server: {
