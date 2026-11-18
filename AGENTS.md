@@ -21,7 +21,7 @@
 > | Tenant | ID | Empresa | Canal padrão | IA Persona | Status |
 > |--------|-----|---------|-------------|------------|--------|
 > | Valem  | `"valem"`  | Valem Valvulas e Embalagens | **Baileys** (configurável via admin) | **Valentina** | 🟢 ATIVO em produção — não interromper |
-> | Tecfag | `"tecfag"` | Tecfag Informática | **Meta API** (configurável via admin) | **Fagner** | 🟡 EM IMPLANTAÇÃO — **prioridade atual de desenvolvimento** |
+> | Tecfag | `"tecfag"` | Tecfag Informática | **Meta API** (configurável via admin) | **Fagner** | 🟢 ATIVO em produção — operação normal |
 >
 > **Decisão arquitetural (28/09/2026):** Tecfag é a prioridade de desenvolvimento. Valem deve permanecer operando sem interrupção durante toda a implantação. Canal é configurável por tenant via painel admin — não fixe Baileys para Valem nem Meta para Tecfag no código.
 >
@@ -61,7 +61,8 @@
 >
 > 4. **Features de IA ativas por tenant:**
 >    - `valem`: SDR (Valentina), Supervisor, Auditorias QA, Rodízio, Sentimento, Base de Conhecimento
->    - `tecfag`: Apenas Fagner (Chat do operador interno). SDR, Supervisor e Auditorias são **desativados** até go-live do tecfag.
+>    - `tecfag`: Fagner (Chat do operador interno + SDR Bot ativo)
+
 
 ---
 

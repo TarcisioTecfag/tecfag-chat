@@ -59,6 +59,7 @@ import { rememberRdMarketingFlow, restoreRdMarketingFlow } from "@/lib/rd-market
 import { RdMarketingDiagnostics } from "./RdMarketingDiagnostics";
 import { RdMarketingConnection } from "./RdMarketingConnection";
 import { RdMarketingSyncSettings } from "./RdMarketingSyncSettings";
+import { CreateTemplateModal } from "./CreateTemplateModal";
 
 type Field = {
   id: string;
@@ -388,6 +389,7 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
   const [loadError, setLoadError] = useState("");
   const [copied, setCopied] = useState(false);
   const [simulatorOpen, setSimulatorOpen] = useState(false);
+  const [createTemplateOpen, setCreateTemplateOpen] = useState(false);
   const [refreshingLogs, setRefreshingLogs] = useState(false);
 
   async function load(signal?: AbortSignal) {
@@ -661,9 +663,9 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
       },
       ...Object.entries(metaTemplates).map(([id, tpl]) => ({
         value: id,
-        label: `${tpl.name} (${tpl.language})`,
+        label: tpl.name ? `${tpl.name} (${tpl.language})` : "Template sem nome",
         icon: FileText,
-        tooltip: `Template Meta aprovado: ${tpl.name}`,
+        tooltip: tpl.name ? `Template Meta aprovado: ${tpl.name}` : "Template não carregado corretamente",
       })),
     ];
   }, [metaTemplates]);
@@ -741,6 +743,7 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
       <RdMarketingConnection key={tenant} />
       <RdMarketingSyncSettings key={`sync:${tenant}`} />
       {/* 1. CABEÇALHO DA INTEGRAÇÃO COM BARRA DE SELEÇÃO DE FLUXO */}
+      <CreateTemplateModal open={createTemplateOpen} onOpenChange={setCreateTemplateOpen} onCreated={load} />
       <div className="rounded-3xl border border-border bg-card p-6 shadow-soft transition-all">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5 border-b border-border pb-6">
           <div className="flex items-start gap-4">
@@ -829,6 +832,16 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
               >
                 <Plus className="h-4 w-4 text-primary" />
                 Novo Fluxo
+              </button>
+            </SystemTooltip>
+            <SystemTooltip content="Criar um novo template de mensagem aprovado pela Meta">
+              <button
+                type="button"
+                className="h-10 px-4 inline-flex items-center justify-center gap-2 rounded-xl bg-primary/10 hover:bg-primary/20 text-primary text-xs font-bold transition-all border border-primary/20 cursor-pointer"
+                onClick={() => setCreateTemplateOpen(true)}
+              >
+                <Plus className="h-4 w-4" />
+                Novo Template
               </button>
             </SystemTooltip>
           </div>

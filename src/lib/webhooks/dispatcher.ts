@@ -12,7 +12,7 @@ export async function dispatchWebhook(tenantId: string, event: string, data: any
       and(
         eq(webhookSubscriptions.tenantId, tenantId),
         eq(webhookSubscriptions.isActive, true),
-        sql`${event} = ANY(${webhookSubscriptions.events})`
+        sql`${webhookSubscriptions.events} ? ${event}`
       )
     );
 
