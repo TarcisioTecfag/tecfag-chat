@@ -81,6 +81,16 @@ interface CachedKnowledgeData {
 }
 const knowledgeCacheByTenant = new Map<string, CachedKnowledgeData>();
 const KNOWLEDGE_CACHE_TTL_MS = 60_000;
+const knowledgeCacheInvalidationListeners = new Set<(tenantId?: string) => void>();
+
+export function registerKnowledgeCacheInvalidationListener(
+  listener: (tenantId?: string) => void,
+) {
+  knowledgeCacheInvalidationListeners.add(listener);
+  return () => {
+    knowledgeCacheInvalidationListeners.delete(listener);
+  };
+}
 
 export function invalidateKnowledgeCache(tenantId?: string) {
   if (tenantId) {
@@ -89,6 +99,13 @@ export function invalidateKnowledgeCache(tenantId?: string) {
   } else {
     knowledgeCacheByTenant.clear();
     fastPhotoCacheByTenant.clear();
+  }
+  for (const listener of knowledgeCacheInvalidationListeners) {
+    try {
+      listener(tenantId);
+    } catch {
+      // Ignora erro de listener externo para não interromper invalidação principal
+    }
   }
 }
 

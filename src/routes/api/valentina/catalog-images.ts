@@ -6,6 +6,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { requireSession } from "../../../lib/auth-session";
+import { registerKnowledgeCacheInvalidationListener } from "../../../lib/valentina/knowledge-service";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -114,6 +115,8 @@ export function invalidateCatalogImagesCache(tenantId?: string) {
     catalogCacheByTenant.clear();
   }
 }
+
+registerKnowledgeCacheInvalidationListener(invalidateCatalogImagesCache);
 
 const MIME_MAP: Record<string, string> = {
   jpg: "image/jpeg",

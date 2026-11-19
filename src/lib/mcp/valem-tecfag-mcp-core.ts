@@ -538,6 +538,39 @@ export function summarizeMcpToolResult(toolName: string, data: any): string {
         return `Triagem da conversa ${data.conversationId}: ${data.isAiActive ? "IA ativa" : data.isPaused ? "IA pausada" : "manual"} (${data.queueState})`;
       case "update_triage_summary":
         return `Resumo de triagem salvo na conversa ${data.conversationId} (${data.currentStep || "atualizado"})`;
+      case "list_knowledge_folders":
+        return `${Number(data.totalFolders ?? 0)} pasta(s) e ${Number(data.totalFilesInTenant ?? 0)} arquivo(s) no Knowledge`;
+      case "search_knowledge_files":
+        return `${Number(data.returnedCount ?? 0)} de ${Number(data.totalMatched ?? 0)} arquivo(s) do Knowledge retornado(s)`;
+      case "get_knowledge_file_content":
+        return `Arquivo "${data.name || data.fileId}" lido (${Number(data.returnedChars ?? 0)}/${Number(data.totalChars ?? 0)} chars)`;
+      case "query_knowledge_rag":
+        return `Contexto RAG retornado (${Number(data.returnedChars ?? 0)} chars para "${data.query || ""}")`;
+      case "create_knowledge_folder": {
+        const folder = data.folder as Record<string, unknown> | undefined;
+        return data.reused
+          ? `Pasta "${folder?.name || data.folderId}" já existia e foi reutilizada (${data.folderId})`
+          : `Pasta "${folder?.name || data.folderId}" criada no Knowledge (${data.folderId})`;
+      }
+      case "update_knowledge_folder": {
+        const folder = data.folder as Record<string, unknown> | undefined;
+        return `Pasta "${folder?.name || data.folderId}" atualizada no Knowledge (${data.folderId})`;
+      }
+      case "delete_knowledge_folder":
+        return `Pasta "${data.deletedFolderName || data.deletedFolderId}" removida (${data.mode || "empty"}, ${Number(data.deletedFilesCount ?? 0)} arquivo(s) excluído(s))`;
+      case "upsert_knowledge_file": {
+        const file = data.file as Record<string, unknown> | undefined;
+        return data.updated
+          ? `Arquivo "${file?.name || data.fileId}" atualizado no Knowledge (${data.fileId})`
+          : `Arquivo "${file?.name || data.fileId}" inserido no Knowledge (${data.fileId})`;
+      }
+      case "update_knowledge_file": {
+        const file = data.file as Record<string, unknown> | undefined;
+        const fields = Array.isArray(data.updatedFields) ? data.updatedFields.join(", ") : "editado";
+        return `Arquivo "${file?.name || data.fileId}" editado no Knowledge (${fields || "ok"})`;
+      }
+      case "delete_knowledge_file":
+        return `${Number(data.deletedCount ?? 0)} arquivo(s) removido(s) do Knowledge`;
       default:
         return "Dados retornados com sucesso";
     }

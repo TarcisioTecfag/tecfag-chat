@@ -51,6 +51,12 @@ import {
   executePhase23McpTool,
   isPhase23McpTool,
 } from "./valem-tecfag-mcp-phase23-tools";
+import {
+  MCP_KNOWLEDGE_TOOLS,
+  MCP_KNOWLEDGE_TOOL_LABELS_PT,
+  executeKnowledgeMcpTool,
+  isKnowledgeMcpTool,
+} from "./valem-tecfag-mcp-knowledge-tools";
 
 export type McpToolAccessKind = "read" | "write";
 
@@ -876,6 +882,7 @@ export const MCP_EXTENDED_TOOLS: McpToolDefinition[] = [
     },
   },
   ...MCP_PHASE23_TOOLS,
+  ...MCP_KNOWLEDGE_TOOLS,
 ];
 
 export const MCP_EXTENDED_TOOL_LABELS_PT: Record<string, string> = {
@@ -909,6 +916,7 @@ export const MCP_EXTENDED_TOOL_LABELS_PT: Record<string, string> = {
   delete_quick_response: "Excluir Resposta Rápida",
   update_sector: "Atualizar Setor",
   ...MCP_PHASE23_TOOL_LABELS_PT,
+  ...MCP_KNOWLEDGE_TOOL_LABELS_PT,
 };
 
 const EXTENDED_TOOL_NAMES = new Set(MCP_EXTENDED_TOOLS.map((t) => t.name));
@@ -3229,6 +3237,9 @@ export async function executeExtendedMcpTool(
     default:
       if (isPhase23McpTool(name)) {
         return executePhase23McpTool(name, args, tenantId, actor);
+      }
+      if (isKnowledgeMcpTool(name)) {
+        return executeKnowledgeMcpTool(name, args, tenantId, actor);
       }
       throw new Error(`Ferramenta estendida desconhecida: '${name}'.`);
   }

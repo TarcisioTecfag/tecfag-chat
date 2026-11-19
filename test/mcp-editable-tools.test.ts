@@ -28,21 +28,21 @@ function makeAccess(accessLevel: "read" | "read_write" | undefined): McpAccessCo
 }
 
 describe("MCP Editável Real (/api/mcp + permissão read/read_write + ponte stdio)", () => {
-  it("possui 58 ferramentas únicas (20 leitura + 38 escrita) com 100% de paridade no catálogo da Biblioteca de API", () => {
+  it("possui 68 ferramentas únicas (24 leitura + 44 escrita) com 100% de paridade no catálogo da Biblioteca de API", () => {
     const readTools = MCP_TOOLS.filter((t) => t.access === "read");
     const writeTools = MCP_TOOLS.filter((t) => t.access === "write");
 
-    expect(MCP_TOOLS).toHaveLength(58);
-    expect(readTools).toHaveLength(20);
-    expect(writeTools).toHaveLength(38);
-    expect(new Set(MCP_TOOLS.map((t) => t.name)).size).toBe(58);
+    expect(MCP_TOOLS).toHaveLength(68);
+    expect(readTools).toHaveLength(24);
+    expect(writeTools).toHaveLength(44);
+    expect(new Set(MCP_TOOLS.map((t) => t.name)).size).toBe(68);
 
     const catalogMcp = getApiLibraryCatalog("tecfag").filter((e) => e.kind === "mcp");
     const coreNames = new Set(MCP_TOOLS.map((t) => t.name));
     const catalogNames = new Set(catalogMcp.map((e) => e.mcpToolName));
 
-    expect(catalogMcp).toHaveLength(58);
-    expect(catalogNames.size).toBe(58);
+    expect(catalogMcp).toHaveLength(68);
+    expect(catalogNames.size).toBe(68);
     for (const name of coreNames) {
       expect(catalogNames.has(name)).toBe(true);
     }
@@ -56,15 +56,15 @@ describe("MCP Editável Real (/api/mcp + permissão read/read_write + ponte stdi
 
     const readVisible = getVisibleMcpTools(makeAccess("read"));
     const rwVisible = getVisibleMcpTools(makeAccess("read_write"));
-    expect(readVisible).toHaveLength(20);
+    expect(readVisible).toHaveLength(24);
     expect(readVisible.every((t) => t.access === "read")).toBe(true);
-    expect(rwVisible).toHaveLength(58);
+    expect(rwVisible).toHaveLength(68);
 
     const listRead = await processMcpJsonRpcPayload(
       { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} },
       makeAccess("read"),
     );
-    expect(listRead.body?.result?.tools).toHaveLength(20);
+    expect(listRead.body?.result?.tools).toHaveLength(24);
     expect(
       listRead.body.result.tools.some((t: { name: string }) => isWriteMcpTool(t.name)),
     ).toBe(false);
@@ -73,10 +73,10 @@ describe("MCP Editável Real (/api/mcp + permissão read/read_write + ponte stdi
       { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} },
       makeAccess("read_write"),
     );
-    expect(listRw.body?.result?.tools).toHaveLength(58);
+    expect(listRw.body?.result?.tools).toHaveLength(68);
   });
 
-  it("bloqueia TODAS as 38 ferramentas de escrita quando a chave tem permissão 'read' ou indefinida", async () => {
+  it("bloqueia TODAS as 44 ferramentas de escrita quando a chave tem permissão 'read' ou indefinida", async () => {
     const writeTools = MCP_TOOLS.filter((t) => t.access === "write");
     for (const tool of writeTools) {
       const resRead = await processMcpJsonRpcPayload(
@@ -156,6 +156,15 @@ describe("MCP Editável Real (/api/mcp + permissão read/read_write + ponte stdi
       { name: "retry_webhook_delivery", args: {}, expectedError: "'deliveryId'" },
       { name: "set_conversation_triage_mode", args: { conversationId: "c1" }, expectedError: "'action'" },
       { name: "update_triage_summary", args: { conversationId: "c1" }, expectedError: "'summary'" },
+      { name: "create_knowledge_folder", args: {}, expectedError: "'name'" },
+      { name: "update_knowledge_folder", args: {}, expectedError: "'folderId'" },
+      { name: "update_knowledge_folder", args: { folderId: "f1" }, expectedError: "'name' ou 'parentId'" },
+      { name: "delete_knowledge_folder", args: {}, expectedError: "'folderId'" },
+      { name: "upsert_knowledge_file", args: {}, expectedError: "'name'" },
+      { name: "upsert_knowledge_file", args: { name: "doc.txt" }, expectedError: "'content' (texto) ou 'base64'" },
+      { name: "update_knowledge_file", args: {}, expectedError: "'fileId'" },
+      { name: "update_knowledge_file", args: { fileId: "kf1" }, expectedError: "pelo menos um campo" },
+      { name: "delete_knowledge_file", args: {}, expectedError: "'fileId' ou 'fileIds'" },
     ];
 
     for (const tc of cases) {
@@ -189,7 +198,7 @@ describe("MCP Editável Real (/api/mcp + permissão read/read_write + ponte stdi
     expect(uiCode).toContain("SystemTooltip");
   });
 
-  it("classifica todas as 38 tools de escrita como 'action' na auditoria e gera resumos específicos", () => {
+  it("classifica todas as 44 tools de escrita como 'action' na auditoria e gera resumos específicos", () => {
     const writeTools = MCP_TOOLS.filter((t) => t.access === "write");
     for (const tool of writeTools) {
       expect(inferMcpAuditEventType(tool.name)).toBe("action");
@@ -241,6 +250,14 @@ describe("MCP Editável Real (/api/mcp + permissão read/read_write + ponte stdi
         deliveryId: "whd-1",
         statusCode: 200,
         currentStep: "Resumo Registrado",
+        folderId: "f-1",
+        folder: { id: "f-1", name: "Manuais" },
+        deletedFolderId: "f-1",
+        deletedFolderName: "Manuais",
+        deletedFilesCount: 2,
+        fileId: "kf-1",
+        file: { id: "kf-1", name: "Manual.md" },
+        deletedCount: 1,
       });
       expect(summary).not.toBe("Dados retornados com sucesso");
       expect(summary.length).toBeGreaterThan(10);
@@ -261,6 +278,26 @@ describe("MCP Editável Real (/api/mcp + permissão read/read_write + ponte stdi
     expect(inferMcpAuditEventType("list_webhook_subscriptions")).toBe("query");
     expect(inferMcpAuditEventType("list_webhook_deliveries")).toBe("query");
     expect(inferMcpAuditEventType("get_triage_summary")).toBe("query");
+    expect(inferMcpAuditEventType("list_knowledge_folders")).toBe("query");
+    expect(inferMcpAuditEventType("search_knowledge_files")).toBe("query");
+    expect(inferMcpAuditEventType("get_knowledge_file_content")).toBe("query");
+    expect(inferMcpAuditEventType("query_knowledge_rag")).toBe("query");
+    expect(
+      summarizeMcpToolResult("list_knowledge_folders", { totalFolders: 3, totalFilesInTenant: 12 }),
+    ).toContain("3 pasta(s)");
+    expect(
+      summarizeMcpToolResult("search_knowledge_files", { returnedCount: 2, totalMatched: 5 }),
+    ).toContain("2 de 5");
+    expect(
+      summarizeMcpToolResult("get_knowledge_file_content", {
+        name: "Manual.md",
+        returnedChars: 1200,
+        totalChars: 1200,
+      }),
+    ).toContain("Manual.md");
+    expect(
+      summarizeMcpToolResult("query_knowledge_rag", { query: "FR-900", returnedChars: 900 }),
+    ).toContain("FR-900");
   });
 
   it("executa scripts/mcp-server.mjs com sintaxe válida e ponte stdio JSON-RPC real", async () => {
