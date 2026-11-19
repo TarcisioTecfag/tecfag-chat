@@ -16,6 +16,11 @@ import { useOptionalOnboarding } from "@/hooks/useOnboarding";
 import { useOnboardingAdapter } from "@/hooks/useOnboardingAdapter";
 import { canReadConversation, conversationReadRules } from "@/lib/access-control/conversation-policy";
 import { getConversationPreviewMessage, getConversationPreviewTime } from "@/components/crm/CrmChatWidget";
+import {
+  classifyConversationMessageSender,
+  getConversationLastRealMessage,
+  getConversationPreviewPrefix,
+} from "@/lib/chat-preview";
 import { ContactPhoneTypeBadge } from "@/components/crm/ContactPhonesEditor";
 import { buildPhoneQueryPlan, matchesPhoneSearchQuery } from "@/lib/utils";
 import { analyzeMetaUnsupportedMessage } from "@/lib/whatsapp/meta-message-text";
@@ -626,6 +631,9 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
             filteredConvs.map((c) => {
                 const isSelected = c.id === selectedChatId;
                 const lastMsg = getConversationPreviewMessage(c.messages);
+                const lastRealMsg = getConversationLastRealMessage(c.messages);
+                const isLastFromOperator = classifyConversationMessageSender(lastRealMsg) === "operator";
+                const previewPrefix = getConversationPreviewPrefix(lastMsg);
                 const { mediaType: msgMediaType, label: msgLabel } = formatLastMessage(lastMsg?.text || "");
                 return (
                   <motion.div
@@ -655,17 +663,41 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
                       {/* Avatar with Channel Badge Overlay */}
                       <div className="relative shrink-0">
                         {c.avatar ? (
-                          <img src={c.avatar} alt={c.name} className="h-8 w-8 rounded-full object-cover border border-border" />
+                          <img
+                            src={c.avatar}
+                            alt={c.name}
+                            className={`h-8 w-8 rounded-full object-cover ${
+                              isLastFromOperator
+                                ? "border-2 border-neutral-900 dark:border-black dark:ring-1 dark:ring-neutral-600"
+                                : "border border-border"
+                            }`}
+                          />
                         ) : (
                           <div
-                            className="grid h-8 w-8 place-items-center rounded-full text-[10px] font-bold text-primary bg-primary/10 border border-primary/20"
+                            className={`grid h-8 w-8 place-items-center rounded-full text-[10px] font-bold border ${
+                              isLastFromOperator
+                                ? "text-white bg-neutral-950 border-neutral-900 dark:bg-black dark:text-neutral-100 dark:border-neutral-700"
+                                : "text-primary bg-primary/10 border-primary/20"
+                            }`}
                           >
-                            {c.initials || <User className="h-3 w-3 text-primary" />}
+                            {c.initials || (
+                              <User
+                                className={`h-3 w-3 ${
+                                  isLastFromOperator ? "text-white dark:text-neutral-100" : "text-primary"
+                                }`}
+                              />
+                            )}
                           </div>
                         )}
 
                         {/* Channel Badge */}
-                        <span className="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-card text-primary-foreground shadow-soft bg-primary">
+                        <span
+                          className={`absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-card shadow-soft ${
+                            isLastFromOperator
+                              ? "bg-neutral-950 text-white dark:bg-black dark:text-neutral-100"
+                              : "bg-primary text-primary-foreground"
+                          }`}
+                        >
                           {c.channel === "whatsapp" && <WhatsappLogo className="h-2 w-2" />}
                           {c.channel === "instagram" && <InstagramLogo className="h-2 w-2" />}
                           {c.channel === "messenger" && <MessengerLogo className="h-2 w-2" />}
@@ -674,7 +706,13 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
 
                         {/* Pin indicator */}
                         {(c as any).pinned && (
-                          <span className="absolute -top-0.5 -left-0.5 grid h-3 w-3 place-items-center rounded-full bg-primary text-primary-foreground">
+                          <span
+                            className={`absolute -top-0.5 -left-0.5 grid h-3 w-3 place-items-center rounded-full ${
+                              isLastFromOperator
+                                ? "bg-neutral-950 text-white dark:bg-black dark:text-neutral-100"
+                                : "bg-primary text-primary-foreground"
+                            }`}
+                          >
                             <Pin className="h-1.5 w-1.5" />
                           </span>
                         )}
@@ -697,7 +735,7 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
                         </div>
                         <div className="flex items-center justify-between mt-0.5">
                           <p className="truncate text-[10px] text-muted-foreground pr-2 flex items-center gap-1">
-                            {lastMsg?.isInternalNote && (
+                            {lastMsg?.isInternalNote ? (
                               <span className="text-primary font-semibold shrink-0">
                                 {lastMsg.isSupervisorWhisper ||
                                 Boolean((lastMsg as any).metaDetails?.supervisorWhisper) ||
@@ -705,7 +743,17 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
                                   ? "[Supervisão]"
                                   : "[Nota]"}
                               </span>
-                            )}
+                            ) : previewPrefix ? (
+                              <span
+                                className={`font-bold shrink-0 ${
+                                  previewPrefix === "Você"
+                                    ? "text-neutral-950 dark:text-neutral-100"
+                                    : "text-primary"
+                                }`}
+                              >
+                                {previewPrefix}:
+                              </span>
+                            ) : null}
                             {renderMediaIcon(msgMediaType)}
                             <span className="truncate">{msgLabel}</span>
                           </p>
@@ -722,14 +770,24 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
                         {((c.tags && c.tags.length > 0) || c.sectorName) && (
                           <div className="flex flex-wrap gap-1 mt-1.5 items-center">
                             {c.sectorName && (
-                              <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded-md border border-primary/20 bg-primary/10 text-primary">
+                              <span
+                                className={`text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded-md border ${
+                                  isLastFromOperator
+                                    ? "border-neutral-900/20 bg-neutral-950 text-white dark:border-neutral-700 dark:bg-black dark:text-neutral-200"
+                                    : "border-primary/20 bg-primary/10 text-primary"
+                                }`}
+                              >
                                 {c.sectorName}
                               </span>
                             )}
                             {c.tags && c.tags.slice(0, 2).map((tag, idx) => (
                               <span 
                                 key={idx} 
-                                className="text-[9px] font-extrabold uppercase bg-primary/10 text-primary border border-primary/20 px-1.5 py-0.5 rounded-md"
+                                className={`text-[9px] font-extrabold uppercase border px-1.5 py-0.5 rounded-md ${
+                                  isLastFromOperator
+                                    ? "border-neutral-900/20 bg-neutral-950 text-white dark:border-neutral-700 dark:bg-black dark:text-neutral-200"
+                                    : "bg-primary/10 text-primary border-primary/20"
+                                }`}
                               >
                                 {tag}
                               </span>

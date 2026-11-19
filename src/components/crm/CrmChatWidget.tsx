@@ -116,6 +116,11 @@ import { toast } from "sonner";
 import { fetchDealRequirement } from "@/lib/crm/conversation-deal-client";
 import { getConversationSortTimestamp, type Conversation, type Message } from "@/lib/mockData";
 import {
+  classifyConversationMessageSender,
+  getConversationLastRealMessage,
+  getConversationPreviewPrefix,
+} from "@/lib/chat-preview";
+import {
   useAudioPlaybackRate,
   formatAudioPlaybackRate,
   applyAudioPlaybackRate,
@@ -325,6 +330,7 @@ function CustomerAvatar({
   channel,
   size = "md",
   showChannel = true,
+  tone = "default",
   className = "",
 }: {
   avatar?: string;
@@ -334,6 +340,7 @@ function CustomerAvatar({
   channel?: string;
   size?: "xs" | "sm" | "md" | "lg";
   showChannel?: boolean;
+  tone?: "default" | "operator";
   className?: string;
 }) {
   const [imgError, setImgError] = useState(false);
@@ -371,6 +378,7 @@ function CustomerAvatar({
     "CL";
 
   const bg = getAvatarBg(name, initialsBg);
+  const isOperatorTone = tone === "operator";
 
   return (
     <div className={`relative shrink-0 select-none ${className}`}>
@@ -379,11 +387,19 @@ function CustomerAvatar({
           src={avatar}
           alt={name}
           onError={() => setImgError(true)}
-          className={`${sizeClasses[size]} rounded-full object-cover border border-border/80 shadow-xs`}
+          className={`${sizeClasses[size]} rounded-full object-cover shadow-xs ${
+            isOperatorTone
+              ? "border-2 border-neutral-900 dark:border-black dark:ring-1 dark:ring-neutral-600"
+              : "border border-border/80"
+          }`}
         />
       ) : (
         <div
-          className={`${sizeClasses[size]} rounded-full flex items-center justify-center font-bold text-primary bg-primary/10 border border-primary/20 shadow-xs`}
+          className={`${sizeClasses[size]} rounded-full flex items-center justify-center font-bold border shadow-xs ${
+            isOperatorTone
+              ? "text-white bg-neutral-950 border-neutral-900 dark:bg-black dark:text-neutral-100 dark:border-neutral-700"
+              : "text-primary bg-primary/10 border-primary/20"
+          }`}
         >
           {computedInitials}
         </div>
@@ -391,7 +407,11 @@ function CustomerAvatar({
 
       {showChannel && (
         <span
-          className={`absolute ${badgeSizes[size]} flex items-center justify-center rounded-full border border-card text-primary-foreground shadow-xs bg-primary`}
+          className={`absolute ${badgeSizes[size]} flex items-center justify-center rounded-full border border-card shadow-xs ${
+            isOperatorTone
+              ? "bg-neutral-950 text-white dark:bg-black dark:text-neutral-100"
+              : "bg-primary text-primary-foreground"
+          }`}
         >
           {channel === "whatsapp" ? (
             <WhatsappLogo className={iconSizes[size]} />
@@ -4613,6 +4633,10 @@ export function CrmChatWidget() {
                       ) : (
                         filtered.map((conversation) => {
                           const last = getConversationPreviewMessage(conversation.messages);
+                          const lastReal = getConversationLastRealMessage(conversation.messages);
+                          const isLastFromOperator =
+                            classifyConversationMessageSender(lastReal) === "operator";
+                          const previewPrefix = getConversationPreviewPrefix(last);
                           const isLastInternal = last?.isInternalNote;
 
                           return (
@@ -4636,10 +4660,17 @@ export function CrmChatWidget() {
                                   initials={conversation.initials}
                                   initialsBg={conversation.initialsBg}
                                   channel={conversation.channel}
+                                  tone={isLastFromOperator ? "operator" : "default"}
                                   size="md"
                                 />
                                 {(conversation as any).pinned && (
-                                  <span className="absolute -top-1 -left-1 grid h-3.5 w-3.5 place-items-center rounded-full bg-primary text-primary-foreground shadow-xs">
+                                  <span
+                                    className={`absolute -top-1 -left-1 grid h-3.5 w-3.5 place-items-center rounded-full shadow-xs ${
+                                      isLastFromOperator
+                                        ? "bg-neutral-950 text-white dark:bg-black dark:text-neutral-100"
+                                        : "bg-primary text-primary-foreground"
+                                    }`}
+                                  >
                                     <Pin className="h-2 w-2" />
                                   </span>
                                 )}
@@ -4657,11 +4688,21 @@ export function CrmChatWidget() {
 
                                 <div className="mt-0.5 flex items-center justify-between gap-2">
                                   <span className="truncate text-[11px] text-muted-foreground flex items-center gap-1">
-                                    {isLastInternal && (
+                                    {isLastInternal ? (
                                       <span className="text-primary font-semibold shrink-0">
                                         [Nota]
                                       </span>
-                                    )}
+                                    ) : previewPrefix ? (
+                                      <span
+                                        className={`font-bold shrink-0 ${
+                                          previewPrefix === "Você"
+                                            ? "text-neutral-950 dark:text-neutral-100"
+                                            : "text-primary"
+                                        }`}
+                                      >
+                                        {previewPrefix}:
+                                      </span>
+                                    ) : null}
                                     <span className="truncate">
                                       {last ? previewSnippet(last.text) : "Sem mensagens"}
                                     </span>

@@ -193,43 +193,43 @@ export type Conversation = {
 };
 
 /**
- * Calcula o timestamp numérico de ordenação de uma conversa priorizando
- * sempre a última mensagem enviada pelo cliente (ou a última mensagem geral
- * caso a conversa ainda não possua mensagens recebidas do cliente).
+ * Calcula o timestamp numérico de ordenação de uma conversa considerando a última
+ * mensagem real trocada (enviada tanto pelo cliente quanto pelo operador), ignorando
+ * notas internas, avisos e logs de sistema. Assim, o atendimento sobe para o topo
+ * sempre que o cliente OU o operador envia uma nova mensagem.
  */
 export function getConversationSortTimestamp(c: Conversation): number {
-  let maxClientTs = 0;
-  if (c.lastClientMessageAtISO) {
-    const parsed = Date.parse(c.lastClientMessageAtISO);
-    if (!Number.isNaN(parsed)) maxClientTs = parsed;
-  }
-
-  let maxAnyTs = 0;
+  let maxTs = 0;
   if (c.lastMessageAtISO) {
     const parsed = Date.parse(c.lastMessageAtISO);
-    if (!Number.isNaN(parsed)) maxAnyTs = parsed;
+    if (!Number.isNaN(parsed)) maxTs = parsed;
   }
 
   if (Array.isArray(c.messages)) {
     for (const m of c.messages) {
+      if (
+        m.isInternalNote ||
+        m.author === "Sistema" ||
+        m.senderType === "system" ||
+        m.isWarning
+      ) {
+        continue;
+      }
       const iso = m.sentAtISO || (m as any).sentAt;
       if (!iso) continue;
       const ts = Date.parse(iso);
-      if (Number.isNaN(ts)) continue;
-      if (ts > maxAnyTs) maxAnyTs = ts;
-      const isClient =
-        m.side === "in" &&
-        !m.isInternalNote &&
-        m.author !== "Sistema" &&
-        m.senderType !== "system" &&
-        !m.isWarning;
-      if (isClient && ts > maxClientTs) {
-        maxClientTs = ts;
+      if (!Number.isNaN(ts) && ts > maxTs) {
+        maxTs = ts;
       }
     }
   }
 
-  return maxClientTs > 0 ? maxClientTs : maxAnyTs;
+  if (maxTs === 0 && c.lastClientMessageAtISO) {
+    const parsed = Date.parse(c.lastClientMessageAtISO);
+    if (!Number.isNaN(parsed)) maxTs = parsed;
+  }
+
+  return maxTs;
 }
 
 export type OperatorTemplate = {

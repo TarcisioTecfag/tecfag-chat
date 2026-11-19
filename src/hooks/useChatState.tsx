@@ -2743,6 +2743,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         date: nowDateStr,
         sentAtISO: nowISO,
         side: "out",
+        senderType: "agent",
         isInternalNote,
         quotedMessageId: quotedMessage?.id || null,
         quotedMessageSender: quotedMessage?.sender || null,
@@ -3314,6 +3315,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     time: pendingTime,
                     sentAtISO: nowIso,
                     side: "out" as const,
+                    senderType: "agent",
                     status: "sending",
                     provider: currentChat.whatsappConnectionId ? "baileys" : activeProvider,
                     quotedMessageId: quotedMessage?.id || null,
@@ -3571,6 +3573,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         sentAtISO: resolvedTextStamp.sentAtISO,
         date: resolvedTextStamp.date,
         side: "out",
+        senderType: "agent",
         isInternalNote,
         quotedMessageId: quotedMessage?.id || null,
         quotedMessageSender: quotedMessage?.sender || null,
@@ -3609,6 +3612,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           sentAtISO: attStamp.sentAtISO,
           date: attStamp.date,
           side: "out",
+          senderType: "agent",
           isInternalNote,
           quotedMessageId: attachQuote ? quotedMessage?.id || null : null,
           quotedMessageSender: attachQuote ? quotedMessage?.sender || null : null,
@@ -4404,14 +4408,22 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
           }
           if (!previewMsg) previewMsg = merged.at(-1);
-          const nextIso = previewMsg?.sentAtISO || item.lastMessageAtISO;
-          const nextTime = nextIso
-            ? new Date(nextIso).toLocaleTimeString("pt-BR", {
+          const nextIso = previewMsg?.isInternalNote
+            ? item.lastMessageAtISO
+            : previewMsg?.sentAtISO || item.lastMessageAtISO;
+          const nextTime = previewMsg?.sentAtISO
+            ? new Date(previewMsg.sentAtISO).toLocaleTimeString("pt-BR", {
                 hour: "2-digit",
                 minute: "2-digit",
                 timeZone: "America/Sao_Paulo",
               })
-            : previewMsg?.time || item.lastMessageTime;
+            : nextIso
+              ? new Date(nextIso).toLocaleTimeString("pt-BR", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  timeZone: "America/Sao_Paulo",
+                })
+              : previewMsg?.time || item.lastMessageTime;
           return {
             ...item,
             messages: merged,
@@ -5147,7 +5159,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                       : [...c.messages, { ...incomingMsg, ...buildMonotonicMessageTime(c.messages, sentAtIso) }];
 
                   const isSystemMsg = incomingMsg.senderType === "system" || incomingMsg.author === "Sistema";
-                  const shouldUpdatePreviewTime = !isSystemMsg || !c.lastMessageTime;
+                  const shouldUpdatePreviewTime = (!isSystemMsg && !incomingMsg.isInternalNote) || !c.lastMessageTime;
                   const shouldHealName =
                     Boolean(resolvedContactName) &&
                     (!c.name ||

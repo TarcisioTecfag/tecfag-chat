@@ -825,7 +825,9 @@ export const Route = createFileRoute("/api/chats")({
                 minute: "2-digit",
                 timeZone: "America/Sao_Paulo",
               }),
-              lastMessageAtISO: effectivePreviewIso || fallbackIso,
+              lastMessageAtISO: previewRawMsg?.isInternalNote
+                ? fallbackIso
+                : effectivePreviewIso || fallbackIso,
               lastClientMessageAtISO: clientIso || effectivePreviewIso || fallbackIso,
               messages: convMsgs.map((m) => ({
                 id: m.id,
