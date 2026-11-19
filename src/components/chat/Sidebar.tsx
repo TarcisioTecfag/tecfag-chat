@@ -29,7 +29,7 @@ import { ProfilePopover } from "@/components/chat/ProfileModal";
 import { getDesktopSidebarModules, resolveAuthorizedActiveView } from "@/lib/module-catalog";
 
 export function Sidebar() {
-  const { tenant, setTenant, availableTenants, activeView, setActiveView, operatorProfile, sessionRole, setIsProfileModalOpen, currentGroup, isCommercialConsultant } = useChat();
+  const { tenant, setTenant, availableTenants, activeView, setActiveView, setActiveQueue, operatorProfile, sessionRole, setIsProfileModalOpen, currentGroup, isCommercialConsultant } = useChat();
   const { canAccessView } = usePermissions();
   const [showDropdown, setShowDropdown] = useState(false);
   const persona = getAiPersona(tenant || "valem");
@@ -78,10 +78,20 @@ export function Sidebar() {
     ? "Alternar Empresa"
     : `Empresa: ${tenant === "tecfag" ? "Tecfag" : "Valem"}`;
 
+  const navigateToView = (targetView: typeof activeView) => {
+    if (targetView === "chat") {
+      setActiveQueue("meus");
+    }
+    setActiveView(targetView);
+  };
+
   // Redirecionamento automático caso a view atual não seja permitida
   useEffect(() => {
     const resolved = resolveAuthorizedActiveView(activeView, moduleAccessCtx);
     if (resolved && resolved !== activeView) {
+      if (resolved === "chat") {
+        setActiveQueue("meus");
+      }
       setActiveView(resolved);
     }
   }, [activeView, currentGroup, isCommercialConsultant, tenant, sessionRole]);
@@ -260,7 +270,7 @@ export function Sidebar() {
                   data-tour={`nav.${item.id}`}
                   whileHover={{ scale: 1.08 }}
                   whileTap={{ scale: 0.94 }}
-                  onClick={() => setActiveView(item.id as any)}
+                  onClick={() => navigateToView(item.id as any)}
                   aria-label={item.label}
                   className={`relative grid ${navButtonSizeClass} place-items-center cursor-pointer group transition-colors duration-150 shrink-0 ${
                     isActive
@@ -304,7 +314,7 @@ export function Sidebar() {
                     key={index}
                     whileHover={{ scale: 1.08 }}
                     whileTap={{ scale: 0.94 }}
-                    onClick={() => setActiveView(item.id as any)}
+                    onClick={() => navigateToView(item.id as any)}
                     aria-label={item.label}
                     className={`relative grid ${navButtonSizeClass} place-items-center cursor-pointer group transition-colors duration-150 shrink-0 ${
                       isActive

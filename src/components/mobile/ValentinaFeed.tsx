@@ -119,6 +119,7 @@ export const ValentinaFeed: React.FC<ValentinaFeedProps> = ({
     conversations,
     setSelectedChatId,
     setActiveView,
+    setActiveQueue,
     logout,
     setTenant,
     availableTenants,
@@ -698,7 +699,10 @@ export const ValentinaFeed: React.FC<ValentinaFeedProps> = ({
             </h3>
           </div>
           <button
-            onClick={() => setActiveView("chat")}
+            onClick={() => {
+              setActiveQueue("meus");
+              setActiveView("chat");
+            }}
             className="text-[10px] font-bold text-primary hover:underline flex items-center gap-0.5 cursor-pointer"
           >
             Ver todas

@@ -3,15 +3,17 @@ import { useTrainingSurface } from "@/hooks/useTrainingSurface";
 import { useChat } from "@/hooks/useChatState";
 import { useTabNavigation } from "@/hooks/useTabNavigation";
 import { getAiPersona } from "@/lib/ai-persona";
-import { Search, MessageSquare, Phone, Instagram, Send, Star, User, Pin, BookOpen, Bot, LogOut, FileText, Camera, Video, Mic, Smile, HelpCircle } from "lucide-react";
+import { Search, MessageSquare, Phone, Instagram, Send, Star, User, Pin, BookOpen, Bot, LogOut, FileText, Camera, Video, Mic, Smile, HelpCircle, Smartphone, Check, ChevronDown, X } from "lucide-react";
 import { Channel, QueueType, getConversationSortTimestamp } from "@/lib/mockData";
 import { motion, AnimatePresence } from "framer-motion";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { StatusWizardModal } from "./StatusWizardModal";
 import { ProfilePopover } from "./ProfileModal";
 import { AiAvatar } from "@/components/ui/AiAvatar";
 import { SystemTooltip } from "@/components/ui/tooltip";
 import { usePermissions } from "@/hooks/usePermissions";
+import { useWhatsappConnections } from "@/hooks/useWhatsappConnections";
 import { useOptionalOnboarding } from "@/hooks/useOnboarding";
 import { useOnboardingAdapter } from "@/hooks/useOnboardingAdapter";
 import { canReadConversation, conversationReadRules } from "@/lib/access-control/conversation-policy";
@@ -113,6 +115,8 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
     setSearchQuery,
     channelFilter,
     setChannelFilter,
+    baileysConnectionFilter,
+    setBaileysConnectionFilter,
     setActiveView,
     operatorProfile,
     updateOperatorProfile,
@@ -136,6 +140,80 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
   const readPrincipal = React.useMemo(() => ({ tenantId: tenant ?? "", operator: { id: currentOperatorId }, permissions, accessGroup: currentGroup }),
     [tenant, currentOperatorId, permissions, currentGroup]);
   const readRules = React.useMemo(() => conversationReadRules(readPrincipal), [readPrincipal]);
+  const {
+    loaded: connectionsLoaded,
+    enabled: multiConnectionEnabled,
+    connections: whatsappConnections,
+  } = useWhatsappConnections(tenant);
+  const [chipPickerOpen, setChipPickerOpen] = React.useState(false);
+
+  const personalConnectedBaileys = React.useMemo(
+    () =>
+      multiConnectionEnabled && currentOperatorId
+        ? whatsappConnections.filter(
+            (conn) =>
+              !conn.corporate &&
+              conn.enabled &&
+              conn.provider === "baileys" &&
+              conn.ownerOperatorId === currentOperatorId &&
+              conn.status === "connected",
+          )
+        : [],
+    [multiConnectionEnabled, whatsappConnections, currentOperatorId],
+  );
+
+  const baileysConnectionsById = React.useMemo(() => {
+    const map = new Map<string, (typeof whatsappConnections)[number]>();
+    for (const conn of whatsappConnections) {
+      if (!conn.corporate) map.set(conn.id, conn);
+    }
+    return map;
+  }, [whatsappConnections]);
+
+  React.useEffect(() => {
+    if (!connectionsLoaded || !baileysConnectionFilter) return;
+    if (!personalConnectedBaileys.some((conn) => conn.id === baileysConnectionFilter)) {
+      setBaileysConnectionFilter(null);
+    }
+  }, [connectionsLoaded, baileysConnectionFilter, personalConnectedBaileys, setBaileysConnectionFilter]);
+
+  const handleToggleBaileysFilter = React.useCallback(
+    (nextConnectionId: string | null) => {
+      setBaileysConnectionFilter(nextConnectionId);
+      if (nextConnectionId && channelFilter !== "all" && channelFilter !== "whatsapp") {
+        setChannelFilter("whatsapp");
+      }
+      setChipPickerOpen(false);
+    },
+    [channelFilter, setBaileysConnectionFilter, setChannelFilter],
+  );
+
+  const chipStatsById = React.useMemo(() => {
+    const stats = new Map<string, { total: number; unread: number }>();
+    if (!personalConnectedBaileys.length) return stats;
+    const allowedIds = new Set(personalConnectedBaileys.map((c) => c.id));
+    for (const conv of conversations) {
+      if (conv.id === "valentina" || !conv.whatsappConnectionId) continue;
+      if (!allowedIds.has(conv.whatsappConnectionId)) continue;
+      if (
+        !canReadConversation(readPrincipal, {
+          tenantId: tenant ?? "",
+          operatorId: conv.operatorId ?? null,
+          queueState: conv.queue,
+          mainChannel: conv.channel,
+        })
+      ) {
+        continue;
+      }
+      if (activeQueue !== "todos" && conv.queue !== activeQueue) continue;
+      if (activeQueue === "meus" && conv.operatorId !== currentOperatorId) continue;
+      const entry = stats.get(conv.whatsappConnectionId) || { total: 0, unread: 0 };
+      entry.total += 1;
+      if ((conv.unreadCount || 0) > 0) entry.unread += conv.unreadCount;
+      stats.set(conv.whatsappConnectionId, entry);
+    }
+    return stats;
+  }, [conversations, personalConnectedBaileys, activeQueue, currentOperatorId, readPrincipal, tenant]);
 
   const [showStatusDropdown, setShowStatusDropdown] = React.useState(false);
   const [showStatusWizard, setShowStatusWizard] = React.useState(false);
@@ -159,10 +237,15 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
   const pageCursorRef = React.useRef<{ before: string; beforeId: string; beforeQueue: "active" | "finalizados" } | null>(null);
   const pageLoadingRef = React.useRef(false);
   const pageGenerationRef = React.useRef(0);
+  const fetchedChipScopesRef = React.useRef<Set<string>>(new Set());
   const loadPageRef = React.useRef(loadConversationPage);
   const conversationsRef = React.useRef(conversations);
   loadPageRef.current = loadConversationPage;
   conversationsRef.current = conversations;
+
+  React.useEffect(() => {
+    fetchedChipScopesRef.current.clear();
+  }, [tenant]);
 
   React.useEffect(() => {
     if (!chatListReady) return;
@@ -170,7 +253,8 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
     pageLoadingRef.current = false;
     const loaded = conversationsRef.current
       .filter((chat) => chat.id !== "valentina" && (activeQueue === "todos" || chat.queue === activeQueue) &&
-        (activeQueue !== "meus" || chat.operatorId === currentOperatorId))
+        (activeQueue !== "meus" || chat.operatorId === currentOperatorId) &&
+        (!baileysConnectionFilter || chat.whatsappConnectionId === baileysConnectionFilter))
       .filter((chat) => !!chat.lastMessageAtISO)
       .sort((a, b) => Number(a.queue === "finalizados") - Number(b.queue === "finalizados") ||
         b.lastMessageAtISO!.localeCompare(a.lastMessageAtISO!) || b.id.localeCompare(a.id));
@@ -178,20 +262,23 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
     pageCursorRef.current = oldest
       ? { before: oldest.lastMessageAtISO!, beforeId: oldest.id, beforeQueue: oldest.queue === "finalizados" ? "finalizados" : "active" }
       : null;
-    if (oldest || pageLoadingRef.current) return;
+    const chipScopeKey = baileysConnectionFilter ? `${tenant}:${activeQueue}:${baileysConnectionFilter}` : null;
+    const needsInitialChipFetch = Boolean(chipScopeKey && !fetchedChipScopesRef.current.has(chipScopeKey));
+    if ((oldest && !needsInitialChipFetch) || pageLoadingRef.current) return;
+    if (chipScopeKey) fetchedChipScopesRef.current.add(chipScopeKey);
     pageLoadingRef.current = true;
-    void loadPageRef.current(activeQueue)
+    void loadPageRef.current(activeQueue, undefined, baileysConnectionFilter)
       .then(({ nextCursor }) => { if (pageGenerationRef.current === generation) pageCursorRef.current = nextCursor; })
       .catch((error) => console.warn("Falha ao carregar a fila:", error))
       .finally(() => { if (pageGenerationRef.current === generation) pageLoadingRef.current = false; });
-  }, [activeQueue, chatListReady, currentOperatorId, tenant]);
+  }, [activeQueue, baileysConnectionFilter, chatListReady, currentOperatorId, tenant]);
 
   const loadNextPage = () => {
     const cursor = pageCursorRef.current;
     if (!cursor || pageLoadingRef.current || searchQuery.trim()) return;
     pageLoadingRef.current = true;
     const generation = pageGenerationRef.current;
-    void loadPageRef.current(activeQueue, cursor)
+    void loadPageRef.current(activeQueue, cursor, baileysConnectionFilter)
       .then(({ nextCursor }) => { if (pageGenerationRef.current === generation) pageCursorRef.current = nextCursor; })
       .catch((error) => console.warn("Falha ao carregar mais atendimentos:", error))
       .finally(() => { if (pageGenerationRef.current === generation) pageLoadingRef.current = false; });
@@ -261,6 +348,9 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
     // 2. Channel Filter
     if (channelFilter !== "all" && c.channel !== channelFilter) return false;
 
+    // 2b. Personal Baileys Chip Filter
+    if (baileysConnectionFilter && c.whatsappConnectionId !== baileysConnectionFilter) return false;
+
     // 3. Search Query Filter
     if (searchQuery.trim() !== "" && phonePlan) {
       const q = searchQuery.toLowerCase();
@@ -287,7 +377,7 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
     (getConversationSortTimestamp(b) - getConversationSortTimestamp(a))
   );
   },
-    [conversations, activeQueue, currentOperatorId, channelFilter, searchQuery, readPrincipal, tenant]);
+    [conversations, activeQueue, currentOperatorId, channelFilter, baileysConnectionFilter, searchQuery, readPrincipal, tenant]);
 
   return (
     <>
@@ -445,7 +535,10 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
           <SystemTooltip content="Apenas Instagram">
             <button
               data-tour="chat.channel-instagram"
-              onClick={() => setChannelFilter("instagram")}
+              onClick={() => {
+                setBaileysConnectionFilter(null);
+                setChannelFilter("instagram");
+              }}
               className={`grid h-7 w-7 place-items-center rounded-lg transition cursor-pointer ${
                 channelFilter === "instagram"
                   ? "bg-primary text-primary-foreground shadow-soft"
@@ -460,7 +553,10 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
           <SystemTooltip content="Apenas Messenger">
             <button
               data-tour="chat.channel-messenger"
-              onClick={() => setChannelFilter("messenger")}
+              onClick={() => {
+                setBaileysConnectionFilter(null);
+                setChannelFilter("messenger");
+              }}
               className={`grid h-7 w-7 place-items-center rounded-lg transition cursor-pointer ${
                 channelFilter === "messenger"
                   ? "bg-primary text-primary-foreground shadow-soft"
@@ -475,7 +571,10 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
           <SystemTooltip content="Apenas Site (Live Chat)">
             <button
               data-tour="chat.channel-site"
-              onClick={() => setChannelFilter("livechat")}
+              onClick={() => {
+                setBaileysConnectionFilter(null);
+                setChannelFilter("livechat");
+              }}
               className={`grid h-7 w-7 place-items-center rounded-lg transition cursor-pointer ${
                 channelFilter === "livechat"
                   ? "bg-primary text-primary-foreground shadow-soft"
@@ -487,6 +586,190 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
           </SystemTooltip>
         )}
       </div>
+
+      {/* Filtro dedicado para operadores titulares de chip Baileys conectado */}
+      {personalConnectedBaileys.length === 1 && (() => {
+        const chip = personalConnectedBaileys[0];
+        const isActive = baileysConnectionFilter === chip.id;
+        const stats = chipStatsById.get(chip.id) || { total: 0, unread: 0 };
+        const chipLabel = chip.name?.trim() || chip.phone || "Meu chip";
+        const tooltipText = isActive
+          ? `Exibindo apenas atendimentos do chip ${chipLabel}${chip.phone ? ` (${chip.phone})` : ""}. Clique para mostrar todos os números.`
+          : `Filtrar apenas atendimentos no chip conectado: ${chipLabel}${chip.phone ? ` (${chip.phone})` : ""}`;
+        return (
+          <div className="mt-2 md:mt-2.5">
+            <SystemTooltip content={tooltipText}>
+              <button
+                type="button"
+                data-tour="chat.baileys-chip-filter"
+                aria-pressed={isActive}
+                onClick={() => handleToggleBaileysFilter(isActive ? null : chip.id)}
+                className={`flex w-full items-center justify-between gap-2 rounded-xl border px-2.5 py-1.5 text-left transition-all cursor-pointer ${
+                  isActive
+                    ? "border-emerald-500/40 bg-emerald-500/12 text-emerald-700 dark:text-emerald-300 shadow-soft"
+                    : "border-border/80 bg-muted/60 text-foreground hover:bg-muted hover:border-emerald-500/30"
+                }`}
+              >
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <span className="relative flex h-2 w-2 shrink-0">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-60" />
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+                  </span>
+                  <Smartphone
+                    className={`h-3.5 w-3.5 shrink-0 ${
+                      isActive ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"
+                    }`}
+                  />
+                  <span className="truncate text-[11px] font-bold leading-none">
+                    {chipLabel}
+                  </span>
+                </span>
+                <span className="flex shrink-0 items-center gap-1">
+                  {stats.unread > 0 && (
+                    <span className="grid h-4 min-w-4 place-items-center rounded-full bg-emerald-600 px-1 text-[9px] font-extrabold text-white">
+                      {stats.unread > 99 ? "99+" : stats.unread}
+                    </span>
+                  )}
+                  <span
+                    className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold leading-none ${
+                      isActive
+                        ? "bg-emerald-500/20 text-emerald-800 dark:text-emerald-200"
+                        : "bg-card text-muted-foreground border border-border/60"
+                    }`}
+                  >
+                    {stats.total}
+                  </span>
+                  {isActive && <X className="h-3 w-3 opacity-75" />}
+                </span>
+              </button>
+            </SystemTooltip>
+          </div>
+        );
+      })()}
+
+      {personalConnectedBaileys.length > 1 && (() => {
+        const activeChip = personalConnectedBaileys.find((c) => c.id === baileysConnectionFilter) || null;
+        const aggregatedTotal = personalConnectedBaileys.reduce(
+          (acc, chip) => acc + (chipStatsById.get(chip.id)?.total || 0),
+          0,
+        );
+        const aggregatedUnread = personalConnectedBaileys.reduce(
+          (acc, chip) => acc + (chipStatsById.get(chip.id)?.unread || 0),
+          0,
+        );
+        const displayTotal = activeChip ? chipStatsById.get(activeChip.id)?.total || 0 : aggregatedTotal;
+        const displayUnread = activeChip ? chipStatsById.get(activeChip.id)?.unread || 0 : aggregatedUnread;
+        const triggerLabel = activeChip
+          ? activeChip.name?.trim() || activeChip.phone || "Meu chip"
+          : `Meus chips (${personalConnectedBaileys.length})`;
+        return (
+          <div className="mt-2 md:mt-2.5">
+            <Popover open={chipPickerOpen} onOpenChange={setChipPickerOpen}>
+              <SystemTooltip
+                content={
+                  activeChip
+                    ? `Filtrando atendimentos do chip ${triggerLabel}${activeChip.phone ? ` (${activeChip.phone})` : ""}`
+                    : "Filtrar atendimentos por um dos seus chips Baileys conectados"
+                }
+              >
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    data-tour="chat.baileys-chip-filter"
+                    aria-expanded={chipPickerOpen}
+                    className={`flex w-full items-center justify-between gap-2 rounded-xl border px-2.5 py-1.5 text-left transition-all cursor-pointer ${
+                      activeChip
+                        ? "border-emerald-500/40 bg-emerald-500/12 text-emerald-700 dark:text-emerald-300 shadow-soft"
+                        : "border-border/80 bg-muted/60 text-foreground hover:bg-muted hover:border-emerald-500/30"
+                    }`}
+                  >
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <span className="relative flex h-2 w-2 shrink-0">
+                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-60" />
+                        <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+                      </span>
+                      <Smartphone
+                        className={`h-3.5 w-3.5 shrink-0 ${
+                          activeChip ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"
+                        }`}
+                      />
+                      <span className="truncate text-[11px] font-bold leading-none">
+                        {triggerLabel}
+                      </span>
+                    </span>
+                    <span className="flex shrink-0 items-center gap-1">
+                      {displayUnread > 0 && (
+                        <span className="grid h-4 min-w-4 place-items-center rounded-full bg-emerald-600 px-1 text-[9px] font-extrabold text-white">
+                          {displayUnread > 99 ? "99+" : displayUnread}
+                        </span>
+                      )}
+                      <span
+                        className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold leading-none ${
+                          activeChip
+                            ? "bg-emerald-500/20 text-emerald-800 dark:text-emerald-200"
+                            : "bg-card text-muted-foreground border border-border/60"
+                        }`}
+                      >
+                        {displayTotal}
+                      </span>
+                      <ChevronDown className="h-3 w-3 opacity-70" />
+                    </span>
+                  </button>
+                </PopoverTrigger>
+              </SystemTooltip>
+              <PopoverContent align="start" className="w-[240px] p-1.5 rounded-xl space-y-1">
+                <button
+                  type="button"
+                  onClick={() => handleToggleBaileysFilter(null)}
+                  className={`flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs transition cursor-pointer ${
+                    !baileysConnectionFilter
+                      ? "bg-primary/10 text-primary font-bold"
+                      : "text-foreground hover:bg-muted font-medium"
+                  }`}
+                >
+                  <span className="truncate">Todos os números</span>
+                  {!baileysConnectionFilter && <Check className="h-3.5 w-3.5 shrink-0" />}
+                </button>
+                <div className="my-1 h-px bg-border/60" />
+                {personalConnectedBaileys.map((chip) => {
+                  const selected = baileysConnectionFilter === chip.id;
+                  const stats = chipStatsById.get(chip.id) || { total: 0, unread: 0 };
+                  return (
+                    <button
+                      key={chip.id}
+                      type="button"
+                      onClick={() => handleToggleBaileysFilter(selected ? null : chip.id)}
+                      className={`flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs transition cursor-pointer ${
+                        selected
+                          ? "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300 font-bold"
+                          : "text-foreground hover:bg-muted font-medium"
+                      }`}
+                    >
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" />
+                        <span className="min-w-0">
+                          <span className="block truncate leading-tight">{chip.name || "Meu chip"}</span>
+                          {chip.phone && (
+                            <span className="block truncate text-[10px] text-muted-foreground font-normal">
+                              {chip.phone}
+                            </span>
+                          )}
+                        </span>
+                      </span>
+                      <span className="flex shrink-0 items-center gap-1.5">
+                        <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground">
+                          {stats.total}
+                        </span>
+                        {selected && <Check className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />}
+                      </span>
+                    </button>
+                  );
+                })}
+              </PopoverContent>
+            </Popover>
+          </div>
+        );
+      })()}
 
       {/* Queue Tabs */}
       <div className="mt-2 md:mt-3 flex items-center gap-1 rounded-xl bg-muted p-1 relative">
@@ -766,39 +1049,55 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
                           )}
                         </div>
 
-                        {/* Render tags below preview */}
-                        {((c.tags && c.tags.length > 0) || c.sectorName) && (
-                          <div className="flex flex-wrap gap-1 mt-1.5 items-center">
-                            {c.sectorName && (
-                              <span
-                                className={`text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded-md border ${
-                                  isLastFromOperator
-                                    ? "border-neutral-900/20 bg-neutral-950 text-white dark:border-neutral-700 dark:bg-black dark:text-neutral-200"
-                                    : "border-primary/20 bg-primary/10 text-primary"
-                                }`}
-                              >
-                                {c.sectorName}
-                              </span>
-                            )}
-                            {c.tags && c.tags.slice(0, 2).map((tag, idx) => (
-                              <span 
-                                key={idx} 
-                                className={`text-[9px] font-extrabold uppercase border px-1.5 py-0.5 rounded-md ${
-                                  isLastFromOperator
-                                    ? "border-neutral-900/20 bg-neutral-950 text-white dark:border-neutral-700 dark:bg-black dark:text-neutral-200"
-                                    : "bg-primary/10 text-primary border-primary/20"
-                                }`}
-                              >
-                                {tag}
-                              </span>
-                            ))}
-                            {c.tags && c.tags.length > 2 && (
-                              <span className="text-[9px] font-bold text-muted-foreground px-1 py-0.5">
-                                +{c.tags.length - 2}
-                              </span>
-                            )}
-                          </div>
-                        )}
+                        {/* Render tags & Baileys chip badge below preview */}
+                        {(c.whatsappConnectionId || (c.tags && c.tags.length > 0) || c.sectorName) && (() => {
+                          const chipInfo = c.whatsappConnectionId
+                            ? baileysConnectionsById.get(c.whatsappConnectionId)
+                            : undefined;
+                          const chipBadgeLabel = chipInfo?.name?.trim() || "Chip";
+                          return (
+                            <div className="flex flex-wrap gap-1 mt-1.5 items-center">
+                              {c.whatsappConnectionId && (
+                                <SystemTooltip
+                                  content={`Chip Baileys: ${chipInfo?.name || "WhatsApp conectado"}${chipInfo?.phone ? ` (${chipInfo.phone})` : ""}`}
+                                >
+                                  <span className="inline-flex max-w-[115px] items-center gap-1 rounded-md border border-emerald-500/25 bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-extrabold uppercase text-emerald-700 dark:text-emerald-400">
+                                    <Smartphone className="h-2.5 w-2.5 shrink-0" />
+                                    <span className="truncate">{chipBadgeLabel}</span>
+                                  </span>
+                                </SystemTooltip>
+                              )}
+                              {c.sectorName && (
+                                <span
+                                  className={`text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded-md border ${
+                                    isLastFromOperator
+                                      ? "border-neutral-900/20 bg-neutral-950 text-white dark:border-neutral-700 dark:bg-black dark:text-neutral-200"
+                                      : "border-primary/20 bg-primary/10 text-primary"
+                                  }`}
+                                >
+                                  {c.sectorName}
+                                </span>
+                              )}
+                              {c.tags && c.tags.slice(0, 2).map((tag, idx) => (
+                                <span 
+                                  key={idx} 
+                                  className={`text-[9px] font-extrabold uppercase border px-1.5 py-0.5 rounded-md ${
+                                    isLastFromOperator
+                                      ? "border-neutral-900/20 bg-neutral-950 text-white dark:border-neutral-700 dark:bg-black dark:text-neutral-200"
+                                      : "bg-primary/10 text-primary border-primary/20"
+                                  }`}
+                                >
+                                  {tag}
+                                </span>
+                              ))}
+                              {c.tags && c.tags.length > 2 && (
+                                <span className="text-[9px] font-bold text-muted-foreground px-1 py-0.5">
+                                  +{c.tags.length - 2}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </div>
                     </button>
                   </motion.div>
@@ -813,6 +1112,16 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
               <MessageSquare className="h-8 w-8 text-muted-foreground/30 mb-2" strokeWidth={1.5} />
               <p className="text-xs font-semibold">Nenhum atendimento</p>
               <p className="text-[10px] mt-0.5 max-w-[180px]">Não há conversas nesta fila com os filtros aplicados.</p>
+              {baileysConnectionFilter && (
+                <button
+                  type="button"
+                  onClick={() => handleToggleBaileysFilter(null)}
+                  className="mt-2 inline-flex items-center gap-1 rounded-lg border border-border bg-muted px-2.5 py-1 text-[10px] font-bold text-foreground hover:bg-border transition cursor-pointer"
+                >
+                  <X className="h-3 w-3" />
+                  Mostrar todos os números
+                </button>
+              )}
               {searchQuery.trim() !== "" && (
                 <button
                   type="button"

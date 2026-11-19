@@ -20,6 +20,7 @@ export const MobileBottomNav: React.FC = () => {
   const {
     activeView,
     setActiveView,
+    setActiveQueue,
     setSelectedChatId,
     operatorProfile,
     updateOperatorProfile,
@@ -54,6 +55,9 @@ export const MobileBottomNav: React.FC = () => {
 
   const handleTabClick = (viewId: ViewId) => {
     setSelectedChatId(null);
+    if (viewId === "chat") {
+      setActiveQueue("meus");
+    }
     setActiveView(viewId);
     setDrawerOpen(false);
   };

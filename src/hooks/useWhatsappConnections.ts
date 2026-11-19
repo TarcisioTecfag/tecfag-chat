@@ -18,6 +18,7 @@ export type WhatsappConnection = {
   groupAccess?: Array<{ groupId: string; canRead: boolean; canSend: boolean }>;
 };
 type ConnectionState = {
+  loaded: boolean;
   canUseNumberPicker: boolean;
   canSwitchDuringAttendance: boolean;
   enabled: boolean;
@@ -27,6 +28,7 @@ type ConnectionState = {
   accessGroups: Array<{ id: string; name: string }>;
 };
 const empty: ConnectionState = {
+  loaded: false,
   canUseNumberPicker: false,
   canSwitchDuringAttendance: false,
   enabled: false,
@@ -35,9 +37,16 @@ const empty: ConnectionState = {
   connections: [],
   accessGroups: [],
 };
+const connectionsCacheByTenant = new Map<string, ConnectionState>();
+
+export function clearWhatsappConnectionsCache() {
+  connectionsCacheByTenant.clear();
+}
 
 export function useWhatsappConnections(tenantId: string) {
-  const [state, setState] = useState<ConnectionState>(empty);
+  const [state, setState] = useState<ConnectionState>(() =>
+    tenantId ? connectionsCacheByTenant.get(tenantId) || empty : empty,
+  );
   const refresh = useCallback(
     async (signal?: AbortSignal) => {
       if (!tenantId) {
@@ -49,20 +58,24 @@ export function useWhatsappConnections(tenantId: string) {
         signal,
       });
       if (!response.ok) {
-        setState(empty);
+        const next: ConnectionState = { ...empty, loaded: true };
+        connectionsCacheByTenant.set(tenantId, next);
+        if (!signal?.aborted) setState(next);
         return;
       }
       const data = await response.json();
-      if (!signal?.aborted) setState({ ...empty, ...data });
+      const next: ConnectionState = { ...empty, ...data, loaded: true };
+      connectionsCacheByTenant.set(tenantId, next);
+      if (!signal?.aborted) setState(next);
     },
     [tenantId],
   );
   useEffect(() => {
     const controller = new AbortController();
-    setState(empty);
+    setState(tenantId ? connectionsCacheByTenant.get(tenantId) || empty : empty);
     void refresh(controller.signal).catch(() => {});
     return () => controller.abort();
-  }, [refresh]);
+  }, [refresh, tenantId]);
   return { ...state, refresh };
 }
 

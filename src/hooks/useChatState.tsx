@@ -13,6 +13,7 @@ import {
 } from "@/lib/mockData";
 import { GroupPermissions, DEFAULT_ADMIN_PERMISSIONS, normalizeGroupPermissions } from "@/lib/rbac";
 import { parseAppRoute } from "@/lib/app-routes";
+import { clearWhatsappConnectionsCache } from "./useWhatsappConnections";
 import { getAiPersona } from "@/lib/ai-persona";
 import { sortAlphabeticallyByName } from "@/lib/operator-initial-navigation";
 import { resolveTemplateVariables } from "@/lib/utils";
@@ -127,6 +128,8 @@ type ChatContextType = {
   setSearchQuery: (query: string) => void;
   channelFilter: Channel | "all";
   setChannelFilter: (filter: Channel | "all") => void;
+  baileysConnectionFilter: string | null;
+  setBaileysConnectionFilter: (connectionId: string | null) => void;
   activeView:
     | "chat"
     | "commercialHome"
@@ -278,6 +281,7 @@ type ChatContextType = {
   loadConversationPage: (
     queue: QueueType,
     cursor?: { before: string; beforeId: string; beforeQueue: "active" | "finalizados" },
+    connectionId?: string | null,
   ) => Promise<{
     nextCursor: { before: string; beforeId: string; beforeQueue: "active" | "finalizados" } | null;
   }>;
@@ -591,13 +595,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
   const [availableTenants, setAvailableTenants] = useState<("tecfag" | "valem")[]>([]);
   const switchingTenantRef = useRef(false);
-  const [activeQueue, setActiveQueue] = useState<QueueType>(() => {
-    if (typeof window !== "undefined") {
-      const savedQueue = localStorage.getItem("chat_active_queue");
-      if (savedQueue) return savedQueue as QueueType;
-    }
-    return "meus";
-  });
+  const [activeQueue, setActiveQueue] = useState<QueueType>("meus");
   const [selectedChatId, setSelectedChatId] = useState<string | null>(() => {
     if (typeof window !== "undefined") {
       const parsed = parseAppRoute(window.location.pathname);
@@ -611,6 +609,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
   const [searchQuery, setSearchQuery] = useState("");
   const [channelFilter, setChannelFilter] = useState<Channel | "all">("all");
+  const [baileysConnectionFilter, setBaileysConnectionFilter] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<"chat" | "commercialHome" | "commercialManagement" | "commercialBi" | "crm" | "contacts" | "wallet" | "settings" | "groups" | "monitor" | "analytics" | "tasks" | "valentina" | "ligacoes">(() => {
     if (typeof window !== "undefined") {
       const parsed = parseAppRoute(window.location.pathname);
@@ -742,10 +741,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setTenantState(savedTenant as any);
       }
 
-      const savedQueue = localStorage.getItem("chat_active_queue");
-      if (savedQueue) {
-        setActiveQueue(savedQueue as QueueType);
-      }
+      try {
+        localStorage.removeItem("chat_active_queue");
+      } catch {}
+      setActiveQueue("meus");
 
       const parsedUrlRoute = parseAppRoute(window.location.pathname);
       if (parsedUrlRoute.viewId) {
@@ -1060,14 +1059,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [operators, isClient]);
 
   useEffect(() => {
-    if (isClient && typeof window !== "undefined") {
-      try {
-        localStorage.setItem("chat_active_queue", activeQueue);
-      } catch (e) {
-        console.error("Erro ao persistir chat_active_queue no localStorage:", e);
-      }
-    }
-  }, [activeQueue, isClient]);
+    setBaileysConnectionFilter(null);
+  }, [tenant]);
 
   useEffect(() => {
     if (isClient && typeof window !== "undefined") {
@@ -4439,10 +4432,12 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const loadConversationPage = async (
     queue: QueueType,
     cursor?: { before: string; beforeId: string; beforeQueue: "active" | "finalizados" },
+    connectionId?: string | null,
   ) => {
     const params = new URLSearchParams({ limit: "75" });
     if (queue !== "todos") params.set("queue", queue);
     if (queue === "meus") params.set("mine", "1");
+    if (connectionId) params.set("connectionId", connectionId);
     if (cursor) {
       params.set("before", cursor.before);
       params.set("beforeId", cursor.beforeId);
@@ -5964,6 +5959,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setActiveProvider(confirmedSession.channelConfig.activeProvider);
             updateDocumentTitle(confirmedSession.tenantId, confirmedSession.channelConfig.activeProvider);
           }
+          setActiveQueue("meus");
+          setBaileysConnectionFilter(null);
           setIsAuthenticated(true);
           return true;
         }
@@ -6003,6 +6000,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setAvailableTenants([]);
       setCurrentOperatorId("");
       setSelectedChatId(null);
+      setActiveQueue("meus");
+      setBaileysConnectionFilter(null);
+      clearWhatsappConnectionsCache();
       if (universalSseRef.current) {
         universalSseRef.current.close();
         universalSseRef.current = null;
@@ -6041,6 +6041,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setSearchQuery,
         channelFilter,
         setChannelFilter,
+        baileysConnectionFilter,
+        setBaileysConnectionFilter,
         activeView,
         setActiveView,
         rightSidebarOpen,

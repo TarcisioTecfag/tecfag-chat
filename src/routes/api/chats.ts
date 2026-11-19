@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../db";
 import { conversations, contacts, messages, mediaFiles, sectors, operators } from "../../db/schema";
-import { eq, and, or, desc, lt, inArray, sql } from "drizzle-orm";
+import { eq, and, or, desc, lt, inArray, isNull, sql } from "drizzle-orm";
 import { rdRequest, getCachedUsers } from "../../lib/rdCrmService";
 import { requireSession } from "../../lib/auth-session";
 import { getAiPersona } from "../../lib/ai-persona";
@@ -511,6 +511,7 @@ export const Route = createFileRoute("/api/chats")({
           const url = new URL(request.url);
           const limit = Math.min(Math.max(parseInt(url.searchParams.get("limit") || "100", 10), 1), 300);
           const queueFilter = url.searchParams.get("queue");
+          const connectionIdFilter = url.searchParams.get("connectionId")?.trim() || null;
           const beforeCursor = url.searchParams.get("before");
           const beforeId = url.searchParams.get("beforeId");
           const beforeQueue = url.searchParams.get("beforeQueue");
@@ -555,6 +556,13 @@ export const Route = createFileRoute("/api/chats")({
           }
           if (queueFilter === "meus" && url.searchParams.get("mine") === "1") {
             conditions.push(eq(conversations.operatorId, session.operator.id));
+          }
+          if (connectionIdFilter) {
+            if (connectionIdFilter === "corporate") {
+              conditions.push(isNull(conversations.whatsappConnectionId));
+            } else if (connectionIdFilter.length <= 160) {
+              conditions.push(eq(conversations.whatsappConnectionId, connectionIdFilter));
+            }
           }
 
           if (beforeCursor) {
