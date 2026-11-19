@@ -6,9 +6,11 @@ import {
   ChevronRight,
   Code2,
   Copy,
+  Download,
   Eye,
   EyeOff,
   FileJson,
+  FileText,
   Globe,
   Info,
   Key,
@@ -121,15 +123,83 @@ export function ApiLibrarySettingsTab() {
   const [pythonUseEnv, setPythonUseEnv] = useState(true);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   
-  // Documentação renderizada na interface
+  // Documentação completa (Markdown para leitura na aba Guia + download binário PDF)
   const [docsContent, setDocsContent] = useState<string | null>(null);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
 
   useEffect(() => {
-    fetch("/api/settings/mcp-docs/export")
-      .then(res => res.text())
-      .then(text => setDocsContent(text))
-      .catch(() => setDocsContent("Não foi possível carregar a documentação."));
-  }, []);
+    let cancelled = false;
+    setDocsContent(null);
+    fetch("/api/settings/mcp-docs/export?format=md", { credentials: "include" })
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.text();
+      })
+      .then((text) => {
+        if (!cancelled) setDocsContent(text);
+      })
+      .catch(() => {
+        if (!cancelled) setDocsContent("Não foi possível carregar a documentação completa.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTenant]);
+
+  const handleDownloadCompleteLibrary = useCallback(
+    async (format: "pdf" | "md" = "pdf") => {
+      if (downloadingPdf) return;
+      setDownloadingPdf(true);
+      try {
+        const endpoint =
+          format === "pdf"
+            ? "/api/settings/mcp-docs/export?format=pdf"
+            : "/api/settings/mcp-docs/export?format=md&download=1";
+        const res = await fetch(endpoint, { credentials: "include" });
+        if (!res.ok) {
+          throw new Error(`Erro HTTP ${res.status} ao gerar documentação.`);
+        }
+
+        const contentType = (res.headers.get("content-type") || "").toLowerCase();
+        if (format === "pdf" && !contentType.includes("application/pdf")) {
+          throw new Error("O servidor não retornou um arquivo PDF válido.");
+        }
+
+        const blob = await res.blob();
+        const fallbackName =
+          format === "pdf"
+            ? `biblioteca-api-${activeTenant}.pdf`
+            : `biblioteca-api-${activeTenant}.md`;
+        const disposition = res.headers.get("content-disposition") || "";
+        const match = disposition.match(/filename="?([^"]+)"?/i);
+        const filename = match?.[1] || fallbackName;
+
+        const objectUrl = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = objectUrl;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
+
+        toast.success(
+          format === "pdf"
+            ? `PDF completo baixado (${filename}) com todas as APIs REST, MCP e Webhooks!`
+            : `Documentação Markdown baixada (${filename})!`,
+        );
+      } catch (err) {
+        toast.error(
+          err instanceof Error
+            ? err.message
+            : "Falha ao baixar a documentação completa da Biblioteca de API.",
+        );
+      } finally {
+        setDownloadingPdf(false);
+      }
+    },
+    [activeTenant, downloadingPdf],
+  );
 
   // Estado do Playground Interativo
   const [playgroundValues, setPlaygroundValues] = useState<Record<string, string>>({});
@@ -486,6 +556,22 @@ export function ApiLibrarySettingsTab() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            <SystemTooltip content="Baixar PDF completo com TODAS as rotas API REST, ferramentas MCP, Webhooks, regras de negócio e exemplos">
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => handleDownloadCompleteLibrary("pdf")}
+                disabled={downloadingPdf}
+                className="text-xs font-bold gap-1.5 cursor-pointer"
+              >
+                {downloadingPdf ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Download className="h-3.5 w-3.5" />
+                )}
+                {downloadingPdf ? "Gerando PDF..." : "Baixar PDF Completo"}
+              </Button>
+            </SystemTooltip>
             <SystemTooltip content="Alternar guia rápido de autenticação, paginação por cursor e dicionário de setores">
               <Button
                 type="button"
@@ -798,16 +884,21 @@ export function ApiLibrarySettingsTab() {
               })}
             </div>
             
-            {/* BOTÃO EXPORTAR PDF */}
-            <SystemTooltip content="Baixar documentação compilada (PDF)">
-              <a
-                href="/api/settings/mcp-docs/export"
-                download="mcp-docs.pdf"
-                className="inline-flex items-center gap-1 rounded-lg border border-border bg-card px-2 py-1 text-[11px] font-bold text-foreground hover:border-primary/50 transition-colors cursor-pointer"
+            {/* BOTÃO EXPORTAR PDF COMPLETO */}
+            <SystemTooltip content="Baixar biblioteca completa em PDF (todas as APIs REST, MCP e Webhooks)">
+              <button
+                type="button"
+                onClick={() => handleDownloadCompleteLibrary("pdf")}
+                disabled={downloadingPdf}
+                className="inline-flex items-center gap-1 rounded-lg border border-border bg-card px-2 py-1 text-[11px] font-bold text-foreground hover:border-primary/50 hover:text-primary transition-colors cursor-pointer disabled:opacity-60"
               >
-                <FileJson className="h-3 w-3 text-primary" />
+                {downloadingPdf ? (
+                  <Loader2 className="h-3 w-3 animate-spin text-primary" />
+                ) : (
+                  <FileText className="h-3 w-3 text-primary" />
+                )}
                 PDF
-              </a>
+              </button>
             </SystemTooltip>
           </div>
 
@@ -1129,10 +1220,46 @@ export function ApiLibrarySettingsTab() {
 
           {/* CONTEÚDO DA SUB-ABA: GUIA */}
           {detailTab === "guide" && (
-            <div className="p-4 md:p-6 space-y-6">
-              <div className="text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap">
-                {docsContent}
+            <div className="p-4 md:p-6 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-muted/30 p-3">
+                <div className="text-xs text-muted-foreground">
+                  Manual completo da operação <strong className="text-foreground">{companyLabel}</strong> contendo todas as rotas REST, ferramentas MCP, Webhooks, regras canônicas e exemplos.
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <SystemTooltip content="Baixar documentação completa em PDF formatado">
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => handleDownloadCompleteLibrary("pdf")}
+                      disabled={downloadingPdf}
+                      className="h-7 text-xs font-bold gap-1.5 cursor-pointer"
+                    >
+                      {downloadingPdf ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Download className="h-3.5 w-3.5" />
+                      )}
+                      Baixar PDF
+                    </Button>
+                  </SystemTooltip>
+                  <SystemTooltip content="Baixar documentação completa em Markdown (.md)">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleDownloadCompleteLibrary("md")}
+                      disabled={downloadingPdf}
+                      className="h-7 text-xs gap-1.5 cursor-pointer"
+                    >
+                      <FileText className="h-3.5 w-3.5 text-primary" />
+                      .md
+                    </Button>
+                  </SystemTooltip>
+                </div>
               </div>
+              <pre className="rounded-xl border border-border bg-muted/20 p-4 text-xs font-mono text-foreground leading-relaxed whitespace-pre-wrap overflow-x-auto max-h-[560px]">
+                {docsContent ?? "Carregando documentação completa..."}
+              </pre>
             </div>
           )}
 

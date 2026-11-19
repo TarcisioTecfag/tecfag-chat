@@ -1,7 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { requireSession } from "../../../../lib/auth-session";
-import fs from "node:fs/promises";
-import path from "node:path";
+import {
+  buildCompleteApiLibraryMarkdown,
+  buildCompleteApiLibraryPdf,
+} from "../../../../lib/marketing/api-library-docs-export";
 
 export const Route = createFileRoute("/api/settings/mcp-docs/export")({
   server: {
@@ -10,19 +12,60 @@ export const Route = createFileRoute("/api/settings/mcp-docs/export")({
         const auth = await requireSession(request);
         if ("response" in auth) return auth.response;
 
-        // Path to the documentation file in the project's docs folder
-        const docPath = path.resolve(process.cwd(), "docs/rd-marketing.md");
-        
+        const tenantId = auth.session.tenantId;
+        const url = new URL(request.url);
+        const format = (url.searchParams.get("format") || "pdf").toLowerCase();
+        const disposition =
+          url.searchParams.get("disposition") === "inline" ? "inline" : "attachment";
+        const baseUrl = url.origin;
+
         try {
-          const content = await fs.readFile(docPath, "utf-8");
-          return new Response(content, {
+          if (format === "md" || format === "markdown") {
+            const markdown = buildCompleteApiLibraryMarkdown({
+              tenantId,
+              baseUrl,
+            });
+            const mdDisposition =
+              url.searchParams.get("download") === "1" ? "attachment" : "inline";
+            return new Response(markdown, {
+              status: 200,
+              headers: {
+                "Content-Type": "text/markdown; charset=utf-8",
+                "Content-Disposition": `${mdDisposition}; filename="biblioteca-api-${tenantId}.md"`,
+                "Cache-Control": "no-store",
+              },
+            });
+          }
+
+          const pdfBytes = await buildCompleteApiLibraryPdf({
+            tenantId,
+            baseUrl,
+          });
+          const body = Buffer.from(pdfBytes);
+
+          return new Response(body, {
+            status: 200,
             headers: {
-              "Content-Type": "text/markdown",
-              "Content-Disposition": 'attachment; filename="rd-marketing.md"',
+              "Content-Type": "application/pdf",
+              "Content-Disposition": `${disposition}; filename="biblioteca-api-${tenantId}.pdf"`,
+              "Content-Length": String(body.byteLength),
+              "Cache-Control": "no-store",
             },
           });
         } catch (err) {
-          return new Response(JSON.stringify({ error: "Documentação não encontrada." }), { status: 404 });
+          console.error("[api/settings/mcp-docs/export] Falha ao gerar documentação:", err);
+          return new Response(
+            JSON.stringify({
+              error: "Não foi possível gerar a documentação completa da Biblioteca de API.",
+            }),
+            {
+              status: 500,
+              headers: {
+                "Content-Type": "application/json",
+                "Cache-Control": "no-store",
+              },
+            },
+          );
         }
       },
     },
