@@ -1986,7 +1986,7 @@ export function getApiLibraryCatalog(tenantId: string): ApiCatalogEntry[] {
       title: "MCP · chat_send_media [ESCRITA]",
       shortSummary: "Envia mídia real (imagem, PDF/documento, áudio ou vídeo) com legenda opcional via WhatsApp (Meta Cloud API ou Baileys).",
       detailedExplanation: "Valida URL HTTPS pública (bloqueando SSRF), respeita a janela de 24h da Meta via `outboundQueue.enqueueAndSend()` e transmite o evento via SSE para o chat.",
-      useCases: ["Fagner enviar foto de máquina, catálogo em PDF, proposta comercial ou áudio ao cliente"],
+      useCases: [`${persona.name} enviar foto de ${sampleProduct}, catálogo em PDF, proposta comercial ou áudio ao cliente`],
       params: [
         { name: "conversationId", location: "argument", type: "string", required: true, description: "ID da conversa." },
         { name: "mediaType", location: "argument", type: "string", required: true, description: "'image' | 'document' | 'audio' | 'video'." },
@@ -2028,7 +2028,7 @@ export function getApiLibraryCatalog(tenantId: string): ApiCatalogEntry[] {
       title: "MCP · add_deal_product [ESCRITA]",
       shortSummary: "Adiciona um item de produto/máquina ao card (quantidade, preço unitário, desconto) e recalcula o valor total do card.",
       detailedExplanation: "Executa `crmService.addDealProduct()` de forma transacional, preenchendo nome/preço pelo catálogo quando `productId` é informado.",
-      useCases: ["Fagner ou automação montar o orçamento de máquinas dentro do card"],
+      useCases: [`${persona.name} ou automação montar o orçamento de itens dentro do card`],
       params: [
         { name: "dealId", location: "argument", type: "string", required: true, description: "ID do card." },
         { name: "productId", location: "argument", type: "string", description: "ID do produto no catálogo (opcional)." },
@@ -2069,7 +2069,7 @@ export function getApiLibraryCatalog(tenantId: string): ApiCatalogEntry[] {
       title: "MCP · create_deal_proposal [ESCRITA]",
       shortSummary: "Emite e anexa uma proposta comercial formal ao card com numeração sequencial (PROP-YYYY-NNNN) e snapshot imutável dos itens.",
       detailedExplanation: "Reutiliza `crmService.createProposal()` com `pg_advisory_xact_lock` para numeração sequencial segura e cálculo em centavos.",
-      useCases: ["Gerar proposta formal diretamente pelo Fagner ou automação comercial"],
+      useCases: [`Gerar proposta formal diretamente pelo assistente ${persona.name} ou automação comercial`],
       params: [
         { name: "dealId", location: "argument", type: "string", required: true, description: "ID do card." },
         { name: "title", location: "argument", type: "string", description: "Título da proposta." },
@@ -2107,7 +2107,7 @@ export function getApiLibraryCatalog(tenantId: string): ApiCatalogEntry[] {
       title: "MCP · list_webhook_subscriptions",
       shortSummary: "Lista as subscrições de webhook de saída do tenant (com secret mascarado) e os eventos suportados em tempo real.",
       detailedExplanation: "Exibe URLs cadastradas, status ativo/pausado e eventos disponíveis (`conversation.created`, `message.received`, `triage.mode_changed`, etc.).",
-      useCases: ["Auditar para onde os avisos em tempo real do Fagner estão sendo enviados"],
+      useCases: [`Auditar para onde os avisos em tempo real do assistente ${persona.name} estão sendo enviados`],
       params: [],
       responseFields: [{ name: "subscriptions / supportedEvents", type: "array", description: "Subscrições e catálogo de eventos." }],
       sampleResponsePayload: { totalSubscriptions: 1, supportedEvents: ["conversation.created", "message.received"] },
@@ -2123,7 +2123,7 @@ export function getApiLibraryCatalog(tenantId: string): ApiCatalogEntry[] {
       title: "MCP · upsert_webhook_subscription [ESCRITA]",
       shortSummary: "Cria, atualiza ou remove subscrições de webhook de saída para receber avisos em tempo real com assinatura HMAC-SHA256 e retry automático.",
       detailedExplanation: "Valida URL HTTPS pública, gera secret `whsec_*` para assinatura `X-Webhook-Signature` e ativa entrega durável em `webhook_deliveries`.",
-      useCases: ["Conectar o orquestrador do Fagner para reagir instantaneamente a `conversation.created` e `message.received` sem polling"],
+      useCases: [`Conectar o orquestrador de ${persona.name} para reagir instantaneamente a \`conversation.created\` e \`message.received\` sem polling`],
       params: [
         { name: "action", location: "argument", type: "string", required: true, description: "'create' | 'update' | 'delete'." },
         { name: "name", location: "argument", type: "string", description: "Nome da subscrição." },
@@ -2145,7 +2145,7 @@ export function getApiLibraryCatalog(tenantId: string): ApiCatalogEntry[] {
       title: "MCP · list_webhook_deliveries",
       shortSummary: "Consulta o log e a fila de entregas de webhooks (delivered, retrying, failed, pending), tentativas, código HTTP e próxima retentativa.",
       detailedExplanation: "Permite monitorar falhas de entrega ou queda do receptor sem perder nenhum evento.",
-      useCases: ["Diagnosticar atrasos ou falhas no receptor do Fagner"],
+      useCases: [`Diagnosticar atrasos ou falhas no receptor de ${persona.name}`],
       params: [
         { name: "subscriptionId", location: "argument", type: "string", description: "Filtrar por subscrição." },
         { name: "eventType", location: "argument", type: "string", description: "Filtrar por evento." },
@@ -2180,9 +2180,9 @@ export function getApiLibraryCatalog(tenantId: string): ApiCatalogEntry[] {
       pathOrTool: "set_conversation_triage_mode",
       mcpToolName: "set_conversation_triage_mode",
       title: "MCP · set_conversation_triage_mode [ESCRITA]",
-      shortSummary: "Pausa/retoma o robô (Fagner/Valentina) ou marca/desmarca atendimento manual em uma conversa com dupla trava (cancela SdrDebouncer + atualiza banco + SSE).",
+      shortSummary: `Pausa/retoma o assistente IA (${persona.name}) ou marca/desmarca atendimento manual em uma conversa com dupla trava (cancela SdrDebouncer + atualiza banco + SSE).`,
       detailedExplanation: "Garante que humano e robô nunca respondam juntos: ao pausar ou marcar manual, cancela imediatamente o debouncer em memória, atualiza `agent_flow_states` (`paused`/`stopped`) e `conversations.queueState`, registra auditoria e dispara evento SSE.",
-      useCases: ["Silenciar o Fagner imediatamente quando um vendedor assumir a conversa", "Devolver conversa à triagem automática quando apropriado"],
+      useCases: [`Silenciar ${persona.name} imediatamente quando um vendedor assumir a conversa`, "Devolver conversa à triagem automática quando apropriado"],
       params: [
         { name: "conversationId", location: "argument", type: "string", required: true, description: "ID da conversa." },
         { name: "action", location: "argument", type: "string", required: true, description: "'pause_ai' | 'resume_ai' | 'set_manual' | 'unset_manual'." },
@@ -2203,7 +2203,7 @@ export function getApiLibraryCatalog(tenantId: string): ApiCatalogEntry[] {
       title: "MCP · get_triage_summary",
       shortSummary: "Lê o estado da triagem IA da conversa (ativa/pausada/manual), operador atual, dados coletados e resumo estruturado.",
       detailedExplanation: "Consulta `conversations` e `agent_flow_states` do tenant retornando visão completa do handoff IA ↔ humano.",
-      useCases: ["Conferir antes de responder se o Fagner está pausado ou se um vendedor já assumiu"],
+      useCases: [`Conferir antes de responder se ${persona.name} está em pausa ou se um vendedor já assumiu`],
       params: [{ name: "conversationId", location: "argument", type: "string", required: true, description: "ID da conversa." }],
       responseFields: [{ name: "isAiActive / isPaused / isManual / summary / collectedData", type: "object", description: "Estado e resumo da triagem." }],
       sampleResponsePayload: { isAiActive: false, isManual: true, summary: "Cliente busca seladora contínua" },
@@ -2219,7 +2219,7 @@ export function getApiLibraryCatalog(tenantId: string): ApiCatalogEntry[] {
       title: "MCP · update_triage_summary [ESCRITA]",
       shortSummary: "Grava o resumo estruturado e os dados coletados da triagem em uma conversa, opcionalmente registrando nota interna para o vendedor.",
       detailedExplanation: "Persiste `metadata.triageSummary` e faz merge de `collectedData` em `agent_flow_states`, podendo também publicar nota interna amarela visível no chat.",
-      useCases: ["Passar bastão completo do Fagner para o vendedor humano entrar já sabendo produto, volume e empresa"],
+      useCases: [`Passar bastão completo de ${persona.name} para o vendedor humano entrar já sabendo produto, volume e empresa`],
       params: [
         { name: "conversationId", location: "argument", type: "string", required: true, description: "ID da conversa." },
         { name: "summary", location: "argument", type: "string", description: "Texto consolidado do resumo." },
@@ -2422,7 +2422,7 @@ export function getApiLibraryCatalog(tenantId: string): ApiCatalogEntry[] {
       detailedExplanation:
         "Gerenciável via painel/API (`/api/settings/webhooks`) ou diretamente pelo MCP (`upsert_webhook_subscription`, `list_webhook_subscriptions`, `list_webhook_deliveries`, `retry_webhook_delivery`). Cada evento é gravado antes do disparo em `webhook_deliveries` (idempotente por `event_id`) e enviado via POST JSON assinado no header `X-Webhook-Signature` (HMAC-SHA256). Em caso de erro HTTP não-2xx ou queda do receptor, o `WebhookDeliveryWorker` agenda retentativas exponenciais automáticas (`10s → 1m → 5m → 15m → 1h`, até 6 tentativas), além de permitir reenvio manual sob demanda.",
       useCases: [
-        "Acionar o Fagner / orquestrador de IA instantaneamente em `conversation.created` e `message.received` sem polling",
+        `Acionar ${persona.name} / orquestrador de IA instantaneamente em \`conversation.created\` e \`message.received\` sem polling`,
         "Integrar ERPs, n8n, Make, Zapier ou sistemas internos de pós-venda com garantia de entrega e verificação HMAC",
       ],
       businessRules: [
@@ -2431,7 +2431,7 @@ export function getApiLibraryCatalog(tenantId: string): ApiCatalogEntry[] {
         "Segurança: URLs de destino exigem HTTPS público (bloqueio anti-SSRF contra IPs privados/localhost) e o receptor deve validar `X-Webhook-Signature` e deduplicar por `X-Webhook-Event-Id`.",
       ],
       params: [
-        { name: "name", location: "body", type: "string", required: true, description: "Nome amigável da subscrição (ex.: `Receptor Fagner Tempo Real`)." },
+        { name: "name", location: "body", type: "string", required: true, description: `Nome amigável da subscrição (ex.: \`Receptor ${persona.name} Tempo Real\`).` },
         { name: "url", location: "body", type: "string (HTTPS)", required: true, description: "Endpoint HTTPS público de destino que receberá os eventos." },
         { name: "events", location: "body", type: "string[]", required: true, description: "Lista de eventos assinados (`conversation.created`, `message.received`, `triage.mode_changed`, `deal.*`)." },
       ],
@@ -2460,7 +2460,7 @@ export function getApiLibraryCatalog(tenantId: string): ApiCatalogEntry[] {
       },
       sampleResponsePayload: {
         id: "550e8400-e29b-41d4-a716-446655440000",
-        name: "Receptor Fagner Tempo Real",
+        name: `Receptor ${persona.name} Tempo Real`,
         events: ["conversation.created", "message.received"],
         isActive: true,
         secret: "whsec_<HMAC_SECRET_GERADO>",

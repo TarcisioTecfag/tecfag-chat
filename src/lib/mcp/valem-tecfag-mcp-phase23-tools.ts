@@ -354,7 +354,7 @@ export const MCP_PHASE23_TOOLS: McpToolDefinition[] = [
           type: "string",
           description: "ID da subscrição (obrigatório para 'update' e 'delete').",
         },
-        name: { type: "string", description: "Nome descritivo (ex: 'Receptor Fagner Tempo Real')." },
+        name: { type: "string", description: "Nome descritivo (ex: 'Receptor IA Tempo Real')." },
         url: { type: "string", description: "URL HTTPS de destino que receberá os POSTs assinados." },
         events: {
           type: "array",
@@ -408,7 +408,7 @@ export const MCP_PHASE23_TOOLS: McpToolDefinition[] = [
     name: "set_conversation_triage_mode",
     access: "write",
     description:
-      "[ESCRITA] Controla com dupla trava o atendimento automático (Fagner/Valentina) em uma conversa específica: 'pause_ai' (pausa robô e cancela debouncer), 'resume_ai' (retoma robô), 'set_manual' (marca atendimento manual com operador opcional e silencia robô) ou 'unset_manual' (devolve à automação).",
+      "[ESCRITA] Controla com dupla trava o atendimento automático do assistente IA (SDR) em uma conversa específica: 'pause_ai' (pausa robô e cancela debouncer), 'resume_ai' (retoma robô), 'set_manual' (marca atendimento manual com operador opcional e silencia robô) ou 'unset_manual' (devolve à automação).",
     inputSchema: {
       type: "object",
       required: ["conversationId", "action"],
