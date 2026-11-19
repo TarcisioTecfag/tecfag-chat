@@ -708,7 +708,7 @@ export function McpSettingsTab() {
               </span>
               <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-0.5 text-[11px] font-semibold text-foreground border border-border">
                 <Shield className="h-3 w-3 text-primary" />
-                Somente Leitura (Read-Only)
+                Permissão por Chave (Leitura / Escrita)
               </span>
               <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-0.5 text-[11px] font-mono text-muted-foreground border border-border">
                 tenant: {activeTenant}
@@ -729,7 +729,7 @@ export function McpSettingsTab() {
           </div>
 
           <div className="flex flex-wrap items-center gap-3 shrink-0">
-            <SystemTooltip content="Executar diagnóstico real de inicialização e leitura das 10 ferramentas MCP">
+            <SystemTooltip content="Executar diagnóstico real de inicialização e listagem das ferramentas MCP ativas">
               <button
                 type="button"
                 onClick={handleTestConnection}
@@ -1833,17 +1833,21 @@ export function McpSettingsTab() {
           </div>
         </div>
 
-        {/* Catálogo das 10 Ferramentas Habilitadas */}
+        {/* Catálogo Dinâmico das Ferramentas Habilitadas */}
         <div className="rounded-2xl bg-card p-6 border border-border shadow-soft space-y-4">
           <div className="flex items-center justify-between border-b border-border pb-3">
             <div className="flex items-center gap-2">
               <Server className="h-4 w-4 text-primary" />
               <h4 className="text-sm font-extrabold text-foreground">
-                10 Ferramentas Habilitadas no Conector
+                {tools.length > 0
+                  ? `${tools.length} Ferramentas Habilitadas no Conector`
+                  : "Ferramentas Habilitadas no Conector"}
               </h4>
             </div>
             <span className="text-[11px] font-mono text-muted-foreground">
-              100% Read-Only
+              {tools.length > 0
+                ? `${tools.filter((t) => t.access !== "write").length} Leitura · ${tools.filter((t) => t.access === "write").length} Escrita`
+                : "Leitura & Escrita por chave"}
             </span>
           </div>
 
@@ -1853,49 +1857,59 @@ export function McpSettingsTab() {
               : [
                   {
                     name: "search_conversations",
+                    access: "read" as const,
                     description:
                       "Busca e filtra conversas de atendimento por nome, telefone, CNPJ, fila ou vendedor.",
                   },
                   {
                     name: "get_conversation_messages",
+                    access: "read" as const,
                     description:
                       "Lê o histórico cronológico completo de mensagens e notas de uma conversa.",
                   },
                   {
                     name: "get_fagner_triage_overview",
+                    access: "read" as const,
                     description: `Panorama em tempo real da triagem automática do ${aiPersona.name} e diagnósticos de handoff.`,
                   },
                   {
                     name: "get_fagner_triage_history",
+                    access: "read" as const,
                     description:
                       "Histórico de ciclos de triagem, briefing consolidado e notas progressivas.",
                   },
                   {
                     name: "search_crm_deals",
+                    access: "read" as const,
                     description:
                       "Pesquisa negociações do CRM por cliente, funil, etapa, consultor ou status.",
                   },
                   {
                     name: "get_crm_deal_details",
+                    access: "read" as const,
                     description:
                       "Ficha 360º da negociação com empresa, Receita Federal, produtos, propostas e atividades.",
                   },
                   {
                     name: "search_crm_accounts",
+                    access: "read" as const,
                     description:
                       "Busca empresas (crm_accounts) com dados completos da Receita Federal, QSA e CNAE.",
                   },
                   {
                     name: "search_contacts",
+                    access: "read" as const,
                     description: "Busca contatos individuais e carteira de clientes.",
                   },
                   {
                     name: "get_sales_and_commercial_metrics",
+                    access: "read" as const,
                     description:
                       "Métricas de vendas fechadas no mês, meta, pacing de dias úteis, ranking e motivos de perda.",
                   },
                   {
                     name: "get_rodizio_and_operators_status",
+                    access: "read" as const,
                     description: "Status dos operadores, setores e escala local da aba Fluxos.",
                   },
                 ]
@@ -1908,8 +1922,14 @@ export function McpSettingsTab() {
                   <code className="text-xs font-mono font-bold text-primary">
                     {tool.name}
                   </code>
-                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-muted text-muted-foreground">
-                    GET / Read
+                  <span
+                    className={`text-[10px] font-semibold px-2 py-0.5 rounded ${
+                      tool.access === "write"
+                        ? "bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30"
+                        : "bg-muted text-muted-foreground"
+                    }`}
+                  >
+                    {tool.access === "write" ? "Escrita" : "Leitura"}
                   </span>
                 </div>
                 <p className="text-[11px] text-muted-foreground leading-relaxed">
