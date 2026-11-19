@@ -309,22 +309,21 @@ export async function computeOperatorsOverviewAnalytics(params: {
     }
   }
 
-  // 2. Conversas do tenant com atividade nos últimos 30 dias (ou atribuídas aos operadores)
-  // Buscamos todas as conversas visíveis do tenant para também capturar atendimentos
-  // realizados pela triagem/SDR antes de transferir a conversa para outro consultor.
+  // 2. Conversas ativas ou atribuídas a operadores com atividade nos últimos 30 dias.
+  // Filtra direto no SQL para nunca carregar dezenas de milhares de conversas históricas
+  // arquivadas (conv-rdc-% / finalizados sem operador) para a memória do processo.
   const operatorIdByName = new Map<string, string>();
   for (const op of allOperators) {
     operatorIdByName.set(op.name.trim().toLowerCase(), op.id);
   }
   const opIdSet = new Set(opIds);
 
-  const convRows = await db
+  const relevantConvs = await db
     .select({
       id: conversations.id,
       operatorId: conversations.operatorId,
       queueState: conversations.queueState,
       lastMessageTime: conversations.lastMessageTime,
-      lastMessageText: conversations.lastMessageText,
       createdAt: conversations.createdAt,
     })
     .from(conversations)
@@ -333,60 +332,21 @@ export async function computeOperatorsOverviewAnalytics(params: {
         eq(conversations.tenantId, tenantId),
         readScope,
         sql`NOT (${conversations.id} LIKE 'conv-rdc-%' AND ${conversations.queueState} = 'finalizados')`,
+        or(
+          ne(conversations.queueState, "finalizados"),
+          and(
+            isNotNull(conversations.operatorId),
+            gte(conversations.lastMessageTime, thirtyDaysAgo),
+          ),
+        ),
       ),
     )
     .catch(() => []);
 
-  const relevantConvs = convRows.filter(
-    (c) =>
-      (c.operatorId && opIdSet.has(c.operatorId)) ||
-      c.queueState !== "finalizados" ||
-      (c.lastMessageTime && new Date(c.lastMessageTime).getTime() >= thirtyDaysAgo.getTime()),
-  );
   const convMap = new Map(relevantConvs.map((c) => [c.id, c]));
   const relevantConvIds = relevantConvs.map((c) => c.id);
 
-  // 3. Mensagens reais dos últimos 30 dias nessas conversas
-  let msgRows: {
-    id: string;
-    conversationId: string;
-    senderType: string;
-    senderName: string;
-    isInternalNote: boolean;
-    content: string;
-    sentAt: Date;
-  }[] = [];
-
-  if (relevantConvIds.length > 0) {
-    const chunkSize = 400;
-    for (let i = 0; i < relevantConvIds.length; i += chunkSize) {
-      const chunk = relevantConvIds.slice(i, i + chunkSize);
-      const rows = await db
-        .select({
-          id: messages.id,
-          conversationId: messages.conversationId,
-          senderType: messages.senderType,
-          senderName: messages.senderName,
-          isInternalNote: messages.isInternalNote,
-          content: messages.content,
-          sentAt: messages.sentAt,
-        })
-        .from(messages)
-        .where(
-          and(
-            eq(messages.tenantId, tenantId),
-            inArray(messages.conversationId, chunk),
-            gte(messages.sentAt, thirtyDaysAgo),
-            sql`COALESCE(${messages.provider}, '') <> 'rd_conversas'`,
-          ),
-        )
-        .orderBy(messages.conversationId, messages.sentAt)
-        .catch(() => []);
-      msgRows.push(...rows);
-    }
-  }
-
-  // 4. Negociações do CRM, Auditorias de IA, Métricas Diárias e Eventos de Transferência
+  // 3. Negociações do CRM, Auditorias de IA, Métricas Diárias e Eventos de Transferência
   const [dealRows, auditRows, dailyMetricRows, transferEventRows, slaLogRows] = await Promise.all([
     db
       .select({
@@ -468,25 +428,9 @@ export async function computeOperatorsOverviewAnalytics(params: {
       .catch(() => []),
   ]);
 
-  // 5. Processar mensagens por conversa para extrair:
-  //    - Conversas ativas por operador em cada dia BRT e hora BRT
-  //    - Pares de resposta (client -> agent) com tempo exato de resposta
-  //    - Conversas onde o cliente falou por último e aguarda resposta agora
-  const msgsByConv = new Map<string, typeof msgRows>();
-  for (const m of msgRows) {
-    if (m.senderType === "system" && BOILERPLATE_SYSTEM_RE.test((m.content || "").trim())) {
-      continue;
-    }
-    const list = msgsByConv.get(m.conversationId) ?? [];
-    list.push(m);
-    msgsByConv.set(m.conversationId, list);
-  }
-
-  // (operatorId -> dateBrt -> Set<conversationId>)
+  // 4. Estruturas agregadas (streaming por chunk para manter uso de RAM mínimo)
   const opDayConvsMap = new Map<string, Map<string, Set<string>>>();
-  // (operatorId -> hourBrt (today) -> Set<conversationId>)
   const opTodayHourConvsMap = new Map<string, Map<number, Set<string>>>();
-  // Conversas com engajamento bidirecional (cliente + agente) nos últimos 30d por operador
   const opEngagedConvs30d = new Map<string, Set<string>>();
   const opRepliedConvs30d = new Map<string, Set<string>>();
 
@@ -523,8 +467,6 @@ export async function computeOperatorsOverviewAnalytics(params: {
 
   for (const conv of relevantConvs) {
     const convOpId = conv.operatorId && opIdSet.has(conv.operatorId) ? conv.operatorId : null;
-
-    // Também registra o dia do lastMessageTime da conversa para o operador titular atual
     if (convOpId && conv.lastMessageTime) {
       const lmt = new Date(conv.lastMessageTime);
       if (lmt.getTime() >= thirtyDaysAgo.getTime()) {
@@ -535,110 +477,141 @@ export async function computeOperatorsOverviewAnalytics(params: {
         }
       }
     }
+  }
 
-    const cMsgs = msgsByConv.get(conv.id) ?? [];
-    if (cMsgs.length === 0) continue;
+  // 5. Processar mensagens dos últimos 30 dias em chunks pequenos sem reter content completo na RAM
+  if (relevantConvIds.length > 0) {
+    const chunkSize = 250;
+    for (let i = 0; i < relevantConvIds.length; i += chunkSize) {
+      const chunk = relevantConvIds.slice(i, i + chunkSize);
+      const chunkRows = await db
+        .select({
+          conversationId: messages.conversationId,
+          senderType: messages.senderType,
+          senderName: messages.senderName,
+          systemContent: sql<string>`CASE WHEN ${messages.senderType} = 'system' THEN LEFT(COALESCE(${messages.content}, ''), 160) ELSE '' END`,
+          sentAt: messages.sentAt,
+        })
+        .from(messages)
+        .where(
+          and(
+            eq(messages.tenantId, tenantId),
+            inArray(messages.conversationId, chunk),
+            eq(messages.isInternalNote, false),
+            gte(messages.sentAt, thirtyDaysAgo),
+            sql`COALESCE(${messages.provider}, '') <> 'rd_conversas'`,
+          ),
+        )
+        .orderBy(messages.conversationId, messages.sentAt)
+        .catch(() => []);
 
-    let hasClientMsg = false;
-    const operatorsWhoRepliedInConv = new Set<string>();
-    let pendingClientAt: Date | null = null;
-    let lastTransferAt: Date | null = null;
-
-    for (const m of cMsgs) {
-      const sentAt = m.sentAt instanceof Date ? m.sentAt : new Date(m.sentAt);
-      const dateBrt = getBrtDateKey(sentAt);
-
-      // Detecta mensagem de sistema de transferência ("Atendimento transferido para ...")
-      if (m.senderType === "system" && /transferid[oa]\s+para/i.test(m.content || "")) {
-        lastTransferAt = sentAt;
-        if (pendingClientAt && sentAt.getTime() > pendingClientAt.getTime()) {
-          // O tempo de espera do novo consultor conta a partir do momento em que recebeu a transferência
-          pendingClientAt = sentAt;
+      const msgsByConv = new Map<string, typeof chunkRows>();
+      for (const m of chunkRows) {
+        if (m.senderType === "system" && BOILERPLATE_SYSTEM_RE.test((m.systemContent || "").trim())) {
+          continue;
         }
-        continue;
+        const list = msgsByConv.get(m.conversationId) ?? [];
+        list.push(m);
+        msgsByConv.set(m.conversationId, list);
       }
 
-      if (m.isInternalNote) {
-        continue;
-      }
+      for (const [convId, cMsgs] of msgsByConv) {
+        const conv = convMap.get(convId);
+        if (!conv || cMsgs.length === 0) continue;
+        const convOpId = conv.operatorId && opIdSet.has(conv.operatorId) ? conv.operatorId : null;
 
-      if (m.senderType === "client") {
-        hasClientMsg = true;
-        if (convOpId) {
-          addOpDayConv(convOpId, dateBrt, conv.id);
-          if (dateBrt === todayBrt) {
-            addOpTodayHourConv(convOpId, getBrtHour(sentAt), conv.id);
-          }
-        }
-        if (!pendingClientAt) {
-          pendingClientAt = sentAt;
-        }
-      } else if (m.senderType === "agent") {
-        // Identifica qual operador efetivamente enviou esta mensagem (mesmo se a conversa foi transferida depois)
-        const senderKey = (m.senderName || "").trim().toLowerCase();
-        const msgOpId = operatorIdByName.get(senderKey) ?? convOpId;
+        let hasClientMsg = false;
+        const operatorsWhoRepliedInConv = new Set<string>();
+        let pendingClientAt: Date | null = null;
+        let lastTransferAt: Date | null = null;
 
-        if (msgOpId && opIdSet.has(msgOpId)) {
-          operatorsWhoRepliedInConv.add(msgOpId);
-          addOpDayConv(msgOpId, dateBrt, conv.id);
-          if (dateBrt === todayBrt) {
-            addOpTodayHourConv(msgOpId, getBrtHour(sentAt), conv.id);
-          }
+        for (const m of cMsgs) {
+          const sentAt = m.sentAt instanceof Date ? m.sentAt : new Date(m.sentAt);
+          const dateBrt = getBrtDateKey(sentAt);
 
-          if (pendingClientAt) {
-            const deltaSec = Math.max(1, Math.round((sentAt.getTime() - pendingClientAt.getTime()) / 1000));
-            // Ignora intervalos > 12h (virada de noite/fim de semana) para não distorcer o TMA operacional
-            if (deltaSec <= 12 * 3600) {
-              const list = cyclesByOperator.get(msgOpId) ?? [];
-              list.push({
-                operatorId: msgOpId,
-                conversationId: conv.id,
-                clientSentAt: pendingClientAt,
-                agentSentAt: sentAt,
-                dateBrt,
-                hourBrt: getBrtHour(sentAt),
-                responseSeconds: deltaSec,
-                isOverdue: deltaSec > slaLimitSeconds,
-              });
-              cyclesByOperator.set(msgOpId, list);
+          if (m.senderType === "system" && /transferid[oa]\s+para/i.test(m.systemContent || "")) {
+            lastTransferAt = sentAt;
+            if (pendingClientAt && sentAt.getTime() > pendingClientAt.getTime()) {
+              pendingClientAt = sentAt;
             }
+            continue;
+          }
+
+          if (m.senderType === "client") {
+            hasClientMsg = true;
+            if (convOpId) {
+              addOpDayConv(convOpId, dateBrt, conv.id);
+              if (dateBrt === todayBrt) {
+                addOpTodayHourConv(convOpId, getBrtHour(sentAt), conv.id);
+              }
+            }
+            if (!pendingClientAt) {
+              pendingClientAt = sentAt;
+            }
+          } else if (m.senderType === "agent") {
+            const senderKey = (m.senderName || "").trim().toLowerCase();
+            const msgOpId = operatorIdByName.get(senderKey) ?? convOpId;
+
+            if (msgOpId && opIdSet.has(msgOpId)) {
+              operatorsWhoRepliedInConv.add(msgOpId);
+              addOpDayConv(msgOpId, dateBrt, conv.id);
+              if (dateBrt === todayBrt) {
+                addOpTodayHourConv(msgOpId, getBrtHour(sentAt), conv.id);
+              }
+
+              if (pendingClientAt) {
+                const deltaSec = Math.max(1, Math.round((sentAt.getTime() - pendingClientAt.getTime()) / 1000));
+                if (deltaSec <= 12 * 3600) {
+                  const list = cyclesByOperator.get(msgOpId) ?? [];
+                  list.push({
+                    operatorId: msgOpId,
+                    conversationId: conv.id,
+                    clientSentAt: pendingClientAt,
+                    agentSentAt: sentAt,
+                    dateBrt,
+                    hourBrt: getBrtHour(sentAt),
+                    responseSeconds: deltaSec,
+                    isOverdue: deltaSec > slaLimitSeconds,
+                  });
+                  cyclesByOperator.set(msgOpId, list);
+                }
+              }
+            }
+            pendingClientAt = null;
           }
         }
-        pendingClientAt = null;
-      }
-    }
 
-    for (const repliedOpId of operatorsWhoRepliedInConv) {
-      const repSet = opRepliedConvs30d.get(repliedOpId) ?? new Set();
-      repSet.add(conv.id);
-      opRepliedConvs30d.set(repliedOpId, repSet);
+        for (const repliedOpId of operatorsWhoRepliedInConv) {
+          const repSet = opRepliedConvs30d.get(repliedOpId) ?? new Set();
+          repSet.add(conv.id);
+          opRepliedConvs30d.set(repliedOpId, repSet);
 
-      if (hasClientMsg) {
-        const engSet = opEngagedConvs30d.get(repliedOpId) ?? new Set();
-        engSet.add(conv.id);
-        opEngagedConvs30d.set(repliedOpId, engSet);
-      }
-    }
+          if (hasClientMsg) {
+            const engSet = opEngagedConvs30d.get(repliedOpId) ?? new Set();
+            engSet.add(conv.id);
+            opEngagedConvs30d.set(repliedOpId, engSet);
+          }
+        }
 
-    // Se a conversa continua aberta e aguarda resposta do operador titular atual:
-    if (convOpId && pendingClientAt && conv.queueState !== "finalizados") {
-      const effectiveWaitStart =
-        lastTransferAt && lastTransferAt.getTime() > pendingClientAt.getTime()
-          ? lastTransferAt
-          : pendingClientAt;
-      const waitSec = Math.max(0, Math.round((nowMs - effectiveWaitStart.getTime()) / 1000));
-      // Considera turnos recentes (últimos 7 dias) aguardando resposta
-      if (waitSec <= 7 * 86400) {
-        const wList = waitingByOperator.get(convOpId) ?? [];
-        wList.push({
-          operatorId: convOpId,
-          conversationId: conv.id,
-          clientSentAt: effectiveWaitStart,
-          dateBrt: getBrtDateKey(effectiveWaitStart),
-          waitingSeconds: waitSec,
-          isOverdue: waitSec > slaLimitSeconds,
-        });
-        waitingByOperator.set(convOpId, wList);
+        if (convOpId && pendingClientAt && conv.queueState !== "finalizados") {
+          const effectiveWaitStart =
+            lastTransferAt && lastTransferAt.getTime() > pendingClientAt.getTime()
+              ? lastTransferAt
+              : pendingClientAt;
+          const waitSec = Math.max(0, Math.round((nowMs - effectiveWaitStart.getTime()) / 1000));
+          if (waitSec <= 7 * 86400) {
+            const wList = waitingByOperator.get(convOpId) ?? [];
+            wList.push({
+              operatorId: convOpId,
+              conversationId: conv.id,
+              clientSentAt: effectiveWaitStart,
+              dateBrt: getBrtDateKey(effectiveWaitStart),
+              waitingSeconds: waitSec,
+              isOverdue: waitSec > slaLimitSeconds,
+            });
+            waitingByOperator.set(convOpId, wList);
+          }
+        }
       }
     }
   }

@@ -12,13 +12,14 @@ function makeOperatorKey(tenantId: string, operatorId: string): string {
   return `${tenantId}:${operatorId}`;
 }
 
+const BRT_OFFSET_MS = 3 * 60 * 60 * 1000;
+
 export function getBrtDateKey(now: Date = new Date()): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Sao_Paulo",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(now);
+  const brt = new Date(now.getTime() - BRT_OFFSET_MS);
+  const year = brt.getUTCFullYear();
+  const month = String(brt.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(brt.getUTCDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 export function registerOperatorSseOpen(tenantId: string, operatorId: string): void {

@@ -319,30 +319,46 @@ export const Route = createFileRoute("/api/gestao/alerts")({
               await Promise.all([
                 db.execute(sql`
                   SELECT
-                    id,
-                    conversation_id AS "conversationId",
-                    sender_type AS "senderType",
-                    sender_name AS "senderName",
-                    content,
-                    sent_at AS "sentAt",
-                    is_internal_note AS "isInternalNote",
-                    media_interpretation AS "mediaInterpretation",
-                    status,
-                    error_message AS "errorMessage",
-                    quoted_message_id AS "quotedMessageId",
-                    quoted_message_sender AS "quotedMessageSender",
-                    quoted_message_content AS "quotedMessageContent",
-                    meta_details AS "metaDetails"
-                  FROM (
+                    m.id,
+                    m.conversation_id AS "conversationId",
+                    m.sender_type AS "senderType",
+                    m.sender_name AS "senderName",
+                    m.content,
+                    m.sent_at AS "sentAt",
+                    m.is_internal_note AS "isInternalNote",
+                    m.media_interpretation AS "mediaInterpretation",
+                    m.status,
+                    m.error_message AS "errorMessage",
+                    m.quoted_message_id AS "quotedMessageId",
+                    m.quoted_message_sender AS "quotedMessageSender",
+                    m.quoted_message_content AS "quotedMessageContent",
+                    m.meta_details AS "metaDetails"
+                  FROM conversations c
+                  CROSS JOIN LATERAL (
                     SELECT
-                      m.*,
-                      ROW_NUMBER() OVER (PARTITION BY m.conversation_id ORDER BY m.sent_at DESC) AS rn
+                      m.id,
+                      m.conversation_id,
+                      m.sender_type,
+                      m.sender_name,
+                      m.content,
+                      m.sent_at,
+                      m.is_internal_note,
+                      m.media_interpretation,
+                      m.status,
+                      m.error_message,
+                      m.quoted_message_id,
+                      m.quoted_message_sender,
+                      m.quoted_message_content,
+                      m.meta_details
                     FROM messages m
                     WHERE m.tenant_id = ${tenantId}
-                      AND m.conversation_id IN (${idParams})
-                  ) ranked
-                  WHERE ranked.rn <= 18
-                  ORDER BY ranked.conversation_id, ranked.sent_at ASC
+                      AND m.conversation_id = c.id
+                    ORDER BY m.sent_at DESC, m.id DESC
+                    LIMIT 18
+                  ) m
+                  WHERE c.tenant_id = ${tenantId}
+                    AND c.id IN (${idParams})
+                  ORDER BY m.conversation_id, m.sent_at ASC
                 `),
 
                 db
@@ -354,7 +370,7 @@ export const Route = createFileRoute("/api/gestao/alerts")({
                       d.value AS "value",
                       d.status AS "status",
                       d.rating AS "rating",
-                      d.owner_id AS "ownerId",
+                      d.operator_id AS "ownerId",
                       p.name AS "pipelineName",
                       s.name AS "stageName"
                     FROM (

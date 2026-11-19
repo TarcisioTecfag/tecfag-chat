@@ -12727,6 +12727,8 @@ export function MonitorView() {
     }
   }, [allowedTabs, activeTab]);
 
+  const fetchInFlightRef = useRef(false);
+
   const fetchData = useCallback(async () => {
     // ── DEMO MODE: usa dados simulados sem chamar a API ────────────────────────
     if (DEMO_MODE) {
@@ -12738,6 +12740,8 @@ export function MonitorView() {
       setLoadingAudits(false);
       return;
     }
+    if (fetchInFlightRef.current) return;
+    fetchInFlightRef.current = true;
     // ── MODO REAL: busca da API ────────────────────────────────────────────────
     try {
       const [ovRes, alRes, auRes] = await Promise.all([
@@ -12763,6 +12767,7 @@ export function MonitorView() {
     } catch (e) {
       console.error("[MonitorView] Erro ao buscar dados:", e);
     } finally {
+      fetchInFlightRef.current = false;
       setLoadingAlerts(false);
       setLoadingAudits(false);
     }
@@ -12770,7 +12775,10 @@ export function MonitorView() {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 30_000); // Auto-refresh 30s
+    const interval = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      fetchData();
+    }, 45_000); // Auto-refresh 45s com guarda anti-empilhamento
     return () => clearInterval(interval);
   }, [fetchData]);
 
