@@ -150,6 +150,7 @@ export function BulkActionsSuite({
   const [isMoveSheetOpen, setIsMoveSheetOpen] = useState(false);
   const [targetMovePipelineId, setTargetMovePipelineId] = useState<string>("");
   const [targetMoveStageId, setTargetMoveStageId] = useState<string>("");
+  const [moveLossReason, setMoveLossReason] = useState<string>("");
 
   const [isExportSheetOpen, setIsExportSheetOpen] = useState(false);
   const [exportDataType, setExportDataType] = useState("deals");
@@ -318,8 +319,13 @@ export function BulkActionsSuite({
   };
 
   const handleConfirmLossReason = async () => {
+    const trimmedReason = lossReasonText.trim();
+    if (!trimmedReason) {
+      toast.error("Selecione o motivo de perda antes de confirmar.");
+      return;
+    }
     const ok = await executeBulkRequest(
-      { status: "lost", lossReason: lossReasonText.trim() || undefined },
+      { status: "lost", lossReason: trimmedReason },
       `Negociações marcadas como Perdidas!`
     );
     if (ok) {
@@ -328,20 +334,33 @@ export function BulkActionsSuite({
     }
   };
 
+  const selectedMoveStage = useMemo(
+    () => targetMoveStages.find((stg) => stg.id === targetMoveStageId) || null,
+    [targetMoveStages, targetMoveStageId],
+  );
+
   // 3. AÇÃO: Mover Funil & Etapa
   const handleExecuteMove = async () => {
     if (!targetMoveStageId) {
       toast.error("Selecione a etapa de destino.");
       return;
     }
+    if (selectedMoveStage?.isLossStage && !moveLossReason.trim()) {
+      toast.error("Selecione o motivo de perda antes de mover para uma etapa de perda.");
+      return;
+    }
     const ok = await executeBulkRequest(
       {
         pipelineId: targetMovePipelineId,
         stageId: targetMoveStageId,
+        ...(selectedMoveStage?.isLossStage ? { lossReason: moveLossReason.trim() } : {}),
       },
       `${effectiveCount} negociações movidas com sucesso!`
     );
-    if (ok) setIsMoveSheetOpen(false);
+    if (ok) {
+      setIsMoveSheetOpen(false);
+      setMoveLossReason("");
+    }
   };
 
   // 4. AÇÃO: Criar Negociações para Empresas
@@ -1308,7 +1327,13 @@ export function BulkActionsSuite({
       {/* ──────────────────────────────────────────────────────────────────────────
           DRAWER / SHEET 1: MOVER NEGOCIAÇÕES (SCREENSHOTS 7 & 8)
           ────────────────────────────────────────────────────────────────────────── */}
-      <Sheet open={isMoveSheetOpen} onOpenChange={setIsMoveSheetOpen}>
+      <Sheet
+        open={isMoveSheetOpen}
+        onOpenChange={(open) => {
+          setIsMoveSheetOpen(open);
+          if (!open) setMoveLossReason("");
+        }}
+      >
         <SheetContent data-tour="bulk.move" side="right" className="w-full sm:max-w-md flex flex-col justify-between">
           <div>
             <SheetHeader className="pb-4 border-b border-border">
@@ -1357,7 +1382,10 @@ export function BulkActionsSuite({
                 </Label>
                 <Select
                   value={targetMoveStageId}
-                  onValueChange={setTargetMoveStageId}
+                  onValueChange={(val) => {
+                    setTargetMoveStageId(val);
+                    setMoveLossReason("");
+                  }}
                   disabled={targetMoveStages.length === 0}
                 >
                   <SystemTooltip content="Selecionar etapa do funil de destino">
@@ -1375,6 +1403,22 @@ export function BulkActionsSuite({
                   </SelectContent>
                 </Select>
               </div>
+
+              {selectedMoveStage?.isLossStage && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold text-red-600 dark:text-red-400">
+                    Motivo da Perda <span className="text-rose-500">*</span>
+                  </Label>
+                  <CatalogSelect
+                    kind="loss_reason"
+                    value={moveLossReason}
+                    onChange={setMoveLossReason}
+                    pipelineId={targetMovePipelineId}
+                    stageId={targetMoveStageId}
+                    placeholder="Selecione o motivo de perda *"
+                  />
+                </div>
+              )}
             </div>
           </div>
 
@@ -1383,27 +1427,42 @@ export function BulkActionsSuite({
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => setIsMoveSheetOpen(false)}
+              onClick={() => {
+                setIsMoveSheetOpen(false);
+                setMoveLossReason("");
+              }}
               className="text-xs cursor-pointer"
             >
               Cancelar
             </Button>
-            <Button
-              type="button"
-              size="sm"
-              data-training-save="true" onClick={handleExecuteMove}
-              disabled={loading || !targetMoveStageId}
-              className="text-xs font-bold bg-primary hover:bg-primary/90 text-primary-foreground shadow-xs cursor-pointer"
+            <SystemTooltip
+              content={
+                selectedMoveStage?.isLossStage && !moveLossReason.trim()
+                  ? "Selecione um motivo de perda antes de mover para uma etapa de perda"
+                  : "Mover negociações selecionadas"
+              }
             >
-              {loading ? (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
-                  Movendo...
-                </>
-              ) : (
-                "Mover negociações"
-              )}
-            </Button>
+              <Button
+                type="button"
+                size="sm"
+                data-training-save="true" onClick={handleExecuteMove}
+                disabled={
+                  loading ||
+                  !targetMoveStageId ||
+                  (Boolean(selectedMoveStage?.isLossStage) && !moveLossReason.trim())
+                }
+                className="text-xs font-bold bg-primary hover:bg-primary/90 text-primary-foreground shadow-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                    Movendo...
+                  </>
+                ) : (
+                  "Mover negociações"
+                )}
+              </Button>
+            </SystemTooltip>
           </SheetFooter>
         </SheetContent>
       </Sheet>
@@ -2004,7 +2063,13 @@ export function BulkActionsSuite({
       {/* ──────────────────────────────────────────────────────────────────────────
           MODAL 3: MOTIVO DA PERDA (QUANDO STATUS FOR 'PERDIDO')
           ────────────────────────────────────────────────────────────────────────── */}
-      <Dialog open={lossReasonModalOpen} onOpenChange={setLossReasonModalOpen}>
+      <Dialog
+        open={lossReasonModalOpen}
+        onOpenChange={(open) => {
+          setLossReasonModalOpen(open);
+          if (!open) setLossReasonText("");
+        }}
+      >
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="text-base font-bold text-foreground flex items-center gap-2">
@@ -2020,7 +2085,9 @@ export function BulkActionsSuite({
               Perdido.
             </p>
             <div className="space-y-2">
-              <Label className="text-xs font-semibold">Motivo da Perda (Opcional)</Label>
+              <Label className="text-xs font-semibold">
+                Motivo da Perda <span className="text-red-500">*</span>
+              </Label>
               <CatalogSelect
                 kind="loss_reason"
                 value={lossReasonText}
@@ -2031,13 +2098,7 @@ export function BulkActionsSuite({
                   const stageSet = new Set(selectedDeals.map((d) => d.stageId).filter(Boolean));
                   return stageSet.size === 1 ? Array.from(stageSet)[0] : null;
                 })()}
-                placeholder="Selecione um motivo cadastrado"
-              />
-              <Input
-                placeholder="Ou digite/complemente observações adicionais..."
-                value={lossReasonText}
-                onChange={(e) => setLossReasonText(e.target.value)}
-                className="h-8 text-xs"
+                placeholder="Selecione o motivo de perda *"
               />
             </div>
           </div>
@@ -2047,21 +2108,32 @@ export function BulkActionsSuite({
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => setLossReasonModalOpen(false)}
+              onClick={() => {
+                setLossReasonModalOpen(false);
+                setLossReasonText("");
+              }}
               className="text-xs cursor-pointer"
             >
               Cancelar
             </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              size="sm"
-              onClick={handleConfirmLossReason}
-              disabled={loading}
-              className="text-xs font-bold cursor-pointer"
+            <SystemTooltip
+              content={
+                !lossReasonText.trim()
+                  ? "Selecione um motivo de perda antes de confirmar"
+                  : "Confirmar perda das negociações selecionadas"
+              }
             >
-              Confirmar Perda
-            </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                onClick={handleConfirmLossReason}
+                disabled={loading || !lossReasonText.trim()}
+                className="text-xs font-bold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Confirmar Perda
+              </Button>
+            </SystemTooltip>
           </DialogFooter>
         </DialogContent>
       </Dialog>

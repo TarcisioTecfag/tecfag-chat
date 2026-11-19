@@ -39,6 +39,7 @@ import {
   contactChannelIdentities,
 } from "../../db/schema";
 import { getDealContext } from "./conversation-deal-context";
+import { normalizeLossReasonInput, resolveRequiredLossReason } from "./loss-reason-policy";
 import {
   findContactByAnyPhone,
   getContactPhonesMap,
@@ -5011,16 +5012,17 @@ export class CrmService {
         }
       }
       if (updates.lossReason !== undefined) {
-        if (updates.lossReason && updates.lossReason !== current.lossReason) {
+        const normalizedLossReason = normalizeLossReasonInput(updates.lossReason);
+        if (normalizedLossReason && normalizedLossReason !== current.lossReason) {
           try {
             const policy = await getCatalogPolicy(tenantId, "loss_reason");
             if (policy.restrictByStage) {
-              const contextStageId = current.stageId || updates.stageId || null;
+              const contextStageId = updates.stageId || current.stageId || null;
               const contextPipelineId = updates.pipelineId || current.pipelineId || null;
               await validateCatalogChoice(
                 tenantId,
                 "loss_reason",
-                updates.lossReason,
+                normalizedLossReason,
                 current.lossReason,
                 { pipelineId: contextPipelineId, stageId: contextStageId },
               );
@@ -5031,7 +5033,7 @@ export class CrmService {
             }
           }
         }
-        setPayload.lossReason = updates.lossReason;
+        setPayload.lossReason = normalizedLossReason;
       }
       if (updates.pausedReason !== undefined) setPayload.pausedReason = updates.pausedReason;
 
@@ -5226,6 +5228,21 @@ export class CrmService {
         ) {
           setPayload.closedAt = null;
         }
+      }
+
+      // Validação obrigatória de motivo de perda antes de marcar como perdida (ou ao mover para etapa de perda)
+      const lossReasonCheck = resolveRequiredLossReason({
+        currentStatus: current.status,
+        currentLossReason: current.lossReason,
+        nextStatus: effectiveNewStatus,
+        explicitStatus: updates.status,
+        incomingLossReason: updates.lossReason,
+      });
+      if (!lossReasonCheck.ok) {
+        throw new CrmValidationError(lossReasonCheck.error, lossReasonCheck.code);
+      }
+      if (lossReasonCheck.lossReason !== undefined) {
+        setPayload.lossReason = lossReasonCheck.lossReason;
       }
 
       // Transição de status
@@ -6122,6 +6139,13 @@ export class CrmService {
         if (prod) targetProduct = prod;
       }
 
+      if ((params.status === "lost" || Boolean(targetStage?.isLossStage)) && !normalizeLossReasonInput(params.lossReason)) {
+        throw new CrmValidationError(
+          "Selecione o motivo de perda antes de marcar negociações como perdidas.",
+          "LOSS_REASON_REQUIRED",
+        );
+      }
+
       let updatedCount = 0;
       const updatedIds: string[] = [];
 
@@ -6182,6 +6206,17 @@ export class CrmService {
           else if (targetStage.isLossStage) newStatus = "lost";
         }
 
+        const bulkLossCheck = resolveRequiredLossReason({
+          currentStatus: deal.status,
+          currentLossReason: deal.lossReason,
+          nextStatus: newStatus,
+          explicitStatus: params.status,
+          incomingLossReason: params.lossReason,
+        });
+        if (!bulkLossCheck.ok) {
+          throw new CrmValidationError(bulkLossCheck.error, bulkLossCheck.code);
+        }
+
         if (newStatus) {
           setPayload.status = newStatus;
           if (newStatus === "won" || newStatus === "lost") {
@@ -6189,8 +6224,8 @@ export class CrmService {
           } else {
             setPayload.closedAt = null;
           }
-          if (params.lossReason) {
-            setPayload.lossReason = params.lossReason;
+          if (bulkLossCheck.lossReason) {
+            setPayload.lossReason = bulkLossCheck.lossReason;
           }
         }
 

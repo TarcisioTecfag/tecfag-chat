@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { SystemTooltip } from "@/components/ui/tooltip";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SystemDateTimePicker } from "@/components/ui/system-date-time-picker";
 import { useTrainingSurface } from "@/hooks/useTrainingSurface";
 
@@ -149,7 +150,7 @@ export function CommercialEvidenceDialog({
   const [wonNotes, setWonNotes] = useState("");
 
   // Desfecho Perdido
-  const [lossReason, setLossReason] = useState(LOSS_REASONS[0]);
+  const [lossReason, setLossReason] = useState("");
   const [lostNotes, setLostNotes] = useState("");
 
   const suggestionsRef = useRef<HTMLDivElement>(null);
@@ -823,18 +824,20 @@ export function CommercialEvidenceDialog({
                   <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-300 mb-1 font-mono">
                     MOTIVO DA PERDA <span className="text-red-500">*</span>
                   </label>
-                  <select
-                    required
-                    value={lossReason}
-                    onChange={(e) => setLossReason(e.target.value)}
-                    className="w-full rounded-[4px] border border-zinc-800 bg-zinc-900/90 px-3 py-2 text-xs text-zinc-200 focus:border-rose-500 focus:outline-none focus:ring-1 focus:ring-rose-500/40 cursor-pointer"
-                  >
-                    {LOSS_REASONS.map((reason) => (
-                      <option key={reason} value={reason} className="bg-zinc-900 text-zinc-200">
-                        {reason}
-                      </option>
-                    ))}
-                  </select>
+                  <Select value={lossReason} onValueChange={setLossReason}>
+                    <SystemTooltip content={lossReason ? `Motivo selecionado: ${lossReason}` : "Selecione o motivo da perda"}>
+                      <SelectTrigger className="w-full h-9 rounded-[4px] border border-zinc-800 bg-zinc-900/90 px-3 text-xs text-zinc-200 focus:border-rose-500 focus:outline-none focus:ring-1 focus:ring-rose-500/40 cursor-pointer">
+                        <SelectValue placeholder="Selecione o motivo da perda..." />
+                      </SelectTrigger>
+                    </SystemTooltip>
+                    <SelectContent>
+                      {LOSS_REASONS.map((reason) => (
+                        <SelectItem key={reason} value={reason} className="text-xs">
+                          {reason}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div>
                   <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-300 mb-1 font-mono">
@@ -907,18 +910,26 @@ export function CommercialEvidenceDialog({
               )}
 
               {nextAction === "lost" && (
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="flex items-center gap-1.5 rounded-[4px] bg-rose-600 hover:bg-rose-500 text-white font-bold px-4 py-2 text-xs transition-colors cursor-pointer disabled:opacity-50 shadow-sm"
+                <SystemTooltip
+                  content={
+                    !lossReason.trim()
+                      ? "Selecione o motivo da perda antes de registrar"
+                      : "Registrar perda no CRM"
+                  }
                 >
-                  {submitting ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <XCircle className="h-3.5 w-3.5" />
-                  )}
-                  Registrar Perda no CRM
-                </button>
+                  <button
+                    type="submit"
+                    disabled={submitting || !lossReason.trim()}
+                    className="flex items-center gap-1.5 rounded-[4px] bg-rose-600 hover:bg-rose-500 text-white font-bold px-4 py-2 text-xs transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                  >
+                    {submitting ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <XCircle className="h-3.5 w-3.5" />
+                    )}
+                    Registrar Perda no CRM
+                  </button>
+                </SystemTooltip>
               )}
             </div>
           </form>

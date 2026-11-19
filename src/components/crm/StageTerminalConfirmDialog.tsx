@@ -1,5 +1,7 @@
-import React, { useState } from "react";
-import { CheckCircle2, XCircle, AlertTriangle, X } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { CheckCircle2, XCircle, X } from "lucide-react";
+import { toast } from "sonner";
+import { SystemTooltip } from "@/components/ui/tooltip";
 import { CatalogSelect } from "./CatalogSelect";
 
 interface StageTerminalConfirmDialogProps {
@@ -28,9 +30,17 @@ export function StageTerminalConfirmDialog({
   const [lossReason, setLossReason] = useState("");
   const [finalValue, setFinalValue] = useState(currentValue ? String(currentValue) : "");
 
+  useEffect(() => {
+    if (isOpen) {
+      setLossReason("");
+      setFinalValue(currentValue ? String(currentValue) : "");
+    }
+  }, [isOpen, currentValue, stageId, type]);
+
   if (!isOpen) return null;
 
   const isWin = type === "win";
+  const canConfirmLoss = Boolean(lossReason.trim());
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,9 +50,14 @@ export function StageTerminalConfirmDialog({
         value: finalValue ? finalValue : currentValue,
       });
     } else {
+      const trimmedReason = lossReason.trim();
+      if (!trimmedReason) {
+        toast.error("Selecione o motivo de perda antes de confirmar.");
+        return;
+      }
       onConfirm({
         status: "lost",
-        lossReason: lossReason.trim() || "Perdido sem motivo informado",
+        lossReason: trimmedReason,
       });
     }
   };
@@ -104,7 +119,7 @@ export function StageTerminalConfirmDialog({
           ) : (
             <div className="space-y-2">
               <label className="text-xs font-semibold text-foreground">
-                Motivo da Perda (obrigatório para análise comercial)
+                Motivo da Perda <span className="text-red-500">*</span>
               </label>
               <CatalogSelect
                 kind="loss_reason"
@@ -112,19 +127,11 @@ export function StageTerminalConfirmDialog({
                 onChange={setLossReason}
                 pipelineId={pipelineId}
                 stageId={stageId}
-                placeholder="Selecione um motivo cadastrado"
-                className="w-full rounded-xl border border-input bg-background px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-              />
-              <textarea
-                value={lossReason}
-                onChange={(e) => setLossReason(e.target.value)}
-                placeholder="Ou detalhe/complemente observações adicionais..."
-                rows={2}
-                required
+                placeholder="Selecione o motivo de perda *"
                 className="w-full rounded-xl border border-input bg-background px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
               />
               <p className="text-[11px] text-muted-foreground">
-                Ao confirmar, o status será alterado para <strong>Perdido (Lost)</strong> e auditado no histórico da negociação.
+                É obrigatório selecionar um motivo de perda antes de confirmar. Ao confirmar, o status será alterado para <strong>Perdido (Lost)</strong> e auditado no histórico da negociação.
               </p>
             </div>
           )}
@@ -137,14 +144,25 @@ export function StageTerminalConfirmDialog({
             >
               Cancelar
             </button>
-            <button
-              type="submit"
-              className={`rounded-xl px-4 py-2 text-xs font-bold text-white shadow-sm transition-opacity cursor-pointer hover:opacity-90 ${
-                isWin ? "bg-emerald-600 hover:bg-emerald-700" : "bg-red-600 hover:bg-red-700"
-              }`}
+            <SystemTooltip
+              content={
+                !isWin && !canConfirmLoss
+                  ? "Selecione um motivo de perda antes de confirmar"
+                  : isWin
+                    ? "Confirmar ganho da negociação"
+                    : "Confirmar perda da negociação"
+              }
             >
-              {isWin ? "Confirmar Ganho" : "Confirmar Perda"}
-            </button>
+              <button
+                type="submit"
+                disabled={!isWin && !canConfirmLoss}
+                className={`rounded-xl px-4 py-2 text-xs font-bold text-white shadow-sm transition-opacity cursor-pointer hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed ${
+                  isWin ? "bg-emerald-600 hover:bg-emerald-700" : "bg-red-600 hover:bg-red-700"
+                }`}
+              >
+                {isWin ? "Confirmar Ganho" : "Confirmar Perda"}
+              </button>
+            </SystemTooltip>
           </div>
         </form>
       </div>

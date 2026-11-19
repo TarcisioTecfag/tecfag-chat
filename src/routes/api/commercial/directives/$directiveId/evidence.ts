@@ -373,13 +373,22 @@ export const Route = createFileRoute("/api/commercial/directives/$directiveId/ev
               ]
             : [];
 
+          if (nextAction === "lost" && !lossReason) {
+            return json(
+              {
+                error: "Selecione o motivo da perda antes de marcar a negociação como perdida.",
+                code: "LOSS_REASON_REQUIRED",
+              },
+              400,
+            );
+          }
+
           if (
             !["call", "email", "whatsapp"].includes(channel) ||
             !["won", "lost", "continue"].includes(nextAction) ||
             summary.length < 2 ||
             (nextAction === "continue" && !nextActionActivityId && !nextTaskTitle) ||
-            (nextAction === "continue" && nextTaskTitle && (!nextTaskDueAt || isNaN(nextTaskDueAt.getTime()))) ||
-            (nextAction === "lost" && !lossReason && summary.length < 3)
+            (nextAction === "continue" && nextTaskTitle && (!nextTaskDueAt || isNaN(nextTaskDueAt.getTime())))
           ) {
             return json(
               {
@@ -462,7 +471,7 @@ export const Route = createFileRoute("/api/commercial/directives/$directiveId/ev
                 createdAt: now,
               });
             } else if (nextAction === "lost") {
-              const finalLossReason = lossReason || summary || "Perda informada na tratativa";
+              const finalLossReason = lossReason;
               await tx
                 .update(crmDeals)
                 .set({

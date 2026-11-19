@@ -929,7 +929,10 @@ describe.skipIf(!testUrl)("RD Marketing OAuth: banco local descartável", () => 
       ...data,
       marketingOrigin: false,
     });
-    await crmService.updateDeal(tenantId, a.id, actor, { status: "lost" });
+    await crmService.updateDeal(tenantId, a.id, actor, {
+      status: "lost",
+      lossReason: "Preço elevado / Fora do orçamento",
+    });
     await crmService.updateDeal(tenantId, b.id, actor, { status: "won" });
     await crmService.updateDeal(tenantId, b.id, actor, { title: "Título editado", status: "won" });
     const sent: Record<string, unknown>[] = [];
@@ -1062,7 +1065,10 @@ describe.skipIf(!testUrl)("RD Marketing OAuth: banco local descartável", () => 
         (event) => event.eventType === "OPPORTUNITY_LOST" && event.deals[0]?.id === a.id,
       ),
     ).toBe(true);
-    await crmService.updateDeal(tenantId, manual.id, actor, { status: "lost" });
+    await crmService.updateDeal(tenantId, manual.id, actor, {
+      status: "lost",
+      lossReason: "Preço elevado / Fora do orçamento",
+    });
     const interrupted = (await outboxRows()).find(
       (row) => row.status === "pending" && row.dealId === manual.id,
     )!;
@@ -1334,7 +1340,10 @@ describe.skipIf(!testUrl)("RD Marketing OAuth: banco local descartável", () => 
     const mine = await crmService.createDeal(tenantId, actor, data);
     const second = await crmService.createDeal(tenantId, actor, { ...data, marketingOrigin: true });
     await crmService.updateDeal(tenantId, mine.id, actor, { status: "won" });
-    await crmService.updateDeal(tenantId, second.id, actor, { status: "lost" });
+    await crmService.updateDeal(tenantId, second.id, actor, {
+      status: "lost",
+      lossReason: "Preço elevado / Fora do orçamento",
+    });
     const readsBeforeWorker = contactReads;
     await runRdCommercialWorker(tenantId, isolatedProvider);
     expect(contactReads - readsBeforeWorker).toBe(3);
@@ -1644,7 +1653,10 @@ describe.skipIf(!testUrl)("RD Marketing OAuth: banco local descartável", () => 
     );
     expect(accepted[1].payload.cf_tecfag_chat_detalhes).toContain("Funil atividade");
     await crmService.updateDeal(tenantId, deal.id, actor, { status: "won" });
-    await crmService.updateDeal(tenantId, deal.id, actor, { status: "lost" });
+    await crmService.updateDeal(tenantId, deal.id, actor, {
+      status: "lost",
+      lossReason: "Preço elevado / Fora do orçamento",
+    });
     const task = await crmService.createDealActivity(tenantId, deal.id, actor, {
       type: "task",
       title: "Retornar contato",

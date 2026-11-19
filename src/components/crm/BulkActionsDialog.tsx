@@ -9,10 +9,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
+import { SystemTooltip } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import { Loader2, ArrowRightLeft, UserCheck, CheckCircle2, AlertTriangle } from "lucide-react";
 import { DEAL_STATUS_OPTIONS } from "./deal-status-config";
+import { CatalogSelect } from "./CatalogSelect";
 
 export type BulkActionType = "stage" | "operator" | "status";
 
@@ -56,7 +57,12 @@ export function BulkActionsDialog({
         }
         payload.stageId = targetStageId;
         const selectedStage = stages.find((s) => s.id === targetStageId);
-        if (selectedStage?.isLossStage && lossReason.trim()) {
+        if (selectedStage?.isLossStage) {
+          if (!lossReason.trim()) {
+            toast.error("Selecione o motivo de perda antes de mover para uma etapa de perda.");
+            setLoading(false);
+            return;
+          }
           payload.lossReason = lossReason.trim();
         }
       } else if (actionType === "operator") {
@@ -68,7 +74,12 @@ export function BulkActionsDialog({
         payload.operatorId = targetOperatorId;
       } else if (actionType === "status") {
         payload.status = targetStatus;
-        if (targetStatus === "lost" && lossReason.trim()) {
+        if (targetStatus === "lost") {
+          if (!lossReason.trim()) {
+            toast.error("Selecione o motivo de perda antes de marcar como perdida.");
+            setLoading(false);
+            return;
+          }
           payload.lossReason = lossReason.trim();
         }
       }
@@ -143,13 +154,15 @@ export function BulkActionsDialog({
                 <div className="space-y-1.5 pt-1">
                   <Label className="text-xs font-semibold text-red-600 dark:text-red-400 flex items-center gap-1">
                     <AlertTriangle className="h-3.5 w-3.5" />
-                    Motivo da Perda
+                    Motivo da Perda <span className="text-red-500">*</span>
                   </Label>
-                  <Input
-                    placeholder="Ex: Preço acima do orçamento..."
+                  <CatalogSelect
+                    kind="loss_reason"
                     value={lossReason}
-                    onChange={(e) => setLossReason(e.target.value)}
-                    className="h-8 text-xs"
+                    onChange={setLossReason}
+                    stageId={targetStageId}
+                    placeholder="Selecione o motivo de perda *"
+                    className="h-9 text-xs"
                   />
                 </div>
               )}
@@ -206,13 +219,14 @@ export function BulkActionsDialog({
               {targetStatus === "lost" && (
                 <div className="space-y-1.5">
                   <Label className="text-xs font-semibold text-red-600 dark:text-red-400">
-                    Motivo da Perda
+                    Motivo da Perda <span className="text-red-500">*</span>
                   </Label>
-                  <Input
-                    placeholder="Ex: Cliente desistiu da compra..."
+                  <CatalogSelect
+                    kind="loss_reason"
                     value={lossReason}
-                    onChange={(e) => setLossReason(e.target.value)}
-                    className="h-8 text-xs"
+                    onChange={setLossReason}
+                    placeholder="Selecione o motivo de perda *"
+                    className="h-9 text-xs"
                   />
                 </div>
               )}
@@ -231,13 +245,27 @@ export function BulkActionsDialog({
           >
             Cancelar
           </Button>
-          <Button
-            type="button"
-            size="sm"
-            onClick={handleConfirm}
-            disabled={loading}
-            className="text-xs font-bold"
+          <SystemTooltip
+            content={
+              ((actionType === "stage" && selectedStage?.isLossStage) ||
+                (actionType === "status" && targetStatus === "lost")) &&
+              !lossReason.trim()
+                ? "Selecione um motivo de perda antes de confirmar"
+                : "Confirmar ação em massa"
+            }
           >
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleConfirm}
+              disabled={
+                loading ||
+                (((actionType === "stage" && Boolean(selectedStage?.isLossStage)) ||
+                  (actionType === "status" && targetStatus === "lost")) &&
+                  !lossReason.trim())
+              }
+              className="text-xs font-bold"
+            >
             {loading ? (
               <>
                 <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
@@ -247,6 +275,7 @@ export function BulkActionsDialog({
               "Confirmar Ação em Massa"
             )}
           </Button>
+          </SystemTooltip>
         </DialogFooter>
       </DialogContent>
     </Dialog>

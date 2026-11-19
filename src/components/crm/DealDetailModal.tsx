@@ -1090,6 +1090,7 @@ export function DealDetailModal({
   const [winReason, setWinReason] = useState("");
   const [showLossPrompt, setShowLossPrompt] = useState(false);
   const [lossReason, setLossReason] = useState("");
+  const [pendingLossStage, setPendingLossStage] = useState<{ id: string; name: string } | null>(null);
   const [showPausePrompt, setShowPausePrompt] = useState(false);
   const [pauseReason, setPauseReason] = useState("");
 
@@ -2796,6 +2797,14 @@ export function DealDetailModal({
       });
       return;
     }
+    if (targetStage?.isLossStage) {
+      setShowWinPrompt(false);
+      setShowPausePrompt(false);
+      setLossReason("");
+      setPendingLossStage({ id: targetStage.id, name: targetStage.name || "Etapa de perda" });
+      setShowLossPrompt(true);
+      return;
+    }
     const ok = await updateDeal({ stageId: newStageId });
     if (ok && targetStage?.isWinStage && deal.status !== "won") {
       setCelebrationData({
@@ -2861,13 +2870,23 @@ export function DealDetailModal({
 
   // Marcar como Perdido
   const handleConfirmLoss = async () => {
-    await updateDeal({
+    const trimmedReason = lossReason.trim();
+    if (!trimmedReason) {
+      toast.error("Selecione o motivo de perda antes de marcar a negociação como perdida.");
+      return;
+    }
+    const ok = await updateDeal({
       status: "lost",
-      lossReason: lossReason.trim() || undefined,
+      lossReason: trimmedReason,
       pausedReason: null,
       closedAt: new Date().toISOString(),
+      ...(pendingLossStage ? { stageId: pendingLossStage.id } : {}),
     });
-    setShowLossPrompt(false);
+    if (ok) {
+      setShowLossPrompt(false);
+      setLossReason("");
+      setPendingLossStage(null);
+    }
   };
 
   // Confirmar Pausa da Negociação
@@ -3865,6 +3884,10 @@ export function DealDetailModal({
                         <button
                           onClick={() => {
                             if (!requireLinkedContactBeforeMutation()) return;
+                            setShowWinPrompt(false);
+                            setShowPausePrompt(false);
+                            setPendingLossStage(null);
+                            setLossReason("");
                             setShowLossPrompt(true);
                           }}
                           className="flex h-8 items-center gap-1.5 rounded-full bg-primary/10 px-3 text-xs font-bold text-primary hover:bg-primary/20 transition-colors cursor-pointer"
@@ -3935,27 +3958,48 @@ export function DealDetailModal({
           {/* Modal / Prompt de Perda */}
           {showLossPrompt && (
             <div className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3 animate-in fade-in">
-              <span className="text-xs font-bold text-red-800 dark:text-red-300 block mb-1">
-                Confirmar Perda da Negociação
-              </span>
+              <div className="flex items-center justify-between gap-2 mb-1.5">
+                <span className="text-xs font-bold text-red-800 dark:text-red-300">
+                  Confirmar Perda da Negociação
+                  {pendingLossStage ? ` · Etapa: ${pendingLossStage.name}` : ""}
+                </span>
+                <span className="text-[11px] font-semibold text-red-700/90 dark:text-red-300/90">
+                  Motivo obrigatório *
+                </span>
+              </div>
               <div className="flex gap-2">
                 <CatalogSelect
                   kind="loss_reason"
                   value={lossReason}
                   onChange={setLossReason}
                   pipelineId={deal?.pipelineId || deal?.pipeline?.id}
-                  stageId={deal?.stageId}
+                  stageId={pendingLossStage?.id || deal?.stageId}
                   className="h-8 flex-1 rounded-lg border-red-500/40 bg-card text-xs"
-                  placeholder="Selecione o motivo"
+                  placeholder="Selecione o motivo de perda *"
                 />
-                <button
-                  onClick={handleConfirmLoss}
-                  className="h-8 px-4 rounded-lg bg-red-600 text-xs font-bold text-white hover:bg-red-700 cursor-pointer"
+                <SystemTooltip
+                  content={
+                    !lossReason.trim()
+                      ? "Selecione um motivo de perda antes de confirmar"
+                      : "Confirmar perda da negociação"
+                  }
                 >
-                  Confirmar Perda
-                </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmLoss}
+                    disabled={!lossReason.trim()}
+                    className="h-8 px-4 rounded-lg bg-red-600 text-xs font-bold text-white hover:bg-red-700 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-red-600"
+                  >
+                    Confirmar Perda
+                  </button>
+                </SystemTooltip>
                 <button
-                  onClick={() => setShowLossPrompt(false)}
+                  type="button"
+                  onClick={() => {
+                    setShowLossPrompt(false);
+                    setLossReason("");
+                    setPendingLossStage(null);
+                  }}
                   className="h-8 px-3 rounded-lg border border-border text-xs text-muted-foreground hover:bg-muted cursor-pointer"
                 >
                   Cancelar

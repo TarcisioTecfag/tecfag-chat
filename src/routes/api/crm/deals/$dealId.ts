@@ -113,7 +113,13 @@ export const Route = createFileRoute("/api/crm/deals/$dealId")({
             if (editPerm) return editPerm;
           }
 
-          if (body.status === "open" || body.status === "paused" || body.lossReason !== undefined || body.pausedReason !== undefined || body.winReason !== undefined) {
+          if (
+            body.status === "open" ||
+            body.status === "paused" ||
+            (body.lossReason !== undefined && body.status !== "lost" && !body.stageId) ||
+            body.pausedReason !== undefined ||
+            (body.winReason !== undefined && body.status !== "won" && !body.stageId)
+          ) {
             const denied = requireCrmPermission(session, "canEditDeals");
             if (denied) return denied;
           }
