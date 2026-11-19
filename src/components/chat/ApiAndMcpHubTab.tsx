@@ -49,7 +49,7 @@ export function ApiAndMcpHubTab({
             </button>
           </SystemTooltip>
 
-          <SystemTooltip content="Explorar catálogo REST, 34 ferramentas MCP, Webhooks, snippets prontos, Playground ao vivo e exportar PDF">
+          <SystemTooltip content="Explorar catálogo REST, 40 ferramentas MCP, Webhooks, snippets prontos, Playground ao vivo e exportar PDF">
             <button
               type="button"
               onClick={() => onChangeSection("library")}

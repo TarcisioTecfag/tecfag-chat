@@ -43,7 +43,7 @@ export const DEFAULT_MCP_ADMIN_TOKEN = "mcp_admin_7d9e3b5c1a8f4e6d2b0c9a7e5f3d1b
 
 export const MCP_SERVER_INFO = {
   name: "valem-tecfag-mcp",
-  version: "2.0.0",
+  version: "2.1.0",
 };
 
 export type McpAccessLevel = "read" | "read_write";
@@ -480,6 +480,28 @@ export function summarizeMcpToolResult(toolName: string, data: any): string {
         return `Resposta rápida "${data.shortcut || data.deletedId}" excluída`;
       case "update_sector":
         return `Setor "${data.name || data.sectorId}" atualizado (${Array.isArray(data.operatorIds) ? `${data.operatorIds.length} operadores` : "dados alterados"})`;
+      case "list_crm_pipelines": {
+        const pipes = Number(data.totalPipelines ?? data.pipelines?.length ?? 0);
+        const stages = Number(data.totalStages ?? 0);
+        return `${pipes} funil(is) e ${stages} etapa(s) listado(s)`;
+      }
+      case "list_operators": {
+        const ops = Number(data.totalOperators ?? data.operators?.length ?? 0);
+        const secs = Number(data.totalSectors ?? data.sectors?.length ?? 0);
+        return `${ops} operador(es) e ${secs} setor(es) listado(s)`;
+      }
+      case "update_crm_deal": {
+        const fields = Array.isArray(data.updatedFields) ? data.updatedFields.join(", ") : "campos";
+        return `Negociação ${data.dealId} atualizada (${fields})`;
+      }
+      case "merge_contacts":
+        return `Contato ${data.mergedSourceContactId} mesclado em "${data.contact?.name || data.targetContactId}" (${data.targetContactId})`;
+      case "replace_crm_deal_contact":
+        return `Contato do card ${data.dealId} trocado para "${data.newContactName || data.newContactId}"`;
+      case "archive_crm_deal":
+        return data.mode === "delete_permanent"
+          ? `Negociação ${data.dealId} excluída definitivamente (${data.reason || "sem motivo"})`
+          : `Negociação ${data.dealId} arquivada na Lixeira (${data.reason || "sem motivo"})`;
       default:
         return "Dados retornados com sucesso";
     }

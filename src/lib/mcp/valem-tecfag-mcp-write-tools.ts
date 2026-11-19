@@ -2,12 +2,19 @@ import crypto from "node:crypto";
 import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
 import { db } from "../../db";
 import {
+  accessGroups,
+  commercialEvidence,
   contacts,
   contactPhones,
   conversations,
+  crmActionHistory,
+  crmConversationDeals,
   crmDealActivities,
+  crmDealContacts,
+  crmDealEvents,
   crmDeals,
   crmPipelines,
+  crmProducts,
   crmStages,
   messages,
   metaMessageTemplates,
@@ -17,6 +24,8 @@ import {
   tasks,
 } from "../../db/schema";
 import { crmService } from "../crm/crm-service";
+import { listCustomFields } from "../crm/custom-fields";
+import { mergeContactsInTenant } from "../crm/contact-merge-service";
 import {
   findContactByAnyPhone,
   syncContactPhones,
@@ -609,17 +618,274 @@ export const MCP_EXTENDED_TOOLS: McpToolDefinition[] = [
       },
     },
   },
+
+  // ── FASE 1 (EVOLUÇÃO MCP): FUNIS/OPERADORES + EDIÇÃO COMPLETA + SANEAMENTO ─
+  {
+    name: "list_crm_pipelines",
+    access: "read",
+    description:
+      "Lista oficialmente todos os funis (pipelines) do CRM do tenant com suas etapas ordenadas (ID, nome, ordem, se é etapa de ganho/perda e campos obrigatórios). Opcionalmente inclui contagem de cards e definições de campos personalizados de negociação.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        tenantId: TENANT_ID_PROP,
+        includeDealCounts: {
+          type: "boolean",
+          default: false,
+          description: "Quando true, inclui o total de negociações por funil e por etapa.",
+        },
+        includeCustomFields: {
+          type: "boolean",
+          default: false,
+          description: "Quando true, retorna também a lista oficial de campos personalizados ativos para negociações (IDs, nomes, tipos e opções).",
+        },
+        search: {
+          type: "string",
+          description: "Filtro opcional por trecho do nome do funil ou de alguma etapa.",
+        },
+      },
+    },
+  },
+  {
+    name: "list_operators",
+    access: "read",
+    description:
+      "Lista oficialmente os operadores/vendedores atribuíveis do tenant com ID, nome, e-mail, perfil, status, grupo de acesso e equipes/setores vinculados.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        tenantId: TENANT_ID_PROP,
+        sectorId: { type: "string", description: "Filtrar operadores pertencentes a um setor específico (ID)." },
+        sectorName: { type: "string", description: "Filtrar operadores pertencentes a um setor específico (nome parcial)." },
+        role: {
+          type: "string",
+          enum: ["admin", "agent"],
+          description: "Filtrar por perfil ('admin' ou 'agent').",
+        },
+        onlyOnline: {
+          type: "boolean",
+          default: false,
+          description: "Quando true, retorna apenas operadores atualmente marcados como online.",
+        },
+        search: {
+          type: "string",
+          description: "Filtro opcional por nome ou e-mail do operador.",
+        },
+      },
+    },
+  },
+  {
+    name: "update_crm_deal",
+    access: "write",
+    description:
+      "[ESCRITA] Edita parcialmente um card/negociação existente no CRM (valor, título, fonte, campanha, previsão de fechamento, qualificação, empresa, responsável, funil/etapa, UTMs, campos personalizados e vínculo opcional de produto/máquina) e retorna o card completo já atualizado.",
+    inputSchema: {
+      type: "object",
+      required: ["dealId"],
+      properties: {
+        tenantId: TENANT_ID_PROP,
+        dealId: { type: "string", description: "ID da negociação existente (crm_deals.id)." },
+        title: { type: "string", description: "Novo título da negociação." },
+        value: {
+          type: ["number", "null"],
+          description: "Novo valor monetário em BRL (ou null para limpar).",
+        },
+        source: {
+          type: ["string", "null"],
+          description: "Fonte/origem comercial (ex: 'Busca Paga | Google', 'Indicação').",
+        },
+        campaign: {
+          type: ["string", "null"],
+          description: "Campanha / ponto de conversão de marketing.",
+        },
+        expectedCloseDate: {
+          type: ["string", "null"],
+          description: "Previsão de fechamento (ISO YYYY-MM-DD ou null para limpar).",
+        },
+        rating: {
+          type: "number",
+          description: "Qualificação da negociação (0 a 5 estrelas).",
+        },
+        accountId: {
+          type: ["string", "null"],
+          description: "ID da empresa/conta vinculada (ou null para desvincular).",
+        },
+        operatorId: {
+          type: ["string", "null"],
+          description: "ID do vendedor/operador responsável (ou null para deixar sem dono).",
+        },
+        pipelineId: { type: "string", description: "ID do funil de destino (opcional)." },
+        pipelineName: { type: "string", description: "Nome do funil de destino (alternativa a pipelineId)." },
+        stageId: { type: "string", description: "ID da etapa de destino (opcional)." },
+        stageName: { type: "string", description: "Nome da etapa de destino (alternativa a stageId)." },
+        status: {
+          type: "string",
+          enum: ["open", "paused"],
+          description: "Status operacional ('open' para reabrir ou 'paused' para pausar). Para ganhar/perder use mark_deal_won/mark_deal_lost.",
+        },
+        pausedReason: {
+          type: ["string", "null"],
+          description: "Motivo da pausa quando status='paused' (ou null para limpar).",
+        },
+        entryChannel: { type: ["string", "null"], description: "Canal de entrada (ex: 'whatsapp', 'rd_webhook', 'manual')." },
+        utmSource: { type: ["string", "null"], description: "UTM source." },
+        utmMedium: { type: ["string", "null"], description: "UTM medium." },
+        utmCampaign: { type: ["string", "null"], description: "UTM campaign." },
+        utmContent: { type: ["string", "null"], description: "UTM content." },
+        utmTerm: { type: ["string", "null"], description: "UTM term." },
+        clickId: { type: ["string", "null"], description: "Click ID (gclid/fbclid)." },
+        landingPage: { type: ["string", "null"], description: "URL da landing page de origem." },
+        customFields: {
+          type: "object",
+          description: "Mapa chave→valor de campos personalizados do card (aceita tanto o ID quanto o nome exato do campo personalizado; faz merge preservando os demais campos existentes).",
+        },
+        product: {
+          type: "object",
+          description: "Opcional: adiciona um item de produto/máquina ao card (em crm_deal_products). Se 'value' não for informado explicitamente, recalcula o valor do card.",
+          properties: {
+            productId: { type: "string", description: "ID de produto do catálogo (crm_products.id), opcional." },
+            name: { type: "string", description: "Nome do produto/máquina (obrigatório se productId não for informado)." },
+            quantity: { type: "number", default: 1, description: "Quantidade (padrão: 1)." },
+            unitPrice: { type: "number", description: "Valor unitário em BRL (usa preço do catálogo se productId for informado e unitPrice omitido)." },
+            discountPercent: { type: "number", default: 0, description: "Desconto percentual (0 a 100)." },
+            notes: { type: "string", description: "Observação do item (opcional)." },
+          },
+        },
+        expectedVersion: {
+          type: "number",
+          description: "Versão esperada do card para trava otimista (opcional).",
+        },
+        actorOperatorId: {
+          type: "string",
+          description: "ID do operador autor da alteração para auditoria (opcional).",
+        },
+      },
+    },
+  },
+  {
+    name: "merge_contacts",
+    access: "write",
+    description:
+      "[ESCRITA] Mescla atomicamente um contato duplicado (sourceContactId) em um contato principal (targetContactId) dentro do tenant, consolidando telefones, cards do CRM, conversas, histórico de mensagens e identidades com registro de auditoria.",
+    inputSchema: {
+      type: "object",
+      required: ["sourceContactId", "targetContactId"],
+      properties: {
+        tenantId: TENANT_ID_PROP,
+        sourceContactId: {
+          type: "string",
+          description: "ID do contato duplicado que será absorvido e removido após a migração dos vínculos.",
+        },
+        targetContactId: {
+          type: "string",
+          description: "ID do contato principal que permanecerá ativo recebendo todos os cards, telefones e conversas.",
+        },
+        reason: {
+          type: "string",
+          description: "Motivo da mesclagem (gravado no histórico administrativo de auditoria).",
+        },
+        conversationConflictStrategy: {
+          type: "string",
+          enum: ["merge_messages", "block"],
+          default: "merge_messages",
+          description: "Como agir se ambos os contatos já tiverem conversa na mesma conexão WhatsApp: 'merge_messages' (padrão, consolida o histórico na conversa do destino) ou 'block' (aborta e retorna os IDs conflitantes).",
+        },
+        preferSourceFields: {
+          type: "boolean",
+          default: false,
+          description: "Se false (padrão), mantém os dados preenchidos do contato principal e usa os do duplicado apenas para preencher lacunas.",
+        },
+        operatorId: { type: "string", description: "ID do operador responsável pela mesclagem (opcional, para auditoria)." },
+        actorName: { type: "string", description: "Nome legível de quem solicitou a mesclagem (opcional)." },
+      },
+    },
+  },
+  {
+    name: "replace_crm_deal_contact",
+    access: "write",
+    description:
+      "[ESCRITA] Troca o contato vinculado a um card existente do CRM com segurança (adiciona o novo contato como principal antes de remover o vínculo incorreto, preservando a integridade do card) e registra auditoria.",
+    inputSchema: {
+      type: "object",
+      required: ["dealId", "newContactId"],
+      properties: {
+        tenantId: TENANT_ID_PROP,
+        dealId: { type: "string", description: "ID da negociação (crm_deals.id)." },
+        newContactId: { type: "string", description: "ID do contato correto a vincular ao card." },
+        oldContactId: {
+          type: "string",
+          description: "ID específico do contato incorreto a desvincular (opcional; se omitido, substitui o contato principal anterior).",
+        },
+        replaceAll: {
+          type: "boolean",
+          default: false,
+          description: "Quando true, remove todos os demais contatos vinculados ao card, deixando apenas newContactId.",
+        },
+        keepPreviousContacts: {
+          type: "boolean",
+          default: false,
+          description: "Quando true (e sem oldContactId/replaceAll), apenas adiciona/promove newContactId a principal sem remover participantes anteriores.",
+        },
+        role: {
+          type: "string",
+          enum: ["buyer", "technical", "decision_maker", "user", "other"],
+          default: "buyer",
+          description: "Papel do novo contato no card (padrão: 'buyer').",
+        },
+        reason: { type: "string", description: "Motivo da troca de contato (gravado em auditoria)." },
+        operatorId: { type: "string", description: "ID do operador autor da troca (opcional)." },
+        actorName: { type: "string", description: "Nome legível de quem solicitou a troca (opcional)." },
+      },
+    },
+  },
+  {
+    name: "archive_crm_deal",
+    access: "write",
+    description:
+      "[ESCRITA] Arquiva (envia para a Lixeira — padrão seguro e reversível) ou exclui em definitivo um card criado por engano no CRM, exigindo motivo e registrando quem fez e por quê no histórico administrativo.",
+    inputSchema: {
+      type: "object",
+      required: ["dealId", "reason"],
+      properties: {
+        tenantId: TENANT_ID_PROP,
+        dealId: { type: "string", description: "ID da negociação (crm_deals.id)." },
+        reason: {
+          type: "string",
+          description: "Motivo obrigatório do arquivamento/exclusão (mínimo 3 caracteres, salvo na auditoria).",
+        },
+        mode: {
+          type: "string",
+          enum: ["archive", "delete_permanent"],
+          default: "archive",
+          description: "'archive' (padrão recomendado: envia o card à Lixeira sem apagar histórico) ou 'delete_permanent' (exclusão definitiva, exige confirmPermanentDelete=true e bloqueia cards com conversas vinculadas).",
+        },
+        confirmPermanentDelete: {
+          type: "boolean",
+          default: false,
+          description: "Trava de segurança obrigatória (deve ser true) quando mode='delete_permanent'.",
+        },
+        operatorId: { type: "string", description: "ID do operador autor da ação (opcional)." },
+        actorName: { type: "string", description: "Nome legível de quem solicitou o arquivamento/exclusão (opcional)." },
+      },
+    },
+  },
 ];
 
 export const MCP_EXTENDED_TOOL_LABELS_PT: Record<string, string> = {
   list_meta_templates: "Listagem de Templates Meta",
+  list_crm_pipelines: "Listagem Oficial de Funis e Etapas (CRM)",
+  list_operators: "Listagem Oficial de Operadores e Equipes",
   create_crm_deal: "Criar Negociação (CRM)",
+  update_crm_deal: "Editar Negociação Existente (CRM)",
   update_crm_deal_stage: "Mover Etapa da Negociação (CRM)",
   update_crm_deal_owner: "Alterar Responsável da Negociação (CRM)",
   mark_deal_won: "Marcar Negociação como Ganha (CRM)",
   mark_deal_lost: "Marcar Negociação como Perdida (CRM)",
   create_contact: "Criar Contato",
   update_contact: "Atualizar Contato",
+  merge_contacts: "Mesclar Contatos Duplicados",
+  replace_crm_deal_contact: "Trocar Contato Vinculado ao Card (CRM)",
+  archive_crm_deal: "Arquivar / Excluir Negociação (CRM)",
   create_account: "Criar Empresa / Conta (CRM)",
   update_account: "Atualizar Empresa / Conta (CRM)",
   create_task: "Criar Tarefa / Atividade",
@@ -2152,6 +2418,803 @@ export async function executeExtendedMcpTool(
         sectorId: updated.id,
         name: updated.name,
         operatorIds: updated.operatorIds,
+      };
+    }
+
+    // ── 24. LIST CRM PIPELINES (READ — FASE 1 / ITEM 2) ──────────────────────
+    case "list_crm_pipelines": {
+      const includeDealCounts = args.includeDealCounts === true;
+      const includeCustomFields = args.includeCustomFields === true;
+      const searchFilter = asTrimmedString(args.search)?.toLowerCase();
+
+      const allPipelines = await crmService.getPipelines(tenantId, {
+        includeDealCounts,
+      });
+
+      const filtered = searchFilter
+        ? allPipelines.filter((p) => {
+            if (p.name.toLowerCase().includes(searchFilter)) return true;
+            return p.stages.some((s) => s.name.toLowerCase().includes(searchFilter));
+          })
+        : allPipelines;
+
+      const pipelinesOut = filtered.map((p) => ({
+        id: p.id,
+        name: p.name,
+        orderIndex: p.orderIndex,
+        isDefault: p.isDefault,
+        color: p.color,
+        coolingDays: p.coolingDays,
+        ...(includeDealCounts ? { dealsCount: p.dealsCount ?? 0 } : {}),
+        stages: p.stages.map((s) => ({
+          id: s.id,
+          name: s.name,
+          orderIndex: s.orderIndex,
+          isWinStage: s.isWinStage,
+          isLossStage: s.isLossStage,
+          requiredFields: s.requiredFields,
+          ...(includeDealCounts ? { dealsCount: s.dealsCount ?? 0 } : {}),
+        })),
+      }));
+
+      const totalStages = pipelinesOut.reduce((acc, p) => acc + p.stages.length, 0);
+
+      let customFieldsOut:
+        | Array<{
+            id: string;
+            name: string;
+            fieldType: string;
+            required: boolean;
+            allPipelines: boolean;
+            pipelineIds: string[];
+            options: Array<{ id: string; label: string }>;
+          }>
+        | undefined;
+
+      if (includeCustomFields) {
+        const defs = await listCustomFields(tenantId, "deal");
+        customFieldsOut = defs.map((f) => ({
+          id: f.id,
+          name: f.name,
+          fieldType: f.fieldType,
+          required: f.required,
+          allPipelines: f.allPipelines,
+          pipelineIds: f.pipelineIds,
+          options: f.options,
+        }));
+      }
+
+      return {
+        tenantId,
+        totalPipelines: pipelinesOut.length,
+        totalStages,
+        pipelines: pipelinesOut,
+        ...(customFieldsOut ? { customFields: customFieldsOut } : {}),
+      };
+    }
+
+    // ── 25. LIST OPERATORS (READ — FASE 1 / ITEM 2) ──────────────────────────
+    case "list_operators": {
+      const sectorIdFilter = asTrimmedString(args.sectorId);
+      const sectorNameFilter = asTrimmedString(args.sectorName)?.toLowerCase();
+      const roleFilter = asTrimmedString(args.role)?.toLowerCase();
+      const onlyOnline = args.onlyOnline === true;
+      const searchFilter = asTrimmedString(args.search)?.toLowerCase();
+
+      const [opRows, sectorRows, groupRows] = await Promise.all([
+        db
+          .select({
+            id: operators.id,
+            name: operators.name,
+            email: operators.email,
+            role: operators.role,
+            status: operators.status,
+            isOnline: operators.isOnline,
+            groupId: operators.groupId,
+            lastSeenAt: operators.lastSeenAt,
+          })
+          .from(operators)
+          .where(eq(operators.tenantId, tenantId))
+          .orderBy(asc(operators.name)),
+        db
+          .select({
+            id: sectors.id,
+            name: sectors.name,
+            operatorIds: sectors.operatorIds,
+          })
+          .from(sectors)
+          .where(eq(sectors.tenantId, tenantId))
+          .orderBy(asc(sectors.name)),
+        db
+          .select({
+            id: accessGroups.id,
+            name: accessGroups.name,
+          })
+          .from(accessGroups)
+          .where(eq(accessGroups.tenantId, tenantId)),
+      ]);
+
+      const groupById = new Map(groupRows.map((g) => [g.id, g.name]));
+      const sectorsByOpId = new Map<string, Array<{ id: string; name: string }>>();
+
+      for (const sec of sectorRows) {
+        const ids = Array.isArray(sec.operatorIds) ? sec.operatorIds : [];
+        for (const opId of ids) {
+          const list = sectorsByOpId.get(opId) || [];
+          list.push({ id: sec.id, name: sec.name });
+          sectorsByOpId.set(opId, list);
+        }
+      }
+
+      const filteredOps = opRows
+        .map((op) => ({
+          id: op.id,
+          name: op.name,
+          email: op.email,
+          role: op.role,
+          status: op.status,
+          isOnline: op.isOnline,
+          lastSeenAt: op.lastSeenAt,
+          group: op.groupId ? { id: op.groupId, name: groupById.get(op.groupId) || null } : null,
+          sectors: sectorsByOpId.get(op.id) || [],
+        }))
+        .filter((op) => {
+          if (roleFilter && op.role.toLowerCase() !== roleFilter) return false;
+          if (onlyOnline && !op.isOnline) return false;
+          if (sectorIdFilter && !op.sectors.some((s) => s.id === sectorIdFilter)) return false;
+          if (
+            sectorNameFilter &&
+            !op.sectors.some((s) => s.name.toLowerCase().includes(sectorNameFilter))
+          ) {
+            return false;
+          }
+          if (searchFilter) {
+            const hay = `${op.name} ${op.email}`.toLowerCase();
+            if (!hay.includes(searchFilter)) return false;
+          }
+          return true;
+        });
+
+      return {
+        tenantId,
+        totalOperators: filteredOps.length,
+        totalSectors: sectorRows.length,
+        operators: filteredOps,
+        sectors: sectorRows.map((s) => ({
+          id: s.id,
+          name: s.name,
+          operatorIds: Array.isArray(s.operatorIds) ? s.operatorIds : [],
+        })),
+      };
+    }
+
+    // ── 26. UPDATE CRM DEAL (WRITE — FASE 1 / ITEM 1) ────────────────────────
+    case "update_crm_deal": {
+      const dealId = asTrimmedString(args.dealId);
+      if (!dealId) throw new Error("Campo obrigatório 'dealId' não informado.");
+
+      const [existingDeal] = await db
+        .select({
+          id: crmDeals.id,
+          pipelineId: crmDeals.pipelineId,
+          stageId: crmDeals.stageId,
+        })
+        .from(crmDeals)
+        .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)))
+        .limit(1);
+      if (!existingDeal) {
+        throw new Error(`Negociação '${dealId}' não encontrada no tenant '${tenantId}'.`);
+      }
+
+      const actorOp = await assertOperatorInTenant(tenantId, asTrimmedString(args.actorOperatorId));
+
+      const updatePayload: Parameters<typeof crmService.updateDeal>[3] = {};
+      const updatedFields: string[] = [];
+
+      if (args.title !== undefined) {
+        const trimmedTitle = asTrimmedString(args.title);
+        if (!trimmedTitle) throw new Error("O campo 'title' não pode ser vazio.");
+        updatePayload.title = trimmedTitle;
+        updatedFields.push("title");
+      }
+      if (args.value !== undefined) {
+        if (args.value === null || args.value === "") {
+          updatePayload.value = null;
+        } else {
+          const num = Number(args.value);
+          if (!Number.isFinite(num) || num < 0) {
+            throw new Error(`Valor inválido em 'value': '${String(args.value)}'.`);
+          }
+          updatePayload.value = num;
+        }
+        updatedFields.push("value");
+      }
+      if (args.source !== undefined) {
+        updatePayload.source = args.source === null ? "" : String(args.source).trim();
+        updatedFields.push("source");
+      }
+      if (args.campaign !== undefined) {
+        updatePayload.campaign = args.campaign === null ? "" : String(args.campaign).trim();
+        updatedFields.push("campaign");
+      }
+      if (args.expectedCloseDate !== undefined) {
+        updatePayload.expectedCloseDate =
+          args.expectedCloseDate === null || args.expectedCloseDate === ""
+            ? null
+            : parseOptionalDate(args.expectedCloseDate, "expectedCloseDate") ?? null;
+        updatedFields.push("expectedCloseDate");
+      }
+      if (args.rating !== undefined) {
+        const ratingNum = Number(args.rating);
+        if (!Number.isInteger(ratingNum) || ratingNum < 0 || ratingNum > 5) {
+          throw new Error("O campo 'rating' deve ser um inteiro entre 0 e 5.");
+        }
+        updatePayload.rating = ratingNum;
+        updatedFields.push("rating");
+      }
+      if (args.accountId !== undefined) {
+        updatePayload.accountId = args.accountId === null ? null : asTrimmedString(args.accountId) ?? null;
+        updatedFields.push("accountId");
+      }
+      if (args.operatorId !== undefined) {
+        if (args.operatorId === null || args.operatorId === "") {
+          updatePayload.operatorId = null;
+        } else {
+          const targetOp = await assertOperatorInTenant(tenantId, asTrimmedString(args.operatorId));
+          updatePayload.operatorId = targetOp!.id;
+        }
+        updatedFields.push("operatorId");
+      }
+
+      const hasPipelineOrStage =
+        args.pipelineId !== undefined ||
+        args.pipelineName !== undefined ||
+        args.stageId !== undefined ||
+        args.stageName !== undefined;
+      if (hasPipelineOrStage) {
+        const resolved = await resolvePipelineAndStage(tenantId, {
+          pipelineId: asTrimmedString(args.pipelineId),
+          pipelineName: asTrimmedString(args.pipelineName),
+          fallbackPipelineId: existingDeal.pipelineId,
+          stageId: asTrimmedString(args.stageId),
+          stageName: asTrimmedString(args.stageName),
+        });
+        updatePayload.pipelineId = resolved.pipelineId;
+        updatePayload.stageId = resolved.stageId;
+        updatedFields.push("pipelineId", "stageId");
+      }
+
+      if (args.status !== undefined) {
+        if (args.status !== "open" && args.status !== "paused") {
+          throw new Error(
+            "Campo 'status' em update_crm_deal aceita apenas 'open' ou 'paused'. Para marcar como ganho ou perdido, use mark_deal_won ou mark_deal_lost.",
+          );
+        }
+        updatePayload.status = args.status;
+        updatedFields.push("status");
+      }
+      if (args.pausedReason !== undefined) {
+        updatePayload.pausedReason =
+          args.pausedReason === null ? null : asTrimmedString(args.pausedReason) ?? null;
+        updatedFields.push("pausedReason");
+      }
+      if (args.entryChannel !== undefined) {
+        updatePayload.entryChannel =
+          args.entryChannel === null ? null : asTrimmedString(args.entryChannel) ?? null;
+        updatedFields.push("entryChannel");
+      }
+      if (args.utmSource !== undefined) {
+        updatePayload.utmSource = args.utmSource === null ? null : asTrimmedString(args.utmSource) ?? null;
+        updatedFields.push("utmSource");
+      }
+      if (args.utmMedium !== undefined) {
+        updatePayload.utmMedium = args.utmMedium === null ? null : asTrimmedString(args.utmMedium) ?? null;
+        updatedFields.push("utmMedium");
+      }
+      if (args.utmCampaign !== undefined) {
+        updatePayload.utmCampaign =
+          args.utmCampaign === null ? null : asTrimmedString(args.utmCampaign) ?? null;
+        updatedFields.push("utmCampaign");
+      }
+      if (args.utmContent !== undefined) {
+        updatePayload.utmContent =
+          args.utmContent === null ? null : asTrimmedString(args.utmContent) ?? null;
+        updatedFields.push("utmContent");
+      }
+      if (args.utmTerm !== undefined) {
+        updatePayload.utmTerm = args.utmTerm === null ? null : asTrimmedString(args.utmTerm) ?? null;
+        updatedFields.push("utmTerm");
+      }
+      if (args.clickId !== undefined) {
+        updatePayload.clickId = args.clickId === null ? null : asTrimmedString(args.clickId) ?? null;
+        updatedFields.push("clickId");
+      }
+      if (args.landingPage !== undefined) {
+        updatePayload.landingPage =
+          args.landingPage === null ? null : asTrimmedString(args.landingPage) ?? null;
+        updatedFields.push("landingPage");
+      }
+      if (args.expectedVersion !== undefined) {
+        const v = Number(args.expectedVersion);
+        if (!Number.isInteger(v) || v < 1) {
+          throw new Error("Campo 'expectedVersion' deve ser um inteiro positivo.");
+        }
+        updatePayload.expectedVersion = v;
+      }
+
+      if (args.customFields !== undefined) {
+        if (!args.customFields || typeof args.customFields !== "object" || Array.isArray(args.customFields)) {
+          throw new Error("Campo 'customFields' deve ser um objeto chave→valor.");
+        }
+        const rawCf = args.customFields as Record<string, unknown>;
+        const defs = await listCustomFields(tenantId, "deal");
+        const idByExactId = new Set(defs.map((d) => d.id));
+        const idByLowerName = new Map(defs.map((d) => [d.name.trim().toLowerCase(), d.id]));
+        const resolvedCf: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(rawCf)) {
+          if (idByExactId.has(k)) {
+            resolvedCf[k] = v;
+          } else {
+            const mappedId = idByLowerName.get(k.trim().toLowerCase());
+            resolvedCf[mappedId || k] = v;
+          }
+        }
+        updatePayload.customFields = resolvedCf;
+        updatedFields.push("customFields");
+      }
+
+      const productArg =
+        args.product && typeof args.product === "object" && !Array.isArray(args.product)
+          ? (args.product as {
+              productId?: unknown;
+              name?: unknown;
+              quantity?: unknown;
+              unitPrice?: unknown;
+              discountPercent?: unknown;
+              notes?: unknown;
+            })
+          : undefined;
+
+      if (updatedFields.length === 0 && !productArg) {
+        throw new Error(
+          "Informe ao menos um campo para atualizar ('title', 'value', 'source', 'campaign', 'customFields', 'product', 'operatorId', 'stageId', etc.).",
+        );
+      }
+
+      let addedProduct: unknown = undefined;
+      if (productArg) {
+        const prodId = asTrimmedString(productArg.productId);
+        let prodName = asTrimmedString(productArg.name);
+        let prodUnitPrice =
+          productArg.unitPrice !== undefined && productArg.unitPrice !== null
+            ? Number(productArg.unitPrice)
+            : undefined;
+
+        if (prodId) {
+          const [catalogProd] = await db
+            .select()
+            .from(crmProducts)
+            .where(and(eq(crmProducts.tenantId, tenantId), eq(crmProducts.id, prodId)))
+            .limit(1);
+          if (!catalogProd) {
+            throw new Error(`Produto '${prodId}' não encontrado no catálogo do tenant '${tenantId}'.`);
+          }
+          if (!prodName) prodName = catalogProd.name;
+          if (prodUnitPrice === undefined) prodUnitPrice = Number(catalogProd.unitPrice || 0);
+        }
+
+        if (!prodName) {
+          throw new Error("Em 'product', informe 'name' ou um 'productId' válido do catálogo.");
+        }
+
+        addedProduct = await crmService.addDealProduct(tenantId, dealId, actorOp?.id ?? null, {
+          productId: prodId ?? null,
+          name: prodName,
+          quantity: productArg.quantity !== undefined ? Number(productArg.quantity) : 1,
+          unitPrice: prodUnitPrice ?? 0,
+          discountPercent:
+            productArg.discountPercent !== undefined ? Number(productArg.discountPercent) : 0,
+          notes: asTrimmedString(productArg.notes) ?? null,
+        });
+        updatedFields.push("product");
+      }
+
+      if (Object.keys(updatePayload).length > 0) {
+        await crmService.updateDeal(tenantId, dealId, actorOp?.id ?? null, updatePayload);
+      }
+
+      const [freshDeal] = await db
+        .select()
+        .from(crmDeals)
+        .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)))
+        .limit(1);
+
+      const [[pipeRow], [stageRow], [ownerRow], dealContactsList, dealProductsList] = await Promise.all([
+        freshDeal?.pipelineId
+          ? db
+              .select({ id: crmPipelines.id, name: crmPipelines.name })
+              .from(crmPipelines)
+              .where(and(eq(crmPipelines.tenantId, tenantId), eq(crmPipelines.id, freshDeal.pipelineId)))
+              .limit(1)
+          : Promise.resolve([undefined]),
+        freshDeal?.stageId
+          ? db
+              .select({ id: crmStages.id, name: crmStages.name })
+              .from(crmStages)
+              .where(and(eq(crmStages.tenantId, tenantId), eq(crmStages.id, freshDeal.stageId)))
+              .limit(1)
+          : Promise.resolve([undefined]),
+        freshDeal?.operatorId
+          ? db
+              .select({ id: operators.id, name: operators.name, email: operators.email })
+              .from(operators)
+              .where(and(eq(operators.tenantId, tenantId), eq(operators.id, freshDeal.operatorId)))
+              .limit(1)
+          : Promise.resolve([undefined]),
+        crmService.getDealContacts(tenantId, dealId),
+        crmService.getDealProducts(tenantId, dealId),
+      ]);
+
+      return {
+        success: true,
+        tenantId,
+        dealId,
+        updatedFields: Array.from(new Set(updatedFields)),
+        ...(addedProduct ? { addedProduct } : {}),
+        deal: freshDeal
+          ? {
+              id: freshDeal.id,
+              title: freshDeal.title,
+              status: freshDeal.status,
+              value: freshDeal.value,
+              currency: freshDeal.currency,
+              pipelineId: freshDeal.pipelineId,
+              pipelineName: pipeRow?.name ?? null,
+              stageId: freshDeal.stageId,
+              stageName: stageRow?.name ?? null,
+              operatorId: freshDeal.operatorId,
+              operatorName: ownerRow?.name ?? null,
+              accountId: freshDeal.accountId,
+              source: freshDeal.source,
+              campaign: freshDeal.campaign,
+              rating: freshDeal.rating,
+              expectedCloseDate: freshDeal.expectedCloseDate,
+              pausedReason: freshDeal.pausedReason,
+              entryChannel: freshDeal.entryChannel,
+              utmSource: freshDeal.utmSource,
+              utmMedium: freshDeal.utmMedium,
+              utmCampaign: freshDeal.utmCampaign,
+              utmContent: freshDeal.utmContent,
+              utmTerm: freshDeal.utmTerm,
+              clickId: freshDeal.clickId,
+              landingPage: freshDeal.landingPage,
+              customFields: freshDeal.customFields,
+              version: freshDeal.version,
+              updatedAt: freshDeal.updatedAt,
+              contacts: dealContactsList,
+              products: dealProductsList,
+            }
+          : null,
+      };
+    }
+
+    // ── 27. MERGE CONTACTS (WRITE — FASE 1 / ITEM 3) ─────────────────────────
+    case "merge_contacts": {
+      const sourceContactId = asTrimmedString(args.sourceContactId);
+      const targetContactId = asTrimmedString(args.targetContactId);
+      if (!sourceContactId || !targetContactId) {
+        throw new Error("Campos obrigatórios: 'sourceContactId' e 'targetContactId'.");
+      }
+      if (sourceContactId === targetContactId) {
+        throw new Error("'sourceContactId' e 'targetContactId' não podem ser iguais.");
+      }
+
+      const operator = await assertOperatorInTenant(tenantId, asTrimmedString(args.operatorId));
+      const actorName = buildActorDisplayName(
+        asTrimmedString(args.actorName),
+        operator?.name,
+        actor,
+      );
+      const strategy =
+        args.conversationConflictStrategy === "block" ? "block" : "merge_messages";
+
+      return await mergeContactsInTenant(tenantId, {
+        sourceContactId,
+        targetContactId,
+        reason: asTrimmedString(args.reason) ?? null,
+        preferSourceFields: args.preferSourceFields === true,
+        conversationConflictStrategy: strategy,
+        operatorId: operator?.id ?? null,
+        actorName,
+      });
+    }
+
+    // ── 28. REPLACE CRM DEAL CONTACT (WRITE — FASE 1 / ITEM 3) ───────────────
+    case "replace_crm_deal_contact": {
+      const dealId = asTrimmedString(args.dealId);
+      const newContactId = asTrimmedString(args.newContactId);
+      if (!dealId || !newContactId) {
+        throw new Error("Campos obrigatórios: 'dealId' e 'newContactId'.");
+      }
+
+      const [existingDeal] = await db
+        .select({ id: crmDeals.id, title: crmDeals.title })
+        .from(crmDeals)
+        .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)))
+        .limit(1);
+      if (!existingDeal) {
+        throw new Error(`Negociação '${dealId}' não encontrada no tenant '${tenantId}'.`);
+      }
+
+      const [targetContact] = await db
+        .select({ id: contacts.id, name: contacts.name, phone: contacts.phone })
+        .from(contacts)
+        .where(and(eq(contacts.id, newContactId), eq(contacts.tenantId, tenantId)))
+        .limit(1);
+      if (!targetContact) {
+        throw new Error(`Contato '${newContactId}' não encontrado no tenant '${tenantId}'.`);
+      }
+
+      const operator = await assertOperatorInTenant(tenantId, asTrimmedString(args.operatorId));
+      const actorName = buildActorDisplayName(
+        asTrimmedString(args.actorName),
+        operator?.name,
+        actor,
+      );
+      const reason = asTrimmedString(args.reason) || "Correção de contato vinculado via MCP";
+      const role = asTrimmedString(args.role) || "buyer";
+      const oldContactId = asTrimmedString(args.oldContactId);
+      const replaceAll = args.replaceAll === true;
+      const keepPrevious = args.keepPreviousContacts === true;
+
+      const currentLinks = await db
+        .select({
+          contactId: crmDealContacts.contactId,
+          isPrimary: crmDealContacts.isPrimary,
+        })
+        .from(crmDealContacts)
+        .where(and(eq(crmDealContacts.tenantId, tenantId), eq(crmDealContacts.dealId, dealId)));
+
+      // 1. Adiciona/promove o novo contato como principal ANTES de desvincular o antigo
+      await crmService.addDealContact(
+        tenantId,
+        dealId,
+        targetContact.id,
+        role,
+        true,
+        operator?.id ?? null,
+      );
+
+      // 2. Define quais contatos anteriores serão desvinculados
+      const toRemoveIds: string[] = [];
+      if (oldContactId) {
+        if (oldContactId !== targetContact.id && currentLinks.some((l) => l.contactId === oldContactId)) {
+          toRemoveIds.push(oldContactId);
+        }
+      } else if (replaceAll) {
+        for (const link of currentLinks) {
+          if (link.contactId !== targetContact.id) toRemoveIds.push(link.contactId);
+        }
+      } else if (!keepPrevious) {
+        const prevPrimary = currentLinks.find((l) => l.isPrimary && l.contactId !== targetContact.id);
+        if (prevPrimary) toRemoveIds.push(prevPrimary.contactId);
+      }
+
+      for (const remId of toRemoveIds) {
+        await crmService.removeDealContact(tenantId, dealId, remId, operator?.id ?? null);
+      }
+
+      await db.insert(crmActionHistory).values({
+        id: crypto.randomUUID(),
+        tenantId,
+        operatorId: operator?.id ?? null,
+        operatorName: actorName,
+        action: "replace_deal_contact",
+        entityType: "deal",
+        itemCount: 1,
+        details: {
+          dealId,
+          dealTitle: existingDeal.title,
+          newContactId: targetContact.id,
+          newContactName: targetContact.name,
+          removedContactIds: toRemoveIds,
+          reason,
+          source: "mcp",
+        },
+      });
+
+      const updatedContacts = await crmService.getDealContacts(tenantId, dealId);
+
+      return {
+        success: true,
+        tenantId,
+        dealId,
+        title: existingDeal.title,
+        newContactId: targetContact.id,
+        newContactName: targetContact.name,
+        removedContactIds: toRemoveIds,
+        reason,
+        actorName,
+        contacts: updatedContacts,
+      };
+    }
+
+    // ── 29. ARCHIVE OR DELETE CRM DEAL (WRITE — FASE 1 / ITEM 3) ─────────────
+    case "archive_crm_deal": {
+      const dealId = asTrimmedString(args.dealId);
+      const reason = asTrimmedString(args.reason);
+      if (!dealId) throw new Error("Campo obrigatório 'dealId' não informado.");
+      if (!reason || reason.length < 3) {
+        throw new Error(
+          "Campo obrigatório 'reason' não informado (mínimo 3 caracteres) para auditoria do arquivamento/exclusão.",
+        );
+      }
+
+      const mode = args.mode === "delete_permanent" ? "delete_permanent" : "archive";
+      if (mode === "delete_permanent" && args.confirmPermanentDelete !== true) {
+        throw new Error(
+          "Para exclusão definitiva (mode='delete_permanent'), informe explicitamente confirmPermanentDelete=true. Recomendação: use mode='archive' (Lixeira reversível).",
+        );
+      }
+
+      const operator = await assertOperatorInTenant(tenantId, asTrimmedString(args.operatorId));
+      const actorName = buildActorDisplayName(
+        asTrimmedString(args.actorName),
+        operator?.name,
+        actor,
+      );
+
+      if (mode === "archive") {
+        const now = new Date();
+        const pausedReason = `Lixeira — ${reason}`;
+
+        const archived = await db.transaction(async (tx) => {
+          const [deal] = await tx
+            .select()
+            .from(crmDeals)
+            .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)))
+            .for("update")
+            .limit(1);
+          if (!deal) {
+            throw new Error(`Negociação '${dealId}' não encontrada no tenant '${tenantId}'.`);
+          }
+
+          const [updated] = await tx
+            .update(crmDeals)
+            .set({
+              status: "paused",
+              pausedReason,
+              updatedAt: now,
+              lastActivityAt: now,
+              version: deal.version + 1,
+            })
+            .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)))
+            .returning();
+
+          await tx.insert(crmDealEvents).values({
+            id: `evt-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`,
+            tenantId,
+            dealId,
+            eventType: "status_changed",
+            fromStageId: null,
+            toStageId: null,
+            fromStatus: deal.status,
+            toStatus: "paused",
+            metadata: {
+              previousStatus: deal.status,
+              newStatus: "paused",
+              pausedReason,
+              reason,
+              archivedBy: actorName,
+              source: "mcp",
+            },
+            operatorId: operator?.id ?? null,
+            createdAt: now,
+          });
+
+          await tx.insert(crmActionHistory).values({
+            id: crypto.randomUUID(),
+            tenantId,
+            operatorId: operator?.id ?? null,
+            operatorName: actorName,
+            action: "delete_trash",
+            entityType: "deal",
+            itemCount: 1,
+            details: {
+              dealIds: [dealId],
+              deals: [{ id: deal.id, title: deal.title }],
+              reason,
+              pausedReason,
+              source: "mcp",
+            },
+            createdAt: now,
+          });
+
+          return { previousStatus: deal.status, updated };
+        });
+
+        return {
+          success: true,
+          tenantId,
+          dealId: archived.updated.id,
+          title: archived.updated.title,
+          mode: "archive",
+          previousStatus: archived.previousStatus,
+          status: archived.updated.status,
+          pausedReason: archived.updated.pausedReason,
+          version: archived.updated.version,
+          reason,
+          archivedBy: actorName,
+        };
+      }
+
+      // mode === "delete_permanent"
+      const now = new Date();
+      const deletedInfo = await db.transaction(async (tx) => {
+        const [deal] = await tx
+          .select()
+          .from(crmDeals)
+          .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)))
+          .for("update")
+          .limit(1);
+        if (!deal) {
+          throw new Error(`Negociação '${dealId}' não encontrada no tenant '${tenantId}'.`);
+        }
+
+        // Proteção: não exclui permanentemente card com conversa ativa vinculada
+        const [directConv] = await tx
+          .select({ conversationId: crmConversationDeals.conversationId })
+          .from(crmConversationDeals)
+          .where(
+            and(
+              eq(crmConversationDeals.tenantId, tenantId),
+              eq(crmConversationDeals.dealId, dealId),
+              eq(crmConversationDeals.isActive, true),
+            ),
+          )
+          .limit(1);
+        if (directConv) {
+          throw new Error(
+            `Exclusão definitiva bloqueada: a negociação '${dealId}' possui conversa vinculada ('${directConv.conversationId}'). Use mode='archive' para arquivar sem perder o histórico.`,
+          );
+        }
+
+        await tx
+          .delete(commercialEvidence)
+          .where(and(eq(commercialEvidence.tenantId, tenantId), eq(commercialEvidence.dealId, dealId)));
+        await tx
+          .delete(crmDeals)
+          .where(and(eq(crmDeals.tenantId, tenantId), eq(crmDeals.id, dealId)));
+
+        await tx.insert(crmActionHistory).values({
+          id: crypto.randomUUID(),
+          tenantId,
+          operatorId: operator?.id ?? null,
+          operatorName: actorName,
+          action: "delete_permanent",
+          entityType: "deal",
+          itemCount: 1,
+          details: {
+            dealIds: [dealId],
+            deals: [{ id: deal.id, title: deal.title }],
+            reason,
+            source: "mcp",
+          },
+          createdAt: now,
+        });
+
+        return { id: deal.id, title: deal.title };
+      });
+
+      return {
+        success: true,
+        tenantId,
+        dealId: deletedInfo.id,
+        title: deletedInfo.title,
+        mode: "delete_permanent",
+        deleted: true,
+        reason,
+        deletedBy: actorName,
       };
     }
 

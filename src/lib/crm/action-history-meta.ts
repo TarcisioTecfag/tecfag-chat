@@ -28,6 +28,8 @@ export const ACTION_HISTORY_LABELS: Record<string, string> = {
   delete_permanent: "Exclusão definitiva de negociações",
   delete_trash: "Negociações enviadas à lixeira",
   delete_contact: "Contato excluído",
+  merge_contacts: "Contatos mesclados",
+  replace_deal_contact: "Contato da negociação alterado",
   archive_account: "Empresa arquivada",
   delete_pipeline: "Funil excluído",
   delete_stage: "Etapa excluída",
