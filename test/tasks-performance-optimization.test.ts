@@ -9,6 +9,7 @@ describe("Otimização de Performance e Isolamento Multi-Tenant de Tarefas (/api
   let db: any;
   let tasksGetHandler: (args: any) => Promise<Response>;
   let tasksPutHandler: (args: any) => Promise<Response>;
+  let gestaoTasksGetHandler: (args: any) => Promise<Response>;
   let operatorsGetHandler: (args: any) => Promise<Response>;
 
   let activeSession = {
@@ -338,6 +339,9 @@ describe("Otimização de Performance e Isolamento Multi-Tenant de Tarefas (/api
     tasksGetHandler = (tasksRoute.Route.options as any).server.handlers.GET;
     tasksPutHandler = (tasksRoute.Route.options as any).server.handlers.PUT;
 
+    const gestaoTasksRoute = await import("../src/routes/api/gestao/tasks");
+    gestaoTasksGetHandler = (gestaoTasksRoute.Route.options as any).server.handlers.GET;
+
     const operatorsRoute = await import("../src/routes/api/operators");
     operatorsGetHandler = (operatorsRoute.Route.options as any).server.handlers.GET;
   }, 30_000);
@@ -427,6 +431,45 @@ describe("Otimização de Performance e Isolamento Multi-Tenant de Tarefas (/api
     const searchData = await searchRes.json();
     expect(searchData.tasks).toHaveLength(1);
     expect(searchData.tasks[0].id).toBe("act-overdue-now");
+  });
+
+  test("GET /api/tasks não passa Date cru em sql literal (compatibilidade postgres-js)", async () => {
+    const tasksSource = await readFile(
+      new URL("../src/routes/api/tasks.ts", import.meta.url),
+      "utf8",
+    );
+    expect(tasksSource).not.toMatch(/sql`[^`]*\$\{options\.fromDate\}/);
+    expect(tasksSource).not.toMatch(/sql`[^`]*\$\{options\.toDate\}/);
+    expect(tasksSource).toContain("gte(crmDealActivities.dueDate, options.fromDate)");
+    expect(tasksSource).toContain("lte(crmDealActivities.dueDate, options.toDate)");
+  });
+
+  test("GET /api/gestao/tasks agrega métricas no SQL, respeita limit, omite Base64 e não lê messages", async () => {
+    const res = await gestaoTasksGetHandler({
+      request: new Request("http://localhost/api/gestao/tasks?limit=2"),
+    });
+    expect(res.status).toBe(200);
+    const rawJson = await res.text();
+    expect(rawJson).not.toContain("data:image/png;base64");
+
+    const body = JSON.parse(rawJson);
+    // Respeita o limit de exibição (2 tarefas prioritárias) mas mantém o resumo global completo do tenant-a
+    expect(body.tasks).toHaveLength(2);
+    expect(body.hasMore).toBe(true);
+    expect(body.tasks.every((t: any) => Array.isArray(t.recentMessages) && t.recentMessages.length === 0)).toBe(true);
+    // Pendentes devem vir antes de concluídas no modo pending_priority
+    expect(body.tasks.every((t: any) => t.status === "pending")).toBe(true);
+
+    // Resumo global do tenant-a (antes do bulk_reschedule)
+    expect(body.summary.totalTasks).toBe(7);
+    expect(body.summary.pendingTasksCount).toBe(4);
+    expect(body.summary.completedTasksCount).toBe(3);
+    expect(body.summary.overdueTasksCount).toBe(3);
+    expect(body.summary.openDealsCount).toBe(1);
+    expect(body.summary.openDealsWithoutTasksCount).toBe(0);
+    // Garante isolamento multi-tenant (nenhum operador ou tarefa do tenant-b)
+    expect(body.operators.every((o: any) => o.id !== "op-admin-b")).toBe(true);
+    expect(body.operatorBreakdown.every((o: any) => o.operatorId !== "op-admin-b")).toBe(true);
   });
 
   test("PUT /api/tasks com rescheduleAllOverdue reagenda em lote transacional preservando isolamento entre tenants", async () => {

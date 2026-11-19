@@ -7,6 +7,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { useChat } from "@/hooks/useChatState";
 import { useTabNavigation } from "@/hooks/useTabNavigation";
 import {
@@ -9400,9 +9401,50 @@ function GlobalTaskCard360({
   );
 }
 
+interface GlobalTasksApiResponse {
+  tasks: GlobalTaskItem[];
+  totalMatching?: number;
+  hasMore?: boolean;
+  summary: GlobalTasksExecutiveSummary | null;
+  operatorBreakdown: GlobalTaskOperatorBreakdown[];
+  pipelines: Array<{ id: string; name: string }>;
+  operators: Array<{
+    id: string;
+    name: string;
+    email: string | null;
+    avatar: string | null;
+    isOnline: boolean;
+  }>;
+}
+
+const GLOBAL_TASKS_INITIAL_VISIBLE = 60;
+
+// Preserva filtros e navegação de GlobalTasksTab por tenant ao alternar de aba/módulo
+const globalTasksSessionState = new Map<
+  string,
+  {
+    viewMode: GlobalTaskViewMode;
+    queueSubTab: GlobalTaskQueueSubTab;
+    sortBy: GlobalTaskSortBy;
+    operatorFilter: string;
+    pipelineFilter: string;
+    dealStatusFilter: "all" | "open" | "won" | "lost";
+    typeFilter: string;
+    showOperatorMatrix: boolean;
+    currentMonth: number;
+    currentYear: number;
+    selectedDateMs: number;
+  }
+>();
+
+function toGlobalLocalDayKey(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
+    date.getDate(),
+  ).padStart(2, "0")}`;
+}
+
 function GlobalTasksTab({
   demoMode,
-  refreshTick,
   onOverdueCountChange,
 }: {
   demoMode?: boolean;
@@ -9411,25 +9453,38 @@ function GlobalTasksTab({
 }) {
   const { tenant, setSelectedChatId, setActiveView } = useChat();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
-  const [tasks, setTasks] = useState<GlobalTaskItem[]>([]);
-  const [summary, setSummary] = useState<GlobalTasksExecutiveSummary | null>(null);
-  const [operatorBreakdown, setOperatorBreakdown] = useState<GlobalTaskOperatorBreakdown[]>([]);
-  const [pipelines, setPipelines] = useState<Array<{ id: string; name: string }>>([]);
-  const [operatorsCatalog, setOperatorsCatalog] = useState<Array<{ id: string; name: string; email: string | null; avatar: string | null; isOnline: boolean }>>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const tenantStateKey = tenant || "session";
+  const savedState = globalTasksSessionState.get(tenantStateKey);
 
-  // Modos de Visão & Filtros Globais
-  const [viewMode, setViewMode] = useState<GlobalTaskViewMode>("queue");
-  const [queueSubTab, setQueueSubTab] = useState<GlobalTaskQueueSubTab>("overdue");
-  const [sortBy, setSortBy] = useState<GlobalTaskSortBy>("value_desc");
+  // Estado local usado exclusivamente no modo demonstração
+  const [demoTasks, setDemoTasks] = useState<GlobalTaskItem[]>(() =>
+    demoMode ? MOCK_GLOBAL_TASKS_RESPONSE.tasks : [],
+  );
+
+  // Modos de Visão & Filtros Globais (preservados entre trocas de aba/módulo)
+  const [viewMode, setViewMode] = useState<GlobalTaskViewMode>(
+    () => savedState?.viewMode ?? "queue",
+  );
+  const [queueSubTab, setQueueSubTab] = useState<GlobalTaskQueueSubTab>(
+    () => savedState?.queueSubTab ?? "overdue",
+  );
+  const [sortBy, setSortBy] = useState<GlobalTaskSortBy>(() => savedState?.sortBy ?? "value_desc");
   const [searchQuery, setSearchQuery] = useState("");
-  const [operatorFilter, setOperatorFilter] = useState("all");
-  const [pipelineFilter, setPipelineFilter] = useState("all");
-  const [dealStatusFilter, setDealStatusFilter] = useState<"all" | "open" | "won" | "lost">("all");
-  const [typeFilter, setTypeFilter] = useState("all");
-  const [showOperatorMatrix, setShowOperatorMatrix] = useState(true);
+  const [operatorFilter, setOperatorFilter] = useState(() => savedState?.operatorFilter ?? "all");
+  const [pipelineFilter, setPipelineFilter] = useState(() => savedState?.pipelineFilter ?? "all");
+  const [dealStatusFilter, setDealStatusFilter] = useState<"all" | "open" | "won" | "lost">(
+    () => savedState?.dealStatusFilter ?? "all",
+  );
+  const [typeFilter, setTypeFilter] = useState(() => savedState?.typeFilter ?? "all");
+  const [showOperatorMatrix, setShowOperatorMatrix] = useState(
+    () => savedState?.showOperatorMatrix ?? true,
+  );
+
+  // Paginação progressiva no DOM (evita renderizar centenas/milhares de cards simultâneos)
+  const [queueVisibleLimit, setQueueVisibleLimit] = useState<number>(GLOBAL_TASKS_INITIAL_VISIBLE);
+  const [modalVisibleLimit, setModalVisibleLimit] = useState<number>(GLOBAL_TASKS_INITIAL_VISIBLE);
 
   // Estados do Modal "Lista Completa"
   const [isAllTasksModalOpen, setIsAllTasksModalOpen] = useState(false);
@@ -9438,9 +9493,52 @@ function GlobalTasksTab({
 
   // Navegação Temporal (Mês / Semana / Dia)
   const today = useMemo(() => new Date(), []);
-  const [currentMonth, setCurrentMonth] = useState(today.getMonth());
-  const [currentYear, setCurrentYear] = useState(today.getFullYear());
-  const [selectedDate, setSelectedDate] = useState<Date>(today);
+  const [currentMonth, setCurrentMonth] = useState<number>(
+    () => savedState?.currentMonth ?? today.getMonth(),
+  );
+  const [currentYear, setCurrentYear] = useState<number>(
+    () => savedState?.currentYear ?? today.getFullYear(),
+  );
+  const [selectedDate, setSelectedDate] = useState<Date>(() =>
+    savedState?.selectedDateMs ? new Date(savedState.selectedDateMs) : today,
+  );
+
+  useEffect(() => {
+    globalTasksSessionState.set(tenantStateKey, {
+      viewMode,
+      queueSubTab,
+      sortBy,
+      operatorFilter,
+      pipelineFilter,
+      dealStatusFilter,
+      typeFilter,
+      showOperatorMatrix,
+      currentMonth,
+      currentYear,
+      selectedDateMs: selectedDate.getTime(),
+    });
+  }, [
+    tenantStateKey,
+    viewMode,
+    queueSubTab,
+    sortBy,
+    operatorFilter,
+    pipelineFilter,
+    dealStatusFilter,
+    typeFilter,
+    showOperatorMatrix,
+    currentMonth,
+    currentYear,
+    selectedDate,
+  ]);
+
+  useEffect(() => {
+    setQueueVisibleLimit(GLOBAL_TASKS_INITIAL_VISIBLE);
+  }, [queueSubTab, sortBy, operatorFilter, pipelineFilter, dealStatusFilter, typeFilter, searchQuery]);
+
+  useEffect(() => {
+    setModalVisibleLimit(GLOBAL_TASKS_INITIAL_VISIBLE);
+  }, [isAllTasksModalOpen, modalStatusFilter, modalDateFilter, operatorFilter, searchQuery]);
 
   const days = useMemo(() => getDaysInMonth(currentYear, currentMonth), [currentYear, currentMonth]);
   const weekDays = useMemo(() => getWeekDays(selectedDate), [selectedDate]);
@@ -9465,70 +9563,71 @@ function GlobalTasksTab({
   const [reschedulingTaskId, setReschedulingTaskId] = useState<string | null>(null);
   const [bulkRescheduling, setBulkRescheduling] = useState(false);
 
-  // ─── Carregar Tarefas Globais ──────────────────────────────────────────
-  const fetchTasks = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    if (demoMode) {
-      setTasks(MOCK_GLOBAL_TASKS_RESPONSE.tasks);
-      setSummary(MOCK_GLOBAL_TASKS_RESPONSE.summary);
-      setOperatorBreakdown(MOCK_GLOBAL_TASKS_RESPONSE.operatorBreakdown);
-      setPipelines(MOCK_GLOBAL_TASKS_RESPONSE.pipelines);
-      setOperatorsCatalog(MOCK_GLOBAL_TASKS_RESPONSE.operators);
-      onOverdueCountChange?.(MOCK_GLOBAL_TASKS_RESPONSE.summary.overdueTasksCount);
-      setLoading(false);
-      return;
-    }
-    try {
-      const res = await fetch(`/api/gestao/tasks?tenantId=${tenant}`);
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        setError(data.error || "Não foi possível carregar as tarefas globais.");
-        setTasks([]);
-      } else {
-        const opsCatalog: Array<{
-          id: string;
-          name: string;
-          email: string | null;
-          avatar: string | null;
-          isOnline: boolean;
-        }> = Array.isArray(data.operators) ? data.operators : [];
-        const avatarByOpId = new Map<string, string | null>(
-          opsCatalog.map((op) => [op.id, op.avatar ?? null]),
-        );
-        const rawFetchedTasks: GlobalTaskItem[] = Array.isArray(data.tasks) ? data.tasks : [];
-        const fetchedTasks: GlobalTaskItem[] = rawFetchedTasks.map((t) => ({
-          ...t,
-          operatorAvatar:
-            t.operatorAvatar ?? (t.operatorId ? avatarByOpId.get(t.operatorId) ?? null : null),
-          assignedOperators: Array.isArray(t.assignedOperators)
-            ? t.assignedOperators.map((ao) => ({
-                ...ao,
-                avatar: ao.avatar ?? avatarByOpId.get(ao.id) ?? null,
-              }))
-            : t.assignedOperators,
-        }));
-        setTasks(fetchedTasks);
-        setSummary(data.summary ?? null);
-        setOperatorBreakdown(Array.isArray(data.operatorBreakdown) ? data.operatorBreakdown : []);
-        setPipelines(Array.isArray(data.pipelines) ? data.pipelines : []);
-        setOperatorsCatalog(opsCatalog);
-        const overdueCnt =
-          data.summary?.overdueTasksCount ??
-          fetchedTasks.filter((t) => t.status !== "done" && t.status !== "completed" && t.dueDate && new Date(t.dueDate) < new Date()).length;
-        onOverdueCountChange?.(overdueCnt);
+  // ─── Carregar Tarefas Globais com Cache React Query (instantâneo ao voltar) ──
+  const globalTasksQuery = useQuery<GlobalTasksApiResponse>({
+    queryKey: ["gestao-global-tasks", tenantStateKey],
+    enabled: !demoMode,
+    queryFn: async ({ signal }) => {
+      const qs = tenant ? `?tenantId=${encodeURIComponent(tenant)}` : "";
+      const res = await fetch(`/api/gestao/tasks${qs}`, { signal });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.error) {
+        throw new Error(data?.error || `Não foi possível carregar as tarefas globais (HTTP ${res.status}).`);
       }
-    } catch (e: any) {
-      setError(e.message || "Erro ao carregar tarefas globais.");
-      setTasks([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [tenant, demoMode, onOverdueCountChange]);
+      return {
+        tasks: Array.isArray(data.tasks) ? data.tasks : [],
+        totalMatching: typeof data.totalMatching === "number" ? data.totalMatching : undefined,
+        hasMore: Boolean(data.hasMore),
+        summary: data.summary ?? null,
+        operatorBreakdown: Array.isArray(data.operatorBreakdown) ? data.operatorBreakdown : [],
+        pipelines: Array.isArray(data.pipelines) ? data.pipelines : [],
+        operators: Array.isArray(data.operators) ? data.operators : [],
+      };
+    },
+    staleTime: 3 * 60_000,
+    gcTime: 30 * 60_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
+    placeholderData: keepPreviousData,
+  });
+
+  const tasks = demoMode ? demoTasks : globalTasksQuery.data?.tasks ?? [];
+  const summary = demoMode ? MOCK_GLOBAL_TASKS_RESPONSE.summary : globalTasksQuery.data?.summary ?? null;
+  const operatorBreakdown = demoMode
+    ? MOCK_GLOBAL_TASKS_RESPONSE.operatorBreakdown
+    : globalTasksQuery.data?.operatorBreakdown ?? [];
+  const pipelines = demoMode
+    ? MOCK_GLOBAL_TASKS_RESPONSE.pipelines
+    : globalTasksQuery.data?.pipelines ?? [];
+  const operatorsCatalog = demoMode
+    ? MOCK_GLOBAL_TASKS_RESPONSE.operators
+    : globalTasksQuery.data?.operators ?? [];
+  const loading = !demoMode && (globalTasksQuery.isPending || globalTasksQuery.isFetching);
+  const isInitialLoading = !demoMode && globalTasksQuery.isPending && tasks.length === 0;
+  const error =
+    !demoMode && globalTasksQuery.isError
+      ? globalTasksQuery.error instanceof Error
+        ? globalTasksQuery.error.message
+        : "Erro ao carregar tarefas globais."
+      : null;
 
   useEffect(() => {
-    fetchTasks();
-  }, [fetchTasks, refreshTick]);
+    if (demoMode) {
+      onOverdueCountChange?.(MOCK_GLOBAL_TASKS_RESPONSE.summary.overdueTasksCount);
+      return;
+    }
+    if (summary && typeof summary.overdueTasksCount === "number") {
+      onOverdueCountChange?.(summary.overdueTasksCount);
+    }
+  }, [demoMode, summary, onOverdueCountChange]);
+
+  const fetchTasks = useCallback(async () => {
+    if (demoMode) return;
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["gestao-global-tasks"] }),
+      queryClient.invalidateQueries({ queryKey: ["kanban-tasks"] }),
+    ]);
+  }, [demoMode, queryClient]);
 
   // ─── Conclusão de Tarefa com Observação e Próximo Follow-up ─────────────
   const toggleTaskStatus = (task: GlobalTaskItem) => {
@@ -9616,7 +9715,7 @@ function GlobalTasksTab({
           body: JSON.stringify({
             tenantId: tenant,
             taskId: task.id,
-            dueAt: newIso,
+            dueDate: newIso,
           }),
         });
         if (!res.ok) {
@@ -9624,7 +9723,7 @@ function GlobalTasksTab({
           throw new Error(data.error || "Erro ao reagendar tarefa.");
         }
       } else {
-        setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, dueDate: newIso } : t)));
+        setDemoTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, dueDate: newIso } : t)));
       }
       toast.success("Prazo da tarefa atualizado!");
       if (!demoMode) await fetchTasks();
@@ -9649,7 +9748,7 @@ function GlobalTasksTab({
             tenantId: tenant,
             action: "bulk_reschedule",
             taskIds: targetTasks.map((t) => t.id),
-            dueAt: newIso,
+            dueDate: newIso,
           }),
         });
         if (!res.ok) {
@@ -9658,7 +9757,7 @@ function GlobalTasksTab({
         }
       } else {
         const idSet = new Set(targetTasks.map((t) => t.id));
-        setTasks((prev) => prev.map((t) => (idSet.has(t.id) ? { ...t, dueDate: newIso } : t)));
+        setDemoTasks((prev) => prev.map((t) => (idSet.has(t.id) ? { ...t, dueDate: newIso } : t)));
       }
       toast.success(`${targetTasks.length} tarefa(s) reagendada(s) com sucesso!`);
       if (!demoMode) await fetchTasks();
@@ -9679,12 +9778,12 @@ function GlobalTasksTab({
           body: JSON.stringify({
             tenantId: tenant,
             taskId: task.id,
-            action: "cancel",
+            status: "cancelled",
           }),
         });
         if (!res.ok) throw new Error("Não foi possível cancelar a tarefa.");
       } else {
-        setTasks((prev) => prev.filter((t) => t.id !== task.id));
+        setDemoTasks((prev) => prev.filter((t) => t.id !== task.id));
       }
       toast.success("Tarefa cancelada.");
       if (!demoMode) await fetchTasks();
@@ -9701,7 +9800,7 @@ function GlobalTasksTab({
         });
         if (!res.ok) throw new Error("Não foi possível excluir a tarefa.");
       } else {
-        setTasks((prev) => prev.filter((t) => t.id !== task.id));
+        setDemoTasks((prev) => prev.filter((t) => t.id !== task.id));
       }
       toast.success("Tarefa excluída permanentemente.");
       if (!demoMode) await fetchTasks();
@@ -9991,13 +10090,24 @@ function GlobalTasksTab({
     });
   }, [filteredBaseTasks, queueSubTab, sortBy]);
 
+  // Indexação O(1) por dia para o calendário Mês/Semana/Dia
+  const tasksByDayKey = useMemo(() => {
+    const map = new Map<string, GlobalTaskItem[]>();
+    for (const t of filteredBaseTasks) {
+      if (!t.dueDate) continue;
+      const d = new Date(t.dueDate);
+      if (Number.isNaN(d.getTime())) continue;
+      const key = toGlobalLocalDayKey(d);
+      const list = map.get(key);
+      if (list) list.push(t);
+      else map.set(key, [t]);
+    }
+    return map;
+  }, [filteredBaseTasks]);
+
   const getTasksForDate = useCallback(
-    (date: Date) =>
-      filteredBaseTasks.filter((t) => {
-        if (!t.dueDate) return false;
-        return isSameDay(new Date(t.dueDate), date);
-      }),
-    [filteredBaseTasks]
+    (date: Date) => tasksByDayKey.get(toGlobalLocalDayKey(date)) ?? [],
+    [tasksByDayKey],
   );
 
   const selectedDateTasks = useMemo(() => getTasksForDate(selectedDate), [getTasksForDate, selectedDate]);
@@ -10482,7 +10592,17 @@ function GlobalTasksTab({
             </div>
           </div>
 
-          {queueTasks.length === 0 ? (
+          {isInitialLoading ? (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              {[1, 2, 3, 4, 5, 6].map((i) => (
+                <div key={i} className="rounded-2xl border border-border bg-card p-4 space-y-3 animate-pulse">
+                  <div className="h-4 w-3/5 rounded bg-muted" />
+                  <div className="h-3 w-2/5 rounded bg-muted/70" />
+                  <div className="h-8 w-full rounded-xl bg-muted/50" />
+                </div>
+              ))}
+            </div>
+          ) : queueTasks.length === 0 ? (
             <div className="rounded-2xl border border-border bg-card py-14 px-4 flex flex-col items-center justify-center text-center">
               <div className="h-12 w-12 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mb-3">
                 <ClipboardCheck className="h-6 w-6" />
@@ -10495,32 +10615,45 @@ function GlobalTasksTab({
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-              {queueTasks.map((task) => (
-                <GlobalTaskCard360
-                  key={task.id}
-                  task={task}
-                  peekConvId={peekConvId}
-                  peekMessages={peekMessages}
-                  loadingPeekId={loadingPeekId}
-                  whisperTaskId={whisperTaskId}
-                  whisperText={whisperText}
-                  sendingWhisper={sendingWhisper}
-                  startingChatTaskId={startingChatTaskId}
-                  reschedulingTaskId={reschedulingTaskId}
-                  onToggleComplete={toggleTaskStatus}
-                  onEditTask={handleEditTask}
-                  onRescheduleTask={handleRescheduleTask}
-                  onCancelTask={handleCancelTask}
-                  onDeleteTask={handleDeleteTask}
-                  onTogglePeek={handleTogglePeek}
-                  onToggleWhisper={handleToggleWhisper}
-                  onChangeWhisperText={setWhisperText}
-                  onSendWhisper={handleSendWhisper}
-                  onOpenOrStartChat={handleOpenOrStartChat}
-                  onNavigateDeal={handleNavigateDeal}
-                />
-              ))}
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                {queueTasks.slice(0, queueVisibleLimit).map((task) => (
+                  <GlobalTaskCard360
+                    key={task.id}
+                    task={task}
+                    peekConvId={peekConvId}
+                    peekMessages={peekMessages}
+                    loadingPeekId={loadingPeekId}
+                    whisperTaskId={whisperTaskId}
+                    whisperText={whisperText}
+                    sendingWhisper={sendingWhisper}
+                    startingChatTaskId={startingChatTaskId}
+                    reschedulingTaskId={reschedulingTaskId}
+                    onToggleComplete={toggleTaskStatus}
+                    onEditTask={handleEditTask}
+                    onRescheduleTask={handleRescheduleTask}
+                    onCancelTask={handleCancelTask}
+                    onDeleteTask={handleDeleteTask}
+                    onTogglePeek={handleTogglePeek}
+                    onToggleWhisper={handleToggleWhisper}
+                    onChangeWhisperText={setWhisperText}
+                    onSendWhisper={handleSendWhisper}
+                    onOpenOrStartChat={handleOpenOrStartChat}
+                    onNavigateDeal={handleNavigateDeal}
+                  />
+                ))}
+              </div>
+              {queueTasks.length > queueVisibleLimit && (
+                <div className="flex justify-center pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setQueueVisibleLimit((prev) => prev + GLOBAL_TASKS_INITIAL_VISIBLE)}
+                    className="rounded-xl border border-border bg-card hover:bg-muted px-4 py-2 text-xs font-bold text-foreground transition cursor-pointer"
+                  >
+                    Carregar mais ({Math.min(GLOBAL_TASKS_INITIAL_VISIBLE, queueTasks.length - queueVisibleLimit)} de {queueTasks.length - queueVisibleLimit} restante(s))
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -11075,40 +11208,58 @@ function GlobalTasksTab({
                     );
                   }
 
-                  return modalFiltered.map((task) => (
-                    <GlobalTaskCard360
-                      key={task.id}
-                      task={task}
-                      peekConvId={peekConvId}
-                      peekMessages={peekMessages}
-                      loadingPeekId={loadingPeekId}
-                      whisperTaskId={whisperTaskId}
-                      whisperText={whisperText}
-                      sendingWhisper={sendingWhisper}
-                      startingChatTaskId={startingChatTaskId}
-                      reschedulingTaskId={reschedulingTaskId}
-                      onToggleComplete={toggleTaskStatus}
-                      onEditTask={(t) => {
-                        setIsAllTasksModalOpen(false);
-                        handleEditTask(t);
-                      }}
-                      onRescheduleTask={handleRescheduleTask}
-                      onCancelTask={handleCancelTask}
-                      onDeleteTask={handleDeleteTask}
-                      onTogglePeek={handleTogglePeek}
-                      onToggleWhisper={handleToggleWhisper}
-                      onChangeWhisperText={setWhisperText}
-                      onSendWhisper={handleSendWhisper}
-                      onOpenOrStartChat={(t) => {
-                        setIsAllTasksModalOpen(false);
-                        handleOpenOrStartChat(t);
-                      }}
-                      onNavigateDeal={(dealId) => {
-                        setIsAllTasksModalOpen(false);
-                        handleNavigateDeal(dealId);
-                      }}
-                    />
-                  ));
+                  const visibleModalTasks = modalFiltered.slice(0, modalVisibleLimit);
+                  const remainingModalTasks = Math.max(0, modalFiltered.length - visibleModalTasks.length);
+
+                  return (
+                    <>
+                      {visibleModalTasks.map((task) => (
+                        <GlobalTaskCard360
+                          key={task.id}
+                          task={task}
+                          peekConvId={peekConvId}
+                          peekMessages={peekMessages}
+                          loadingPeekId={loadingPeekId}
+                          whisperTaskId={whisperTaskId}
+                          whisperText={whisperText}
+                          sendingWhisper={sendingWhisper}
+                          startingChatTaskId={startingChatTaskId}
+                          reschedulingTaskId={reschedulingTaskId}
+                          onToggleComplete={toggleTaskStatus}
+                          onEditTask={(t) => {
+                            setIsAllTasksModalOpen(false);
+                            handleEditTask(t);
+                          }}
+                          onRescheduleTask={handleRescheduleTask}
+                          onCancelTask={handleCancelTask}
+                          onDeleteTask={handleDeleteTask}
+                          onTogglePeek={handleTogglePeek}
+                          onToggleWhisper={handleToggleWhisper}
+                          onChangeWhisperText={setWhisperText}
+                          onSendWhisper={handleSendWhisper}
+                          onOpenOrStartChat={(t) => {
+                            setIsAllTasksModalOpen(false);
+                            handleOpenOrStartChat(t);
+                          }}
+                          onNavigateDeal={(dealId) => {
+                            setIsAllTasksModalOpen(false);
+                            handleNavigateDeal(dealId);
+                          }}
+                        />
+                      ))}
+                      {remainingModalTasks > 0 && (
+                        <div className="flex justify-center pt-2">
+                          <button
+                            type="button"
+                            onClick={() => setModalVisibleLimit((prev) => prev + GLOBAL_TASKS_INITIAL_VISIBLE)}
+                            className="rounded-xl border border-border bg-card hover:bg-muted px-4 py-2 text-xs font-bold text-foreground transition cursor-pointer"
+                          >
+                            Carregar mais ({Math.min(GLOBAL_TASKS_INITIAL_VISIBLE, remainingModalTasks)} de {remainingModalTasks} restante(s))
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  );
                 })()}
               </div>
             </motion.div>

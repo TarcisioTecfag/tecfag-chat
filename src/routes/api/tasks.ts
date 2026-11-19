@@ -11,7 +11,7 @@ import {
   crmAccounts,
   operators,
 } from "../../db/schema";
-import { eq, and, sql, desc, inArray, or, type SQL } from "drizzle-orm";
+import { eq, and, sql, desc, inArray, or, gte, lte, type SQL } from "drizzle-orm";
 import { requireSession } from "../../lib/auth-session";
 import { crmService } from "../../lib/crm/crm-service";
 
@@ -37,6 +37,10 @@ export interface KanbanTasksQueryOptions {
   limit?: number | null;
   offset?: number | null;
   includeSummary?: boolean;
+  /** Cap máximo interno (default 500 para API pública; rotas executivas podem usar até 1500) */
+  maxLimit?: number;
+  /** Ordenação: due_asc (padrão calendário) ou pending_priority (pendentes/atrasadas primeiro) */
+  orderMode?: "due_asc" | "pending_priority";
 }
 
 export interface KanbanTasksSummary {
@@ -196,10 +200,10 @@ export async function getNativeKanbanTasksWithMeta(
   if (options.fromDate || options.toDate) {
     const rangeParts: SQL[] = [];
     if (options.fromDate && !Number.isNaN(options.fromDate.getTime())) {
-      rangeParts.push(sql`${crmDealActivities.dueDate} >= ${options.fromDate}`);
+      rangeParts.push(gte(crmDealActivities.dueDate, options.fromDate));
     }
     if (options.toDate && !Number.isNaN(options.toDate.getTime())) {
-      rangeParts.push(sql`${crmDealActivities.dueDate} <= ${options.toDate}`);
+      rangeParts.push(lte(crmDealActivities.dueDate, options.toDate));
     }
     if (rangeParts.length > 0) {
       const dateRangeSql = rangeParts.length === 1 ? rangeParts[0] : and(...rangeParts)!;
@@ -266,9 +270,28 @@ export async function getNativeKanbanTasksWithMeta(
   }
 
   const hasPagination = typeof options.limit === "number" && options.limit > 0;
-  const safeLimit = hasPagination ? Math.min(Math.max(1, Math.floor(options.limit!)), 500) : null;
+  const maxAllowedLimit =
+    typeof options.maxLimit === "number" && options.maxLimit > 0
+      ? Math.min(Math.floor(options.maxLimit), 2000)
+      : 500;
+  const safeLimit = hasPagination
+    ? Math.min(Math.max(1, Math.floor(options.limit!)), maxAllowedLimit)
+    : null;
   const safeOffset =
     typeof options.offset === "number" && options.offset > 0 ? Math.floor(options.offset) : 0;
+
+  const orderByClauses =
+    options.orderMode === "pending_priority"
+      ? [
+          sql`CASE WHEN ${crmDealActivities.status} = 'completed' THEN 1 ELSE 0 END ASC`,
+          sql`CASE WHEN ${crmDealActivities.status} != 'completed' THEN ${crmDealActivities.dueDate} END ASC NULLS LAST`,
+          desc(crmDealActivities.dueDate),
+          desc(crmDealActivities.createdAt),
+        ]
+      : [
+          sql`${crmDealActivities.dueDate} ASC NULLS LAST`,
+          desc(crmDealActivities.createdAt),
+        ];
 
   let mainQuery = db
     .select({
@@ -306,10 +329,7 @@ export async function getNativeKanbanTasksWithMeta(
       and(eq(crmDeals.accountId, crmAccounts.id), eq(crmAccounts.tenantId, tenantId)),
     )
     .where(and(...filterConditions))
-    .orderBy(
-      sql`${crmDealActivities.dueDate} ASC NULLS LAST`,
-      desc(crmDealActivities.createdAt),
-    )
+    .orderBy(...orderByClauses)
     .$dynamic();
 
   if (safeLimit !== null) {
@@ -318,18 +338,27 @@ export async function getNativeKanbanTasksWithMeta(
   }
 
   const countMatchingPromise = hasPagination
-    ? db
-        .select({ count: sql<number>`COUNT(*)::int` })
-        .from(crmDealActivities)
-        .innerJoin(
-          crmDeals,
-          and(eq(crmDealActivities.dealId, crmDeals.id), eq(crmDeals.tenantId, tenantId)),
-        )
-        .leftJoin(
-          crmAccounts,
-          and(eq(crmDeals.accountId, crmAccounts.id), eq(crmAccounts.tenantId, tenantId)),
-        )
-        .where(and(...filterConditions))
+    ? trimmedSearch
+      ? db
+          .select({ count: sql<number>`COUNT(*)::int` })
+          .from(crmDealActivities)
+          .innerJoin(
+            crmDeals,
+            and(eq(crmDealActivities.dealId, crmDeals.id), eq(crmDeals.tenantId, tenantId)),
+          )
+          .leftJoin(
+            crmAccounts,
+            and(eq(crmDeals.accountId, crmAccounts.id), eq(crmAccounts.tenantId, tenantId)),
+          )
+          .where(and(...filterConditions))
+      : db
+          .select({ count: sql<number>`COUNT(*)::int` })
+          .from(crmDealActivities)
+          .innerJoin(
+            crmDeals,
+            and(eq(crmDealActivities.dealId, crmDeals.id), eq(crmDeals.tenantId, tenantId)),
+          )
+          .where(and(...filterConditions))
     : Promise.resolve(null);
 
   const summaryPromise = options.includeSummary
@@ -384,25 +413,30 @@ export async function getNativeKanbanTasksWithMeta(
   >();
 
   if (uniqueDealIds.length > 0) {
-    for (const dealChunk of chunkArray(uniqueDealIds, 1000)) {
-      const idParams = sql.join(
-        dealChunk.map((id) => sql`${id}`),
-        sql`, `,
-      );
-      const contactRes = await db.execute(sql`
-        SELECT DISTINCT ON (cdc.deal_id)
-          cdc.deal_id AS "dealId",
-          cdc.contact_id AS "contactId",
-          c.name AS "contactName",
-          c.phone AS "contactPhone"
-        FROM crm_deal_contacts cdc
-        INNER JOIN contacts c
-          ON c.id = cdc.contact_id
-         AND c.tenant_id = ${tenantId}
-        WHERE cdc.tenant_id = ${tenantId}
-          AND cdc.deal_id IN (${idParams})
-        ORDER BY cdc.deal_id, cdc.is_primary DESC, cdc.created_at ASC
-      `);
+    const dealChunks = chunkArray(uniqueDealIds, 1000);
+    const contactResults = await Promise.all(
+      dealChunks.map((dealChunk) => {
+        const idParams = sql.join(
+          dealChunk.map((id) => sql`${id}`),
+          sql`, `,
+        );
+        return db.execute(sql`
+          SELECT DISTINCT ON (cdc.deal_id)
+            cdc.deal_id AS "dealId",
+            cdc.contact_id AS "contactId",
+            c.name AS "contactName",
+            c.phone AS "contactPhone"
+          FROM crm_deal_contacts cdc
+          INNER JOIN contacts c
+            ON c.id = cdc.contact_id
+           AND c.tenant_id = ${tenantId}
+          WHERE cdc.tenant_id = ${tenantId}
+            AND cdc.deal_id IN (${idParams})
+          ORDER BY cdc.deal_id, cdc.is_primary DESC, cdc.created_at ASC
+        `);
+      }),
+    );
+    for (const contactRes of contactResults) {
       for (const row of extractRows<{
         dealId: string;
         contactId: string;
@@ -432,20 +466,25 @@ export async function getNativeKanbanTasksWithMeta(
 
   const contactToConvMap = new Map<string, string>();
   if (missingConvContactIds.length > 0) {
-    for (const contactChunk of chunkArray(missingConvContactIds, 1000)) {
-      const contactParams = sql.join(
-        contactChunk.map((id) => sql`${id}`),
-        sql`, `,
-      );
-      const convRes = await db.execute(sql`
-        SELECT DISTINCT ON (contact_id)
-          contact_id AS "contactId",
-          id
-        FROM conversations
-        WHERE tenant_id = ${tenantId}
-          AND contact_id IN (${contactParams})
-        ORDER BY contact_id, updated_at DESC
-      `);
+    const contactChunks = chunkArray(missingConvContactIds, 1000);
+    const convResults = await Promise.all(
+      contactChunks.map((contactChunk) => {
+        const contactParams = sql.join(
+          contactChunk.map((id) => sql`${id}`),
+          sql`, `,
+        );
+        return db.execute(sql`
+          SELECT DISTINCT ON (contact_id)
+            contact_id AS "contactId",
+            id
+          FROM conversations
+          WHERE tenant_id = ${tenantId}
+            AND contact_id IN (${contactParams})
+          ORDER BY contact_id, updated_at DESC
+        `);
+      }),
+    );
+    for (const convRes of convResults) {
       for (const c of extractRows<{ contactId: string; id: string }>(convRes)) {
         if (c.contactId && !contactToConvMap.has(c.contactId)) {
           contactToConvMap.set(c.contactId, c.id);

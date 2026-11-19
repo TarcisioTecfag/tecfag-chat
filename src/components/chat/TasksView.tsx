@@ -319,6 +319,20 @@ function getDefaultFollowUpDateTimeStr(): string {
 
 const TASK_VIEW_MODES = ["month", "week", "day"] as const;
 
+// Preserva filtros e data selecionada por tenant quando o usuário navega para outro módulo e volta
+const tasksViewSessionState = new Map<
+  string,
+  {
+    taskScope: "all" | "mine" | "delegated";
+    selectedOperatorFilter: string;
+    currentMonth: number;
+    currentYear: number;
+    selectedDateMs: number;
+  }
+>();
+
+const DAY_LIST_INITIAL_VISIBLE = 60;
+
 export function TasksView() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -335,12 +349,19 @@ export function TasksView() {
   const canAccessTeamTasks =
     sessionRole === "admin" || hasPermission("monitor", "canAccessTeamTasks");
 
+  const tenantStateKey = tenant || "session";
+  const savedViewState = tasksViewSessionState.get(tenantStateKey);
+
   const [isCreateTaskModalOpen, setIsCreateTaskModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<EditingTaskData | null>(null);
 
   // Escopo de visualização e filtro de operador (Admin / permissão de equipe)
-  const [taskScope, setTaskScope] = useState<"all" | "mine" | "delegated">("all");
-  const [selectedOperatorFilter, setSelectedOperatorFilter] = useState<string>("all");
+  const [taskScope, setTaskScope] = useState<"all" | "mine" | "delegated">(
+    () => savedViewState?.taskScope ?? "all",
+  );
+  const [selectedOperatorFilter, setSelectedOperatorFilter] = useState<string>(
+    () => savedViewState?.selectedOperatorFilter ?? "all",
+  );
   const [isOperatorPopoverOpen, setIsOperatorPopoverOpen] = useState(false);
 
   // Modal de Confirmação de Conclusão de Tarefa (OBRIGATÓRIO)
@@ -402,10 +423,31 @@ export function TasksView() {
     return () => window.clearTimeout(t);
   }, [searchQuery]);
 
-  const today = new Date();
-  const [currentMonth, setCurrentMonth] = useState(today.getMonth());
-  const [currentYear, setCurrentYear] = useState(today.getFullYear());
-  const [selectedDate, setSelectedDate] = useState<Date>(today);
+  const today = useMemo(() => new Date(), []);
+  const [currentMonth, setCurrentMonth] = useState<number>(
+    () => savedViewState?.currentMonth ?? today.getMonth(),
+  );
+  const [currentYear, setCurrentYear] = useState<number>(
+    () => savedViewState?.currentYear ?? today.getFullYear(),
+  );
+  const [selectedDate, setSelectedDate] = useState<Date>(() =>
+    savedViewState?.selectedDateMs ? new Date(savedViewState.selectedDateMs) : today,
+  );
+  const [dayVisibleLimit, setDayVisibleLimit] = useState<number>(DAY_LIST_INITIAL_VISIBLE);
+
+  useEffect(() => {
+    tasksViewSessionState.set(tenantStateKey, {
+      taskScope,
+      selectedOperatorFilter,
+      currentMonth,
+      currentYear,
+      selectedDateMs: selectedDate.getTime(),
+    });
+  }, [tenantStateKey, taskScope, selectedOperatorFilter, currentMonth, currentYear, selectedDate]);
+
+  useEffect(() => {
+    setDayVisibleLimit(DAY_LIST_INITIAL_VISIBLE);
+  }, [selectedDate, selectedDayStatus, selectedDayType, selectedDaySearch]);
 
   const notifiedTasksRef = useRef<Set<string>>(new Set());
 
@@ -417,8 +459,8 @@ export function TasksView() {
   // ─── Carrega lista leve de operadores com cache (sem avatares Base64) ────
   const { data: operatorsList = [] } = useQuery({
     queryKey: ["tasks-operators-lite", tenant || "session"],
-    queryFn: async () => {
-      const res = await fetch("/api/operators?lite=true");
+    queryFn: async ({ signal }) => {
+      const res = await fetch("/api/operators?lite=true", { signal });
       if (!res.ok) return [] as Array<{ id: string; name: string }>;
       const data = await res.json();
       const list = Array.isArray(data)
@@ -430,8 +472,9 @@ export function TasksView() {
         .filter((op: any) => op && op.id && op.name)
         .map((op: any) => ({ id: String(op.id), name: String(op.name) }));
     },
-    staleTime: 5 * 60_000,
+    staleTime: 10 * 60_000,
     gcTime: 30 * 60_000,
+    refetchOnWindowFocus: false,
   });
 
   // ─── Janela deslizante de 3 meses para o Calendário + Resumo Global ──────
@@ -469,16 +512,16 @@ export function TasksView() {
       effectiveOperatorFilterKey,
       calendarWindow.key,
     ],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const params = buildScopeSearchParams();
       params.set("from", calendarWindow.fromIso);
       params.set("to", calendarWindow.toIso);
       params.set("includeSummary", "true");
       params.set("upcomingAlert", "true");
-      const res = await fetch(`/api/tasks?${params.toString()}`);
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        return { tasks: [] };
+      const res = await fetch(`/api/tasks?${params.toString()}`, { signal });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.error) {
+        throw new Error(data?.error || `Erro ao carregar tarefas (HTTP ${res.status}).`);
       }
       return {
         tasks: Array.isArray(data.tasks) ? data.tasks : [],
@@ -487,14 +530,21 @@ export function TasksView() {
         hasMore: data.hasMore,
       };
     },
-    staleTime: 45_000,
-    gcTime: 15 * 60_000,
+    staleTime: 3 * 60_000,
+    gcTime: 30 * 60_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
     placeholderData: keepPreviousData,
   });
 
   const tasks = calendarQuery.data?.tasks ?? EMPTY_TASKS;
   const loading = calendarQuery.isPending && tasks.length === 0;
   const isRefreshingTasks = calendarQuery.isFetching && !loading;
+  const calendarErrorMessage = calendarQuery.isError
+    ? calendarQuery.error instanceof Error
+      ? calendarQuery.error.message
+      : "Não foi possível carregar as tarefas."
+    : null;
 
   // ─── Query Paginada Sob Demanda para o Modal "Todas" ─────────────────────
   const modalDateBounds = useMemo(() => {
@@ -521,7 +571,7 @@ export function TasksView() {
     ],
     enabled: isAllTasksModalOpen,
     initialPageParam: 0,
-    queryFn: async ({ pageParam }) => {
+    queryFn: async ({ pageParam, signal }) => {
       const params = buildScopeSearchParams();
       params.set("limit", String(ALL_MODAL_PAGE_SIZE));
       params.set("offset", String(pageParam));
@@ -532,10 +582,10 @@ export function TasksView() {
         params.set("from", modalDateBounds.fromIso);
         params.set("to", modalDateBounds.toIso);
       }
-      const res = await fetch(`/api/tasks?${params.toString()}`);
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        return { tasks: [], totalMatching: 0, hasMore: false };
+      const res = await fetch(`/api/tasks?${params.toString()}`, { signal });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.error) {
+        throw new Error(data?.error || `Erro ao buscar tarefas (HTTP ${res.status}).`);
       }
       return {
         tasks: Array.isArray(data.tasks) ? data.tasks : [],
@@ -548,8 +598,10 @@ export function TasksView() {
       if (!lastPage.hasMore) return undefined;
       return allPages.reduce((acc, p) => acc + (p.tasks?.length || 0), 0);
     },
-    staleTime: 30_000,
-    gcTime: 10 * 60_000,
+    staleTime: 2 * 60_000,
+    gcTime: 15 * 60_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
   });
 
   const fetchTasks = useCallback(async () => {
@@ -1633,6 +1685,25 @@ export function TasksView() {
         </div>
       </div>
 
+      {/* Banner de erro explícito com botão de tentativa imediata (nunca silencia falhas HTTP) */}
+      {calendarErrorMessage && (
+        <div className="mx-3 sm:mx-6 mt-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-2.5 text-xs text-red-600 dark:text-red-400 shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            <span className="font-semibold truncate">{calendarErrorMessage}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => void calendarQuery.refetch()}
+            disabled={calendarQuery.isFetching}
+            className="inline-flex items-center gap-1.5 rounded-xl bg-red-600 text-white px-3 py-1 text-[11px] font-bold hover:bg-red-700 transition cursor-pointer disabled:opacity-50"
+          >
+            <RefreshCw className={`h-3 w-3 ${calendarQuery.isFetching ? "animate-spin" : ""}`} />
+            Tentar novamente
+          </button>
+        </div>
+      )}
+
       {/* Conteúdo Dinâmico por Modo de Visualização */}
       {viewMode === "month" && (
         <div className="flex flex-col lg:flex-row flex-1 overflow-y-auto lg:overflow-hidden">
@@ -2058,25 +2129,30 @@ export function TasksView() {
                   );
                 }
 
-                return dayFilteredTasks.map((task, index) => {
-                  const isDone = isTaskDone(task);
-                  const isOverdue = isTaskOverdue(task);
+                const visibleDayTasks = dayFilteredTasks.slice(0, dayVisibleLimit);
+                const remainingDayTasksCount = Math.max(0, dayFilteredTasks.length - visibleDayTasks.length);
 
-                  return (
-                    <motion.div
-                      key={task.id}
-                      initial={{ opacity: 0, y: 8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.16, delay: Math.min(index * 0.015, 0.12) }}
-                      className={`group rounded-2xl border p-4 transition-all hover:shadow-md ${
-                        isDone
-                          ? "border-border/60 bg-muted/20 opacity-75"
-                          : isOverdue
-                            ? "border-red-500/40 bg-card hover:border-red-500"
-                            : "border-border bg-card hover:border-primary/40"
-                      }`}
-                      style={{ borderLeft: `4px solid ${getTaskTypeColor(task.type)}` }}
-                    >
+                return (
+                  <>
+                    {visibleDayTasks.map((task, index) => {
+                      const isDone = isTaskDone(task);
+                      const isOverdue = isTaskOverdue(task);
+
+                      return (
+                        <motion.div
+                          key={task.id}
+                          initial={{ opacity: 0, y: 8 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.16, delay: Math.min(index * 0.015, 0.12) }}
+                          className={`group rounded-2xl border p-4 transition-all hover:shadow-md ${
+                            isDone
+                              ? "border-border/60 bg-muted/20 opacity-75"
+                              : isOverdue
+                                ? "border-red-500/40 bg-card hover:border-red-500"
+                                : "border-border bg-card hover:border-primary/40"
+                          }`}
+                          style={{ borderLeft: `4px solid ${getTaskTypeColor(task.type)}` }}
+                        >
                       {/* Linha Superior: Checkbox + Título + Ações */}
                       <div className="flex items-start gap-3">
                         <SystemTooltip
@@ -2210,8 +2286,19 @@ export function TasksView() {
                         </motion.button>
                       ) : null}
                     </motion.div>
-                  );
-                });
+                      );
+                    })}
+                    {remainingDayTasksCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setDayVisibleLimit((prev) => prev + DAY_LIST_INITIAL_VISIBLE)}
+                        className="w-full py-2.5 rounded-xl border border-border bg-card hover:bg-muted text-xs font-bold text-foreground transition cursor-pointer"
+                      >
+                        Mostrar mais ({Math.min(DAY_LIST_INITIAL_VISIBLE, remainingDayTasksCount)} de {remainingDayTasksCount} restante(s))
+                      </button>
+                    )}
+                  </>
+                );
               })()}
             </div>
           </div>
@@ -2722,6 +2809,27 @@ export function TasksView() {
                             <Skeleton className="h-9 w-28 rounded-xl shrink-0" />
                           </div>
                         ))}
+                      </div>
+                    );
+                  }
+
+                  if (allTasksModalQuery.isError && modalLoadedTasks.length === 0) {
+                    return (
+                      <div className="flex flex-col items-center justify-center py-12 text-center gap-3">
+                        <AlertTriangle className="h-9 w-9 text-red-500/70" />
+                        <p className="text-sm font-bold text-foreground">
+                          {allTasksModalQuery.error instanceof Error
+                            ? allTasksModalQuery.error.message
+                            : "Não foi possível carregar as tarefas."}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => void allTasksModalQuery.refetch()}
+                          className="inline-flex items-center gap-1.5 rounded-xl bg-primary text-primary-foreground px-4 py-2 text-xs font-bold hover:opacity-90 transition cursor-pointer"
+                        >
+                          <RefreshCw className="h-3.5 w-3.5" />
+                          Tentar novamente
+                        </button>
                       </div>
                     );
                   }

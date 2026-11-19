@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, gte, lte, or, sql } from "drizzle-orm";
 import { db } from "../../../db";
-import { crmPipelines, operators } from "../../../db/schema";
+import { crmDealActivities, crmDeals, crmPipelines, operators } from "../../../db/schema";
 import { requireSession } from "../../../lib/auth-session";
 import { getComercialOperatorIds } from "../../../lib/gestao-filter";
 import { computeOperatorPresenceSnapshot, getBrtDateKey } from "../../../lib/operator-presence";
@@ -9,9 +9,8 @@ import type {
   GlobalTaskItem,
   GlobalTaskOperatorBreakdown,
   GlobalTasksExecutiveSummary,
-  LiveMessage,
 } from "../../../lib/monitor-mock-data";
-import { getNativeKanbanTasks } from "../tasks";
+import { getNativeKanbanTasksWithMeta } from "../tasks";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -19,8 +18,8 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
-const BOILERPLATE_SYSTEM_RE =
-  /^(Contato criado\.?|Contato criado\.\s*Aguardando captura do atendimento\.?|Atendimento iniciado\.?|Conversa iniciada\.?|Aguardando captura do atendimento\.?)$/i;
+const DEFAULT_GLOBAL_TASKS_LIMIT = 500;
+const MAX_GLOBAL_TASKS_LIMIT = 1500;
 
 function extractRows<T = any>(result: unknown): T[] {
   if (Array.isArray(result)) return result as T[];
@@ -30,57 +29,14 @@ function extractRows<T = any>(result: unknown): T[] {
   return [];
 }
 
-function parseMediaPreview(
-  content: string | null | undefined,
-  transcription?: string | null,
-): {
-  preview: string;
-  mediaType: string | null;
-  mediaId: string | null;
-} {
-  const raw = (content || "").trim();
-  if (!raw) {
-    return { preview: "", mediaType: null, mediaId: null };
-  }
-  const match = raw.match(
-    /^\[MEDIA:(image|video|audio|document|sticker|contact|location)\]([^\n]*)(?:\n([\s\S]*))?$/i,
-  );
-  if (!match) {
-    return { preview: raw, mediaType: null, mediaId: null };
-  }
-  const mediaType = match[1].toLowerCase();
-  const mediaId = (match[2] || "").trim() || null;
-  const caption = (match[3] || "").trim();
-
-  if (mediaType === "audio") {
-    const cleanTranscript = (transcription || "").trim();
-    if (cleanTranscript) {
-      return {
-        preview: `Áudio: "${cleanTranscript}"`,
-        mediaType: "audio",
-        mediaId,
-      };
-    }
-    return {
-      preview: caption ? `Áudio: ${caption}` : "Mensagem de áudio",
-      mediaType: "audio",
-      mediaId,
-    };
-  }
-  if (mediaType === "image") {
-    return { preview: caption ? `Imagem: ${caption}` : "Imagem enviada", mediaType: "image", mediaId };
-  }
-  if (mediaType === "video") {
-    return { preview: caption ? `Vídeo: ${caption}` : "Vídeo enviado", mediaType: "video", mediaId };
-  }
-  if (mediaType === "document") {
-    return {
-      preview: caption ? `Documento: ${caption}` : "Documento enviado",
-      mediaType: "document",
-      mediaId,
-    };
-  }
-  return { preview: caption || "Mídia enviada", mediaType, mediaId };
+/**
+ * Retorna limites UTC do dia corrente em America/Sao_Paulo (UTC-3 fixo no Brasil desde 2019).
+ */
+function getBrtTodayBoundsUtc(reference: Date): { startUtc: Date; endUtc: Date } {
+  const brtKey = getBrtDateKey(reference); // YYYY-MM-DD
+  const startUtc = new Date(`${brtKey}T00:00:00-03:00`);
+  const endUtc = new Date(`${brtKey}T23:59:59.999-03:00`);
+  return { startUtc, endUtc };
 }
 
 export const Route = createFileRoute("/api/gestao/tasks")({
@@ -94,7 +50,10 @@ export const Route = createFileRoute("/api/gestao/tasks")({
         const { session } = auth;
         const tenantId = session.tenantId;
         if (session.operator.role !== "admin" && !session.permissions?.monitor?.canAccessTeamTasks) {
-          return Response.json({ error: "Permissão insuficiente.", code: "FORBIDDEN" }, { status: 403 });
+          return Response.json(
+            { error: "Permissão insuficiente.", code: "FORBIDDEN" },
+            { status: 403 },
+          );
         }
 
         const url = new URL(request.url);
@@ -106,65 +65,180 @@ export const Route = createFileRoute("/api/gestao/tasks")({
           );
         }
 
+        const fromRaw = url.searchParams.get("from");
+        const toRaw = url.searchParams.get("to");
+        const fromDate = fromRaw ? new Date(fromRaw) : null;
+        const toDate = toRaw ? new Date(toRaw) : null;
+        const validFromDate = fromDate && !Number.isNaN(fromDate.getTime()) ? fromDate : null;
+        const validToDate = toDate && !Number.isNaN(toDate.getTime()) ? toDate : null;
+
+        const limitParam = url.searchParams.get("limit");
+        const parsedLimit = limitParam !== null ? Number(limitParam) : DEFAULT_GLOBAL_TASKS_LIMIT;
+        const safeLimit =
+          Number.isFinite(parsedLimit) && parsedLimit > 0
+            ? Math.min(Math.floor(parsedLimit), MAX_GLOBAL_TASKS_LIMIT)
+            : DEFAULT_GLOBAL_TASKS_LIMIT;
+
+        const now = new Date();
+        const nowMs = now.getTime();
+        const todayBrt = getBrtDateKey(now);
+        const { startUtc: todayStartUtc, endUtc: todayEndUtc } = getBrtTodayBoundsUtc(now);
+        const sevenDaysAheadMs = nowMs + 7 * 24 * 3600_000;
+
         try {
-          const [rawTasks, tenantOperators, comercialOpIds, tenantPipelines, openDealsResult] =
-            await Promise.all([
-              getNativeKanbanTasks(tenantId, {
-                operatorId: session.operator.id,
-                email: session.operator.email,
-                isAdmin: true,
-                all: true,
-                scope: "all",
-              }),
-              db
-                .select({
-                  id: operators.id,
-                  name: operators.name,
-                  email: operators.email,
-                  avatar: operators.avatar,
-                  status: operators.status,
-                  isOnline: operators.isOnline,
-                  lastSeenAt: operators.lastSeenAt,
-                  usageDate: operators.usageDate,
-                  usageSecondsToday: operators.usageSecondsToday,
-                })
-                .from(operators)
-                .where(eq(operators.tenantId, tenantId)),
-              getComercialOperatorIds(tenantId).catch(() => null),
-              db
-                .select({
-                  id: crmPipelines.id,
-                  name: crmPipelines.name,
-                })
-                .from(crmPipelines)
-                .where(eq(crmPipelines.tenantId, tenantId))
-                .orderBy(asc(crmPipelines.orderIndex)),
-              db
-                .execute(sql`
-                  SELECT
-                    d.id AS "dealId",
-                    d.operator_id AS "operatorId",
-                    COUNT(cda.id) FILTER (
-                      WHERE cda.status = 'pending'
+          // Execução 100% paralela com agregações em banco (zero leitura de messages de 2,8M linhas e zero Base64 de avatares)
+          const [
+            tasksResult,
+            tenantOperators,
+            comercialOpIds,
+            tenantPipelines,
+            globalCountsResult,
+            activeAndTodayRows,
+            completedByOpResult,
+            openDealsAggResult,
+          ] = await Promise.all([
+            // 1. Lista enxuta e priorizada de tarefas para renderização (pendentes/atrasadas primeiro, teto seguro)
+            getNativeKanbanTasksWithMeta(tenantId, {
+              operatorId: session.operator.id,
+              email: session.operator.email,
+              isAdmin: true,
+              all: true,
+              scope: "all",
+              fromDate: validFromDate,
+              toDate: validToDate,
+              limit: safeLimit,
+              maxLimit: MAX_GLOBAL_TASKS_LIMIT,
+              orderMode: validFromDate || validToDate ? "due_asc" : "pending_priority",
+            }),
+
+            // 2. Operadores leves (SEM avatar Base64 para evitar payload de vários MB)
+            db
+              .select({
+                id: operators.id,
+                name: operators.name,
+                email: operators.email,
+                status: operators.status,
+                isOnline: operators.isOnline,
+                lastSeenAt: operators.lastSeenAt,
+                usageDate: operators.usageDate,
+                usageSecondsToday: operators.usageSecondsToday,
+              })
+              .from(operators)
+              .where(eq(operators.tenantId, tenantId)),
+
+            getComercialOperatorIds(tenantId).catch(() => null),
+
+            // 3. Funis do tenant
+            db
+              .select({
+                id: crmPipelines.id,
+                name: crmPipelines.name,
+              })
+              .from(crmPipelines)
+              .where(eq(crmPipelines.tenantId, tenantId))
+              .orderBy(asc(crmPipelines.orderIndex)),
+
+            // 4. Contadores globais por status e tipo direto no Postgres (1 linha)
+            db
+              .select({
+                totalTasks: sql<number>`COUNT(*)::int`,
+                pendingTasksCount: sql<number>`COUNT(*) FILTER (WHERE ${crmDealActivities.status} != 'completed')::int`,
+                completedTasksCount: sql<number>`COUNT(*) FILTER (WHERE ${crmDealActivities.status} = 'completed')::int`,
+                typeCall: sql<number>`COUNT(*) FILTER (WHERE LOWER(COALESCE(${crmDealActivities.type}, 'task')) = 'call')::int`,
+                typeWhatsapp: sql<number>`COUNT(*) FILTER (WHERE LOWER(COALESCE(${crmDealActivities.type}, 'task')) = 'whatsapp')::int`,
+                typeMeeting: sql<number>`COUNT(*) FILTER (WHERE LOWER(COALESCE(${crmDealActivities.type}, 'task')) = 'meeting')::int`,
+                typeVisit: sql<number>`COUNT(*) FILTER (WHERE LOWER(COALESCE(${crmDealActivities.type}, 'task')) = 'visit')::int`,
+                typeEmail: sql<number>`COUNT(*) FILTER (WHERE LOWER(COALESCE(${crmDealActivities.type}, 'task')) = 'email')::int`,
+                typeLunch: sql<number>`COUNT(*) FILTER (WHERE LOWER(COALESCE(${crmDealActivities.type}, 'task')) = 'lunch')::int`,
+              })
+              .from(crmDealActivities)
+              .innerJoin(
+                crmDeals,
+                and(eq(crmDealActivities.dealId, crmDeals.id), eq(crmDeals.tenantId, tenantId)),
+              )
+              .where(
+                and(
+                  eq(crmDealActivities.tenantId, tenantId),
+                  sql`${crmDealActivities.type} NOT IN ('note', 'system_event')`,
+                  sql`${crmDealActivities.status} != 'cancelled'`,
+                ),
+              ),
+
+            // 5. Apenas tarefas pendentes OU vencendo hoje (colunas mínimas) para métricas exatas de risco R$, atraso e execução diária
+            db
+              .select({
+                status: crmDealActivities.status,
+                dueDate: crmDealActivities.dueDate,
+                dealId: crmDealActivities.dealId,
+                dealStatus: crmDeals.status,
+                dealValue: crmDeals.value,
+                dealOperatorId: crmDeals.operatorId,
+                assignedOperatorId: crmDealActivities.assignedToOperatorId,
+                assignedOperatorIds: crmDealActivities.assignedToOperatorIds,
+                creatorOperatorId: crmDealActivities.operatorId,
+              })
+              .from(crmDealActivities)
+              .innerJoin(
+                crmDeals,
+                and(eq(crmDealActivities.dealId, crmDeals.id), eq(crmDeals.tenantId, tenantId)),
+              )
+              .where(
+                and(
+                  eq(crmDealActivities.tenantId, tenantId),
+                  sql`${crmDealActivities.type} NOT IN ('note', 'system_event')`,
+                  sql`${crmDealActivities.status} != 'cancelled'`,
+                  or(
+                    sql`${crmDealActivities.status} != 'completed'`,
+                    and(
+                      gte(crmDealActivities.dueDate, todayStartUtc),
+                      lte(crmDealActivities.dueDate, todayEndUtc),
+                    ),
+                  )!,
+                ),
+              ),
+
+            // 6. Total histórico de tarefas concluídas por operador (agregado em SQL)
+            db
+              .execute(sql`
+                SELECT
+                  COALESCE(cda.assigned_to_operator_id, cda.operator_id, d.operator_id) AS "operatorId",
+                  COUNT(*)::int AS "doneCount"
+                FROM crm_deal_activities cda
+                INNER JOIN crm_deals d
+                  ON d.id = cda.deal_id
+                 AND d.tenant_id = ${tenantId}
+                WHERE cda.tenant_id = ${tenantId}
+                  AND cda.type NOT IN ('note', 'system_event')
+                  AND cda.status = 'completed'
+                GROUP BY 1
+              `)
+              .catch(() => []),
+
+            // 7. Negociações abertas com/sem tarefa pendente agrupadas direto por operador no SQL (~25 linhas em vez de 32k)
+            db
+              .execute(sql`
+                SELECT
+                  d.operator_id AS "operatorId",
+                  COUNT(*)::int AS "totalOpen",
+                  COUNT(*) FILTER (
+                    WHERE NOT EXISTS (
+                      SELECT 1
+                      FROM crm_deal_activities cda
+                      WHERE cda.deal_id = d.id
+                        AND cda.tenant_id = ${tenantId}
+                        AND cda.status = 'pending'
                         AND cda.type NOT IN ('note', 'system_event')
-                    )::int AS "pendingTasksCount"
-                  FROM crm_deals d
-                  LEFT JOIN crm_deal_activities cda
-                    ON cda.deal_id = d.id
-                   AND cda.tenant_id = ${tenantId}
-                  WHERE d.tenant_id = ${tenantId}
-                    AND d.status = 'open'
-                  GROUP BY d.id, d.operator_id
-                `)
-                .catch(() => []),
-            ]);
+                    )
+                  )::int AS "withoutTask"
+                FROM crm_deals d
+                WHERE d.tenant_id = ${tenantId}
+                  AND d.status = 'open'
+                GROUP BY d.operator_id
+              `)
+              .catch(() => []),
+          ]);
 
-          const now = new Date();
-          const nowMs = now.getTime();
-          const todayBrt = getBrtDateKey(now);
-          const sevenDaysAheadMs = nowMs + 7 * 24 * 3600_000;
-
-          // Mapa de presença por operador
+          // Mapa de presença por operador (sem Base64)
           const operatorPresenceMap = new Map<
             string,
             {
@@ -178,201 +252,88 @@ export const Route = createFileRoute("/api/gestao/tasks")({
           >();
 
           for (const op of tenantOperators) {
-            const snap = computeOperatorPresenceSnapshot(op, tenantId, session.operator.id);
+            const snap = computeOperatorPresenceSnapshot(op as any, tenantId, session.operator.id);
             const presenceLabel = !snap.isOnline
               ? "OFFLINE"
               : op.status === "ausente"
-              ? "EM PAUSA"
-              : op.status === "ocupado"
-              ? "EM ATENDIMENTO"
-              : "ONLINE";
+                ? "EM PAUSA"
+                : op.status === "ocupado"
+                  ? "EM ATENDIMENTO"
+                  : "ONLINE";
             operatorPresenceMap.set(op.id, {
               id: op.id,
               name: op.name,
               email: op.email || null,
-              avatar: op.avatar || null,
+              avatar: null,
               isOnline: snap.isOnline,
               presenceLabel,
             });
           }
 
-          // Busca últimas mensagens das conversas vinculadas às tarefas (priorizando pendentes/hoje)
-          const relevantConvIds = Array.from(
-            new Set(
-              rawTasks
-                .filter((t) => Boolean(t.chatConversationId))
-                .sort((a, b) => {
-                  if (a.status !== b.status) return a.status === "pending" ? -1 : 1;
-                  return 0;
-                })
-                .slice(0, 150)
-                .map((t) => t.chatConversationId!),
-            ),
-          );
-
-          const messagesByConv = new Map<
-            string,
-            Array<{
-              id: string;
-              senderType: string;
-              senderName: string | null;
-              content: string;
-              sentAt: string;
-              isInternalNote: boolean;
-              mediaInterpretation: string | null;
-              status: string;
-              errorMessage: string | null;
-              quotedMessageId: string | null;
-              quotedMessageSender: string | null;
-              quotedMessageContent: string | null;
-              metaDetails: any;
-            }>
-          >();
-
-          if (relevantConvIds.length > 0) {
-            const idParams = sql.join(
-              relevantConvIds.map((id) => sql`${id}`),
-              sql`, `,
-            );
-            const rawMsgsResult = await db
-              .execute(sql`
-                SELECT
-                  id,
-                  conversation_id AS "conversationId",
-                  sender_type AS "senderType",
-                  sender_name AS "senderName",
-                  content,
-                  sent_at AS "sentAt",
-                  is_internal_note AS "isInternalNote",
-                  media_interpretation AS "mediaInterpretation",
-                  status,
-                  error_message AS "errorMessage",
-                  quoted_message_id AS "quotedMessageId",
-                  quoted_message_sender AS "quotedMessageSender",
-                  quoted_message_content AS "quotedMessageContent",
-                  meta_details AS "metaDetails"
-                FROM (
-                  SELECT
-                    m.*,
-                    ROW_NUMBER() OVER (PARTITION BY m.conversation_id ORDER BY m.sent_at DESC) AS rn
-                  FROM messages m
-                  WHERE m.conversation_id IN (${idParams})
-                ) ranked
-                WHERE ranked.rn <= 12
-                ORDER BY conversation_id, sent_at ASC
-              `)
-              .catch(() => []);
-
-            for (const row of extractRows(rawMsgsResult)) {
-              const cid = row.conversationId;
-              if (!cid) continue;
-              const list = messagesByConv.get(cid) || [];
-              list.push({
-                id: row.id,
-                senderType: row.senderType,
-                senderName: row.senderName || null,
-                content: row.content || "",
-                sentAt: row.sentAt instanceof Date ? row.sentAt.toISOString() : String(row.sentAt),
-                isInternalNote: Boolean(row.isInternalNote),
-                mediaInterpretation: row.mediaInterpretation ?? null,
-                status: row.status ?? "accepted",
-                errorMessage: row.errorMessage ?? null,
-                quotedMessageId: row.quotedMessageId ?? null,
-                quotedMessageSender: row.quotedMessageSender ?? null,
-                quotedMessageContent: row.quotedMessageContent ?? null,
-                metaDetails: row.metaDetails ?? null,
-              });
-              messagesByConv.set(cid, list);
-            }
-          }
-
-          // Enriquecer cada tarefa com presença e histórico recente da conversa
-          const enrichedTasks: GlobalTaskItem[] = rawTasks.map((t) => {
+          // Enriquecer cada tarefa exibida com presença (mensagens carregam sob demanda ao clicar em "Espiar Conversa")
+          const enrichedTasks: GlobalTaskItem[] = tasksResult.tasks.map((t) => {
             const opPresence = t.operatorId ? operatorPresenceMap.get(t.operatorId) : undefined;
-            const convMsgs = t.chatConversationId ? messagesByConv.get(t.chatConversationId) || [] : [];
-            const visibleMsgs = convMsgs.filter(
-              (m) => !(m.senderType === "system" && BOILERPLATE_SYSTEM_RE.test(m.content.trim())),
-            );
-            const lastNonInternal = [...visibleMsgs].reverse().find((m) => !m.isInternalNote);
-            const parsedLast = lastNonInternal
-              ? parseMediaPreview(lastNonInternal.content, lastNonInternal.mediaInterpretation)
-              : null;
-
-            const recentMessages: LiveMessage[] = visibleMsgs.slice(-10).map((m) => ({
-              id: m.id,
-              sender:
-                m.senderType === "system"
-                  ? "system"
-                  : m.senderType === "agent" || m.senderType === "bot"
-                  ? "agent"
-                  : "client",
-              senderName: m.senderName,
-              text: m.content,
-              time: new Date(m.sentAt).toLocaleTimeString("pt-BR", {
-                timeZone: "America/Sao_Paulo",
-                hour: "2-digit",
-                minute: "2-digit",
-              }),
-              sentAt: m.sentAt,
-              isInternalNote: m.isInternalNote,
-              mediaInterpretation: m.mediaInterpretation,
-              status: m.status,
-              errorMessage: m.errorMessage,
-              quotedMessageId: m.quotedMessageId,
-              quotedMessageSender: m.quotedMessageSender,
-              quotedMessageContent: m.quotedMessageContent,
-              isSupervisorWhisper: Boolean(m.metaDetails?.supervisorWhisper),
-            }));
-
             return {
               ...t,
               operatorIsOnline: opPresence?.isOnline ?? false,
-              lastMessagePreview: parsedLast?.preview || null,
-              lastMessageSenderType: (lastNonInternal?.senderType as any) || null,
-              lastMessageSentAt: lastNonInternal?.sentAt || null,
-              lastMessageMediaType: parsedLast?.mediaType || null,
-              lastMessageMediaId: parsedLast?.mediaId || null,
-              lastMessageTranscription: lastNonInternal?.mediaInterpretation || null,
-              recentMessages,
+              lastMessagePreview: null,
+              lastMessageSenderType: null,
+              lastMessageSentAt: null,
+              lastMessageMediaType: null,
+              lastMessageMediaId: null,
+              lastMessageTranscription: null,
+              recentMessages: [],
             };
           });
 
-          // Estatísticas de negociações abertas por operador (e órfãs de tarefa)
+          // Estatísticas agregadas de negociações abertas por operador
           const openDealsRows = extractRows<{
-            dealId: string;
             operatorId: string | null;
-            pendingTasksCount: number;
-          }>(openDealsResult);
+            totalOpen: number;
+            withoutTask: number;
+          }>(openDealsAggResult);
 
           let globalOpenDealsCount = 0;
           let globalOpenDealsWithoutTasksCount = 0;
           const openDealsByOp = new Map<string, { total: number; withoutTask: number }>();
 
-          for (const d of openDealsRows) {
-            globalOpenDealsCount++;
-            const hasTask = Number(d.pendingTasksCount || 0) > 0;
-            if (!hasTask) globalOpenDealsWithoutTasksCount++;
-            if (d.operatorId) {
-              const curr = openDealsByOp.get(d.operatorId) || { total: 0, withoutTask: 0 };
-              curr.total++;
-              if (!hasTask) curr.withoutTask++;
-              openDealsByOp.set(d.operatorId, curr);
+          for (const row of openDealsRows) {
+            const total = Number(row.totalOpen || 0);
+            const withoutTask = Number(row.withoutTask || 0);
+            globalOpenDealsCount += total;
+            globalOpenDealsWithoutTasksCount += withoutTask;
+            if (row.operatorId) {
+              openDealsByOp.set(row.operatorId, { total, withoutTask });
             }
           }
 
-          // Cálculo do Resumo Executivo Global e Breakdown por Consultor
+          // Contadores globais SQL
+          const gRow = globalCountsResult[0];
+          const totalTasks = Number(gRow?.totalTasks ?? 0);
+          const pendingTasksCount = Number(gRow?.pendingTasksCount ?? 0);
+          const completedTasksCount = Number(gRow?.completedTasksCount ?? 0);
+          const typeCall = Number(gRow?.typeCall ?? 0);
+          const typeWhatsapp = Number(gRow?.typeWhatsapp ?? 0);
+          const typeMeeting = Number(gRow?.typeMeeting ?? 0);
+          const typeVisit = Number(gRow?.typeVisit ?? 0);
+          const typeEmail = Number(gRow?.typeEmail ?? 0);
+          const typeLunch = Number(gRow?.typeLunch ?? 0);
+          const typeTaskOther = Math.max(
+            0,
+            totalTasks - (typeCall + typeWhatsapp + typeMeeting + typeVisit + typeEmail + typeLunch),
+          );
+
           const byType = {
-            call: 0,
-            whatsapp: 0,
-            meeting: 0,
-            visit: 0,
-            email: 0,
-            lunch: 0,
-            task: 0,
+            call: typeCall,
+            whatsapp: typeWhatsapp,
+            meeting: typeMeeting,
+            visit: typeVisit,
+            email: typeEmail,
+            lunch: typeLunch,
+            task: typeTaskOther,
           };
 
-          let pendingTasksCount = 0;
-          let completedTasksCount = 0;
+          // Acumuladores exatos sobre tarefas pendentes + agenda de hoje
           let overdueTasksCount = 0;
           let overdueOpenDealsTasksCount = 0;
           let totalOverdueHours = 0;
@@ -384,7 +345,6 @@ export const Route = createFileRoute("/api/gestao/tasks")({
           let todayOverdueCount = 0;
           let upcoming7dCount = 0;
 
-          // Acumuladores por operador
           const opStatsMap = new Map<
             string,
             {
@@ -417,36 +377,35 @@ export const Route = createFileRoute("/api/gestao/tasks")({
             return entry;
           };
 
-          for (const t of enrichedTasks) {
-            const isDone = t.status === "done";
-            const dueMs = t.dueDate ? new Date(t.dueDate).getTime() : NaN;
+          for (const row of extractRows<{ operatorId: string | null; doneCount: number }>(
+            completedByOpResult,
+          )) {
+            if (!row.operatorId) continue;
+            ensureOpStats(row.operatorId).totalDone += Number(row.doneCount || 0);
+          }
+
+          for (const row of activeAndTodayRows) {
+            const isDone = row.status === "completed";
+            const dueMs = row.dueDate ? row.dueDate.getTime() : NaN;
             const hasValidDue = !Number.isNaN(dueMs);
             const isOverdue = !isDone && hasValidDue && dueMs < nowMs;
-            const dueBrtKey = hasValidDue ? getBrtDateKey(new Date(dueMs)) : null;
+            const dueBrtKey = hasValidDue ? getBrtDateKey(row.dueDate!) : null;
             const isDueToday = dueBrtKey === todayBrt;
             const isUpcoming7d = !isDone && hasValidDue && dueMs >= nowMs && dueMs <= sevenDaysAheadMs;
 
-            const tType = (t.type || "task").toLowerCase();
-            if (tType in byType) {
-              byType[tType as keyof typeof byType]++;
-            } else {
-              byType.task++;
-            }
-
-            if (isDone) {
-              completedTasksCount++;
-            } else {
-              pendingTasksCount++;
-            }
+            const dealNumericValue =
+              row.dealValue !== null && row.dealValue !== undefined && !Number.isNaN(Number(row.dealValue))
+                ? Number(row.dealValue)
+                : 0;
+            const isDealOpen = (row.dealStatus || "open") === "open";
 
             if (isOverdue) {
               overdueTasksCount++;
-              const overdueHours = Math.max(0.1, (nowMs - dueMs) / 3600_000);
-              totalOverdueHours += overdueHours;
-              if (t.deal?.status === "open") {
+              totalOverdueHours += Math.max(0.1, (nowMs - dueMs) / 3600_000);
+              if (isDealOpen) {
                 overdueOpenDealsTasksCount++;
-                if (t.deal.id && t.deal.numericValue && t.deal.numericValue > 0) {
-                  overdueOpenDealValueMap.set(t.deal.id, t.deal.numericValue);
+                if (row.dealId && dealNumericValue > 0) {
+                  overdueOpenDealValueMap.set(row.dealId, dealNumericValue);
                 }
               }
             }
@@ -465,25 +424,29 @@ export const Route = createFileRoute("/api/gestao/tasks")({
               upcoming7dCount++;
             }
 
-            const targetOpIds =
-              Array.isArray(t.assignedOperatorIds) && t.assignedOperatorIds.length > 0
-                ? t.assignedOperatorIds
-                : t.operatorId
-                ? [t.operatorId]
+            const rawAssignedIds =
+              Array.isArray(row.assignedOperatorIds) && row.assignedOperatorIds.length > 0
+                ? row.assignedOperatorIds.filter(Boolean)
                 : [];
+            const effectiveOpId =
+              row.assignedOperatorId || row.creatorOperatorId || row.dealOperatorId || null;
+            const targetOpIds =
+              rawAssignedIds.length > 0
+                ? Array.from(new Set(rawAssignedIds))
+                : effectiveOpId
+                  ? [effectiveOpId]
+                  : [];
 
             for (const opId of targetOpIds) {
               if (!opId) continue;
               const st = ensureOpStats(opId);
-              if (isDone) {
-                st.totalDone++;
-              } else {
+              if (!isDone) {
                 st.totalPending++;
               }
               if (isOverdue) {
                 st.overdueCount++;
-                if (t.deal?.status === "open" && t.deal.id && t.deal.numericValue && t.deal.numericValue > 0) {
-                  st.overdueDealValues.set(t.deal.id, t.deal.numericValue);
+                if (isDealOpen && row.dealId && dealNumericValue > 0) {
+                  st.overdueDealValues.set(row.dealId, dealNumericValue);
                 }
               }
               if (isDueToday) {
@@ -506,7 +469,7 @@ export const Route = createFileRoute("/api/gestao/tasks")({
           const todayExecutionRatePct =
             todayTotalCount > 0 ? Math.round((todayCompletedCount / todayTotalCount) * 100) : 0;
 
-          // Montar breakdown de consultores (incluindo consultores comerciais mesmo que tenham 0 tarefas)
+          // Montar breakdown de consultores
           const relevantOperatorIds = new Set<string>();
           if (comercialOpIds && comercialOpIds.length > 0) {
             for (const id of comercialOpIds) relevantOperatorIds.add(id);
@@ -522,7 +485,6 @@ export const Route = createFileRoute("/api/gestao/tasks")({
           for (const opId of relevantOperatorIds) {
             const opInfo = operatorPresenceMap.get(opId);
             if (!opInfo) continue;
-            // Ignora contas genéricas ou IA se houver
             if (/^(valentina|fagner)$/i.test(opInfo.name.trim())) continue;
 
             const st = opStatsMap.get(opId);
@@ -539,7 +501,6 @@ export const Route = createFileRoute("/api/gestao/tasks")({
             const totalDone = st?.totalDone ?? 0;
             const totalAll = totalPending + totalDone;
 
-            // Se o consultor tem negociações abertas ou tarefas mas 0 agendadas para hoje/futuro
             if ((dealsInfo.total > 0 || totalAll > 0) && up7d === 0 && todayPending === 0) {
               consultantsWithoutFutureTasksCount++;
             }
@@ -548,8 +509,8 @@ export const Route = createFileRoute("/api/gestao/tasks")({
               todayTotal > 0
                 ? Math.round((todayDone / todayTotal) * 100)
                 : totalAll > 0
-                ? Math.round((totalDone / totalAll) * 100)
-                : 0;
+                  ? Math.round((totalDone / totalAll) * 100)
+                  : 0;
 
             if (totalAll === 0 && dealsInfo.total === 0 && !opInfo.isOnline) {
               continue;
@@ -559,7 +520,7 @@ export const Route = createFileRoute("/api/gestao/tasks")({
               operatorId: opInfo.id,
               operatorName: opInfo.name,
               operatorEmail: opInfo.email,
-              operatorAvatar: opInfo.avatar,
+              operatorAvatar: null,
               isOnline: opInfo.isOnline,
               presenceLabel: opInfo.presenceLabel,
               overdueCount,
@@ -587,7 +548,7 @@ export const Route = createFileRoute("/api/gestao/tasks")({
           });
 
           const summary: GlobalTasksExecutiveSummary = {
-            totalTasks: enrichedTasks.length,
+            totalTasks,
             pendingTasksCount,
             completedTasksCount,
             overdueTasksCount,
@@ -613,13 +574,15 @@ export const Route = createFileRoute("/api/gestao/tasks")({
               id: op.id,
               name: op.name,
               email: op.email,
-              avatar: op.avatar,
+              avatar: null as string | null,
               isOnline: op.isOnline,
             }));
 
           return new Response(
             JSON.stringify({
               tasks: enrichedTasks,
+              totalMatching: tasksResult.totalMatching,
+              hasMore: tasksResult.hasMore,
               summary,
               operatorBreakdown,
               pipelines: tenantPipelines,
@@ -630,8 +593,8 @@ export const Route = createFileRoute("/api/gestao/tasks")({
             },
           );
         } catch (e: any) {
-          console.error("[gestao/tasks] ERRO:", e.message);
-          return new Response(JSON.stringify({ error: e.message }), {
+          console.error("[gestao/tasks] ERRO:", e?.message || e);
+          return new Response(JSON.stringify({ error: e?.message || "Erro interno" }), {
             status: 500,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
