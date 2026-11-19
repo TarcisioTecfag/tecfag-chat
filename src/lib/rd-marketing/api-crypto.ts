@@ -39,3 +39,37 @@ export function decryptRdSecret(tenantId: string, purpose: string, envelope: str
     decipher.final(),
   ]).toString("utf8");
 }
+
+const FLOW_WEBHOOK_PURPOSE = "flow-webhook";
+const FLOW_WEBHOOK_PLAIN_PREFIX = "plain:";
+const HEX_64_TOKEN = /^[a-f0-9]{64}$/;
+
+export function encodeFlowWebhookToken(tenantId: string, token: string): string {
+  if (!HEX_64_TOKEN.test(token)) throw new Error("RD_MARKETING_FLOW_TOKEN_INVALID");
+  if (rdEncryptionReady()) {
+    return encryptRdSecret(tenantId, FLOW_WEBHOOK_PURPOSE, token);
+  }
+  return `${FLOW_WEBHOOK_PLAIN_PREFIX}${token}`;
+}
+
+export function decodeFlowWebhookToken(
+  tenantId: string,
+  stored: string | null | undefined,
+): string | null {
+  if (!stored) return null;
+  if (stored.startsWith(FLOW_WEBHOOK_PLAIN_PREFIX)) {
+    const token = stored.slice(FLOW_WEBHOOK_PLAIN_PREFIX.length);
+    return HEX_64_TOKEN.test(token) ? token : null;
+  }
+  if (!rdEncryptionReady()) return null;
+  try {
+    const token = decryptRdSecret(tenantId, FLOW_WEBHOOK_PURPOSE, stored);
+    return HEX_64_TOKEN.test(token) ? token : null;
+  } catch {
+    return null;
+  }
+}
+
+export function buildFlowWebhookUrl(origin: string, token: string): string {
+  return `${origin}/api/webhooks/rd-marketing/${token}`;
+}

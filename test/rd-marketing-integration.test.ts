@@ -710,7 +710,19 @@ describe.skipIf(!testUrl)("RD Marketing: PostgreSQL isolado", () => {
       }),
     });
     expect(rotation.status).toBe(200);
-    const newToken = (await rotation.json()).webhookUrl.split("/").at(-1);
+    const rotatedUrl = (await rotation.json()).webhookUrl as string;
+    const newToken = rotatedUrl.split("/").at(-1)!;
+    const reloaded = await settingsHandlers.GET({
+      request: new Request("http://localhost/api/settings/rd-marketing", {
+        headers: { Cookie: adminCookie },
+      }),
+    });
+    expect(reloaded.status).toBe(200);
+    const reloadedData = await reloaded.json();
+    expect(JSON.stringify(reloadedData)).not.toContain("tokenHash");
+    expect(JSON.stringify(reloadedData)).not.toContain("tokenEncrypted");
+    const rotatedFlowRow = reloadedData.flows.find((f: any) => f.id === flow.id);
+    expect(rotatedFlowRow?.webhookUrl).toBe(rotatedUrl);
     expect((await send(webhookToken, JSON.stringify({ leads: [makeLead()] }))).status).toBe(401);
     expect((await send(newToken, JSON.stringify({ leads: [makeLead()] }))).status).toBe(202);
   });

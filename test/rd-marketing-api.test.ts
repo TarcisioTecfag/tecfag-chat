@@ -1,5 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
+  buildFlowWebhookUrl,
+  decodeFlowWebhookToken,
+  encodeFlowWebhookToken,
   encryptRdSecret,
   decryptRdSecret,
   rdEncryptionReady,
@@ -79,6 +82,32 @@ describe("RD Marketing: criptografia e leitura", () => {
     process.env.RD_MARKETING_ENCRYPTION_KEY = "short";
     expect(rdEncryptionReady()).toBe(false);
     process.env.RD_MARKETING_ENCRYPTION_KEY = saved;
+  });
+  test("token de webhook de fluxo persiste criptografado por tenant e suporta legado/fallback", () => {
+    const token = randomBytes(32).toString("hex");
+    const encoded = encodeFlowWebhookToken("tenant-a", token);
+    expect(encoded.startsWith("v1.")).toBe(true);
+    expect(encoded).not.toContain(token);
+    expect(decodeFlowWebhookToken("tenant-a", encoded)).toBe(token);
+    expect(decodeFlowWebhookToken("tenant-b", encoded)).toBeNull();
+    expect(decodeFlowWebhookToken("tenant-a", null)).toBeNull();
+    expect(decodeFlowWebhookToken("tenant-a", "invalid")).toBeNull();
+    expect(buildFlowWebhookUrl("https://app.example.com", token)).toBe(
+      `https://app.example.com/api/webhooks/rd-marketing/${token}`,
+    );
+    expect(() => encodeFlowWebhookToken("tenant-a", "short-token")).toThrow();
+
+    const saved = process.env.RD_MARKETING_ENCRYPTION_KEY;
+    try {
+      delete process.env.RD_MARKETING_ENCRYPTION_KEY;
+      const plainEncoded = encodeFlowWebhookToken("tenant-a", token);
+      expect(plainEncoded).toBe(`plain:${token}`);
+      expect(decodeFlowWebhookToken("tenant-a", plainEncoded)).toBe(token);
+      expect(decodeFlowWebhookToken("tenant-a", encoded)).toBeNull();
+    } finally {
+      process.env.RD_MARKETING_ENCRYPTION_KEY = saved;
+    }
+    expect(decodeFlowWebhookToken("tenant-a", `plain:${token}`)).toBe(token);
   });
   test("valida identificadores e não permite injetar rota ou evento", () => {
     expect(rdContactPath("email", "cliente+tag@example.com")).toBe(

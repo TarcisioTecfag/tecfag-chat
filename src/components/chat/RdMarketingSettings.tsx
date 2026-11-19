@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import {
   Copy,
   Check,
@@ -76,7 +76,7 @@ type Options = {
   fields: Record<"contact" | "company" | "deal", Field[]>;
 };
 
-type Flow = { id: string; settings: FlowSettings };
+type Flow = { id: string; settings: FlowSettings; webhookUrl?: string | null };
 
 type Log = {
   id: string;
@@ -408,6 +408,7 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
   const [createTemplateOpen, setCreateTemplateOpen] = useState(false);
   const [isOfficialManagerOpen, setIsOfficialManagerOpen] = useState(false);
   const [refreshingLogs, setRefreshingLogs] = useState(false);
+  const webhookCardRef = useRef<HTMLDivElement | null>(null);
 
   async function load(signal?: AbortSignal) {
     const response = await fetch("/api/settings/rd-marketing", { signal });
@@ -444,6 +445,7 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
         if (flow) {
           setId(flow.id);
           setForm(structuredClone(flow.settings));
+          setUrl(flow.webhookUrl || "");
           rememberRdMarketingFlow(tenant, flow.id);
         }
       })
@@ -479,10 +481,13 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
         await load();
         setId("");
         setForm(blank());
+        setUrl("");
+        setCopied(false);
         toast.success("Fluxo excluído com sucesso.");
         return;
       }
 
+      const wasNew = action === "save" && !id;
       const response = await fetch("/api/settings/rd-marketing", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -499,12 +504,21 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
         setPreview(data.results);
         toast.success("Simulação executada com sucesso!");
       } else {
+        const activeId = data.id || id;
         if (data.id) {
           setId(data.id);
           rememberRdMarketingFlow(tenant, data.id);
         }
-        if (data.webhookUrl) setUrl(data.webhookUrl);
-        await load();
+        const refreshed = await load();
+        const refreshedFlow = refreshed.flows.find((f) => f.id === activeId);
+        const nextUrl = data.webhookUrl || refreshedFlow?.webhookUrl || "";
+        setUrl(nextUrl);
+        setCopied(false);
+        if ((wasNew || action === "rotate") && nextUrl) {
+          requestAnimationFrame(() => {
+            webhookCardRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+          });
+        }
         toast.success(
           action === "save"
             ? "Fluxo de integração salvo com sucesso."
@@ -845,7 +859,8 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
                   setId(flow?.id || "");
                   setForm(flow ? structuredClone(flow.settings) : blank());
                   if (flow) rememberRdMarketingFlow(tenant, flow.id);
-                  setUrl("");
+                  setUrl(flow?.webhookUrl || "");
+                  setCopied(false);
                   setPreview(null);
                 }}
                 options={flowOptionsList}
@@ -865,6 +880,7 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
                   setId("");
                   setForm(blank());
                   setUrl("");
+                  setCopied(false);
                   setPreview(null);
                   toast.info("Configurando um novo fluxo. Defina o nome e as regras abaixo.");
                 }}
@@ -913,6 +929,129 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
         {flows.length} {flows.length === 1 ? "integração salva" : "integrações salvas"} no servidor
         para esta empresa.
       </p>
+
+      {/* CARD: WEBHOOK & URL DE INTEGRAÇÃO (SEMPRE VISÍVEL AO SELECIONAR UM FLUXO SALVO) */}
+      <div ref={webhookCardRef}>
+        {url && (
+          <motion.div
+            key={url}
+            initial={{ opacity: 0, scale: 0.99 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="space-y-3 rounded-3xl border border-primary/40 bg-primary/5 p-6 shadow-soft"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary text-primary-foreground font-black text-xs shrink-0">
+                  URL
+                </div>
+                <div>
+                  <h4 className="font-extrabold text-sm text-foreground">
+                    URL do Webhook para o RD Station Marketing
+                  </h4>
+                  <p className="text-[11px] text-muted-foreground">
+                    Copie e cole esta URL sempre que precisar configurar ou revisar o fluxo no RD
+                    Marketing.
+                  </p>
+                </div>
+              </div>
+
+              <span
+                className={cn(
+                  "text-[11px] font-bold px-2.5 py-0.5 rounded-full border",
+                  form.enabled
+                    ? "text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
+                    : "text-muted-foreground bg-muted border-border",
+                )}
+              >
+                {form.enabled ? "Pronto para receber" : "Fluxo pausado"}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <input
+                aria-label="URL da integração"
+                readOnly
+                onClick={(e) => e.currentTarget.select()}
+                className="w-full h-11 rounded-2xl border border-primary/30 bg-background px-4 font-mono text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 shadow-sm"
+                value={url}
+              />
+              <SystemTooltip content={copied ? "URL copiada!" : "Copiar URL do Webhook"}>
+                <button
+                  type="button"
+                  aria-label="Copiar URL"
+                  onClick={() => handleCopyUrl(url)}
+                  className="h-11 px-4 inline-flex items-center justify-center gap-1.5 rounded-2xl bg-primary text-primary-foreground font-bold text-xs shadow-soft transition-all hover:opacity-90 active:scale-[0.98] cursor-pointer shrink-0"
+                >
+                  {copied ? <Check className="h-4 w-4 text-white" /> : <Copy className="h-4 w-4" />}
+                  <span>{copied ? "Copiado" : "Copiar"}</span>
+                </button>
+              </SystemTooltip>
+            </div>
+
+            <div className="rounded-xl bg-card/60 border border-primary/20 p-3 text-xs text-muted-foreground space-y-1">
+              <div className="flex items-center gap-1.5 font-semibold text-foreground">
+                <Bookmark className="h-4 w-4 text-primary" />
+                <span>Como configurar no painel do RD Station Marketing:</span>
+              </div>
+              <p>
+                1. No RD Station, acesse <strong>Automações</strong> ou{" "}
+                <strong>Fluxos de Automação</strong>.
+              </p>
+              <p>
+                2. Adicione a ação <strong>"Enviar Leads para Integração"</strong> (Webhook).
+              </p>
+              <p>
+                3. Cole a URL acima. Cada novo lead qualificado será importado automaticamente para
+                o funil do CRM Tecfag.
+              </p>
+            </div>
+          </motion.div>
+        )}
+
+        {id && !url && (
+          <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-5 text-xs space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-start gap-2.5">
+                <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <p className="font-bold text-sm text-foreground">
+                    URL indisponível para este fluxo legado: {form.name}
+                  </p>
+                  <p className="text-muted-foreground leading-relaxed">
+                    Este fluxo foi criado antes do salvamento da URL no sistema (o token antigo foi
+                    gravado apenas como hash irreversível). A URL configurada no RD Marketing{" "}
+                    <strong>continua funcionando normalmente</strong>.
+                  </p>
+                  <p className="text-muted-foreground leading-relaxed">
+                    Caso precise copiar a URL novamente aqui, clique em{" "}
+                    <strong>Gerar Nova URL de Segurança</strong>: a nova URL ficará sempre salva e
+                    disponível ao abrir este fluxo (substituindo a anterior no RD Marketing).
+                  </p>
+                </div>
+              </div>
+              <SystemTooltip content="Gera uma nova URL que ficará sempre salva neste fluxo, invalidando o link antigo">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    if (
+                      confirm(
+                        "Deseja gerar uma nova URL? O webhook anterior configurado no RD Station deixará de funcionar imediatamente, mas a nova URL ficará sempre disponível aqui para cópia.",
+                      )
+                    ) {
+                      perform("rotate");
+                    }
+                  }}
+                  className="h-10 px-4 inline-flex items-center justify-center gap-2 rounded-xl border border-amber-500/40 bg-background hover:bg-muted text-foreground text-xs font-bold transition-all cursor-pointer shrink-0 disabled:opacity-50"
+                >
+                  <RefreshCw className="h-3.5 w-3.5 text-amber-500" />
+                  Gerar Nova URL de Segurança
+                </button>
+              </SystemTooltip>
+            </div>
+          </div>
+        )}
+      </div>
 
       <fieldset disabled={busy} className="space-y-6 disabled:opacity-75">
         {/* 2. CARD: DESTINO & REGRAS DO FLUXO COM CUSTOMSELECTS */}
@@ -1769,83 +1908,7 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
           </AnimatePresence>
         </motion.div>
 
-        {/* 6. CARD: WEBHOOK & URL DE INTEGRAÇÃO (SE DISPONÍVEL) */}
-        {id && !url && (
-          <div className="rounded-2xl border border-border bg-muted/40 p-4 text-sm space-y-2">
-            <p className="font-semibold">Integração salva: {form.name}</p>
-            <p className="text-muted-foreground">
-              A URL original do webhook continua válida após atualizar ou publicar o sistema. Por
-              segurança, ela é exibida apenas na criação ou ao gerar uma nova URL. Você pode
-              consultar a URL original na ação configurada no RD Marketing.
-            </p>
-            <p className="text-muted-foreground">
-              Gere uma nova URL somente para substituí-la: isso invalida a anterior e exige
-              atualizar a ação no RD Marketing.
-            </p>
-          </div>
-        )}
-
-        {url && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.98 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="space-y-3 rounded-3xl border border-primary/40 bg-primary/5 p-6 shadow-soft"
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary text-primary-foreground font-black text-xs">
-                  URL
-                </div>
-                <h4 className="font-extrabold text-sm text-foreground">
-                  URL do Webhook para o RD Station Marketing
-                </h4>
-              </div>
-
-              <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2.5 py-0.5 rounded-full border border-emerald-500/20">
-                Pronto para receber
-              </span>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <input
-                aria-label="URL da integração"
-                readOnly
-                className="w-full h-11 rounded-2xl border border-primary/30 bg-background px-4 font-mono text-xs text-foreground focus:outline-none shadow-sm"
-                value={url}
-              />
-              <SystemTooltip content={copied ? "Copiado!" : "Copiar URL do Webhook"}>
-                <button
-                  type="button"
-                  aria-label="Copiar URL"
-                  onClick={() => handleCopyUrl(url)}
-                  className="h-11 px-4 inline-flex items-center justify-center rounded-2xl bg-primary text-primary-foreground font-bold text-xs shadow-soft transition-all hover:opacity-90 active:scale-[0.98] cursor-pointer shrink-0"
-                >
-                  {copied ? <Check className="h-4 w-4 text-white" /> : <Copy className="h-4 w-4" />}
-                </button>
-              </SystemTooltip>
-            </div>
-
-            <div className="rounded-xl bg-card/60 border border-primary/20 p-3 text-xs text-muted-foreground space-y-1">
-              <div className="flex items-center gap-1.5 font-semibold text-foreground">
-                <Bookmark className="h-4 w-4 text-primary" />
-                <span>Como configurar no painel do RD Station Marketing:</span>
-              </div>
-              <p>
-                1. No RD Station, acesse <strong>Automações</strong> ou{" "}
-                <strong>Fluxos de Automação</strong>.
-              </p>
-              <p>
-                2. Adicione a ação <strong>"Enviar Leads para Integração"</strong> (Webhook).
-              </p>
-              <p>
-                3. Cole a URL acima. Cada novo lead qualificado será importado automaticamente para
-                o funil do CRM Tecfag.
-              </p>
-            </div>
-          </motion.div>
-        )}
-
-        {/* 7. BARRA DE AÇÕES INFERIOR */}
+        {/* 6. BARRA DE AÇÕES INFERIOR */}
         <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
           <div className="flex items-center gap-3">
             <SystemTooltip content="Salva todas as configurações de destino, atribuição e mapeamento deste fluxo">

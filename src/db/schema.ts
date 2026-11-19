@@ -80,11 +80,12 @@ export const channelConfigs = pgTable("channel_configs", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
-// RD Marketing: URLs independentes por fluxo; o segredo só é armazenado como hash.
+// RD Marketing: URLs independentes por fluxo; tokenHash autentica o webhook e tokenEncrypted permite exibir a URL no painel admin.
 export const rdMarketingFlows = pgTable("rd_marketing_flows", {
   id: text("id").primaryKey(),
   tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
   tokenHash: text("token_hash").notNull().unique(),
+  tokenEncrypted: text("token_encrypted"),
   settings: jsonb("settings").$type<FlowSettings>().notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),

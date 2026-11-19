@@ -292,6 +292,13 @@ const migrations = [
       import.meta.url,
     ),
   },
+  {
+    name: "0063_rd_marketing_flow_token",
+    url: new URL(
+      "../src/db/migrations/0063_rd_marketing_flow_token.sql",
+      import.meta.url,
+    ),
+  },
 ];
 const databaseUrl = process.env.DATABASE_URL;
 

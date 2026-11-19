@@ -6,6 +6,9 @@ import { rdMarketingFlows } from "../../../db/schema";
 import { requireSession } from "../../../lib/auth-session";
 import { CrmError } from "../../../lib/crm/crm-service";
 import {
+  buildFlowWebhookUrl,
+  decodeFlowWebhookToken,
+  encodeFlowWebhookToken,
   flowOptions,
   hashToken,
   listFlows,
@@ -37,8 +40,9 @@ export const Route = createFileRoute("/api/settings/rd-marketing")({
             { status: 403 },
           );
         try {
+          const origin = new URL(request.url).origin;
           const [data, options, events, metaTemplates] = await Promise.all([
-            listFlows(tenantId),
+            listFlows(tenantId, origin),
             flowOptions(tenantId),
             listRdEvents(tenantId),
             getMetaTemplateLocalMetadataMap(tenantId),
@@ -102,33 +106,49 @@ export const Route = createFileRoute("/api/settings/rd-marketing")({
           if (body.action === "rotate") {
             if (!existing) throw new CrmError("Selecione um fluxo salvo.", "BAD_REQUEST", 400);
             const token = newWebhookToken();
+            const tokenEncrypted = encodeFlowWebhookToken(tenantId, token);
             await db
               .update(rdMarketingFlows)
-              .set({ tokenHash: hashToken(token), updatedAt: new Date() })
+              .set({ tokenHash: hashToken(token), tokenEncrypted, updatedAt: new Date() })
               .where(and(eq(rdMarketingFlows.tenantId, tenantId), eq(rdMarketingFlows.id, id)));
             return Response.json(
-              { webhookUrl: `${new URL(request.url).origin}/api/webhooks/rd-marketing/${token}` },
+              { webhookUrl: buildFlowWebhookUrl(new URL(request.url).origin, token) },
               { headers: { "Cache-Control": "no-store" } },
             );
           }
           if (body.action !== "save") throw new CrmError("Ação inválida.", "BAD_REQUEST", 400);
           const settings = await validateFlow(tenantId, body.settings);
+          const origin = new URL(request.url).origin;
           if (existing) {
             await db
               .update(rdMarketingFlows)
               .set({ settings, updatedAt: new Date() })
               .where(and(eq(rdMarketingFlows.tenantId, tenantId), eq(rdMarketingFlows.id, id)));
-            return Response.json({ id });
+            const existingToken = decodeFlowWebhookToken(tenantId, existing.tokenEncrypted);
+            return Response.json(
+              {
+                id,
+                webhookUrl: existingToken ? buildFlowWebhookUrl(origin, existingToken) : null,
+              },
+              { headers: { "Cache-Control": "no-store" } },
+            );
           }
           const flowId = randomUUID();
           const token = newWebhookToken();
+          const tokenEncrypted = encodeFlowWebhookToken(tenantId, token);
           await db
             .insert(rdMarketingFlows)
-            .values({ id: flowId, tenantId, tokenHash: hashToken(token), settings });
+            .values({
+              id: flowId,
+              tenantId,
+              tokenHash: hashToken(token),
+              tokenEncrypted,
+              settings,
+            });
           return Response.json(
             {
               id: flowId,
-              webhookUrl: `${new URL(request.url).origin}/api/webhooks/rd-marketing/${token}`,
+              webhookUrl: buildFlowWebhookUrl(origin, token),
             },
             { status: 201, headers: { "Cache-Control": "no-store" } },
           );

@@ -40,7 +40,13 @@ import {
 } from "./mapping";
 import { extractDetailedConversionUtm } from "./attribution";
 import { isTestEntityTitle, normalizeRdDealSource } from "../marketing/crm-attribution";
+import {
+  buildFlowWebhookUrl,
+  decodeFlowWebhookToken,
+  encodeFlowWebhookToken,
+} from "./api-crypto";
 
+export { buildFlowWebhookUrl, decodeFlowWebhookToken, encodeFlowWebhookToken };
 export const hashToken = (value: string) => createHash("sha256").update(value).digest("hex");
 export const newWebhookToken = () => randomBytes(32).toString("hex");
 type Executor = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -582,10 +588,14 @@ export async function receiveLeads(flow: Flow, payload: unknown) {
   });
 }
 
-export async function listFlows(tenantId: string) {
-  const [flows, logs] = await Promise.all([
+export async function listFlows(tenantId: string, origin?: string) {
+  const [rawFlows, logs] = await Promise.all([
     db
-      .select({ id: rdMarketingFlows.id, settings: rdMarketingFlows.settings })
+      .select({
+        id: rdMarketingFlows.id,
+        settings: rdMarketingFlows.settings,
+        tokenEncrypted: rdMarketingFlows.tokenEncrypted,
+      })
       .from(rdMarketingFlows)
       .where(eq(rdMarketingFlows.tenantId, tenantId))
       .orderBy(desc(rdMarketingFlows.createdAt)),
@@ -603,5 +613,13 @@ export async function listFlows(tenantId: string) {
       .orderBy(desc(rdMarketingLogs.createdAt))
       .limit(50),
   ]);
+  const flows = rawFlows.map(({ id, settings, tokenEncrypted }) => {
+    const token = decodeFlowWebhookToken(tenantId, tokenEncrypted);
+    return {
+      id,
+      settings,
+      webhookUrl: token && origin ? buildFlowWebhookUrl(origin, token) : null,
+    };
+  });
   return { flows, logs };
 }

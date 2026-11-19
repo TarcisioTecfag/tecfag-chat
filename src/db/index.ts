@@ -471,6 +471,7 @@ export async function verifyDatabaseCompatibility(): Promise<void> {
       ALTER TABLE crm_deals ADD COLUMN IF NOT EXISTS lost_at TIMESTAMP;
       ALTER TABLE crm_deals ADD COLUMN IF NOT EXISTS is_legacy BOOLEAN NOT NULL DEFAULT FALSE;
       ALTER TABLE crm_deals ADD COLUMN IF NOT EXISTS is_test BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE IF EXISTS rd_marketing_flows ADD COLUMN IF NOT EXISTS token_encrypted TEXT;
     `);
     console.log("[db] ✓ Compatibilidade do schema verificada com sucesso.");
   } catch (e: any) {
