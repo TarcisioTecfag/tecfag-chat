@@ -707,6 +707,34 @@ if (!databaseUrl) {
       );
     }
 
+    // 10e. Migração completa e sem duplicação do FUNIL SDR (RD Station CRM — exportação 19/11/2026, 3.816 negociações únicas)
+    const tecfagSdrRdImportName = "import_tecfag_sdr_rd_crm_2026_11_19_v1";
+    const [appliedTecfagSdrRdImport] = await sql`
+      SELECT name FROM app_deploy_migrations WHERE name = ${tecfagSdrRdImportName}
+    `;
+    if (!appliedTecfagSdrRdImport) {
+      console.log(
+        `[platform migration] Iniciando execução única de ${tecfagSdrRdImportName}...`,
+      );
+      const { runTecfagSdrRdCrmMigration } = await import(
+        "./import-tecfag-sdr-rd-crm.mjs"
+      );
+      const summary = await runTecfagSdrRdCrmMigration(sql);
+      await sql`
+        INSERT INTO app_deploy_migrations (name)
+        VALUES (${tecfagSdrRdImportName})
+        ON CONFLICT (name) DO NOTHING
+      `;
+      console.log(
+        `[platform migration] ${tecfagSdrRdImportName} concluída com sucesso:`,
+        summary,
+      );
+    } else {
+      console.log(
+        `[platform migration] ${tecfagSdrRdImportName} já aplicada anteriormente.`,
+      );
+    }
+
     // 11. Higienização contínua de sectors.operator_ids (remove IDs de operadores órfãos/excluídos e deduplica por setor)
     try {
       const [allSectors, allOperators] = await Promise.all([
