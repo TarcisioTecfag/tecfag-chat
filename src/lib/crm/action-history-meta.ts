@@ -30,6 +30,8 @@ export const ACTION_HISTORY_LABELS: Record<string, string> = {
   delete_contact: "Contato excluído",
   merge_contacts: "Contatos mesclados",
   replace_deal_contact: "Contato da negociação alterado",
+  reassign_conversation_contact: "Contato da conversa alterado",
+  triage_mode_changed: "Modo de triagem IA alterado",
   archive_account: "Empresa arquivada",
   delete_pipeline: "Funil excluído",
   delete_stage: "Etapa excluída",

@@ -45,6 +45,12 @@ import { SITE_CHANNEL } from "../livechat/site-channel-policy";
 import { sendSiteOperatorText } from "../livechat/site-delivery";
 import { SessionManager } from "../baileys/session-manager";
 import { SdrDebouncer } from "../valentina/sdr-debouncer";
+import {
+  MCP_PHASE23_TOOLS,
+  MCP_PHASE23_TOOL_LABELS_PT,
+  executePhase23McpTool,
+  isPhase23McpTool,
+} from "./valem-tecfag-mcp-phase23-tools";
 
 export type McpToolAccessKind = "read" | "write";
 
@@ -869,6 +875,7 @@ export const MCP_EXTENDED_TOOLS: McpToolDefinition[] = [
       },
     },
   },
+  ...MCP_PHASE23_TOOLS,
 ];
 
 export const MCP_EXTENDED_TOOL_LABELS_PT: Record<string, string> = {
@@ -901,6 +908,7 @@ export const MCP_EXTENDED_TOOL_LABELS_PT: Record<string, string> = {
   create_quick_response: "Criar Resposta Rápida",
   delete_quick_response: "Excluir Resposta Rápida",
   update_sector: "Atualizar Setor",
+  ...MCP_PHASE23_TOOL_LABELS_PT,
 };
 
 const EXTENDED_TOOL_NAMES = new Set(MCP_EXTENDED_TOOLS.map((t) => t.name));
@@ -3219,6 +3227,9 @@ export async function executeExtendedMcpTool(
     }
 
     default:
+      if (isPhase23McpTool(name)) {
+        return executePhase23McpTool(name, args, tenantId, actor);
+      }
       throw new Error(`Ferramenta estendida desconhecida: '${name}'.`);
   }
 }

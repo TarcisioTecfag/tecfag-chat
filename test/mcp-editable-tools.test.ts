@@ -28,21 +28,21 @@ function makeAccess(accessLevel: "read" | "read_write" | undefined): McpAccessCo
 }
 
 describe("MCP Editável Real (/api/mcp + permissão read/read_write + ponte stdio)", () => {
-  it("possui 40 ferramentas únicas (14 leitura + 26 escrita) com 100% de paridade no catálogo da Biblioteca de API", () => {
+  it("possui 58 ferramentas únicas (20 leitura + 38 escrita) com 100% de paridade no catálogo da Biblioteca de API", () => {
     const readTools = MCP_TOOLS.filter((t) => t.access === "read");
     const writeTools = MCP_TOOLS.filter((t) => t.access === "write");
 
-    expect(MCP_TOOLS).toHaveLength(40);
-    expect(readTools).toHaveLength(14);
-    expect(writeTools).toHaveLength(26);
-    expect(new Set(MCP_TOOLS.map((t) => t.name)).size).toBe(40);
+    expect(MCP_TOOLS).toHaveLength(58);
+    expect(readTools).toHaveLength(20);
+    expect(writeTools).toHaveLength(38);
+    expect(new Set(MCP_TOOLS.map((t) => t.name)).size).toBe(58);
 
     const catalogMcp = getApiLibraryCatalog("tecfag").filter((e) => e.kind === "mcp");
     const coreNames = new Set(MCP_TOOLS.map((t) => t.name));
     const catalogNames = new Set(catalogMcp.map((e) => e.mcpToolName));
 
-    expect(catalogMcp).toHaveLength(40);
-    expect(catalogNames.size).toBe(40);
+    expect(catalogMcp).toHaveLength(58);
+    expect(catalogNames.size).toBe(58);
     for (const name of coreNames) {
       expect(catalogNames.has(name)).toBe(true);
     }
@@ -56,15 +56,15 @@ describe("MCP Editável Real (/api/mcp + permissão read/read_write + ponte stdi
 
     const readVisible = getVisibleMcpTools(makeAccess("read"));
     const rwVisible = getVisibleMcpTools(makeAccess("read_write"));
-    expect(readVisible).toHaveLength(14);
+    expect(readVisible).toHaveLength(20);
     expect(readVisible.every((t) => t.access === "read")).toBe(true);
-    expect(rwVisible).toHaveLength(40);
+    expect(rwVisible).toHaveLength(58);
 
     const listRead = await processMcpJsonRpcPayload(
       { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} },
       makeAccess("read"),
     );
-    expect(listRead.body?.result?.tools).toHaveLength(14);
+    expect(listRead.body?.result?.tools).toHaveLength(20);
     expect(
       listRead.body.result.tools.some((t: { name: string }) => isWriteMcpTool(t.name)),
     ).toBe(false);
@@ -73,10 +73,10 @@ describe("MCP Editável Real (/api/mcp + permissão read/read_write + ponte stdi
       { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} },
       makeAccess("read_write"),
     );
-    expect(listRw.body?.result?.tools).toHaveLength(40);
+    expect(listRw.body?.result?.tools).toHaveLength(58);
   });
 
-  it("bloqueia TODAS as 26 ferramentas de escrita quando a chave tem permissão 'read' ou indefinida", async () => {
+  it("bloqueia TODAS as 38 ferramentas de escrita quando a chave tem permissão 'read' ou indefinida", async () => {
     const writeTools = MCP_TOOLS.filter((t) => t.access === "write");
     for (const tool of writeTools) {
       const resRead = await processMcpJsonRpcPayload(
@@ -140,6 +140,22 @@ describe("MCP Editável Real (/api/mcp + permissão read/read_write + ponte stdi
         args: { dealId: "d1", reason: "Card duplicado", mode: "delete_permanent" },
         expectedError: "confirmPermanentDelete=true",
       },
+      { name: "link_conversation_deal", args: { conversationId: "c1" }, expectedError: "'dealId'" },
+      { name: "unlink_conversation_deal", args: { dealId: "d1" }, expectedError: "'conversationId'" },
+      { name: "reassign_conversation_contact", args: { conversationId: "c1" }, expectedError: "'newContactId'" },
+      { name: "batch_upsert_crm_deals", args: { items: [] }, expectedError: "'items'" },
+      {
+        name: "chat_send_media",
+        args: { conversationId: "c1", mediaType: "image", mediaUrl: "http://127.0.0.1/x.png" },
+        expectedError: "HTTPS",
+      },
+      { name: "add_deal_product", args: {}, expectedError: "'dealId'" },
+      { name: "remove_deal_product", args: { dealId: "d1" }, expectedError: "'dealProductId'" },
+      { name: "create_deal_proposal", args: {}, expectedError: "'dealId'" },
+      { name: "upsert_webhook_subscription", args: {}, expectedError: "'action'" },
+      { name: "retry_webhook_delivery", args: {}, expectedError: "'deliveryId'" },
+      { name: "set_conversation_triage_mode", args: { conversationId: "c1" }, expectedError: "'action'" },
+      { name: "update_triage_summary", args: { conversationId: "c1" }, expectedError: "'summary'" },
     ];
 
     for (const tc of cases) {
@@ -173,7 +189,7 @@ describe("MCP Editável Real (/api/mcp + permissão read/read_write + ponte stdi
     expect(uiCode).toContain("SystemTooltip");
   });
 
-  it("classifica todas as 26 tools de escrita como 'action' na auditoria e gera resumos específicos", () => {
+  it("classifica todas as 38 tools de escrita como 'action' na auditoria e gera resumos específicos", () => {
     const writeTools = MCP_TOOLS.filter((t) => t.access === "write");
     for (const tool of writeTools) {
       expect(inferMcpAuditEventType(tool.name)).toBe("action");
@@ -210,6 +226,21 @@ describe("MCP Editável Real (/api/mcp + permissão read/read_write + ponte stdi
         newContactName: "Giuliano",
         mode: "archive",
         reason: "Card duplicado",
+        totalItems: 10,
+        createdCount: 7,
+        updatedCount: 2,
+        replayedCount: 1,
+        errorCount: 0,
+        mediaType: "document",
+        dealTotalValue: "15000.00",
+        removedDealProductId: "dp-1",
+        proposalNumber: "PROP-2026-0001",
+        proposalId: "prop-1",
+        action: "pause_ai",
+        subscriptionId: "whsub-1",
+        deliveryId: "whd-1",
+        statusCode: 200,
+        currentStep: "Resumo Registrado",
       });
       expect(summary).not.toBe("Dados retornados com sucesso");
       expect(summary.length).toBeGreaterThan(10);
@@ -224,6 +255,12 @@ describe("MCP Editável Real (/api/mcp + permissão read/read_write + ponte stdi
     expect(
       summarizeMcpToolResult("list_operators", { totalOperators: 12, totalSectors: 4 }),
     ).toContain("12 operador(es)");
+    expect(inferMcpAuditEventType("get_deal_conversations")).toBe("query");
+    expect(inferMcpAuditEventType("list_crm_products")).toBe("query");
+    expect(inferMcpAuditEventType("list_deal_proposals")).toBe("query");
+    expect(inferMcpAuditEventType("list_webhook_subscriptions")).toBe("query");
+    expect(inferMcpAuditEventType("list_webhook_deliveries")).toBe("query");
+    expect(inferMcpAuditEventType("get_triage_summary")).toBe("query");
   });
 
   it("executa scripts/mcp-server.mjs com sintaxe válida e ponte stdio JSON-RPC real", async () => {

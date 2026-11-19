@@ -43,7 +43,7 @@ export const DEFAULT_MCP_ADMIN_TOKEN = "mcp_admin_7d9e3b5c1a8f4e6d2b0c9a7e5f3d1b
 
 export const MCP_SERVER_INFO = {
   name: "valem-tecfag-mcp",
-  version: "2.1.0",
+  version: "3.0.0",
 };
 
 export type McpAccessLevel = "read" | "read_write";
@@ -502,6 +502,42 @@ export function summarizeMcpToolResult(toolName: string, data: any): string {
         return data.mode === "delete_permanent"
           ? `Negociação ${data.dealId} excluída definitivamente (${data.reason || "sem motivo"})`
           : `Negociação ${data.dealId} arquivada na Lixeira (${data.reason || "sem motivo"})`;
+      case "get_deal_conversations":
+        return `Vínculos consultados (${Number(data.totalConversations ?? 0)} conversa(s), ${Number(data.totalDeals ?? 0)} card(s))`;
+      case "link_conversation_deal":
+        return `Conversa ${data.conversationId} vinculada ao card ${data.dealId}`;
+      case "unlink_conversation_deal":
+        return `Conversa ${data.conversationId} desvinculada do card ${data.dealId}`;
+      case "reassign_conversation_contact":
+        return `Contato da conversa ${data.conversationId} trocado para "${data.newContactName || data.newContactId}"`;
+      case "batch_upsert_crm_deals":
+        return `Lote de ${Number(data.totalItems ?? 0)} item(ns): ${Number(data.createdCount ?? 0)} criados, ${Number(data.updatedCount ?? 0)} atualizados, ${Number(data.replayedCount ?? 0)} idempotentes, ${Number(data.errorCount ?? 0)} erros`;
+      case "chat_send_media":
+        return `Mídia (${data.mediaType || "arquivo"}) enviada na conversa ${data.conversationId} (${data.messageId})`;
+      case "list_crm_products":
+        return `${Number(data.totalProducts ?? 0)} produto(s) do catálogo listado(s)`;
+      case "add_deal_product":
+        return `Produto adicionado ao card ${data.dealId} (novo total: R$ ${data.dealTotalValue ?? "0.00"})`;
+      case "remove_deal_product":
+        return `Produto ${data.removedDealProductId} removido do card ${data.dealId}`;
+      case "create_deal_proposal":
+        return `Proposta ${data.proposalNumber || data.proposalId} criada no card ${data.dealId}`;
+      case "list_deal_proposals":
+        return `${Number(data.totalProposals ?? 0)} proposta(s) listada(s) no card ${data.dealId}`;
+      case "list_webhook_subscriptions":
+        return `${Number(data.totalSubscriptions ?? 0)} subscrição(ões) de webhook listada(s)`;
+      case "upsert_webhook_subscription":
+        return `Webhook (${data.action}) "${data.name || data.subscriptionId || data.deletedSubscriptionId}" aplicado`;
+      case "list_webhook_deliveries":
+        return `${Number(data.totalDeliveries ?? 0)} entrega(s) de webhook consultada(s)`;
+      case "retry_webhook_delivery":
+        return `Reenvio da entrega ${data.deliveryId}: status ${data.status} (HTTP ${data.statusCode ?? "N/A"})`;
+      case "set_conversation_triage_mode":
+        return `Triagem da conversa ${data.conversationId} alterada (${data.action} → fila ${data.queueState})`;
+      case "get_triage_summary":
+        return `Triagem da conversa ${data.conversationId}: ${data.isAiActive ? "IA ativa" : data.isPaused ? "IA pausada" : "manual"} (${data.queueState})`;
+      case "update_triage_summary":
+        return `Resumo de triagem salvo na conversa ${data.conversationId} (${data.currentStep || "atualizado"})`;
       default:
         return "Dados retornados com sucesso";
     }

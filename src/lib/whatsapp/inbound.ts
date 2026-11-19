@@ -224,6 +224,44 @@ export class InboundProcessor {
             .catch((err) => console.warn("[Inbound] Falha ao transcrever áudio recebido:", err));
         }
 
+        // ── Disparo de Webhooks de saída (conversation.created / message.received) ──
+        // Apenas mensagens reais de cliente (ignora eventos de sistema da Meta e ecos de saída).
+        if (msg && conv && msg.senderType === "client" && (msg.metaDetails as any)?.metaMessageType !== "system") {
+          const sentAtIso = msg.sentAt ? new Date(msg.sentAt).toISOString() : inbound.timestamp.toISOString();
+          const baseWebhookData = {
+            conversationId: conv.id,
+            contactId: conv.contactId,
+            contactName: contactRow?.name || msg.senderName,
+            phone: inbound.fromPhone || conv.contactPhone || null,
+            queueState: conv.queueState,
+            operatorId: conv.operatorId ?? null,
+            provider: inbound.provider,
+            whatsappConnectionId: conv.whatsappConnectionId ?? null,
+            timestamp: sentAtIso,
+          };
+          void import("../webhooks/dispatcher")
+            .then(({ dispatchWebhook }) => {
+              if ((result as any).createdConversation) {
+                void dispatchWebhook(tenantId, "conversation.created", baseWebhookData, {
+                  eventId: `conv-created:${conv.id}`,
+                }).catch(() => {});
+              }
+              void dispatchWebhook(
+                tenantId,
+                "message.received",
+                {
+                  ...baseWebhookData,
+                  messageId: msg.id,
+                  messageType: inbound.media?.mediaType || "text",
+                  content: msg.content,
+                  externalId: msg.externalId ?? null,
+                },
+                { eventId: `msg-received:${msg.id}` },
+              ).catch(() => {});
+            })
+            .catch(() => {});
+        }
+
         // ── Acionamento do SDR (Fagner / Valentina) para mensagens da Meta Cloud API ──
         if (inbound.provider === "meta" && isSdrTenant(tenantId) && conv) {
           void this.handleMetaSdrIntegration(inbound, conv, result.messageId, Boolean((result as any).reopened)).catch(
@@ -440,7 +478,8 @@ export class InboundProcessor {
       conv.queueState === "finalizados" ||
       currentFlow?.outcome === "completed" ||
       currentFlow?.outcome === "transferred" ||
-      currentFlow?.outcome === "stopped"
+      currentFlow?.outcome === "stopped" ||
+      currentFlow?.outcome === "paused"
     );
 
     if (isHandledByOperator) {
@@ -1166,6 +1205,7 @@ export class InboundProcessor {
         success: true,
         messageId,
         conversationId: activeConv.id,
+        createdConversation,
         reopened,
         sdrDisabledRouting,
       };

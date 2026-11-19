@@ -32,6 +32,7 @@ export default function recoveryPlugin(nitroApp: {
       const { SlaEngine } = await import("../../src/lib/sla-engine.js");
       const { AuditService } = await import("../../src/lib/audit-service.js");
       const { SupervisorEngine } = await import("../../src/lib/valentina/supervisor-engine.js");
+      const { webhookDeliveryWorker } = await import("../../src/lib/webhooks/dispatcher.js");
       const { ensureTecfagManualsKnowledgePopulated } = await import(
         "../../src/lib/valentina/knowledge-service.js"
       );
@@ -41,10 +42,12 @@ export default function recoveryPlugin(nitroApp: {
       SlaEngine.getInstance().start();
       AuditService.getInstance().start();
       SupervisorEngine.getInstance().start();
+      webhookDeliveryWorker.start(15_000);
       nitroApp.hooks.hook("close", () => {
         SlaEngine.getInstance().stop();
         AuditService.getInstance().stop();
         SupervisorEngine.getInstance().stop();
+        webhookDeliveryWorker.stop();
       });
     } catch (err: unknown) {
       console.error(

@@ -23,6 +23,44 @@ export const webhookSubscriptions = pgTable("webhook_subscriptions", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => ({ tenantIdx: index("idx_webhook_subscriptions_tenant").on(t.tenantId) }));
 
+export const webhookDeliveries = pgTable("webhook_deliveries", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  subscriptionId: text("subscription_id").notNull(),
+  eventId: text("event_id").notNull(),
+  eventType: text("event_type").notNull(),
+  targetUrl: text("target_url").notNull(),
+  payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+  status: text("status").default("pending").notNull(), // 'pending' | 'retrying' | 'delivered' | 'failed'
+  attempts: integer("attempts").default(0).notNull(),
+  maxAttempts: integer("max_attempts").default(6).notNull(),
+  lastStatusCode: integer("last_status_code"),
+  lastError: text("last_error"),
+  lastResponseBody: text("last_response_body"),
+  nextRetryAt: timestamp("next_retry_at"),
+  deliveredAt: timestamp("delivered_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => ({
+  subEventUniq: uniqueIndex("idx_webhook_deliveries_sub_event_uniq").on(t.tenantId, t.subscriptionId, t.eventId),
+  statusRetryIdx: index("idx_webhook_deliveries_status_retry").on(t.status, t.nextRetryAt),
+  tenantCreatedIdx: index("idx_webhook_deliveries_tenant_created").on(t.tenantId, t.createdAt),
+}));
+
+export const mcpIdempotencyRecords = pgTable("mcp_idempotency_records", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  toolName: text("tool_name").notNull(),
+  idempotencyKey: text("idempotency_key").notNull(),
+  requestHash: text("request_hash"),
+  responseJson: jsonb("response_json").$type<Record<string, unknown>>().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+}, (t) => ({
+  tenantToolKeyUniq: uniqueIndex("idx_mcp_idempotency_tenant_tool_key_uniq").on(t.tenantId, t.toolName, t.idempotencyKey),
+  expiresIdx: index("idx_mcp_idempotency_expires_at").on(t.expiresAt),
+}));
+
 // ─── 2. CONFIGURAÇÕES DE CANAL (Credenciais / Conexão) ──────────────────────
 export const channelConfigs = pgTable("channel_configs", {
   id: text("id").primaryKey(),

@@ -334,7 +334,8 @@ export class SdrEngine {
         convCheck?.queueState === "finalizados" ||
         flowState?.outcome === "completed" ||
         flowState?.outcome === "transferred" ||
-        flowState?.outcome === "stopped"
+        flowState?.outcome === "stopped" ||
+        flowState?.outcome === "paused"
       ) {
         console.log(`[SdrEngine] 🛑 TRAVA DE OPERADOR ATIVA: Conversa ${conversationId} (Cliente ${contactPhone}) possui operador alocado (${convCheck?.operatorId || 'Sim'}) ou status ${flowState?.outcome}. ${aiPersona.name} SILENCIADO(A).`);
         return false;
@@ -2139,11 +2140,20 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
     if (signal?.aborted) return;
 
     const persona = getAiPersona(tenantId);
-    if (persona.triagePolicy === "industrial") {
-      const owner = await db.query.conversations.findFirst({
+    const [latestFlowAudio, ownerAudio] = await Promise.all([
+      db.query.agentFlowStates.findFirst({
+        where: (t, { eq: dEq, and: dAnd }) =>
+          dAnd(dEq(t.tenantId, tenantId), dEq(t.conversationId, conversationId), dEq(t.agentType, "sdr")),
+      }),
+      db.query.conversations.findFirst({
         where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.tenantId, tenantId), dEq(t.id, conversationId)),
-      });
-      if (!owner || owner.queueState === "finalizados" || owner.queueState === "meus" || owner.operatorId) {
+      }),
+    ]);
+    if (latestFlowAudio?.outcome === "paused" || latestFlowAudio?.outcome === "stopped") {
+      return;
+    }
+    if (persona.triagePolicy === "industrial") {
+      if (!ownerAudio || ownerAudio.queueState === "finalizados" || ownerAudio.queueState === "meus" || ownerAudio.operatorId) {
         return;
       }
     }
@@ -2425,12 +2435,21 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
       if (signal?.aborted) return;
 
-      // 3. Determinar se este balão deve conter a CITAÇÃO (Quoted Reply):
-      if (persona.triagePolicy === "industrial") {
-        const owner = await db.query.conversations.findFirst({
+      // 3. Dupla trava antes do envio final (evita condição de corrida humano × robô):
+      const [latestFlowText, ownerText] = await Promise.all([
+        db.query.agentFlowStates.findFirst({
+          where: (t, { eq: dEq, and: dAnd }) =>
+            dAnd(dEq(t.tenantId, tenantId), dEq(t.conversationId, conversationId), dEq(t.agentType, "sdr")),
+        }),
+        db.query.conversations.findFirst({
           where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.tenantId, tenantId), dEq(t.id, conversationId)),
-        });
-        if (!owner || owner.queueState === "finalizados" || (owner.operatorId || null) !== (expectedOperatorId || null) || (owner.queueState === "meus" && !expectedOperatorId)) return;
+        }),
+      ]);
+      if (latestFlowText?.outcome === "paused" || latestFlowText?.outcome === "stopped") {
+        return;
+      }
+      if (persona.triagePolicy === "industrial") {
+        if (!ownerText || ownerText.queueState === "finalizados" || (ownerText.operatorId || null) !== (expectedOperatorId || null) || (ownerText.queueState === "meus" && !expectedOperatorId)) return;
       }
       const isRequoteFragment = /só me responde/i.test(fragmentText) || /me responde isso/i.test(fragmentText);
       const hasRequoteInArray = messagesArray.some((m) => /só me responde/i.test(m) || /me responde isso/i.test(m));

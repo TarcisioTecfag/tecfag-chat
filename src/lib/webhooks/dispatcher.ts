@@ -1,10 +1,275 @@
-import { db } from "@/db";
-import { webhookSubscriptions } from "@/db/schema";
-import { eq, and, sql } from "drizzle-orm";
+import crypto from "node:crypto";
+import { and, asc, desc, eq, inArray, lte, or, sql } from "drizzle-orm";
+import { db } from "../../db";
+import { webhookDeliveries, webhookSubscriptions } from "../../db/schema";
+import { runtimeSingleton } from "../runtime-singleton";
 import { signPayload } from "./crypto";
 
-export async function dispatchWebhook(tenantId: string, event: string, data: any) {
-  // 1. Busca todas as subscrições ativas para este tenant e este evento
+export const SUPPORTED_WEBHOOK_EVENTS = [
+  "conversation.created",
+  "message.received",
+  "deal.created",
+  "deal.updated",
+  "deal.won",
+  "deal.lost",
+  "triage.mode_changed",
+] as const;
+
+export type SupportedWebhookEvent = (typeof SUPPORTED_WEBHOOK_EVENTS)[number];
+
+const RETRY_DELAYS_MS = [
+  10_000, // 1ª retentativa: 10s
+  60_000, // 2ª retentativa: 1 min
+  5 * 60_000, // 3ª retentativa: 5 min
+  15 * 60_000, // 4ª retentativa: 15 min
+  60 * 60_000, // 5ª retentativa: 1 hora
+];
+
+const DELIVERY_TIMEOUT_MS = 10_000;
+let ensureDeliveriesPromise: Promise<void> | null = null;
+
+export function ensureWebhookDeliveriesSchema(): Promise<void> {
+  if (!ensureDeliveriesPromise) {
+    ensureDeliveriesPromise = (async () => {
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS webhook_deliveries (
+          id text PRIMARY KEY,
+          tenant_id text NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+          subscription_id text NOT NULL,
+          event_id text NOT NULL,
+          event_type text NOT NULL,
+          target_url text NOT NULL,
+          payload jsonb NOT NULL,
+          status text NOT NULL DEFAULT 'pending',
+          attempts integer NOT NULL DEFAULT 0,
+          max_attempts integer NOT NULL DEFAULT 6,
+          last_status_code integer,
+          last_error text,
+          last_response_body text,
+          next_retry_at timestamp,
+          delivered_at timestamp,
+          created_at timestamp NOT NULL DEFAULT now(),
+          updated_at timestamp NOT NULL DEFAULT now()
+        );
+      `);
+      await db.execute(sql`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_webhook_deliveries_sub_event_uniq
+          ON webhook_deliveries (tenant_id, subscription_id, event_id);
+      `);
+      await db.execute(sql`
+        CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_status_retry
+          ON webhook_deliveries (status, next_retry_at);
+      `);
+      await db.execute(sql`
+        CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_tenant_created
+          ON webhook_deliveries (tenant_id, created_at DESC);
+      `);
+    })().catch((err) => {
+      ensureDeliveriesPromise = null;
+      throw err;
+    });
+  }
+  return ensureDeliveriesPromise;
+}
+
+export function validateWebhookTargetUrl(
+  rawUrl: string,
+  options?: { allowLocalhostForTest?: boolean },
+): string {
+  const trimmed = rawUrl.trim();
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new Error(`URL de webhook inválida: '${trimmed}'.`);
+  }
+
+  const host = parsed.hostname.toLowerCase();
+  const isLoopback =
+    host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
+
+  if (options?.allowLocalhostForTest && isLoopback) {
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      throw new Error("Protocolo inválido para URL de webhook.");
+    }
+    return parsed.toString();
+  }
+
+  if (parsed.protocol !== "https:") {
+    throw new Error("URLs de webhook em produção devem usar protocolo HTTPS.");
+  }
+
+  if (
+    isLoopback ||
+    host.startsWith("10.") ||
+    host.startsWith("192.168.") ||
+    host.startsWith("169.254.") ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
+    host.endsWith(".internal") ||
+    host.endsWith(".local")
+  ) {
+    throw new Error("URL de webhook apontando para rede interna/privada não é permitida.");
+  }
+
+  return parsed.toString();
+}
+
+export interface WebhookAttemptResult {
+  deliveryId: string;
+  subscriptionId: string;
+  eventId: string;
+  eventType: string;
+  status: "delivered" | "retrying" | "failed";
+  statusCode: number | null;
+  attempts: number;
+  nextRetryAt: string | null;
+  error: string | null;
+}
+
+/**
+ * Executa uma tentativa HTTP de entrega para um registro `webhook_deliveries`
+ * já persistido, assinando com HMAC-SHA256 e agendando retry exponencial em caso de falha.
+ */
+export async function attemptWebhookDelivery(
+  deliveryId: string,
+  tenantId: string,
+): Promise<WebhookAttemptResult | null> {
+  await ensureWebhookDeliveriesSchema();
+
+  const [row] = await db
+    .select({
+      delivery: webhookDeliveries,
+      secret: webhookSubscriptions.secret,
+      subActive: webhookSubscriptions.isActive,
+    })
+    .from(webhookDeliveries)
+    .innerJoin(
+      webhookSubscriptions,
+      and(
+        sql`${webhookSubscriptions.id}::text = ${webhookDeliveries.subscriptionId}`,
+        eq(webhookSubscriptions.tenantId, webhookDeliveries.tenantId),
+      ),
+    )
+    .where(and(eq(webhookDeliveries.id, deliveryId), eq(webhookDeliveries.tenantId, tenantId)))
+    .limit(1);
+
+  if (!row) return null;
+  const { delivery, secret } = row;
+  const nextAttempt = delivery.attempts + 1;
+  const now = new Date();
+  const payload = delivery.payload;
+  const signature = signPayload(payload, secret);
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DELIVERY_TIMEOUT_MS);
+
+  let statusCode: number | null = null;
+  let responseBody: string | null = null;
+  let errorMsg: string | null = null;
+  let ok = false;
+
+  try {
+    const res = await fetch(delivery.targetUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Webhook-Signature": signature,
+        "X-Webhook-Event": delivery.eventType,
+        "X-Webhook-Event-Id": delivery.eventId,
+        "X-Webhook-Delivery-Id": delivery.id,
+        "X-Webhook-Attempt": String(nextAttempt),
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    statusCode = res.status;
+    const rawText = await res.text().catch(() => "");
+    responseBody = rawText ? rawText.slice(0, 1000) : null;
+    if (res.ok) {
+      ok = true;
+    } else {
+      errorMsg = `HTTP ${res.status}${responseBody ? `: ${responseBody.slice(0, 200)}` : ""}`;
+    }
+  } catch (err: any) {
+    errorMsg =
+      err?.name === "AbortError"
+        ? `Timeout após ${DELIVERY_TIMEOUT_MS / 1000}s`
+        : String(err?.message || err || "Erro de rede ao entregar webhook");
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (ok) {
+    await db
+      .update(webhookDeliveries)
+      .set({
+        status: "delivered",
+        attempts: nextAttempt,
+        lastStatusCode: statusCode,
+        lastError: null,
+        lastResponseBody: responseBody,
+        nextRetryAt: null,
+        deliveredAt: now,
+        updatedAt: now,
+      })
+      .where(and(eq(webhookDeliveries.id, delivery.id), eq(webhookDeliveries.tenantId, tenantId)));
+
+    return {
+      deliveryId: delivery.id,
+      subscriptionId: delivery.subscriptionId,
+      eventId: delivery.eventId,
+      eventType: delivery.eventType,
+      status: "delivered",
+      statusCode,
+      attempts: nextAttempt,
+      nextRetryAt: null,
+      error: null,
+    };
+  }
+
+  const exhausted = nextAttempt >= delivery.maxAttempts;
+  const delayMs = RETRY_DELAYS_MS[Math.min(nextAttempt - 1, RETRY_DELAYS_MS.length - 1)];
+  const nextRetryAt = exhausted ? null : new Date(now.getTime() + delayMs);
+  const nextStatus: "retrying" | "failed" = exhausted ? "failed" : "retrying";
+
+  await db
+    .update(webhookDeliveries)
+    .set({
+      status: nextStatus,
+      attempts: nextAttempt,
+      lastStatusCode: statusCode,
+      lastError: errorMsg,
+      lastResponseBody: responseBody,
+      nextRetryAt,
+      updatedAt: now,
+    })
+    .where(and(eq(webhookDeliveries.id, delivery.id), eq(webhookDeliveries.tenantId, tenantId)));
+
+  return {
+    deliveryId: delivery.id,
+    subscriptionId: delivery.subscriptionId,
+    eventId: delivery.eventId,
+    eventType: delivery.eventType,
+    status: nextStatus,
+    statusCode,
+    attempts: nextAttempt,
+    nextRetryAt: nextRetryAt ? nextRetryAt.toISOString() : null,
+    error: errorMsg,
+  };
+}
+
+/**
+ * Enfileira e tenta entregar um evento para todas as subscrições ativas do tenant.
+ * Persiste antes de tentar enviar (garantia contra perda se o receptor estiver fora do ar).
+ */
+export async function dispatchWebhook(
+  tenantId: string,
+  event: string,
+  data: Record<string, unknown>,
+  options?: { eventId?: string; awaitDelivery?: boolean },
+): Promise<{ enqueued: number; eventId: string; results?: WebhookAttemptResult[] }> {
+  const eventId = options?.eventId?.trim() || `evt-${crypto.randomUUID()}`;
+
   const subscriptions = await db
     .select()
     .from(webhookSubscriptions)
@@ -12,34 +277,194 @@ export async function dispatchWebhook(tenantId: string, event: string, data: any
       and(
         eq(webhookSubscriptions.tenantId, tenantId),
         eq(webhookSubscriptions.isActive, true),
-        sql`${webhookSubscriptions.events} ? ${event}`
-      )
+        sql`${webhookSubscriptions.events} ? ${event}`,
+      ),
     );
 
-  if (subscriptions.length === 0) return;
+  if (subscriptions.length === 0) {
+    return { enqueued: 0, eventId };
+  }
 
-  const payload = {
+  await ensureWebhookDeliveriesSchema();
+  const now = new Date();
+  const payload: Record<string, unknown> = {
+    event_id: eventId,
     event,
-    created_at: new Date().toISOString(),
+    tenant_id: tenantId,
+    created_at: now.toISOString(),
     data,
-    metadata: { source: "valem-tecfag-hub", version: "1.0" }
+    metadata: { source: "valem-tecfag-hub", version: "2.0" },
   };
 
-  // 2. Dispara assincronamente (em produção idealmente usaria uma fila, ex: BullMQ)
+  const createdDeliveryIds: string[] = [];
   for (const sub of subscriptions) {
-    const signature = signPayload(payload, sub.secret);
-    
-    // Dispara "fire-and-forget"
-    fetch(sub.url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Webhook-Signature": signature,
-      },
-      body: JSON.stringify(payload),
-    }).catch(err => {
-      console.error(`Falha ao disparar webhook ${sub.id}:`, err);
-      // Aqui entraria a lógica de retry
+    const deliveryId = `whd-${crypto.randomUUID()}`;
+    const inserted = await db
+      .insert(webhookDeliveries)
+      .values({
+        id: deliveryId,
+        tenantId,
+        subscriptionId: sub.id,
+        eventId,
+        eventType: event,
+        targetUrl: sub.url,
+        payload,
+        status: "pending",
+        attempts: 0,
+        maxAttempts: 6,
+        nextRetryAt: now,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoNothing()
+      .returning({ id: webhookDeliveries.id });
+    if (inserted[0]?.id) {
+      createdDeliveryIds.push(inserted[0].id);
+    }
+  }
+
+  if (options?.awaitDelivery) {
+    const results: WebhookAttemptResult[] = [];
+    for (const delId of createdDeliveryIds) {
+      const r = await attemptWebhookDelivery(delId, tenantId);
+      if (r) results.push(r);
+    }
+    return { enqueued: createdDeliveryIds.length, eventId, results };
+  }
+
+  for (const delId of createdDeliveryIds) {
+    void attemptWebhookDelivery(delId, tenantId).catch((err) => {
+      console.error(`[WebhookDispatcher] Erro assíncrono na entrega ${delId}:`, err);
     });
   }
+
+  return { enqueued: createdDeliveryIds.length, eventId };
 }
+
+/**
+ * Reenvia imediatamente uma entrega específica (pendente, retrying ou failed) dentro do tenant.
+ */
+export async function retryWebhookDelivery(
+  tenantId: string,
+  deliveryId: string,
+): Promise<WebhookAttemptResult> {
+  await ensureWebhookDeliveriesSchema();
+
+  const [existing] = await db
+    .select()
+    .from(webhookDeliveries)
+    .where(and(eq(webhookDeliveries.id, deliveryId), eq(webhookDeliveries.tenantId, tenantId)))
+    .limit(1);
+
+  if (!existing) {
+    throw new Error(`Entrega de webhook '${deliveryId}' não encontrada no tenant '${tenantId}'.`);
+  }
+
+  if (existing.attempts >= existing.maxAttempts) {
+    await db
+      .update(webhookDeliveries)
+      .set({
+        maxAttempts: existing.attempts + 1,
+        status: "retrying",
+        nextRetryAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(and(eq(webhookDeliveries.id, deliveryId), eq(webhookDeliveries.tenantId, tenantId)));
+  }
+
+  const res = await attemptWebhookDelivery(deliveryId, tenantId);
+  if (!res) {
+    throw new Error(`Subscrição associada à entrega '${deliveryId}' não encontrada.`);
+  }
+  return res;
+}
+
+/**
+ * Processa entregas pendentes ou em retry cujo `next_retry_at <= now()`.
+ */
+export async function processDueWebhookDeliveries(limit: number = 30): Promise<number> {
+  await ensureWebhookDeliveriesSchema();
+  const now = new Date();
+  const dueRows = await db
+    .select({ id: webhookDeliveries.id, tenantId: webhookDeliveries.tenantId })
+    .from(webhookDeliveries)
+    .where(
+      and(
+        inArray(webhookDeliveries.status, ["pending", "retrying"]),
+        or(lte(webhookDeliveries.nextRetryAt, now), sql`${webhookDeliveries.nextRetryAt} IS NULL`),
+      ),
+    )
+    .orderBy(asc(webhookDeliveries.nextRetryAt), asc(webhookDeliveries.createdAt))
+    .limit(limit);
+
+  let processed = 0;
+  for (const row of dueRows) {
+    await attemptWebhookDelivery(row.id, row.tenantId);
+    processed++;
+  }
+  return processed;
+}
+
+export async function listTenantWebhookDeliveries(
+  tenantId: string,
+  filters?: {
+    subscriptionId?: string;
+    eventType?: string;
+    status?: string;
+    limit?: number;
+  },
+) {
+  await ensureWebhookDeliveriesSchema();
+  const limit = Math.min(Math.max(Number(filters?.limit || 30), 1), 100);
+  const conditions = [eq(webhookDeliveries.tenantId, tenantId)];
+  if (filters?.subscriptionId) {
+    conditions.push(eq(webhookDeliveries.subscriptionId, filters.subscriptionId));
+  }
+  if (filters?.eventType) {
+    conditions.push(eq(webhookDeliveries.eventType, filters.eventType));
+  }
+  if (filters?.status) {
+    conditions.push(eq(webhookDeliveries.status, filters.status));
+  }
+
+  return db
+    .select()
+    .from(webhookDeliveries)
+    .where(and(...conditions))
+    .orderBy(desc(webhookDeliveries.createdAt))
+    .limit(limit);
+}
+
+class WebhookDeliveryWorker {
+  private timer: NodeJS.Timeout | null = null;
+  private running = false;
+
+  start(intervalMs: number = 15_000): void {
+    if (this.timer) return;
+    const tick = async () => {
+      if (this.running) return;
+      this.running = true;
+      try {
+        await processDueWebhookDeliveries(25);
+      } catch (err) {
+        console.error("[WebhookWorker] Falha no ciclo de retentativas:", err);
+      } finally {
+        this.running = false;
+      }
+    };
+    this.timer = setInterval(() => void tick(), intervalMs);
+    this.timer.unref();
+  }
+
+  stop(): void {
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
+  }
+}
+
+export const webhookDeliveryWorker = runtimeSingleton(
+  "WebhookDeliveryWorker",
+  () => new WebhookDeliveryWorker(),
+);
