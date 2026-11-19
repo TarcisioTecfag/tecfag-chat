@@ -335,6 +335,7 @@ async function aggregateKpis(tenantId: string, start: Date, end: Date): Promise<
     .where(
       and(
         eq(conversations.tenantId, tenantId),
+        sql`NOT (${conversations.id} LIKE 'conv-rdc-%' AND ${conversations.queueState} = 'finalizados')`,
         or(
           and(gte(conversations.createdAt, start), lt(conversations.createdAt, end)),
           and(gte(conversations.lastMessageTime, start), lt(conversations.lastMessageTime, end)),
@@ -351,7 +352,14 @@ async function aggregateKpis(tenantId: string, start: Date, end: Date): Promise<
       sentAt: messages.sentAt,
     })
     .from(messages)
-    .where(and(eq(messages.tenantId, tenantId), gte(messages.sentAt, start), lt(messages.sentAt, end)));
+    .where(
+      and(
+        eq(messages.tenantId, tenantId),
+        sql`COALESCE(${messages.provider}, '') <> 'rd_conversas'`,
+        gte(messages.sentAt, start),
+        lt(messages.sentAt, end),
+      ),
+    );
 
   const uniqueActiveConvIds = new Set<string>([
     ...convs.map((c) => c.id),

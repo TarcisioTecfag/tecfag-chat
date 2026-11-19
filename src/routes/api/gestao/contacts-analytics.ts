@@ -163,7 +163,7 @@ export const Route = createFileRoute("/api/gestao/contacts-analytics")({
                 createdAt: contacts.createdAt,
               })
               .from(contacts)
-              .where(and(eq(contacts.tenantId, tenantId), walletScope)),
+              .where(and(eq(contacts.tenantId, tenantId), walletScope, sql`NOT (${contacts.id} LIKE 'cont-rdc-%')`)),
 
             db
               .select({
@@ -178,7 +178,13 @@ export const Route = createFileRoute("/api/gestao/contacts-analytics")({
                 createdAt: conversations.createdAt,
               })
               .from(conversations)
-              .where(and(eq(conversations.tenantId, tenantId), readScope)),
+              .where(
+                and(
+                  eq(conversations.tenantId, tenantId),
+                  readScope,
+                  sql`NOT (${conversations.id} LIKE 'conv-rdc-%' AND ${conversations.queueState} = 'finalizados')`,
+                ),
+              ),
 
             db
               .select({
@@ -301,6 +307,7 @@ export const Route = createFileRoute("/api/gestao/contacts-analytics")({
               .where(
                 and(
                   eq(messages.tenantId, tenantId),
+                  sql`COALESCE(${messages.provider}, '') <> 'rd_conversas'`,
                   gte(messages.sentAt, new Date(now.getTime() - 90 * dayMs))
                 )
               )

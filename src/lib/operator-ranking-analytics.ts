@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, isNull, lte, ne } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
 import { db } from "../db";
 import {
   accessGroups,
@@ -46,31 +46,24 @@ function formatDurationCompact(seconds: number): string {
   return remMins > 0 ? `${hours}h ${remMins}m` : `${hours}h`;
 }
 
+const BRT_OFFSET_MS = 3 * 60 * 60 * 1000;
+
 function formatLastSeenBrt(isoOrDate: string | Date | null | undefined, todayBrt: string): string {
   if (!isoOrDate) return "Sem acesso recente";
   const d = isoOrDate instanceof Date ? isoOrDate : new Date(isoOrDate);
   if (Number.isNaN(d.getTime())) return "Sem acesso recente";
   const dateBrt = getBrtDateKey(d);
-  const timeStr = new Intl.DateTimeFormat("pt-BR", {
-    timeZone: "America/Sao_Paulo",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(d);
+  const brt = new Date(d.getTime() - BRT_OFFSET_MS);
+  const timeStr = `${String(brt.getUTCHours()).padStart(2, "0")}:${String(brt.getUTCMinutes()).padStart(2, "0")}`;
   if (dateBrt === todayBrt) {
     return `Hoje às ${timeStr}`;
   }
-  const [y, m, day] = dateBrt.split("-");
+  const [, m, day] = dateBrt.split("-");
   return `${day}/${m} às ${timeStr}`;
 }
 
 export function getBrtHour(date: Date): number {
-  const hourStr = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/Sao_Paulo",
-    hour: "2-digit",
-    hour12: false,
-  }).format(date);
-  const parsed = parseInt(hourStr, 10);
-  return Number.isNaN(parsed) ? 0 : parsed % 24;
+  return new Date(date.getTime() - BRT_OFFSET_MS).getUTCHours();
 }
 
 export function buildLastNDaysBrt(now: Date, n: number): { dateKey: string; label: string }[] {
@@ -335,7 +328,13 @@ export async function computeOperatorsOverviewAnalytics(params: {
       createdAt: conversations.createdAt,
     })
     .from(conversations)
-    .where(and(eq(conversations.tenantId, tenantId), readScope))
+    .where(
+      and(
+        eq(conversations.tenantId, tenantId),
+        readScope,
+        sql`NOT (${conversations.id} LIKE 'conv-rdc-%' AND ${conversations.queueState} = 'finalizados')`,
+      ),
+    )
     .catch(() => []);
 
   const relevantConvs = convRows.filter(
@@ -378,6 +377,7 @@ export async function computeOperatorsOverviewAnalytics(params: {
             eq(messages.tenantId, tenantId),
             inArray(messages.conversationId, chunk),
             gte(messages.sentAt, thirtyDaysAgo),
+            sql`COALESCE(${messages.provider}, '') <> 'rd_conversas'`,
           ),
         )
         .orderBy(messages.conversationId, messages.sentAt)
@@ -1370,6 +1370,7 @@ export async function computeOperatorDailyHistory(params: {
           eq(messages.senderType, "agent"),
           eq(messages.senderName, operatorName),
           gte(messages.sentAt, sixtyDaysAgo),
+          sql`COALESCE(${messages.provider}, '') <> 'rd_conversas'`,
         ),
       )
       .catch(() => []);
@@ -1396,7 +1397,7 @@ export async function computeOperatorDailyHistory(params: {
           id: messages.id,
           conversationId: messages.conversationId,
           senderType: messages.senderType,
-          content: messages.content,
+          content: sql<string>`CASE WHEN ${messages.senderType} = 'system' THEN LEFT(COALESCE(${messages.content}, ''), 160) ELSE '' END`,
           sentAt: messages.sentAt,
         })
         .from(messages)
@@ -1406,6 +1407,7 @@ export async function computeOperatorDailyHistory(params: {
             inArray(messages.conversationId, chunk),
             eq(messages.isInternalNote, false),
             gte(messages.sentAt, sixtyDaysAgo),
+            sql`COALESCE(${messages.provider}, '') <> 'rd_conversas'`,
           ),
         )
         .orderBy(messages.conversationId, messages.sentAt)

@@ -36,23 +36,19 @@ const DAY_NAMES_PT = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 const BOILERPLATE_SYSTEM_RE =
   /^(Contato criado\.?|Contato criado\.\s*Aguardando captura do atendimento\.?|Atendimento iniciado\.?|Conversa iniciada\.?|Aguardando captura do atendimento\.?)$/i;
 
+const BRT_OFFSET_MS = 3 * 60 * 60 * 1000;
+
 function getBrtDateKey(date: Date): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Sao_Paulo",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(date);
+  const brt = new Date(date.getTime() - BRT_OFFSET_MS);
+  const year = brt.getUTCFullYear();
+  const month = String(brt.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(brt.getUTCDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function getBrtHour(date: Date): number {
-  const hourStr = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/Sao_Paulo",
-    hour: "2-digit",
-    hour12: false,
-  }).format(date);
-  const parsed = parseInt(hourStr, 10);
-  return Number.isNaN(parsed) ? 0 : parsed % 24;
+  const brt = new Date(date.getTime() - BRT_OFFSET_MS);
+  return brt.getUTCHours();
 }
 
 function getBrtDayBounds(dateStr: string): { start: Date; end: Date; weekdayLabel: string; shortDateLabel: string } {
@@ -179,6 +175,7 @@ export const Route = createFileRoute("/api/gestao/performance")({
                     and(
                       eq(conversations.tenantId, tenantId),
                       readScope,
+                      sql`NOT (${conversations.id} LIKE 'conv-rdc-%' AND ${conversations.queueState} = 'finalizados')`,
                       gte(conversations.createdAt, day.start),
                       lte(conversations.createdAt, day.end)
                     )
@@ -190,6 +187,7 @@ export const Route = createFileRoute("/api/gestao/performance")({
                     and(
                       eq(conversations.tenantId, tenantId),
                       readScope,
+                      sql`NOT (${conversations.id} LIKE 'conv-rdc-%' AND ${conversations.queueState} = 'finalizados')`,
                       eq(conversations.queueState, "finalizados"),
                       gte(conversations.lastMessageTime, day.start),
                       lte(conversations.lastMessageTime, day.end)
@@ -253,7 +251,8 @@ export const Route = createFileRoute("/api/gestao/performance")({
                       and(
                         eq(conversations.contactId, contacts.id),
                         eq(conversations.tenantId, tenantId),
-                        readScope
+                        readScope,
+                        sql`NOT (${conversations.id} LIKE 'conv-rdc-%' AND ${conversations.queueState} = 'finalizados')`
                       )
                     )
                 )
@@ -263,7 +262,13 @@ export const Route = createFileRoute("/api/gestao/performance")({
           const [totalConvsRes] = await db
             .select({ count: count() })
             .from(conversations)
-            .where(and(eq(conversations.tenantId, tenantId), readScope));
+            .where(
+              and(
+                eq(conversations.tenantId, tenantId),
+                readScope,
+                sql`NOT (${conversations.id} LIKE 'conv-rdc-%' AND ${conversations.queueState} = 'finalizados')`
+              )
+            );
 
           const totalConvs = Number(totalConvsRes?.count ?? 0);
 
@@ -371,7 +376,13 @@ export const Route = createFileRoute("/api/gestao/performance")({
                 createdAt: conversations.createdAt,
               })
               .from(conversations)
-              .where(and(eq(conversations.tenantId, tenantId), readScope))
+              .where(
+                and(
+                  eq(conversations.tenantId, tenantId),
+                  readScope,
+                  sql`NOT (${conversations.id} LIKE 'conv-rdc-%' AND ${conversations.queueState} = 'finalizados')`
+                )
+              )
               .catch(() => []),
             db
               .select({
@@ -426,6 +437,7 @@ export const Route = createFileRoute("/api/gestao/performance")({
                 and(
                   eq(messages.tenantId, tenantId),
                   readScope,
+                  sql`COALESCE(${messages.provider}, '') <> 'rd_conversas'`,
                   gte(messages.sentAt, periodStart),
                   lte(messages.sentAt, periodEnd)
                 )
@@ -445,6 +457,7 @@ export const Route = createFileRoute("/api/gestao/performance")({
                 and(
                   eq(messages.tenantId, tenantId),
                   readScope,
+                  sql`COALESCE(${messages.provider}, '') <> 'rd_conversas'`,
                   gte(messages.sentAt, prevPeriodStart),
                   lte(messages.sentAt, prevPeriodEnd)
                 )

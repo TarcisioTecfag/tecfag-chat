@@ -15,7 +15,7 @@ import {
   crmStages,
   operators,
 } from "../../../db/schema";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { requireSession } from "../../../lib/auth-session";
 import {
   getAllowedPipelineIds,
@@ -266,7 +266,7 @@ export const Route = createFileRoute("/api/gestao/crm-analytics")({
                   phone: contacts.phone,
                 })
                 .from(contacts)
-                .where(eq(contacts.tenantId, tenantId))
+                .where(and(eq(contacts.tenantId, tenantId), sql`NOT (${contacts.id} LIKE 'cont-rdc-%')`))
             ),
             safeQuery("crmConversationDeals", () =>
               db
