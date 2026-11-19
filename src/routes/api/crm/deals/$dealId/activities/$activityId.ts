@@ -53,23 +53,43 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/activities/$activit
                 : undefined,
               completionNote:
                 typeof body.completionNote === "string" ? body.completionNote : undefined,
+              isPinned:
+                typeof body.isPinned === "boolean" ? body.isPinned : undefined,
             }
           );
 
           if (activity.type === "note") {
-            await recordCrmAction({
-              tenantId,
-              operatorId: session.operator.id,
-              operatorName: session.operator.name,
-              action: "edit_deal_note",
-              entityType: "deal_activity",
-              itemCount: 1,
-              details: {
-                dealId,
-                activityId,
-                editCount: Array.isArray(activity.editHistory) ? activity.editHistory.length : 1,
-              },
-            });
+            const hasContentEdit = body.description !== undefined || body.title !== undefined;
+            const hasPinToggle = typeof body.isPinned === "boolean";
+            if (hasContentEdit) {
+              await recordCrmAction({
+                tenantId,
+                operatorId: session.operator.id,
+                operatorName: session.operator.name,
+                action: "edit_deal_note",
+                entityType: "deal_activity",
+                itemCount: 1,
+                details: {
+                  dealId,
+                  activityId,
+                  editCount: Array.isArray(activity.editHistory) ? activity.editHistory.length : 1,
+                },
+              });
+            } else if (hasPinToggle) {
+              await recordCrmAction({
+                tenantId,
+                operatorId: session.operator.id,
+                operatorName: session.operator.name,
+                action: body.isPinned ? "pin_deal_note" : "unpin_deal_note",
+                entityType: "deal_activity",
+                itemCount: 1,
+                details: {
+                  dealId,
+                  activityId,
+                  isPinned: Boolean(activity.isPinned),
+                },
+              });
+            }
           }
 
           return new Response(JSON.stringify({ activity }), {

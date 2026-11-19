@@ -467,6 +467,22 @@ export function formatDealEvent(
       };
     }
 
+    case "note_pinned": {
+      const pinnedBy = text(meta.pinnedByName);
+      return {
+        title: "Anotação fixada",
+        description: pinnedBy ? `Fixada por: ${pinnedBy}` : text(meta.activityTitle),
+      };
+    }
+
+    case "note_unpinned": {
+      const unpinnedBy = text(meta.pinnedByName);
+      return {
+        title: "Anotação desafixada",
+        description: unpinnedBy ? `Desafixada por: ${unpinnedBy}` : text(meta.activityTitle),
+      };
+    }
+
     case "activity_completed":
       return {
         title: `Tarefa concluída${text(meta.activityTitle) ? `: ${text(meta.activityTitle)}` : ""}`,

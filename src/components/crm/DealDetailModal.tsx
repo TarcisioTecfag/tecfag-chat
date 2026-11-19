@@ -50,6 +50,7 @@ import {
   CheckSquare,
   Utensils,
   MapPin,
+  Pin,
   Bold,
   Italic,
   List,
@@ -1539,6 +1540,7 @@ export function DealDetailModal({
   const [editingNoteOriginalText, setEditingNoteOriginalText] = useState("");
   const [isSavingEditedNote, setIsSavingEditedNote] = useState(false);
   const [isUploadingEditNoteFile, setIsUploadingEditNoteFile] = useState(false);
+  const [pinningNoteId, setPinningNoteId] = useState<string | null>(null);
   const editNoteTextareaRef = React.useRef<HTMLTextAreaElement>(null);
   const editNoteFileInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -1568,6 +1570,7 @@ export function DealDetailModal({
     setEditingNoteOriginalText("");
     setIsSavingEditedNote(false);
     setIsUploadingEditNoteFile(false);
+    setPinningNoteId(null);
     setCompletingInlineActivityId(null);
     setInlineCompletionNote("");
     setIsSavingInlineCompletion(false);
@@ -1802,6 +1805,80 @@ export function DealDetailModal({
       toast.error(err.message || "Falha ao atualizar anotação.");
     } finally {
       setIsSavingEditedNote(false);
+    }
+  };
+
+  const handleTogglePinNote = async (activityId: string, currentlyPinned: boolean) => {
+    if (!requireLinkedContactBeforeMutation()) return;
+    const activeDeal = dealRef.current || deal;
+    if (!activeDeal || !activityId || pinningNoteId) return;
+
+    const nextPinned = !currentlyPinned;
+    const optimisticPinnedAt = nextPinned ? new Date().toISOString() : null;
+    const previousActivities = Array.isArray(activeDeal.activities)
+      ? activeDeal.activities
+      : [];
+
+    setPinningNoteId(activityId);
+    setDeal((prev: any) => {
+      if (!prev || !Array.isArray(prev.activities)) return prev;
+      return {
+        ...prev,
+        activities: prev.activities.map((act: any) =>
+          act.id === activityId
+            ? {
+                ...act,
+                isPinned: nextPinned,
+                pinnedAt: optimisticPinnedAt,
+                pinnedByOperatorId: nextPinned ? operatorProfile?.id || null : null,
+                pinnedByOperatorName: nextPinned ? operatorProfile?.name || null : null,
+              }
+            : act
+        ),
+      };
+    });
+
+    try {
+      const res = await fetch(`/api/crm/deals/${activeDeal.id}/activities/${activityId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isPinned: nextPinned }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || "Erro ao atualizar fixação da anotação.");
+      }
+
+      if (data.activity) {
+        setDeal((prev: any) => {
+          if (!prev || !Array.isArray(prev.activities)) return prev;
+          return {
+            ...prev,
+            activities: prev.activities.map((act: any) =>
+              act.id === activityId
+                ? {
+                    ...act,
+                    ...data.activity,
+                    isPinned: Boolean(data.activity.isPinned),
+                    pinnedAt: data.activity.pinnedAt ?? null,
+                    pinnedByOperatorId: data.activity.pinnedByOperatorId ?? null,
+                    pinnedByOperatorName: data.activity.pinnedByOperatorName ?? null,
+                  }
+                : act
+            ),
+          };
+        });
+      }
+
+      toast.success(nextPinned ? "Anotação fixada no topo!" : "Anotação desafixada.");
+    } catch (err: any) {
+      console.error("[DealDetailModal] Erro ao fixar/desafixar anotação:", err);
+      setDeal((prev: any) =>
+        prev ? { ...prev, activities: previousActivities } : prev
+      );
+      toast.error(err.message || "Falha ao atualizar fixação da anotação.");
+    } finally {
+      setPinningNoteId(null);
     }
   };
 
@@ -3253,6 +3330,9 @@ export function DealDetailModal({
       iconType: string;
       badgeColor: string;
       isNote?: boolean;
+      isPinned?: boolean;
+      pinnedAt?: Date | null;
+      pinnedByOperatorName?: string | null;
       noteTaskCompletionTitle?: string | null;
       activityId?: string;
       editHistory?: DealNoteEditEntry[];
@@ -3276,10 +3356,12 @@ export function DealDetailModal({
       ),
     );
     (deal.events || []).forEach((evt: any) => {
-      // Ignorar evento de auditoria se for criação/edição de nota comercial (já é exibido com histórico cumulativo no próprio card de anotação)
+      // Ignorar evento de auditoria se for criação/edição/fixação de nota comercial (já refletido no próprio card de anotação)
       if (evt.eventType === "note_created") return;
       if (
-        evt.eventType === "note_updated" &&
+        (evt.eventType === "note_updated" ||
+          evt.eventType === "note_pinned" ||
+          evt.eventType === "note_unpinned") &&
         deal.activities?.some((a: any) => a.id === evt.metadata?.activityId)
       ) {
         return;
@@ -3462,6 +3544,13 @@ export function DealDetailModal({
         iconType: isNote ? "note" : "task",
         badgeColor: isNote ? "bg-primary/10 text-primary border border-primary/20" : "bg-muted text-muted-foreground",
         isNote,
+        isPinned: isNote && Boolean(act.isPinned),
+        pinnedAt: isNote && act.pinnedAt ? new Date(act.pinnedAt) : null,
+        pinnedByOperatorName: isNote
+          ? act.pinnedByOperatorName ||
+            (act.pinnedByOperatorId ? operatorsMap.get(act.pinnedByOperatorId) : null) ||
+            null
+          : null,
         noteTaskCompletionTitle,
         source: act.conversationId ? "conversas" : "crm",
       });
@@ -3571,8 +3660,19 @@ export function DealDetailModal({
       description: [`Contato: ${rdJourney.data!.contactName}`, `Fonte: ${event.source || "Não informada"}`, `Campanha: ${event.campaign || "Não informada"}`, event.medium ? `Mídia: ${event.medium}` : "", event.funnelName ? `Funil RD Marketing: ${event.funnelName}` : "", event.observedSource ? `Origem do perfil no aviso: ${event.observedSource}` : "", event.observedCampaign ? `Campanha do perfil no aviso: ${event.observedCampaign}` : "", event.observedLifecycle ? `Estágio de Marketing no aviso: ${event.observedLifecycle}` : "", event.details || "", event.eventType === "AUTOMATION" ? "Data de recebimento do aviso deste ponto do fluxo." : ""].filter(Boolean).join("\n"),
       author: "RD Marketing", date: new Date(event.date || NaN), iconType: "history", badgeColor: "bg-primary/10 text-primary", source: "marketing", marketingEvent: event,
     }));
-    // Eventos sem data não recebem uma data inventada; aparecem após os eventos datados.
-    items.sort((a, b) => (Number.isFinite(b.date.getTime()) ? b.date.getTime() : -Infinity) - (Number.isFinite(a.date.getTime()) ? a.date.getTime() : -Infinity));
+    // Anotações fixadas aparecem sempre no topo (da mais recentemente fixada para a mais antiga);
+    // demais eventos seguem ordem cronológica decrescente (eventos sem data ficam por último).
+    items.sort((a, b) => {
+      const aPinned = a.isNote && a.isPinned ? 1 : 0;
+      const bPinned = b.isNote && b.isPinned ? 1 : 0;
+      if (aPinned !== bPinned) return bPinned - aPinned;
+      if (aPinned && bPinned) {
+        const aPinTime = a.pinnedAt && Number.isFinite(a.pinnedAt.getTime()) ? a.pinnedAt.getTime() : -Infinity;
+        const bPinTime = b.pinnedAt && Number.isFinite(b.pinnedAt.getTime()) ? b.pinnedAt.getTime() : -Infinity;
+        if (aPinTime !== bPinTime) return bPinTime - aPinTime;
+      }
+      return (Number.isFinite(b.date.getTime()) ? b.date.getTime() : -Infinity) - (Number.isFinite(a.date.getTime()) ? a.date.getTime() : -Infinity);
+    });
     return items;
   }, [deal, operatorsMap, pipelineStages, operators, operatorProfile, rdJourney.data, chatContext?.tenant]);
 
@@ -4980,7 +5080,19 @@ export function DealDetailModal({
                       const pendingTasks = allActivities.filter((a: any) => a.status === "pending" && a.type !== "note");
                       const completedTasks = allActivities.filter((a: any) => a.status === "completed" && a.type !== "note");
                       const cancelledTasks = allActivities.filter((a: any) => a.status === "cancelled" && a.type !== "note");
-                      const notesList = allActivities.filter((a: any) => a.type === "note");
+                      const notesList = allActivities
+                        .filter((a: any) => a.type === "note")
+                        .sort((a: any, b: any) => {
+                          const aPinned = a.isPinned ? 1 : 0;
+                          const bPinned = b.isPinned ? 1 : 0;
+                          if (aPinned !== bPinned) return bPinned - aPinned;
+                          if (aPinned && bPinned) {
+                            const aPinTime = a.pinnedAt ? new Date(a.pinnedAt).getTime() : 0;
+                            const bPinTime = b.pinnedAt ? new Date(b.pinnedAt).getTime() : 0;
+                            if (aPinTime !== bPinTime) return bPinTime - aPinTime;
+                          }
+                          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+                        });
 
                       const displayedList =
                         tasksSubTab === "pending"
@@ -5091,7 +5203,9 @@ export function DealDetailModal({
                                   <div
                                     key={act.id}
                                     className={`rounded-xl border p-3.5 shadow-xs transition-colors space-y-2 ${
-                                      isNote
+                                      isNote && act.isPinned
+                                        ? "border-primary/40 bg-primary/[0.04]"
+                                        : isNote
                                         ? "border-border bg-muted/20"
                                         : isCompleted
                                         ? "border-border/60 bg-muted/10 opacity-80"
@@ -5135,6 +5249,13 @@ export function DealDetailModal({
                                               Histórico Registrado
                                             </span>
                                           )}
+
+                                          {isNote && act.isPinned && (
+                                            <span className="inline-flex items-center gap-1 rounded bg-primary/10 border border-primary/20 px-1.5 py-0.5 text-[9px] font-extrabold uppercase text-primary">
+                                              <Pin className="h-2.5 w-2.5 fill-current" />
+                                              <span>Fixada</span>
+                                            </span>
+                                          )}
                                         </div>
 
                                         {isNote ? (
@@ -5170,16 +5291,46 @@ export function DealDetailModal({
                                       {/* Ações Rápidas por Tipo */}
                                       <div data-tour="deal.task-actions" className="flex items-center gap-1.5 shrink-0">
                                         {isNote && canEditDealNotes && editingNoteId !== act.id && (
-                                          <SystemTooltip content="Editar anotação">
-                                            <button
-                                              type="button"
-                                              onClick={() => handleStartEditNote(act.id, act.description || act.title || "")}
-                                              className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground/70 hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
-                                              aria-label="Editar anotação"
+                                          <>
+                                            <SystemTooltip
+                                              content={
+                                                act.isPinned
+                                                  ? act.pinnedByOperatorName
+                                                    ? `Desafixar anotação (fixada por ${act.pinnedByOperatorName})`
+                                                    : "Desafixar anotação"
+                                                  : "Fixar anotação no topo"
+                                              }
                                             >
-                                              <Pencil className="h-3.5 w-3.5" />
-                                            </button>
-                                          </SystemTooltip>
+                                              <button
+                                                type="button"
+                                                disabled={pinningNoteId === act.id}
+                                                onClick={() => handleTogglePinNote(act.id, Boolean(act.isPinned))}
+                                                className={`flex h-7 w-7 items-center justify-center rounded-lg transition-colors cursor-pointer disabled:opacity-50 ${
+                                                  act.isPinned
+                                                    ? "text-primary bg-primary/10 hover:bg-primary/20"
+                                                    : "text-muted-foreground/60 hover:text-primary hover:bg-muted"
+                                                }`}
+                                                aria-label={act.isPinned ? "Desafixar anotação" : "Fixar anotação"}
+                                                aria-pressed={Boolean(act.isPinned)}
+                                              >
+                                                {pinningNoteId === act.id ? (
+                                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                                ) : (
+                                                  <Pin className={`h-3.5 w-3.5 ${act.isPinned ? "fill-current" : ""}`} />
+                                                )}
+                                              </button>
+                                            </SystemTooltip>
+                                            <SystemTooltip content="Editar anotação">
+                                              <button
+                                                type="button"
+                                                onClick={() => handleStartEditNote(act.id, act.description || act.title || "")}
+                                                className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground/70 hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
+                                                aria-label="Editar anotação"
+                                              >
+                                                <Pencil className="h-3.5 w-3.5" />
+                                              </button>
+                                            </SystemTooltip>
+                                          </>
                                         )}
                                         {isPending && !isNote && (
                                           <>
@@ -7753,11 +7904,23 @@ export function DealDetailModal({
                           return (
                             <div key={item.id} className="relative group">
                               {/* Marcador na linha do tempo com bullet colorido e anel elegante */}
-                              <div className="absolute -left-[37px] top-3.5 flex h-4.5 w-4.5 items-center justify-center rounded-full bg-card border-2 border-border shadow-xs z-10">
-                                <div className={`h-2 w-2 rounded-full ${bulletColor}`} />
+                              <div className={`absolute -left-[37px] top-3.5 flex h-4.5 w-4.5 items-center justify-center rounded-full shadow-xs z-10 ${
+                                item.isNote && item.isPinned
+                                  ? "bg-primary border-2 border-primary text-primary-foreground"
+                                  : "bg-card border-2 border-border"
+                              }`}>
+                                {item.isNote && item.isPinned ? (
+                                  <Pin className="h-2.5 w-2.5 fill-current" />
+                                ) : (
+                                  <div className={`h-2 w-2 rounded-full ${bulletColor}`} />
+                                )}
                               </div>
 
-                              <div className="crm-timeline-item rounded-sm border border-border/80 bg-card/85 backdrop-blur-xs p-4 shadow-xs hover:border-primary/40 hover:bg-card transition-all">
+                              <div className={`crm-timeline-item rounded-sm border backdrop-blur-xs p-4 shadow-xs transition-all ${
+                                item.isNote && item.isPinned
+                                  ? "border-primary/40 bg-primary/[0.03] hover:border-primary/60"
+                                  : "border-border/80 bg-card/85 hover:border-primary/40 hover:bg-card"
+                              }`}>
                                 {/* Cabeçalho do Card */}
                                 <div className="flex items-center justify-between gap-3 text-xs">
                                   <div className="flex items-center gap-2.5 min-w-0">
@@ -7814,22 +7977,58 @@ export function DealDetailModal({
                                           ? "Questionário"
                                           : "Atividade"}
                                       </span>
+                                      {item.isNote && item.isPinned && (
+                                        <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 border border-primary/25 px-2 py-0.5 text-[9px] font-bold tracking-wide uppercase text-primary">
+                                          <Pin className="h-2.5 w-2.5 fill-current" />
+                                          <span>Fixada</span>
+                                        </span>
+                                      )}
                                     </div>
                                   </div>
 
-                                  {/* Ícone discreto de lápis para editar anotação + Data / Hora alinhada */}
+                                  {/* Ícones discretos de fixar e editar anotação + Data / Hora alinhada */}
                                   <div className="flex items-center gap-2 text-[11px] text-muted-foreground/80 font-medium shrink-0">
                                     {item.isNote && item.activityId && canEditDealNotes && editingNoteId !== item.activityId && (
-                                      <SystemTooltip content="Editar anotação">
-                                        <button
-                                          type="button"
-                                          onClick={() => handleStartEditNote(item.activityId!, item.description || "")}
-                                          className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/60 hover:text-foreground hover:bg-muted/70 transition-colors cursor-pointer"
-                                          aria-label="Editar anotação"
+                                      <div className="flex items-center gap-0.5">
+                                        <SystemTooltip
+                                          content={
+                                            item.isPinned
+                                              ? item.pinnedByOperatorName
+                                                ? `Desafixar anotação (fixada por ${item.pinnedByOperatorName})`
+                                                : "Desafixar anotação"
+                                              : "Fixar anotação no topo"
+                                          }
                                         >
-                                          <Pencil className="h-3 w-3" />
-                                        </button>
-                                      </SystemTooltip>
+                                          <button
+                                            type="button"
+                                            disabled={pinningNoteId === item.activityId}
+                                            onClick={() => handleTogglePinNote(item.activityId!, Boolean(item.isPinned))}
+                                            className={`flex h-6 w-6 items-center justify-center rounded-md transition-colors cursor-pointer disabled:opacity-50 ${
+                                              item.isPinned
+                                                ? "text-primary bg-primary/10 hover:bg-primary/20"
+                                                : "text-muted-foreground/55 hover:text-primary hover:bg-muted/70"
+                                            }`}
+                                            aria-label={item.isPinned ? "Desafixar anotação" : "Fixar anotação"}
+                                            aria-pressed={Boolean(item.isPinned)}
+                                          >
+                                            {pinningNoteId === item.activityId ? (
+                                              <Loader2 className="h-3 w-3 animate-spin" />
+                                            ) : (
+                                              <Pin className={`h-3 w-3 ${item.isPinned ? "fill-current" : ""}`} />
+                                            )}
+                                          </button>
+                                        </SystemTooltip>
+                                        <SystemTooltip content="Editar anotação">
+                                          <button
+                                            type="button"
+                                            onClick={() => handleStartEditNote(item.activityId!, item.description || "")}
+                                            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/60 hover:text-foreground hover:bg-muted/70 transition-colors cursor-pointer"
+                                            aria-label="Editar anotação"
+                                          >
+                                            <Pencil className="h-3 w-3" />
+                                          </button>
+                                        </SystemTooltip>
+                                      </div>
                                     )}
                                     <div className="flex items-center gap-1.5">
                                       <Clock className="h-3 w-3 opacity-60" />

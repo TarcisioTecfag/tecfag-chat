@@ -299,6 +299,13 @@ const migrations = [
       import.meta.url,
     ),
   },
+  {
+    name: "0064_crm_note_pinning",
+    url: new URL(
+      "../src/db/migrations/0064_crm_note_pinning.sql",
+      import.meta.url,
+    ),
+  },
 ];
 const databaseUrl = process.env.DATABASE_URL;
 

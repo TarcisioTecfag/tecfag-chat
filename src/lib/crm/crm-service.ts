@@ -100,6 +100,7 @@ import {
   isEffectiveCommercialWin,
   isTestEntityTitle,
   loadDealSectorResolutionContext,
+  normalizeRdDealSource,
   resolveDealCurrentSector,
   resolveInheritedMarketingAttribution,
 } from "../marketing/crm-attribution";
@@ -4624,7 +4625,18 @@ export class CrmService {
       const resolvedAttribution = data.marketingOrigin
         ? {
             entryChannel: data.entryChannel || "rd_webhook",
-            source: data.source || "Não informada",
+            source:
+              normalizeRdDealSource({
+                explicitSource: data.source || null,
+                utmSource: data.utmSource || null,
+                utmMedium: data.utmMedium || null,
+                utmCampaign: data.utmCampaign || null,
+                clickId: data.clickId || null,
+                landingPage: data.landingPage || null,
+                entryChannel: data.entryChannel || "rd_webhook",
+              }) ||
+              data.source ||
+              "Não informada",
             campaign: data.campaign || null,
             utmSource: data.utmSource || null,
             utmMedium: data.utmMedium || null,
@@ -6684,6 +6696,7 @@ export class CrmService {
         operatorAvatar?: string | null;
         assignedToOperatorName: string | null;
         assignedToOperatorAvatar?: string | null;
+        pinnedByOperatorName?: string | null;
         actorName?: string | null;
         actorAvatar?: string | null;
       }
@@ -6729,6 +6742,8 @@ export class CrmService {
       .where(and(...conditions))
       .orderBy(
         sql`CASE WHEN ${crmDealActivities.status} = 'pending' THEN 0 ELSE 1 END`,
+        sql`CASE WHEN ${crmDealActivities.type} = 'note' AND ${crmDealActivities.isPinned} = true THEN 0 ELSE 1 END`,
+        sql`${crmDealActivities.pinnedAt} DESC NULLS LAST`,
         sql`${crmDealActivities.dueDate} ASC NULLS LAST`,
         desc(crmDealActivities.createdAt)
       );
@@ -6801,6 +6816,12 @@ export class CrmService {
         ...r.activity,
         assignedToOperatorIds: uniqueIds,
         editHistory: normalizedEditHistory,
+        isPinned: Boolean(r.activity.isPinned),
+        pinnedAt: r.activity.pinnedAt ?? null,
+        pinnedByOperatorId: r.activity.pinnedByOperatorId ?? null,
+        pinnedByOperatorName: r.activity.pinnedByOperatorId
+          ? opNameMap.get(r.activity.pinnedByOperatorId) ?? null
+          : null,
         operatorName: r.operatorName || null,
         operatorAvatar: (r as any).operatorAvatar || null,
         assignedToOperatorName:
@@ -6831,11 +6852,13 @@ export class CrmService {
       assignedToOperatorId?: string | null;
       assignedToOperatorIds?: string[] | null;
       completionNote?: string | null;
+      isPinned?: boolean;
     }
   ): Promise<
     CrmDealActivity & {
       operatorName: string | null;
       assignedToOperatorName: string | null;
+      pinnedByOperatorName?: string | null;
     }
   > {
     return await db.transaction(async (tx) => {
@@ -6869,8 +6892,8 @@ export class CrmService {
         throw new CrmNotFoundError("Atividade não encontrada.");
       }
 
-      // 3. Notas comerciais ('note'): permite editar o texto com trilha cumulativa de edições,
-      // bloqueando alterações de status, prazo, responsável ou conversão de tipo.
+      // 3. Notas comerciais ('note'): permite editar o texto (com trilha cumulativa de edições)
+      // e fixar/desafixar a anotação no topo do card, bloqueando status/prazo/atribuição/tipo.
       if (current.type === "note") {
         if (
           updates.status !== undefined ||
@@ -6892,9 +6915,10 @@ export class CrmService {
 
         const hasDescriptionInput = updates.description !== undefined;
         const hasTitleInput = updates.title !== undefined;
-        if (!hasDescriptionInput && !hasTitleInput) {
+        const hasPinInput = typeof updates.isPinned === "boolean";
+        if (!hasDescriptionInput && !hasTitleInput && !hasPinInput) {
           throw new CrmValidationError(
-            "Informe o conteúdo atualizado da anotação.",
+            "Informe o conteúdo atualizado ou o estado de fixação da anotação.",
             "EMPTY_NOTE_CONTENT"
           );
         }
@@ -6926,11 +6950,13 @@ export class CrmService {
 
         const nextEffectiveContent = hasDescriptionInput ? nextDescription : nextTitle;
         const contentChanged =
-          nextEffectiveContent !== prevEffectiveContent ||
-          (hasTitleInput && nextTitle !== current.title);
+          (hasDescriptionInput || hasTitleInput) &&
+          (nextEffectiveContent !== prevEffectiveContent ||
+            (hasTitleInput && nextTitle !== current.title));
+        const pinChanged = hasPinInput && Boolean(updates.isPinned) !== Boolean(current.isPinned);
 
         let editorName = "Operador";
-        if (operatorId) {
+        if (operatorId && (contentChanged || pinChanged)) {
           const [editorOp] = await tx
             .select({ id: operators.id, name: operators.name })
             .from(operators)
@@ -6951,22 +6977,33 @@ export class CrmService {
         const now = new Date();
         let finalNote = current;
 
-        if (contentChanged) {
-          const nextEditEntry: CrmNoteEditEntry = {
-            editedAt: now.toISOString(),
-            operatorId: operatorId || null,
-            operatorName: editorName,
+        if (contentChanged || pinChanged) {
+          const noteSetPayload: Partial<typeof crmDealActivities.$inferInsert> = {
+            updatedAt: now,
           };
-          const nextEditHistory = [...previousHistory, nextEditEntry];
+
+          let nextEditHistory = previousHistory;
+          if (contentChanged) {
+            const nextEditEntry: CrmNoteEditEntry = {
+              editedAt: now.toISOString(),
+              operatorId: operatorId || null,
+              operatorName: editorName,
+            };
+            nextEditHistory = [...previousHistory, nextEditEntry];
+            noteSetPayload.title = nextTitle;
+            noteSetPayload.description = hasDescriptionInput ? nextDescription : current.description;
+            noteSetPayload.editHistory = nextEditHistory;
+          }
+
+          if (pinChanged) {
+            noteSetPayload.isPinned = Boolean(updates.isPinned);
+            noteSetPayload.pinnedAt = updates.isPinned ? now : null;
+            noteSetPayload.pinnedByOperatorId = updates.isPinned ? operatorId || null : null;
+          }
 
           const [updatedNoteRow] = await tx
             .update(crmDealActivities)
-            .set({
-              title: nextTitle,
-              description: hasDescriptionInput ? nextDescription : current.description,
-              editHistory: nextEditHistory,
-              updatedAt: now,
-            })
+            .set(noteSetPayload)
             .where(
               and(
                 eq(crmDealActivities.id, activityId),
@@ -6980,40 +7017,62 @@ export class CrmService {
             finalNote = updatedNoteRow;
           }
 
-          await tx
-            .update(crmDeals)
-            .set({ lastActivityAt: now, updatedAt: now })
-            .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)));
+          if (contentChanged) {
+            await tx
+              .update(crmDeals)
+              .set({ lastActivityAt: now, updatedAt: now })
+              .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)));
 
-          await this.logDealEvent(
-            tenantId,
-            dealId,
-            "note_updated",
-            operatorId,
-            {
-              activityId,
-              activityTitle: nextTitle,
-              previousDescription: prevEffectiveContent,
-              newDescription: nextEffectiveContent,
-              editCount: nextEditHistory.length,
-              editedByName: editorName,
-              editedAt: now.toISOString(),
-            },
-            tx
-          );
+            await this.logDealEvent(
+              tenantId,
+              dealId,
+              "note_updated",
+              operatorId,
+              {
+                activityId,
+                activityTitle: nextTitle,
+                previousDescription: prevEffectiveContent,
+                newDescription: nextEffectiveContent,
+                editCount: nextEditHistory.length,
+                editedByName: editorName,
+                editedAt: now.toISOString(),
+              },
+              tx
+            );
+          }
+
+          if (pinChanged) {
+            await this.logDealEvent(
+              tenantId,
+              dealId,
+              updates.isPinned ? "note_pinned" : "note_unpinned",
+              operatorId,
+              {
+                activityId,
+                activityTitle: finalNote.title,
+                isPinned: Boolean(updates.isPinned),
+                pinnedByName: editorName,
+                pinnedAt: updates.isPinned ? now.toISOString() : null,
+              },
+              tx
+            );
+          }
         }
 
         const creatorOp = alias(operators, "upd_note_creator_op");
         const assignedOp = alias(operators, "upd_note_assigned_op");
+        const pinnedOp = alias(operators, "upd_note_pinned_op");
         const [fullNote] = await tx
           .select({
             activity: crmDealActivities,
             operatorName: creatorOp.name,
             assignedToOperatorName: assignedOp.name,
+            pinnedByOperatorName: pinnedOp.name,
           })
           .from(crmDealActivities)
           .leftJoin(creatorOp, eq(crmDealActivities.operatorId, creatorOp.id))
           .leftJoin(assignedOp, eq(crmDealActivities.assignedToOperatorId, assignedOp.id))
+          .leftJoin(pinnedOp, eq(crmDealActivities.pinnedByOperatorId, pinnedOp.id))
           .where(and(eq(crmDealActivities.id, finalNote.id), eq(crmDealActivities.tenantId, tenantId)))
           .limit(1);
 
@@ -7024,10 +7083,21 @@ export class CrmService {
 
         return {
           ...baseNote,
+          isPinned: Boolean(baseNote.isPinned),
+          pinnedAt: baseNote.pinnedAt ?? null,
+          pinnedByOperatorId: baseNote.pinnedByOperatorId ?? null,
+          pinnedByOperatorName: fullNote?.pinnedByOperatorName || null,
           assignedToOperatorIds: finalAssignedIds,
           operatorName: fullNote?.operatorName || null,
           assignedToOperatorName: fullNote?.assignedToOperatorName || null,
         };
+      }
+
+      if (typeof updates.isPinned === "boolean") {
+        throw new CrmValidationError(
+          "Apenas anotações comerciais podem ser fixadas.",
+          "PIN_ONLY_FOR_NOTES"
+        );
       }
 
       const now = new Date();
