@@ -11,7 +11,9 @@ import {
   History,
   Link2,
   Loader2,
+  Lock,
   MessageSquare,
+  Pencil,
   Plus,
   RefreshCw,
   RotateCcw,
@@ -28,6 +30,8 @@ import { useChat } from "@/hooks/useChatState";
 import { getAiPersona } from "@/lib/ai-persona";
 import { SystemTooltip } from "@/components/ui/tooltip";
 
+type McpAccessLevel = "read" | "read_write";
+
 interface McpNamedKey {
   id: string;
   label: string;
@@ -37,9 +41,10 @@ interface McpNamedKey {
   lastUsedAt: string | null;
   usageCount: number;
   active: boolean;
+  accessLevel?: McpAccessLevel;
 }
 
-type McpAuditEventType = "query" | "connection" | "config_change";
+type McpAuditEventType = "query" | "action" | "connection" | "config_change";
 
 interface McpAuditLogEntry {
   id: string;
@@ -64,6 +69,7 @@ interface McpAuditLogEntry {
 function resolveLogEventType(entry: McpAuditLogEntry): McpAuditEventType {
   if (
     entry.eventType === "query" ||
+    entry.eventType === "action" ||
     entry.eventType === "connection" ||
     entry.eventType === "config_change"
   ) {
@@ -84,6 +90,7 @@ function formatByteSize(bytes?: number): string | null {
 
 interface McpToolItem {
   name: string;
+  access?: "read" | "write";
   description: string;
 }
 
@@ -93,6 +100,7 @@ interface McpSettingsResponse {
   enabled: boolean;
   primaryToken: string;
   primaryTokenUpdatedAt: string | null;
+  primaryAccessLevel?: McpAccessLevel;
   isDefaultPrimaryToken: boolean;
   namedKeys: McpNamedKey[];
   auditLogs?: McpAuditLogEntry[];
@@ -118,6 +126,7 @@ export function McpSettingsTab() {
       : "mcp_tf_8f4e2a9c1d7b6e3f5a0c2d4e8b1f7a3c",
   );
   const [primaryTokenUpdatedAt, setPrimaryTokenUpdatedAt] = useState<string | null>(null);
+  const [primaryAccessLevel, setPrimaryAccessLevel] = useState<McpAccessLevel>("read");
   const [isDefaultPrimaryToken, setIsDefaultPrimaryToken] = useState(true);
   const [namedKeys, setNamedKeys] = useState<McpNamedKey[]>([]);
   const [auditLogs, setAuditLogs] = useState<McpAuditLogEntry[]>([]);
@@ -129,7 +138,9 @@ export function McpSettingsTab() {
   const [guideClient, setGuideClient] = useState<"claude" | "antigravity" | "codex">("claude");
 
   const [newKeyLabel, setNewKeyLabel] = useState("");
+  const [newKeyAccessLevel, setNewKeyAccessLevel] = useState<McpAccessLevel>("read");
   const [creatingKey, setCreatingKey] = useState(false);
+  const [updatingPrimaryAccess, setUpdatingPrimaryAccess] = useState(false);
   const [rotatingPrimary, setRotatingPrimary] = useState(false);
   const [togglingEnabled, setTogglingEnabled] = useState(false);
 
@@ -227,6 +238,7 @@ export function McpSettingsTab() {
         setEnabled(data.enabled);
         setPrimaryToken(data.primaryToken);
         setPrimaryTokenUpdatedAt(data.primaryTokenUpdatedAt);
+        setPrimaryAccessLevel(data.primaryAccessLevel === "read_write" ? "read_write" : "read");
         setIsDefaultPrimaryToken(data.isDefaultPrimaryToken);
         setNamedKeys(Array.isArray(data.namedKeys) ? data.namedKeys : []);
         setAuditLogs(Array.isArray(data.auditLogs) ? data.auditLogs : []);
@@ -372,7 +384,11 @@ export function McpSettingsTab() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ action: "create_named_key", label: cleanLabel }),
+        body: JSON.stringify({
+          action: "create_named_key",
+          label: cleanLabel,
+          accessLevel: newKeyAccessLevel,
+        }),
       });
       const data = await res.json();
       if (res.ok && data.ok && data.settings) {
@@ -381,11 +397,12 @@ export function McpSettingsTab() {
           setAuditLogs(data.settings.auditLogs);
         }
         setNewKeyLabel("");
+        setNewKeyAccessLevel("read");
         if (data.createdKey?.token) {
           const url = buildConnectorUrl(data.createdKey.token);
           await navigator.clipboard.writeText(url).catch(() => {});
           toast.success(
-            `Link criado para "${cleanLabel}" e já copiado para a área de transferência!`,
+            `Link criado para "${cleanLabel}" (${newKeyAccessLevel === "read_write" ? "Leitura + Escrita" : "Somente Leitura"}) e já copiado!`,
           );
         } else {
           toast.success(`Link individual criado para "${cleanLabel}".`);
@@ -397,6 +414,79 @@ export function McpSettingsTab() {
       toast.error("Erro ao criar link individual.");
     } finally {
       setCreatingKey(false);
+    }
+  };
+
+  const handleTogglePrimaryAccessLevel = async () => {
+    if (updatingPrimaryAccess) return;
+    const nextLevel: McpAccessLevel = primaryAccessLevel === "read_write" ? "read" : "read_write";
+    setUpdatingPrimaryAccess(true);
+    try {
+      const res = await fetch("/api/settings/mcp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          action: "set_primary_access_level",
+          accessLevel: nextLevel,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.ok && data.settings) {
+        setPrimaryAccessLevel(
+          data.settings.primaryAccessLevel === "read_write" ? "read_write" : "read",
+        );
+        if (Array.isArray(data.settings.auditLogs)) {
+          setAuditLogs(data.settings.auditLogs);
+        }
+        toast.success(
+          nextLevel === "read_write"
+            ? "Link Principal liberado para Leitura + Escrita."
+            : "Link Principal restrito para Somente Leitura.",
+        );
+      } else {
+        toast.error(data.error || "Erro ao atualizar permissão do link principal.");
+      }
+    } catch {
+      toast.error("Erro ao atualizar permissão do link principal.");
+    } finally {
+      setUpdatingPrimaryAccess(false);
+    }
+  };
+
+  const handleToggleNamedKeyAccessLevel = async (
+    keyId: string,
+    label: string,
+    currentLevel?: McpAccessLevel,
+  ) => {
+    const nextLevel: McpAccessLevel = currentLevel === "read_write" ? "read" : "read_write";
+    try {
+      const res = await fetch("/api/settings/mcp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          action: "set_named_key_access_level",
+          keyId,
+          accessLevel: nextLevel,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.ok && data.settings) {
+        setNamedKeys(data.settings.namedKeys || []);
+        if (Array.isArray(data.settings.auditLogs)) {
+          setAuditLogs(data.settings.auditLogs);
+        }
+        toast.success(
+          nextLevel === "read_write"
+            ? `"${label}" agora tem permissão de Leitura + Escrita.`
+            : `"${label}" voltou para Somente Leitura.`,
+        );
+      } else {
+        toast.error(data.error || "Erro ao atualizar permissão do link.");
+      }
+    } catch {
+      toast.error("Erro ao atualizar permissão do link.");
     }
   };
 
@@ -518,17 +608,20 @@ export function McpSettingsTab() {
 
   const eventTypeCounts = useMemo(() => {
     let queries = 0;
+    let actions = 0;
     let connections = 0;
     let configs = 0;
     for (const log of auditLogs) {
       const evType = resolveLogEventType(log);
       if (evType === "query") queries += 1;
+      else if (evType === "action") actions += 1;
       else if (evType === "connection") connections += 1;
       else if (evType === "config_change") configs += 1;
     }
     return {
       all: auditLogs.length,
       query: queries,
+      action: actions,
       connection: connections,
       config_change: configs,
     };
@@ -735,6 +828,25 @@ export function McpSettingsTab() {
                   Token Oficial Padrão
                 </span>
               )}
+              <span
+                className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md border ${
+                  primaryAccessLevel === "read_write"
+                    ? "bg-primary/10 text-primary border-primary/25"
+                    : "bg-muted text-muted-foreground border-border"
+                }`}
+              >
+                {primaryAccessLevel === "read_write" ? (
+                  <>
+                    <Pencil className="h-2.5 w-2.5" />
+                    Leitura + Escrita
+                  </>
+                ) : (
+                  <>
+                    <Lock className="h-2.5 w-2.5" />
+                    Somente Leitura
+                  </>
+                )}
+              </span>
             </div>
 
             {isLocalhost && (
@@ -847,6 +959,36 @@ export function McpSettingsTab() {
               </SystemTooltip>
 
               {sessionRole === "admin" && (
+                <SystemTooltip
+                  content={
+                    primaryAccessLevel === "read_write"
+                      ? "Restringir o Link Principal para Somente Leitura (bloqueia ações de escrita)"
+                      : "Permitir que o Link Principal execute ações de escrita no CRM, Chat, Tarefas e Templates"
+                  }
+                >
+                  <button
+                    type="button"
+                    onClick={handleTogglePrimaryAccessLevel}
+                    disabled={updatingPrimaryAccess}
+                    className={`inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-semibold border transition cursor-pointer ${
+                      primaryAccessLevel === "read_write"
+                        ? "bg-primary/10 text-primary border-primary/30 hover:bg-primary/15"
+                        : "bg-card hover:bg-muted text-muted-foreground hover:text-foreground border-border"
+                    }`}
+                  >
+                    {updatingPrimaryAccess ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : primaryAccessLevel === "read_write" ? (
+                      <Pencil className="h-3.5 w-3.5" />
+                    ) : (
+                      <Lock className="h-3.5 w-3.5" />
+                    )}
+                    {primaryAccessLevel === "read_write" ? "Modo: Leitura + Escrita" : "Modo: Somente Leitura"}
+                  </button>
+                </SystemTooltip>
+              )}
+
+              {sessionRole === "admin" && (
                 <SystemTooltip content="Gerar um novo código de token principal (invalida o token anterior)">
                   <button
                     type="button"
@@ -918,7 +1060,7 @@ export function McpSettingsTab() {
         </div>
 
         {/* Formulário para Gerar Novo Link Nomeado */}
-        <form onSubmit={handleCreateNamedKey} className="flex flex-col sm:flex-row gap-3">
+        <form onSubmit={handleCreateNamedKey} className="flex flex-col lg:flex-row gap-3">
           <input
             type="text"
             placeholder="Nome da pessoa ou setor (ex: João - Comercial, Diretoria, Analista Teste)..."
@@ -926,6 +1068,36 @@ export function McpSettingsTab() {
             onChange={(e) => setNewKeyLabel(e.target.value)}
             className="flex-1 h-10 rounded-xl bg-muted/40 border border-border px-4 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary"
           />
+          <div className="inline-flex h-10 rounded-xl bg-muted/40 border border-border p-1 shrink-0">
+            <SystemTooltip content="Permite apenas consultas e relatórios; bloqueia ações de edição">
+              <button
+                type="button"
+                onClick={() => setNewKeyAccessLevel("read")}
+                className={`inline-flex items-center gap-1.5 px-3 rounded-lg text-xs font-bold transition cursor-pointer ${
+                  newKeyAccessLevel === "read"
+                    ? "bg-card text-foreground shadow-soft border border-border"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Lock className="h-3 w-3" />
+                Somente Leitura
+              </button>
+            </SystemTooltip>
+            <SystemTooltip content="Permite consultas e ações reais (CRM, Chat, Tarefas, Templates e Setores)">
+              <button
+                type="button"
+                onClick={() => setNewKeyAccessLevel("read_write")}
+                className={`inline-flex items-center gap-1.5 px-3 rounded-lg text-xs font-bold transition cursor-pointer ${
+                  newKeyAccessLevel === "read_write"
+                    ? "bg-primary text-primary-foreground shadow-soft"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Pencil className="h-3 w-3" />
+                Leitura + Escrita
+              </button>
+            </SystemTooltip>
+          </div>
           <button
             type="submit"
             disabled={!newKeyLabel.trim() || creatingKey || sessionRole !== "admin"}
@@ -979,6 +1151,25 @@ export function McpSettingsTab() {
                           }`}
                         >
                           {item.active ? "Ativo" : "Pausado"}
+                        </span>
+                        <span
+                          className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md border ${
+                            item.accessLevel === "read_write"
+                              ? "bg-primary/10 text-primary border-primary/25"
+                              : "bg-muted text-muted-foreground border-border"
+                          }`}
+                        >
+                          {item.accessLevel === "read_write" ? (
+                            <>
+                              <Pencil className="h-2.5 w-2.5" />
+                              Leitura + Escrita
+                            </>
+                          ) : (
+                            <>
+                              <Lock className="h-2.5 w-2.5" />
+                              Somente Leitura
+                            </>
+                          )}
                         </span>
                         <span className="text-[11px] text-muted-foreground">
                           Criado por {item.createdBy} em{" "}
@@ -1052,6 +1243,42 @@ export function McpSettingsTab() {
 
                       {sessionRole === "admin" && (
                         <>
+                          <SystemTooltip
+                            content={
+                              item.accessLevel === "read_write"
+                                ? "Rebaixar para Somente Leitura (revoga sessões ativas desta chave)"
+                                : "Liberar ações de escrita (CRM, Chat, Tarefas, Templates e Setores) para esta chave"
+                            }
+                          >
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleToggleNamedKeyAccessLevel(
+                                  item.id,
+                                  item.label,
+                                  item.accessLevel,
+                                )
+                              }
+                              className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition cursor-pointer ${
+                                item.accessLevel === "read_write"
+                                  ? "bg-primary/10 text-primary border-primary/30 hover:bg-primary/15"
+                                  : "bg-card hover:bg-muted text-muted-foreground hover:text-foreground border-border"
+                              }`}
+                            >
+                              {item.accessLevel === "read_write" ? (
+                                <>
+                                  <Pencil className="h-3 w-3" />
+                                  Editável
+                                </>
+                              ) : (
+                                <>
+                                  <Lock className="h-3 w-3" />
+                                  Leitura
+                                </>
+                              )}
+                            </button>
+                          </SystemTooltip>
+
                           <button
                             type="button"
                             onClick={() => handleToggleNamedKey(item.id, item.active)}
@@ -1194,7 +1421,18 @@ export function McpSettingsTab() {
                   : "bg-muted/40 text-muted-foreground hover:text-foreground border-border"
               }`}
             >
-              Consultas & Envio de Dados ({eventTypeCounts.query})
+              Consultas ({eventTypeCounts.query})
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedEventType("action")}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap border ${
+                selectedEventType === "action"
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-muted/40 text-muted-foreground hover:text-foreground border-border"
+              }`}
+            >
+              Ações / Escrita ({eventTypeCounts.action})
             </button>
             <button
               type="button"
@@ -1274,15 +1512,20 @@ export function McpSettingsTab() {
                       label: "Alteração Config",
                       cls: "bg-amber-500/10 text-amber-500 border-amber-500/25",
                     }
-                  : evType === "connection"
+                  : evType === "action"
                     ? {
-                        label: "Conexão / Acesso",
-                        cls: "bg-sky-500/10 text-sky-500 border-sky-500/25",
+                        label: "Ação / Escrita",
+                        cls: "bg-primary/10 text-primary border-primary/25",
                       }
-                    : {
-                        label: "Consulta / Envio de Dados",
-                        cls: "bg-emerald-500/10 text-emerald-500 border-emerald-500/25",
-                      };
+                    : evType === "connection"
+                      ? {
+                          label: "Conexão / Acesso",
+                          cls: "bg-sky-500/10 text-sky-500 border-sky-500/25",
+                        }
+                      : {
+                          label: "Consulta / Leitura",
+                          cls: "bg-emerald-500/10 text-emerald-500 border-emerald-500/25",
+                        };
 
               return (
                 <div

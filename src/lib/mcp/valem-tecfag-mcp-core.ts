@@ -28,6 +28,13 @@ import {
   parseFlexibleDateBound,
   projectCanonicalDealSourceName,
 } from "../marketing/crm-reporting-service";
+import {
+  MCP_EXTENDED_TOOLS,
+  MCP_EXTENDED_TOOL_LABELS_PT,
+  executeExtendedMcpTool,
+  isExtendedMcpTool,
+  type McpToolDefinition,
+} from "./valem-tecfag-mcp-write-tools";
 
 // Tokens operacionais padrão (podem ser sobrescritos via variáveis de ambiente no Railway)
 export const DEFAULT_MCP_TECFAG_TOKEN = "mcp_tf_8f4e2a9c1d7b6e3f5a0c2d4e8b1f7a3c";
@@ -36,8 +43,14 @@ export const DEFAULT_MCP_ADMIN_TOKEN = "mcp_admin_7d9e3b5c1a8f4e6d2b0c9a7e5f3d1b
 
 export const MCP_SERVER_INFO = {
   name: "valem-tecfag-mcp",
-  version: "1.0.0",
+  version: "2.0.0",
 };
+
+export type McpAccessLevel = "read" | "read_write";
+
+export function normalizeMcpAccessLevel(raw: unknown): McpAccessLevel {
+  return raw === "read_write" ? "read_write" : "read";
+}
 
 export interface McpNamedKey {
   id: string;
@@ -48,9 +61,10 @@ export interface McpNamedKey {
   lastUsedAt: string | null;
   usageCount: number;
   active: boolean;
+  accessLevel: McpAccessLevel;
 }
 
-export type McpAuditEventType = "query" | "connection" | "config_change";
+export type McpAuditEventType = "query" | "action" | "connection" | "config_change";
 
 export interface McpAuditLogEntry {
   id: string;
@@ -77,6 +91,7 @@ export interface McpTenantSettings {
   enabled: boolean;
   primaryToken: string;
   primaryTokenUpdatedAt: string | null;
+  primaryAccessLevel: McpAccessLevel;
   namedKeys: McpNamedKey[];
   auditLogs: McpAuditLogEntry[];
 }
@@ -86,6 +101,7 @@ export interface McpAccessContext {
   lockedTenantId: "tecfag" | "valem" | null;
   defaultTenantId: "tecfag" | "valem";
   authMode: "token_tecfag" | "token_valem" | "token_admin" | "session" | "none";
+  accessLevel?: McpAccessLevel;
   keyId?: string;
   keyLabel?: string;
   skipAuditLog?: boolean;
@@ -266,15 +282,24 @@ const TOOL_LABELS_PT: Record<string, string> = {
   config_create_named_key: "Criação de Link Individual",
   config_toggle_named_key: "Alteração de Status de Link Individual",
   config_delete_named_key: "Revogação de Link Individual",
+  config_set_primary_access_level: "Alteração de Permissão do Link Principal",
+  config_set_named_key_access_level: "Alteração de Permissão de Link Individual",
   config_clear_audit_logs: "Limpeza do Histórico de Auditoria",
+  ...MCP_EXTENDED_TOOL_LABELS_PT,
 };
 
 export function inferMcpAuditEventType(toolName: string, rawType?: unknown): McpAuditEventType {
-  if (rawType === "query" || rawType === "connection" || rawType === "config_change") {
+  if (
+    rawType === "query" ||
+    rawType === "action" ||
+    rawType === "connection" ||
+    rawType === "config_change"
+  ) {
     return rawType;
   }
   if (toolName.startsWith("config_")) return "config_change";
   if (toolName.startsWith("mcp_")) return "connection";
+  if (isWriteMcpTool(toolName)) return "action";
   return "query";
 }
 
@@ -405,6 +430,56 @@ export function summarizeMcpToolResult(toolName: string, data: any): string {
         const total = Number(data.summary?.totalOperators ?? 0);
         return `${online}/${total} operadores online · escala e setores lidos`;
       }
+      case "list_meta_templates": {
+        const total = Number(data.total ?? data.templates?.length ?? 0);
+        return `${total} template(s) Meta listado(s)`;
+      }
+      case "create_crm_deal":
+        return `Negociação "${data.title || data.dealId}" criada na etapa "${data.stageName || data.stageId}" (${data.dealId})`;
+      case "update_crm_deal_stage":
+        return `Negociação ${data.dealId} movida para etapa "${data.stageName || data.stageId}"`;
+      case "update_crm_deal_owner":
+        return `Negociação ${data.dealId} atribuída para ${data.operatorName || data.operatorId}`;
+      case "mark_deal_won":
+        return `Negociação ${data.dealId} marcada como GANHA`;
+      case "mark_deal_lost":
+        return `Negociação ${data.dealId} marcada como PERDIDA (${data.lossReason || "sem motivo"})`;
+      case "create_contact":
+        return data.deduplicated
+          ? `Contato existente reutilizado: "${data.name}" (${data.contactId})`
+          : `Contato "${data.name}" criado (${data.contactId})`;
+      case "update_contact":
+        return `Contato "${data.name || data.contactId}" atualizado (${data.contactId})`;
+      case "create_account":
+        return `Empresa/Conta "${data.name}" criada (${data.accountId})`;
+      case "update_account":
+        return `Empresa/Conta "${data.name || data.accountId}" atualizada (${data.accountId})`;
+      case "create_task":
+        return `Tarefa "${data.title}" criada (${data.taskId})`;
+      case "update_task":
+        return `Tarefa "${data.title || data.taskId}" atualizada → status: ${data.status || "alterado"}`;
+      case "chat_send_message":
+        return `Mensagem enviada via ${data.channel || "whatsapp"} na conversa ${data.conversationId} (${data.messageId})`;
+      case "chat_add_internal_note":
+        return `Nota interna registrada na conversa ${data.conversationId} (${data.messageId})`;
+      case "chat_transfer_conversation":
+        return `Conversa ${data.conversationId} transferida para ${data.operatorName || data.sectorName || data.queueState} (${data.queueState})`;
+      case "chat_close_conversation":
+        return `Conversa ${data.conversationId} finalizada (v${data.version ?? ""})`;
+      case "create_conversation":
+        return `Conversa ${data.conversationId} ${data.reopened ? "reaberta" : "criada"} (${data.queueState})`;
+      case "update_meta_template_visibility":
+        return `Visibilidade do template "${data.name || data.templateId}" atualizada (${data.allPipelines ? "todos os funis" : `${data.pipelineIds?.length ?? 0} funil(is) · ${data.stageIds?.length ?? 0} etapa(s)`})`;
+      case "create_meta_template":
+        return `Template Meta "${data.template?.name || ""}" submetido para aprovação`;
+      case "send_meta_template":
+        return `Template Meta "${data.templateName}" enviado na conversa ${data.conversationId} (${data.messageId})`;
+      case "create_quick_response":
+        return `Resposta rápida "${data.shortcut}" criada (${data.quickResponseId})`;
+      case "delete_quick_response":
+        return `Resposta rápida "${data.shortcut || data.deletedId}" excluída`;
+      case "update_sector":
+        return `Setor "${data.name || data.sectorId}" atualizado (${Array.isArray(data.operatorIds) ? `${data.operatorIds.length} operadores` : "dados alterados"})`;
       default:
         return "Dados retornados com sucesso";
     }
@@ -454,6 +529,7 @@ export async function getMcpTenantSettings(
         enabled: true,
         primaryToken: defaultToken,
         primaryTokenUpdatedAt: null,
+        primaryAccessLevel: "read",
         namedKeys: [],
         auditLogs: [],
       };
@@ -477,6 +553,7 @@ export async function getMcpTenantSettings(
         : defaultToken;
     const primaryTokenUpdatedAt =
       typeof cfg.primaryTokenUpdatedAt === "string" ? cfg.primaryTokenUpdatedAt : null;
+    const primaryAccessLevel = normalizeMcpAccessLevel(cfg.primaryAccessLevel);
     const rawKeys = Array.isArray(cfg.namedKeys) ? cfg.namedKeys : [];
     const namedKeys: McpNamedKey[] = rawKeys
       .filter((k): k is Record<string, unknown> => Boolean(k && typeof k === "object"))
@@ -489,6 +566,7 @@ export async function getMcpTenantSettings(
         lastUsedAt: typeof k.lastUsedAt === "string" ? k.lastUsedAt : null,
         usageCount: Number(k.usageCount || 0),
         active: k.active !== false,
+        accessLevel: normalizeMcpAccessLevel(k.accessLevel),
       }))
       .filter((k) => Boolean(k.id && k.token));
 
@@ -527,6 +605,7 @@ export async function getMcpTenantSettings(
       enabled: row.enabled !== 0,
       primaryToken,
       primaryTokenUpdatedAt,
+      primaryAccessLevel,
       namedKeys,
       auditLogs,
     };
@@ -537,6 +616,7 @@ export async function getMcpTenantSettings(
       enabled: true,
       primaryToken: defaultToken,
       primaryTokenUpdatedAt: null,
+      primaryAccessLevel: "read",
       namedKeys: [],
       auditLogs: [],
     };
@@ -549,20 +629,33 @@ async function persistMcpTenantSettingsUnlocked(
     enabled: boolean;
     primaryToken: string;
     primaryTokenUpdatedAt: string | null;
+    primaryAccessLevel?: McpAccessLevel;
     namedKeys: McpNamedKey[];
     auditLogs?: McpAuditLogEntry[];
   },
 ): Promise<McpTenantSettings> {
   const defaultRowId = `mcp-config-${tenantId}`;
   const enabledInt = settings.enabled ? 1 : 0;
+  const previousSettings =
+    !Array.isArray(settings.auditLogs) || settings.primaryAccessLevel === undefined
+      ? await getMcpTenantSettings(tenantId)
+      : null;
   const currentAuditLogs = Array.isArray(settings.auditLogs)
     ? settings.auditLogs.slice(0, MAX_AUDIT_LOGS)
-    : (await getMcpTenantSettings(tenantId)).auditLogs.slice(0, MAX_AUDIT_LOGS);
+    : (previousSettings?.auditLogs || []).slice(0, MAX_AUDIT_LOGS);
+  const primaryAccessLevel = normalizeMcpAccessLevel(
+    settings.primaryAccessLevel ?? previousSettings?.primaryAccessLevel,
+  );
+  const normalizedNamedKeys: McpNamedKey[] = settings.namedKeys.map((k) => ({
+    ...k,
+    accessLevel: normalizeMcpAccessLevel(k.accessLevel),
+  }));
 
   const configJson = {
     primaryToken: settings.primaryToken,
     primaryTokenUpdatedAt: settings.primaryTokenUpdatedAt,
-    namedKeys: settings.namedKeys,
+    primaryAccessLevel,
+    namedKeys: normalizedNamedKeys,
     auditLogs: currentAuditLogs,
   };
   const serializedConfig = JSON.stringify(configJson);
@@ -598,7 +691,8 @@ async function persistMcpTenantSettingsUnlocked(
     enabled: settings.enabled,
     primaryToken: settings.primaryToken,
     primaryTokenUpdatedAt: settings.primaryTokenUpdatedAt,
-    namedKeys: settings.namedKeys,
+    primaryAccessLevel,
+    namedKeys: normalizedNamedKeys,
     auditLogs: currentAuditLogs,
   };
 }
@@ -609,6 +703,7 @@ export async function saveMcpTenantSettings(
     enabled: boolean;
     primaryToken: string;
     primaryTokenUpdatedAt: string | null;
+    primaryAccessLevel?: McpAccessLevel;
     namedKeys: McpNamedKey[];
     auditLogs?: McpAuditLogEntry[];
   },
@@ -667,7 +762,8 @@ export async function recordMcpToolAuditLog(params: {
         responsePreview: params.responsePreview,
       };
 
-      const shouldIncrementKeyUsage = eventType === "query" || params.toolName === "mcp_initialize";
+      const shouldIncrementKeyUsage =
+        eventType === "query" || eventType === "action" || params.toolName === "mcp_initialize";
       const updatedKeys = current.namedKeys.map((k) =>
         k.id === keyId
           ? {
@@ -684,6 +780,7 @@ export async function recordMcpToolAuditLog(params: {
         enabled: current.enabled,
         primaryToken: current.primaryToken,
         primaryTokenUpdatedAt: current.primaryTokenUpdatedAt,
+        primaryAccessLevel: current.primaryAccessLevel,
         namedKeys: updatedKeys,
         auditLogs: updatedLogs,
       });
@@ -747,6 +844,7 @@ export async function resolveMcpAccess(request: Request): Promise<McpAccessConte
         lockedTenantId: null,
         defaultTenantId: "tecfag",
         authMode: "token_admin",
+        accessLevel: "read_write",
         keyId: "admin",
         keyLabel: "Admin Multi-Tenant",
       });
@@ -769,6 +867,7 @@ export async function resolveMcpAccess(request: Request): Promise<McpAccessConte
           lockedTenantId: "tecfag",
           defaultTenantId: "tecfag",
           authMode: "token_tecfag",
+          accessLevel: tecfagSettings.primaryAccessLevel,
           keyId: "primary",
           keyLabel: "Link Principal (Tecfag)",
         });
@@ -783,6 +882,7 @@ export async function resolveMcpAccess(request: Request): Promise<McpAccessConte
           lockedTenantId: "tecfag",
           defaultTenantId: "tecfag",
           authMode: "token_tecfag",
+          accessLevel: matchedNamedKey.accessLevel,
           keyId: matchedNamedKey.id,
           keyLabel: matchedNamedKey.label,
         });
@@ -801,6 +901,7 @@ export async function resolveMcpAccess(request: Request): Promise<McpAccessConte
           lockedTenantId: "valem",
           defaultTenantId: "valem",
           authMode: "token_valem",
+          accessLevel: valemSettings.primaryAccessLevel,
           keyId: "primary",
           keyLabel: "Link Principal (Valem)",
         });
@@ -815,6 +916,7 @@ export async function resolveMcpAccess(request: Request): Promise<McpAccessConte
           lockedTenantId: "valem",
           defaultTenantId: "valem",
           authMode: "token_valem",
+          accessLevel: matchedNamedKey.accessLevel,
           keyId: matchedNamedKey.id,
           keyLabel: matchedNamedKey.label,
         });
@@ -897,21 +999,34 @@ export async function resolveMcpAccess(request: Request): Promise<McpAccessConte
   }
 
   // Se o cliente já autenticou a sessão MCP (via GET SSE ou POST initialize com token)
-  // e enviou o sessionId nas chamadas seguintes, revalida se o conector/chave segue ativo:
+  // e enviou o sessionId nas chamadas seguintes, revalida se o conector/chave segue ativo
+  // e sincroniza o nível de permissão (read vs read_write) ao vivo:
   if (!candidateToken && existingSession?.access.authorized) {
     const sessionTenant =
       existingSession.access.lockedTenantId || existingSession.access.defaultTenantId || "tecfag";
     const liveSettings = await getMcpTenantSettings(sessionTenant);
     const keyId = existingSession.access.keyId;
+    const liveNamedKey = liveSettings.namedKeys.find((k) => k.id === keyId && k.active);
     const isStillValid =
       liveSettings.enabled &&
       (keyId === "admin" ||
         keyId === "session" ||
         keyId === "primary" ||
-        liveSettings.namedKeys.some((k) => k.id === keyId && k.active));
+        Boolean(liveNamedKey));
 
     if (isStillValid) {
-      return finalizeAccess(existingSession.access);
+      const liveAccessLevel: McpAccessLevel =
+        keyId === "admin"
+          ? "read_write"
+          : keyId === "primary"
+            ? liveSettings.primaryAccessLevel
+            : liveNamedKey
+              ? liveNamedKey.accessLevel
+              : normalizeMcpAccessLevel(existingSession.access.accessLevel);
+      return finalizeAccess({
+        ...existingSession.access,
+        accessLevel: liveAccessLevel,
+      });
     }
     closeMcpSession(sessionId);
   }
@@ -925,6 +1040,7 @@ export async function resolveMcpAccess(request: Request): Promise<McpAccessConte
       lockedTenantId: sessionTenant,
       defaultTenantId: sessionTenant,
       authMode: "session",
+      accessLevel: auth.session.operator.role === "admin" ? "read_write" : "read",
       keyId: "session",
       keyLabel: `Sessão Web (${auth.session.operator.name || "Operador"})`,
     });
@@ -1003,7 +1119,7 @@ function extractReceitaDetails(addressObj: unknown, fallbackDoc: unknown) {
   };
 }
 
-export const MCP_TOOLS = [
+const MCP_READ_CORE_TOOLS_RAW = [
   {
     name: "search_conversations",
     description:
@@ -1392,6 +1508,27 @@ export const MCP_TOOLS = [
   },
 ];
 
+export const MCP_TOOLS: McpToolDefinition[] = [
+  ...MCP_READ_CORE_TOOLS_RAW.map((tool) => ({
+    ...tool,
+    access: "read" as const,
+  })),
+  ...MCP_EXTENDED_TOOLS,
+];
+
+const WRITE_MCP_TOOL_NAMES = new Set(
+  MCP_TOOLS.filter((t) => t.access === "write").map((t) => t.name),
+);
+
+export function isWriteMcpTool(toolName: string): boolean {
+  return WRITE_MCP_TOOL_NAMES.has(toolName);
+}
+
+export function getVisibleMcpTools(access?: McpAccessContext): McpToolDefinition[] {
+  const canWrite = access?.accessLevel === "read_write";
+  return canWrite ? MCP_TOOLS : MCP_TOOLS.filter((t) => t.access === "read");
+}
+
 export async function executeMcpTool(
   toolName: string,
   args: Record<string, any> = {},
@@ -1399,6 +1536,20 @@ export async function executeMcpTool(
   sql: any = defaultSqlClient,
 ) {
   const tenantId = resolveEffectiveTenantId(args.tenantId, access);
+
+  if (isWriteMcpTool(toolName) && access?.accessLevel !== "read_write") {
+    throw new Error(
+      `Permissão insuficiente (Somente Leitura): a ação '${toolName}' requer uma chave MCP com permissão 'Leitura + Escrita'. Habilite em Configurações > Conector MCP.`,
+    );
+  }
+
+  if (isExtendedMcpTool(toolName)) {
+    return await executeExtendedMcpTool(toolName, args, tenantId, {
+      keyId: access?.keyId,
+      keyLabel: access?.keyLabel,
+      clientName: access?.clientName,
+    });
+  }
 
   switch (toolName) {
     case "search_conversations": {
@@ -2935,10 +3086,7 @@ export async function handleSingleJsonRpcMessage(
           resources: { listChanged: false },
           prompts: { listChanged: false },
         },
-        serverInfo: {
-          name: "valem-tecfag-mcp",
-          version: "1.0.0",
-        },
+        serverInfo: MCP_SERVER_INFO,
       };
       const jsonText = JSON.stringify(responsePayload, null, 2);
 
@@ -2983,20 +3131,28 @@ export async function handleSingleJsonRpcMessage(
 
     if (method === "tools/list") {
       const startedAt = Date.now();
+      const visibleTools = getVisibleMcpTools(access);
+      const protocolTools = visibleTools.map(({ name, description, inputSchema }) => ({
+        name,
+        description,
+        inputSchema,
+      }));
+      const accessLabel = access?.accessLevel === "read_write" ? "Leitura + Escrita" : "Somente Leitura";
       const previewObj = {
-        totalTools: MCP_TOOLS.length,
-        tools: MCP_TOOLS.map((t) => ({ name: t.name, description: t.description.slice(0, 90) })),
+        accessLevel: access?.accessLevel || "read",
+        totalTools: protocolTools.length,
+        tools: protocolTools.map((t) => ({ name: t.name, description: t.description.slice(0, 90) })),
       };
-      const fullJson = JSON.stringify({ tools: MCP_TOOLS });
+      const fullJson = JSON.stringify({ tools: protocolTools });
 
       await recordMcpToolAuditLog({
         tenantId: defaultTenant,
         access,
         toolName: "mcp_tools_list",
         toolLabel: "Sincronização de Ferramentas (tools/list)",
-        toolArgs: {},
-        argumentsSummary: "Listagem de catálogo de ferramentas MCP",
-        resultSummary: `${MCP_TOOLS.length} ferramentas sincronizadas com o cliente IA`,
+        toolArgs: { accessLevel: access?.accessLevel || "read" },
+        argumentsSummary: `Listagem de ferramentas MCP (${accessLabel})`,
+        resultSummary: `${protocolTools.length} ferramentas sincronizadas (${accessLabel})`,
         status: "success",
         latencyMs: Date.now() - startedAt,
         eventType: "connection",
@@ -3008,7 +3164,7 @@ export async function handleSingleJsonRpcMessage(
         jsonrpc: "2.0",
         id,
         result: {
-          tools: MCP_TOOLS,
+          tools: protocolTools,
         },
       };
     }
@@ -3062,7 +3218,7 @@ export async function handleSingleJsonRpcMessage(
           resultSummary: summarizeMcpToolResult(toolName, data),
           status: "success",
           latencyMs,
-          eventType: "query",
+          eventType: isWriteMcpTool(toolName) ? "action" : "query",
           responseBytes,
           responsePreview,
         });
@@ -3091,7 +3247,7 @@ export async function handleSingleJsonRpcMessage(
           resultSummary: `Erro: ${errMsg}`,
           status: "error",
           latencyMs,
-          eventType: "query",
+          eventType: isWriteMcpTool(toolName) ? "action" : "query",
           responseBytes: Buffer.byteLength(errJson, "utf8"),
           responsePreview: errJson,
         });

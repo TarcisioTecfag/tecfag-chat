@@ -9,8 +9,7 @@ import {
 } from "lucide-react";
 import { ConfiguracaoTab as VoiceConfigTab } from "@/components/voice/ConfiguracaoTab";
 import { LiveChatSettingsTab } from "./LiveChatSettingsTab";
-import { McpSettingsTab } from "./McpSettingsTab";
-import { ApiLibrarySettingsTab } from "./ApiLibrarySettingsTab";
+import { ApiAndMcpHubTab } from "./ApiAndMcpHubTab";
 import { WebhookSettingsTab } from "./WebhookSettingsTab";
 import { IntelipostSettingsTab } from "./IntelipostSettingsTab";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -600,21 +599,26 @@ export function SettingsView() {
       : []),
     { id: "email" as const, label: "E-mail & Automações", icon: Mail },
     { id: "livechat" as const, label: "Live Chat (Site)", icon: Globe },
-    { id: "mcp" as const, label: "Conector MCP (Claude / IA)", icon: Sparkles },
-    { id: "api" as const, label: "Biblioteca de API", icon: BookOpen },
+    { id: "mcp" as const, label: "API & Conector MCP", icon: Sparkles },
     { id: "webhook" as const, label: "Webhooks de Saída", icon: Globe },
   ];
 
   const allowedTabs = allTabs.filter((t) =>
-    t.id === "mcp" || t.id === "api" || t.id === "intelipost"
+    t.id === "mcp" || t.id === "intelipost"
       ? canAccessView("settings")
       : canAccessSettingsTab(t.id),
   );
-  const allowedTabIds = useMemo(() => allowedTabs.map((t) => t.id), [allowedTabs]);
+  const allowedTabIds = useMemo<SettingsTab[]>(() => {
+    const ids: SettingsTab[] = allowedTabs.map((t) => t.id);
+    if (ids.includes("mcp") && !ids.includes("api")) {
+      ids.push("api");
+    }
+    return ids;
+  }, [allowedTabs]);
 
   useTabNavigation({
-    tabs: allowedTabIds,
-    activeTab,
+    tabs: allowedTabs.map((t) => t.id),
+    activeTab: activeTab === "api" ? "mcp" : activeTab,
     onChange: setActiveTab,
   });
 
@@ -626,12 +630,12 @@ export function SettingsView() {
   });
 
   useEffect(() => {
-    if (!allowedTabs.some(t => t.id === activeTab)) {
+    if (!allowedTabIds.includes(activeTab)) {
       if (allowedTabs.length > 0) {
         setActiveTab(allowedTabs[0].id);
       }
     }
-  }, [allowedTabs, activeTab]);
+  }, [allowedTabs, allowedTabIds, activeTab]);
 
   return (
     <section className="flex h-full min-w-0 flex-1 flex-col rounded-3xl bg-card border border-border shadow-soft overflow-hidden">
@@ -662,7 +666,8 @@ export function SettingsView() {
         <div className="flex items-center gap-2 mt-4 md:mt-6 overflow-x-auto scrollbar-none pb-1">
           {allowedTabs.map((tab) => {
             const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
+            const isActive =
+              activeTab === tab.id || (tab.id === "mcp" && activeTab === "api");
             return (
               <SystemTooltip key={tab.id} content={`Acessar parâmetros de ${tab.label}`}>
                 <button
@@ -1801,11 +1806,13 @@ export function SettingsView() {
         {/* ABA 5: LIVE CHAT */}
         {activeTab === "livechat" && <LiveChatSettingsTab />}
 
-        {/* ABA 6: CONECTOR MCP (CLAUDE / IA) */}
-        {activeTab === "mcp" && <McpSettingsTab />}
-
-        {/* ABA 6B: BIBLIOTECA DE API & DEVELOPER PORTAL */}
-        {activeTab === "api" && <ApiLibrarySettingsTab />}
+        {/* ABA 6: CENTRAL UNIFICADA — API & CONECTOR MCP */}
+        {(activeTab === "mcp" || activeTab === "api") && (
+          <ApiAndMcpHubTab
+            activeSection={activeTab === "api" ? "library" : "keys"}
+            onChangeSection={(section) => setActiveTab(section === "library" ? "api" : "mcp")}
+          />
+        )}
 
         {/* ABA 7: INTELIPOST (COTAÇÃO DE FRETE) */}
         {activeTab === "intelipost" && <IntelipostSettingsTab />}

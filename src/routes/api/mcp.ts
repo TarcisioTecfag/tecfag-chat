@@ -1,9 +1,10 @@
 import crypto from "node:crypto";
 import { createFileRoute } from "@tanstack/react-router";
 import {
-  MCP_TOOLS,
+  MCP_SERVER_INFO,
   attachMcpSseController,
   closeMcpSession,
+  getVisibleMcpTools,
   processMcpJsonRpcPayload,
   pushMcpSseMessage,
   recordMcpToolAuditLog,
@@ -213,16 +214,19 @@ export const Route = createFileRoute("/api/mcp")({
         }
 
         // Acesso direto via navegador ou HTTP GET para conferência rápida do link
+        const visibleTools = getVisibleMcpTools(access);
         const infoBody = {
           ok: true,
-          server: "valem-tecfag-mcp",
-          version: "1.0.0",
+          server: MCP_SERVER_INFO.name,
+          version: MCP_SERVER_INFO.version,
           transport: "Streamable HTTP (POST /api/mcp) + SSE (GET /api/mcp)",
           authMode: access.authMode,
+          accessLevel: access.accessLevel || "read",
           lockedTenantId: access.lockedTenantId || "multi-tenant (default: tecfag)",
-          toolsCount: MCP_TOOLS.length,
-          tools: MCP_TOOLS.map((t) => ({
+          toolsCount: visibleTools.length,
+          tools: visibleTools.map((t) => ({
             name: t.name,
+            access: t.access,
             description: t.description,
           })),
         };
@@ -243,7 +247,7 @@ export const Route = createFileRoute("/api/mcp")({
               client: access.clientName || "Navegador / HTTP Client",
             },
             argumentsSummary: `Inspeção HTTP GET (${access.clientName || "Cliente"})`,
-            resultSummary: `Metadados do servidor e ${MCP_TOOLS.length} ferramentas exibidos`,
+            resultSummary: `Metadados do servidor e ${visibleTools.length} ferramentas exibidos (${infoBody.accessLevel})`,
             status: "success",
             latencyMs: Date.now() - startedAt,
             eventType: "connection",

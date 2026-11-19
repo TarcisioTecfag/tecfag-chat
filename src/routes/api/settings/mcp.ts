@@ -8,6 +8,7 @@ import {
   generateMcpTokenForTenant,
   getDefaultPrimaryToken,
   getMcpTenantSettings,
+  normalizeMcpAccessLevel,
   processMcpJsonRpcPayload,
   revokeMcpSessions,
   saveMcpTenantSettings,
@@ -76,11 +77,13 @@ export const Route = createFileRoute("/api/settings/mcp")({
           enabled: settings.enabled,
           primaryToken: settings.primaryToken,
           primaryTokenUpdatedAt: settings.primaryTokenUpdatedAt,
+          primaryAccessLevel: settings.primaryAccessLevel,
           isDefaultPrimaryToken: settings.primaryToken === getDefaultPrimaryToken(tenantId),
           namedKeys: settings.namedKeys,
           auditLogs: settings.auditLogs,
           tools: MCP_TOOLS.map((t) => ({
             name: t.name,
+            access: t.access,
             description: t.description,
           })),
         });
@@ -114,6 +117,7 @@ export const Route = createFileRoute("/api/settings/mcp")({
             lockedTenantId: tenantId,
             defaultTenantId: tenantId,
             authMode: "session",
+            accessLevel: isAdmin ? "read_write" : "read",
             keyId: "diagnostic",
             keyLabel: `Diagnóstico (${operatorName})`,
             clientIp,
@@ -288,6 +292,8 @@ export const Route = createFileRoute("/api/settings/mcp")({
               400,
             );
           }
+          const accessLevel = normalizeMcpAccessLevel(body.accessLevel);
+          const accessLabel = accessLevel === "read_write" ? "Leitura + Escrita" : "Somente Leitura";
           const newKey: McpNamedKey = {
             id: `mcp-key-${crypto.randomBytes(6).toString("hex")}`,
             label: label.slice(0, 80),
@@ -297,20 +303,22 @@ export const Route = createFileRoute("/api/settings/mcp")({
             lastUsedAt: null,
             usageCount: 0,
             active: true,
+            accessLevel,
           };
           const logEntry = buildConfigAuditEntry({
             operatorName,
             clientIp,
             toolName: "config_create_named_key",
             toolLabel: "Criação de Link Individual",
-            argumentsSummary: `Novo link criado para "${newKey.label}"`,
-            argumentsRaw: { action, label: newKey.label, keyId: newKey.id },
-            resultSummary: `Chave individual "${newKey.label}" gerada por ${operatorName}`,
+            argumentsSummary: `Novo link criado para "${newKey.label}" (${accessLabel})`,
+            argumentsRaw: { action, label: newKey.label, keyId: newKey.id, accessLevel },
+            resultSummary: `Chave individual "${newKey.label}" (${accessLabel}) gerada por ${operatorName}`,
             responsePreview: {
               action: "create_named_key",
               operator: operatorName,
               keyId: newKey.id,
               label: newKey.label,
+              accessLevel,
               tokenPrefix: `${newKey.token.slice(0, 12)}...`,
               createdAt: newKey.createdAt,
             },
@@ -323,6 +331,90 @@ export const Route = createFileRoute("/api/settings/mcp")({
           return jsonResponse({
             ok: true,
             createdKey: newKey,
+            settings: updated,
+          });
+        }
+
+        if (action === "set_primary_access_level") {
+          const accessLevel = normalizeMcpAccessLevel(body.accessLevel);
+          const accessLabel = accessLevel === "read_write" ? "Leitura + Escrita" : "Somente Leitura";
+          if (accessLevel === "read") {
+            revokeMcpSessions(tenantId, "primary");
+          }
+          const logEntry = buildConfigAuditEntry({
+            operatorName,
+            clientIp,
+            toolName: "config_set_primary_access_level",
+            toolLabel: "Alteração de Permissão do Link Principal",
+            argumentsSummary: `Link Principal definido como ${accessLabel}`,
+            argumentsRaw: {
+              action,
+              previousAccessLevel: current.primaryAccessLevel,
+              newAccessLevel: accessLevel,
+            },
+            resultSummary: `Link Principal alterado para ${accessLabel} por ${operatorName}`,
+            responsePreview: {
+              action: "set_primary_access_level",
+              operator: operatorName,
+              previousAccessLevel: current.primaryAccessLevel,
+              newAccessLevel: accessLevel,
+            },
+          });
+          const updated = await saveMcpTenantSettings(tenantId, {
+            ...current,
+            primaryAccessLevel: accessLevel,
+            auditLogs: [logEntry, ...current.auditLogs],
+          });
+          return jsonResponse({
+            ok: true,
+            settings: updated,
+          });
+        }
+
+        if (action === "set_named_key_access_level") {
+          const keyId = String(body.keyId || "").trim();
+          const targetKey = current.namedKeys.find((k) => k.id === keyId);
+          if (!targetKey) {
+            return jsonResponse({ error: "Link individual não encontrado." }, 404);
+          }
+          const accessLevel = normalizeMcpAccessLevel(body.accessLevel);
+          const accessLabel = accessLevel === "read_write" ? "Leitura + Escrita" : "Somente Leitura";
+          if (accessLevel === "read") {
+            revokeMcpSessions(tenantId, keyId);
+          }
+          const updatedKeys = current.namedKeys.map((k) =>
+            k.id === keyId ? { ...k, accessLevel } : k,
+          );
+          const logEntry = buildConfigAuditEntry({
+            operatorName,
+            clientIp,
+            toolName: "config_set_named_key_access_level",
+            toolLabel: "Alteração de Permissão de Link Individual",
+            argumentsSummary: `Link "${targetKey.label}" definido como ${accessLabel}`,
+            argumentsRaw: {
+              action,
+              keyId,
+              label: targetKey.label,
+              previousAccessLevel: targetKey.accessLevel,
+              newAccessLevel: accessLevel,
+            },
+            resultSummary: `Permissão do link "${targetKey.label}" alterada para ${accessLabel} por ${operatorName}`,
+            responsePreview: {
+              action: "set_named_key_access_level",
+              operator: operatorName,
+              keyId,
+              label: targetKey.label,
+              previousAccessLevel: targetKey.accessLevel,
+              newAccessLevel: accessLevel,
+            },
+          });
+          const updated = await saveMcpTenantSettings(tenantId, {
+            ...current,
+            namedKeys: updatedKeys,
+            auditLogs: [logEntry, ...current.auditLogs],
+          });
+          return jsonResponse({
+            ok: true,
             settings: updated,
           });
         }
