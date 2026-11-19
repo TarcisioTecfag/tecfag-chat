@@ -24,7 +24,6 @@ import type { CustomFieldEntity } from "@/lib/crm/custom-fields";
 import { toast } from "sonner";
 import { getAiPersona } from "@/lib/ai-persona";
 import { RdMarketingSettings } from "./RdMarketingSettings";
-import { ComprehensiveTemplateCreator } from "./ComprehensiveTemplateCreator";
 import { SystemTooltip } from "@/components/ui/tooltip";
 import { motion } from "framer-motion";
 import { getInitialTabFromUrl, parseAppRoute, useSyncModuleTabWithUrl } from "@/lib/app-routes";

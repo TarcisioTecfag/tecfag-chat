@@ -59,6 +59,7 @@ import { rememberRdMarketingFlow, restoreRdMarketingFlow } from "@/lib/rd-market
 import { RdMarketingDiagnostics } from "./RdMarketingDiagnostics";
 import { RdMarketingConnection } from "./RdMarketingConnection";
 import { RdMarketingSyncSettings } from "./RdMarketingSyncSettings";
+import { ComprehensiveTemplateCreator } from "./ComprehensiveTemplateCreator";
 import { MetaTemplateManagerModal } from "./MetaTemplateManagerModal";
 
 type Field = {

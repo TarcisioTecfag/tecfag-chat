@@ -158,12 +158,14 @@ import { Route as ApiV1MarketingActivitiesRouteImport } from './routes/api/v1/ma
 import { Route as ApiSettingsWhatsappUsageRouteImport } from './routes/api/settings/whatsapp/usage'
 import { Route as ApiSettingsWhatsappTestSendRouteImport } from './routes/api/settings/whatsapp/test-send'
 import { Route as ApiSettingsWhatsappActionsRouteImport } from './routes/api/settings/whatsapp/actions'
+import { Route as ApiSettingsRdMarketingTemplatesRouteImport } from './routes/api/settings/rd-marketing/templates'
 import { Route as ApiSettingsRdMarketingSyncRouteImport } from './routes/api/settings/rd-marketing/sync'
 import { Route as ApiSettingsRdMarketingDiagnosticsRouteImport } from './routes/api/settings/rd-marketing/diagnostics'
 import { Route as ApiSettingsRdMarketingConnectionRouteImport } from './routes/api/settings/rd-marketing/connection'
 import { Route as ApiSettingsRdMarketingCallbackRouteImport } from './routes/api/settings/rd-marketing/callback'
 import { Route as ApiSettingsRdCrmFieldsRouteImport } from './routes/api/settings/rd-crm/fields'
 import { Route as ApiSettingsRdCrmCallbackRouteImport } from './routes/api/settings/rd-crm/callback'
+import { Route as ApiSettingsMcpDocsExportRouteImport } from './routes/api/settings/mcp-docs/export'
 import { Route as ApiLivechatVisitorVisitorIdRouteImport } from './routes/api/livechat/visitor/$visitorId'
 import { Route as ApiCrmStagesStageIdRouteImport } from './routes/api/crm/stages/$stageId'
 import { Route as ApiCrmProductsProductIdRouteImport } from './routes/api/crm/products/$productId'
@@ -974,6 +976,12 @@ const ApiSettingsWhatsappActionsRoute =
     path: '/actions',
     getParentRoute: () => ApiSettingsWhatsappRoute,
   } as any)
+const ApiSettingsRdMarketingTemplatesRoute =
+  ApiSettingsRdMarketingTemplatesRouteImport.update({
+    id: '/templates',
+    path: '/templates',
+    getParentRoute: () => ApiSettingsRdMarketingRoute,
+  } as any)
 const ApiSettingsRdMarketingSyncRoute =
   ApiSettingsRdMarketingSyncRouteImport.update({
     id: '/sync',
@@ -1008,6 +1016,12 @@ const ApiSettingsRdCrmCallbackRoute =
     id: '/callback',
     path: '/callback',
     getParentRoute: () => ApiSettingsRdCrmRoute,
+  } as any)
+const ApiSettingsMcpDocsExportRoute =
+  ApiSettingsMcpDocsExportRouteImport.update({
+    id: '/api/settings/mcp-docs/export',
+    path: '/api/settings/mcp-docs/export',
+    getParentRoute: () => rootRouteImport,
   } as any)
 const ApiLivechatVisitorVisitorIdRoute =
   ApiLivechatVisitorVisitorIdRouteImport.update({
@@ -1393,12 +1407,14 @@ export interface FileRoutesByFullPath {
   '/api/crm/products/$productId': typeof ApiCrmProductsProductIdRoute
   '/api/crm/stages/$stageId': typeof ApiCrmStagesStageIdRoute
   '/api/livechat/visitor/$visitorId': typeof ApiLivechatVisitorVisitorIdRoute
+  '/api/settings/mcp-docs/export': typeof ApiSettingsMcpDocsExportRoute
   '/api/settings/rd-crm/callback': typeof ApiSettingsRdCrmCallbackRoute
   '/api/settings/rd-crm/fields': typeof ApiSettingsRdCrmFieldsRoute
   '/api/settings/rd-marketing/callback': typeof ApiSettingsRdMarketingCallbackRoute
   '/api/settings/rd-marketing/connection': typeof ApiSettingsRdMarketingConnectionRoute
   '/api/settings/rd-marketing/diagnostics': typeof ApiSettingsRdMarketingDiagnosticsRoute
   '/api/settings/rd-marketing/sync': typeof ApiSettingsRdMarketingSyncRoute
+  '/api/settings/rd-marketing/templates': typeof ApiSettingsRdMarketingTemplatesRoute
   '/api/settings/whatsapp/actions': typeof ApiSettingsWhatsappActionsRoute
   '/api/settings/whatsapp/test-send': typeof ApiSettingsWhatsappTestSendRoute
   '/api/settings/whatsapp/usage': typeof ApiSettingsWhatsappUsageRoute
@@ -1590,12 +1606,14 @@ export interface FileRoutesByTo {
   '/api/crm/products/$productId': typeof ApiCrmProductsProductIdRoute
   '/api/crm/stages/$stageId': typeof ApiCrmStagesStageIdRoute
   '/api/livechat/visitor/$visitorId': typeof ApiLivechatVisitorVisitorIdRoute
+  '/api/settings/mcp-docs/export': typeof ApiSettingsMcpDocsExportRoute
   '/api/settings/rd-crm/callback': typeof ApiSettingsRdCrmCallbackRoute
   '/api/settings/rd-crm/fields': typeof ApiSettingsRdCrmFieldsRoute
   '/api/settings/rd-marketing/callback': typeof ApiSettingsRdMarketingCallbackRoute
   '/api/settings/rd-marketing/connection': typeof ApiSettingsRdMarketingConnectionRoute
   '/api/settings/rd-marketing/diagnostics': typeof ApiSettingsRdMarketingDiagnosticsRoute
   '/api/settings/rd-marketing/sync': typeof ApiSettingsRdMarketingSyncRoute
+  '/api/settings/rd-marketing/templates': typeof ApiSettingsRdMarketingTemplatesRoute
   '/api/settings/whatsapp/actions': typeof ApiSettingsWhatsappActionsRoute
   '/api/settings/whatsapp/test-send': typeof ApiSettingsWhatsappTestSendRoute
   '/api/settings/whatsapp/usage': typeof ApiSettingsWhatsappUsageRoute
@@ -1788,12 +1806,14 @@ export interface FileRoutesById {
   '/api/crm/products/$productId': typeof ApiCrmProductsProductIdRoute
   '/api/crm/stages/$stageId': typeof ApiCrmStagesStageIdRoute
   '/api/livechat/visitor/$visitorId': typeof ApiLivechatVisitorVisitorIdRoute
+  '/api/settings/mcp-docs/export': typeof ApiSettingsMcpDocsExportRoute
   '/api/settings/rd-crm/callback': typeof ApiSettingsRdCrmCallbackRoute
   '/api/settings/rd-crm/fields': typeof ApiSettingsRdCrmFieldsRoute
   '/api/settings/rd-marketing/callback': typeof ApiSettingsRdMarketingCallbackRoute
   '/api/settings/rd-marketing/connection': typeof ApiSettingsRdMarketingConnectionRoute
   '/api/settings/rd-marketing/diagnostics': typeof ApiSettingsRdMarketingDiagnosticsRoute
   '/api/settings/rd-marketing/sync': typeof ApiSettingsRdMarketingSyncRoute
+  '/api/settings/rd-marketing/templates': typeof ApiSettingsRdMarketingTemplatesRoute
   '/api/settings/whatsapp/actions': typeof ApiSettingsWhatsappActionsRoute
   '/api/settings/whatsapp/test-send': typeof ApiSettingsWhatsappTestSendRoute
   '/api/settings/whatsapp/usage': typeof ApiSettingsWhatsappUsageRoute
@@ -1987,12 +2007,14 @@ export interface FileRouteTypes {
     | '/api/crm/products/$productId'
     | '/api/crm/stages/$stageId'
     | '/api/livechat/visitor/$visitorId'
+    | '/api/settings/mcp-docs/export'
     | '/api/settings/rd-crm/callback'
     | '/api/settings/rd-crm/fields'
     | '/api/settings/rd-marketing/callback'
     | '/api/settings/rd-marketing/connection'
     | '/api/settings/rd-marketing/diagnostics'
     | '/api/settings/rd-marketing/sync'
+    | '/api/settings/rd-marketing/templates'
     | '/api/settings/whatsapp/actions'
     | '/api/settings/whatsapp/test-send'
     | '/api/settings/whatsapp/usage'
@@ -2184,12 +2206,14 @@ export interface FileRouteTypes {
     | '/api/crm/products/$productId'
     | '/api/crm/stages/$stageId'
     | '/api/livechat/visitor/$visitorId'
+    | '/api/settings/mcp-docs/export'
     | '/api/settings/rd-crm/callback'
     | '/api/settings/rd-crm/fields'
     | '/api/settings/rd-marketing/callback'
     | '/api/settings/rd-marketing/connection'
     | '/api/settings/rd-marketing/diagnostics'
     | '/api/settings/rd-marketing/sync'
+    | '/api/settings/rd-marketing/templates'
     | '/api/settings/whatsapp/actions'
     | '/api/settings/whatsapp/test-send'
     | '/api/settings/whatsapp/usage'
@@ -2381,12 +2405,14 @@ export interface FileRouteTypes {
     | '/api/crm/products/$productId'
     | '/api/crm/stages/$stageId'
     | '/api/livechat/visitor/$visitorId'
+    | '/api/settings/mcp-docs/export'
     | '/api/settings/rd-crm/callback'
     | '/api/settings/rd-crm/fields'
     | '/api/settings/rd-marketing/callback'
     | '/api/settings/rd-marketing/connection'
     | '/api/settings/rd-marketing/diagnostics'
     | '/api/settings/rd-marketing/sync'
+    | '/api/settings/rd-marketing/templates'
     | '/api/settings/whatsapp/actions'
     | '/api/settings/whatsapp/test-send'
     | '/api/settings/whatsapp/usage'
@@ -2552,6 +2578,7 @@ export interface RootRouteChildren {
   ApiCrmImportSyncStatusRoute: typeof ApiCrmImportSyncStatusRoute
   ApiCrmStagesStageIdRoute: typeof ApiCrmStagesStageIdRoute
   ApiLivechatVisitorVisitorIdRoute: typeof ApiLivechatVisitorVisitorIdRoute
+  ApiSettingsMcpDocsExportRoute: typeof ApiSettingsMcpDocsExportRoute
   ApiV1MarketingActivitiesRoute: typeof ApiV1MarketingActivitiesRoute
   ApiV1MarketingAuditBatchRoute: typeof ApiV1MarketingAuditBatchRoute
   ApiV1MarketingContactsRoute: typeof ApiV1MarketingContactsRoute
@@ -3611,6 +3638,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiSettingsWhatsappActionsRouteImport
       parentRoute: typeof ApiSettingsWhatsappRoute
     }
+    '/api/settings/rd-marketing/templates': {
+      id: '/api/settings/rd-marketing/templates'
+      path: '/templates'
+      fullPath: '/api/settings/rd-marketing/templates'
+      preLoaderRoute: typeof ApiSettingsRdMarketingTemplatesRouteImport
+      parentRoute: typeof ApiSettingsRdMarketingRoute
+    }
     '/api/settings/rd-marketing/sync': {
       id: '/api/settings/rd-marketing/sync'
       path: '/sync'
@@ -3652,6 +3686,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/api/settings/rd-crm/callback'
       preLoaderRoute: typeof ApiSettingsRdCrmCallbackRouteImport
       parentRoute: typeof ApiSettingsRdCrmRoute
+    }
+    '/api/settings/mcp-docs/export': {
+      id: '/api/settings/mcp-docs/export'
+      path: '/api/settings/mcp-docs/export'
+      fullPath: '/api/settings/mcp-docs/export'
+      preLoaderRoute: typeof ApiSettingsMcpDocsExportRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/livechat/visitor/$visitorId': {
       id: '/api/livechat/visitor/$visitorId'
@@ -4257,6 +4298,7 @@ interface ApiSettingsRdMarketingRouteChildren {
   ApiSettingsRdMarketingConnectionRoute: typeof ApiSettingsRdMarketingConnectionRoute
   ApiSettingsRdMarketingDiagnosticsRoute: typeof ApiSettingsRdMarketingDiagnosticsRoute
   ApiSettingsRdMarketingSyncRoute: typeof ApiSettingsRdMarketingSyncRoute
+  ApiSettingsRdMarketingTemplatesRoute: typeof ApiSettingsRdMarketingTemplatesRoute
 }
 
 const ApiSettingsRdMarketingRouteChildren: ApiSettingsRdMarketingRouteChildren =
@@ -4267,6 +4309,7 @@ const ApiSettingsRdMarketingRouteChildren: ApiSettingsRdMarketingRouteChildren =
     ApiSettingsRdMarketingDiagnosticsRoute:
       ApiSettingsRdMarketingDiagnosticsRoute,
     ApiSettingsRdMarketingSyncRoute: ApiSettingsRdMarketingSyncRoute,
+    ApiSettingsRdMarketingTemplatesRoute: ApiSettingsRdMarketingTemplatesRoute,
   }
 
 const ApiSettingsRdMarketingRouteWithChildren =
@@ -4416,6 +4459,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiCrmImportSyncStatusRoute: ApiCrmImportSyncStatusRoute,
   ApiCrmStagesStageIdRoute: ApiCrmStagesStageIdRoute,
   ApiLivechatVisitorVisitorIdRoute: ApiLivechatVisitorVisitorIdRoute,
+  ApiSettingsMcpDocsExportRoute: ApiSettingsMcpDocsExportRoute,
   ApiV1MarketingActivitiesRoute: ApiV1MarketingActivitiesRoute,
   ApiV1MarketingAuditBatchRoute: ApiV1MarketingAuditBatchRoute,
   ApiV1MarketingContactsRoute: ApiV1MarketingContactsRoute,
