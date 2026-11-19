@@ -2069,10 +2069,28 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Carregar conversas persistidas no banco (Railway)
   useEffect(() => {
     if (!isAuthenticated || !tenant) return;
+    let cancelled = false;
     setChatListReady(false);
-    fetch(`${BACKEND_URL}/api/chats?limit=150`, { credentials: "include" })
-      .then((res) => res.json())
-      .then((data) => {
+    const fetchChatsBatch = (url: string) =>
+      fetch(url, { credentials: "include" })
+        .then((res) => (res.ok ? res.json() : []))
+        .then((rows) => (Array.isArray(rows) ? rows : []))
+        .catch(() => []);
+
+    Promise.all([
+      fetchChatsBatch(`${BACKEND_URL}/api/chats?queue=meus&mine=1&limit=250`),
+      fetchChatsBatch(`${BACKEND_URL}/api/chats?limit=150`),
+    ])
+      .then(([mineChats, globalChats]) => {
+        if (cancelled) return;
+        const mergedById = new Map<string, any>();
+        for (const chat of mineChats) {
+          if (chat?.id) mergedById.set(chat.id, chat);
+        }
+        for (const chat of globalChats) {
+          if (chat?.id && !mergedById.has(chat.id)) mergedById.set(chat.id, chat);
+        }
+        const data = Array.from(mergedById.values());
         if (Array.isArray(data)) {
           const pinnedKey = `pinned_chats_${currentOperatorId || "global"}`;
           let pinnedIds: string[] = [];
@@ -2160,7 +2178,12 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       })
       .catch((err) => console.error("Erro ao sincronizar conversas do banco:", err))
-      .finally(() => setChatListReady(true));
+      .finally(() => {
+        if (!cancelled) setChatListReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [tenant, currentOperatorId, isAuthenticated]);
 
   const valentinaHistoryRef = useRef<Message[]>([]);
@@ -4434,7 +4457,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     cursor?: { before: string; beforeId: string; beforeQueue: "active" | "finalizados" },
     connectionId?: string | null,
   ) => {
-    const params = new URLSearchParams({ limit: "75" });
+    const params = new URLSearchParams({ limit: queue === "meus" ? "150" : "100" });
     if (queue !== "todos") params.set("queue", queue);
     if (queue === "meus") params.set("mine", "1");
     if (connectionId) params.set("connectionId", connectionId);
@@ -4448,17 +4471,26 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const page = (await response.json()) as Conversation[];
     if (!Array.isArray(page)) throw new Error("Resposta inválida ao carregar atendimentos.");
     if (page.length) {
+      const pinnedKey = `pinned_chats_${currentOperatorId || "global"}`;
+      let pinnedIds: string[] = [];
+      try {
+        const stored = typeof window !== "undefined" ? localStorage.getItem(pinnedKey) : null;
+        if (stored) pinnedIds = JSON.parse(stored);
+      } catch {}
       setConversations((previous) => {
         const known = new Set(previous.map((chat) => chat.id));
-        const additions = page.filter((chat) => !known.has(chat.id));
+        const additions = page
+          .filter((chat) => !known.has(chat.id))
+          .map((chat) => ({ ...chat, pinned: pinnedIds.includes(chat.id) }));
         return additions.length ? [...previous, ...additions] : previous;
       });
     }
     const last = page.at(-1);
+    const cursorIso = last?.cursorAtISO || last?.lastMessageAtISO;
     const nextCursor =
-      response.headers.get("X-Has-More") === "1" && last?.lastMessageAtISO
+      response.headers.get("X-Has-More") === "1" && cursorIso
         ? {
-            before: last.lastMessageAtISO,
+            before: cursorIso,
             beforeId: last.id,
             beforeQueue:
               last.queue === "finalizados" ? ("finalizados" as const) : ("active" as const),
@@ -5723,10 +5755,26 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         // Na reconexão, reconcilia conversas para garantir que nenhuma mensagem foi perdida
         if (wasReconnecting) {
-          fetch(`${BACKEND_URL}/api/chats?limit=150`, { credentials: "include" })
-            .then((r) => r.json())
-            .then((freshChats) => {
-              if (Array.isArray(freshChats)) {
+          const fetchBatch = (endpoint: string) =>
+            fetch(endpoint, { credentials: "include" })
+              .then((r) => (r.ok ? r.json() : []))
+              .then((rows) => (Array.isArray(rows) ? rows : []))
+              .catch(() => []);
+
+          Promise.all([
+            fetchBatch(`${BACKEND_URL}/api/chats?queue=meus&mine=1&limit=250`),
+            fetchBatch(`${BACKEND_URL}/api/chats?limit=150`),
+          ])
+            .then(([mineChats, globalChats]) => {
+              const mergedById = new Map<string, Conversation>();
+              for (const chat of mineChats) {
+                if (chat?.id) mergedById.set(chat.id, chat);
+              }
+              for (const chat of globalChats) {
+                if (chat?.id && !mergedById.has(chat.id)) mergedById.set(chat.id, chat);
+              }
+              const freshChats = Array.from(mergedById.values());
+              if (freshChats.length > 0) {
                 setConversations((prev) => {
                   const map = new Map(freshChats.map((c: any) => [c.id, c]));
                   const updated = prev.map((c) => {

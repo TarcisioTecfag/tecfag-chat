@@ -519,7 +519,7 @@ export const Route = createFileRoute("/api/chats")({
           const includeRecent = url.searchParams.get("includeRecent") === "1";
 
           if (url.searchParams.get("ownership") === "1") {
-            const ownership = await db.select({
+            const ownershipSelect = {
               id: conversations.id,
               operatorId: conversations.operatorId,
               queueState: conversations.queueState,
@@ -527,12 +527,34 @@ export const Route = createFileRoute("/api/chats")({
               sectorId: conversations.sectorId,
               version: conversations.version,
               contactName: contacts.name,
-            }).from(conversations)
-              .leftJoin(contacts, and(eq(contacts.id, conversations.contactId), eq(contacts.tenantId, session.tenantId)))
-              .leftJoin(operators, and(eq(operators.id, conversations.operatorId), eq(operators.tenantId, session.tenantId)))
-              .where(and(eq(conversations.tenantId, session.tenantId), conversationReadCondition(session)))
-              .orderBy(desc(conversations.updatedAt))
-              .limit(500);
+            };
+            const [ownActiveOwnership, recentOwnership] = await Promise.all([
+              db.select(ownershipSelect).from(conversations)
+                .leftJoin(contacts, and(eq(contacts.id, conversations.contactId), eq(contacts.tenantId, session.tenantId)))
+                .leftJoin(operators, and(eq(operators.id, conversations.operatorId), eq(operators.tenantId, session.tenantId)))
+                .where(
+                  and(
+                    eq(conversations.tenantId, session.tenantId),
+                    eq(conversations.operatorId, session.operator.id),
+                    eq(conversations.queueState, "meus"),
+                    conversationReadCondition(session),
+                  ),
+                )
+                .orderBy(desc(conversations.lastMessageTime), desc(conversations.id))
+                .limit(1000),
+              db.select(ownershipSelect).from(conversations)
+                .leftJoin(contacts, and(eq(contacts.id, conversations.contactId), eq(contacts.tenantId, session.tenantId)))
+                .leftJoin(operators, and(eq(operators.id, conversations.operatorId), eq(operators.tenantId, session.tenantId)))
+                .where(and(eq(conversations.tenantId, session.tenantId), conversationReadCondition(session)))
+                .orderBy(desc(conversations.updatedAt))
+                .limit(500),
+            ]);
+            const ownershipById = new Map<string, (typeof ownActiveOwnership)[number]>();
+            for (const row of ownActiveOwnership) ownershipById.set(row.id, row);
+            for (const row of recentOwnership) {
+              if (!ownershipById.has(row.id)) ownershipById.set(row.id, row);
+            }
+            const ownership = Array.from(ownershipById.values());
             return Response.json({
               operatorId: session.operator.id,
               role: session.operator.role,
@@ -836,6 +858,7 @@ export const Route = createFileRoute("/api/chats")({
               lastMessageAtISO: previewRawMsg?.isInternalNote
                 ? fallbackIso
                 : effectivePreviewIso || fallbackIso,
+              cursorAtISO: fallbackIso,
               lastClientMessageAtISO: clientIso || effectivePreviewIso || fallbackIso,
               messages: convMsgs.map((m) => ({
                 id: m.id,

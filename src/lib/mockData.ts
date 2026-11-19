@@ -182,6 +182,7 @@ export type Conversation = {
   messages: Message[];
   lastMessageTime: string;
   lastMessageAtISO?: string;
+  cursorAtISO?: string;
   lastClientMessageAtISO?: string;
   unreadCount: number;
   operatorId?: string | null;

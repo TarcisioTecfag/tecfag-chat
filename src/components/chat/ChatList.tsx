@@ -3,7 +3,7 @@ import { useTrainingSurface } from "@/hooks/useTrainingSurface";
 import { useChat } from "@/hooks/useChatState";
 import { useTabNavigation } from "@/hooks/useTabNavigation";
 import { getAiPersona } from "@/lib/ai-persona";
-import { Search, MessageSquare, Phone, Instagram, Send, Star, User, Pin, BookOpen, Bot, LogOut, FileText, Camera, Video, Mic, Smile, HelpCircle, Smartphone, Check, ChevronDown, X } from "lucide-react";
+import { Search, MessageSquare, Phone, Instagram, Send, Star, User, Pin, BookOpen, Bot, LogOut, FileText, Camera, Video, Mic, Smile, HelpCircle, Smartphone, Check, ChevronDown, X, Loader2 } from "lucide-react";
 import { Channel, QueueType, getConversationSortTimestamp } from "@/lib/mockData";
 import { motion, AnimatePresence } from "framer-motion";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -237,51 +237,82 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
   const pageCursorRef = React.useRef<{ before: string; beforeId: string; beforeQueue: "active" | "finalizados" } | null>(null);
   const pageLoadingRef = React.useRef(false);
   const pageGenerationRef = React.useRef(0);
-  const fetchedChipScopesRef = React.useRef<Set<string>>(new Set());
+  const fetchedQueueScopesRef = React.useRef<Set<string>>(new Set());
+  const scopeCursorByKeyRef = React.useRef<
+    Map<string, { before: string; beforeId: string; beforeQueue: "active" | "finalizados" } | null>
+  >(new Map());
+  const [hasMoreInQueue, setHasMoreInQueue] = React.useState(false);
+  const [loadingMoreQueue, setLoadingMoreQueue] = React.useState(false);
   const loadPageRef = React.useRef(loadConversationPage);
   const conversationsRef = React.useRef(conversations);
   loadPageRef.current = loadConversationPage;
   conversationsRef.current = conversations;
 
+  const currentScopeKey = `${tenant || ""}:${currentOperatorId || ""}:${activeQueue}:${baileysConnectionFilter || "all"}`;
+
   React.useEffect(() => {
-    fetchedChipScopesRef.current.clear();
-  }, [tenant]);
+    fetchedQueueScopesRef.current.clear();
+    scopeCursorByKeyRef.current.clear();
+  }, [tenant, currentOperatorId]);
 
   React.useEffect(() => {
     if (!chatListReady) return;
     const generation = ++pageGenerationRef.current;
     pageLoadingRef.current = false;
-    const loaded = conversationsRef.current
-      .filter((chat) => chat.id !== "valentina" && (activeQueue === "todos" || chat.queue === activeQueue) &&
-        (activeQueue !== "meus" || chat.operatorId === currentOperatorId) &&
-        (!baileysConnectionFilter || chat.whatsappConnectionId === baileysConnectionFilter))
-      .filter((chat) => !!chat.lastMessageAtISO)
-      .sort((a, b) => Number(a.queue === "finalizados") - Number(b.queue === "finalizados") ||
-        b.lastMessageAtISO!.localeCompare(a.lastMessageAtISO!) || b.id.localeCompare(a.id));
-    const oldest = loaded.at(-1);
-    pageCursorRef.current = oldest
-      ? { before: oldest.lastMessageAtISO!, beforeId: oldest.id, beforeQueue: oldest.queue === "finalizados" ? "finalizados" : "active" }
-      : null;
-    const chipScopeKey = baileysConnectionFilter ? `${tenant}:${activeQueue}:${baileysConnectionFilter}` : null;
-    const needsInitialChipFetch = Boolean(chipScopeKey && !fetchedChipScopesRef.current.has(chipScopeKey));
-    if ((oldest && !needsInitialChipFetch) || pageLoadingRef.current) return;
-    if (chipScopeKey) fetchedChipScopesRef.current.add(chipScopeKey);
+    setLoadingMoreQueue(false);
+    const scopeKey = currentScopeKey;
+    const needsInitialScopeFetch = !fetchedQueueScopesRef.current.has(scopeKey);
+    if (!needsInitialScopeFetch) {
+      const savedCursor = scopeCursorByKeyRef.current.get(scopeKey) ?? null;
+      pageCursorRef.current = savedCursor;
+      setHasMoreInQueue(Boolean(savedCursor));
+      return;
+    }
+    fetchedQueueScopesRef.current.add(scopeKey);
     pageLoadingRef.current = true;
+    setLoadingMoreQueue(true);
     void loadPageRef.current(activeQueue, undefined, baileysConnectionFilter)
-      .then(({ nextCursor }) => { if (pageGenerationRef.current === generation) pageCursorRef.current = nextCursor; })
-      .catch((error) => console.warn("Falha ao carregar a fila:", error))
-      .finally(() => { if (pageGenerationRef.current === generation) pageLoadingRef.current = false; });
-  }, [activeQueue, baileysConnectionFilter, chatListReady, currentOperatorId, tenant]);
+      .then(({ nextCursor }) => {
+        scopeCursorByKeyRef.current.set(scopeKey, nextCursor);
+        if (pageGenerationRef.current === generation) {
+          pageCursorRef.current = nextCursor;
+          setHasMoreInQueue(Boolean(nextCursor));
+        }
+      })
+      .catch((error) => {
+        fetchedQueueScopesRef.current.delete(scopeKey);
+        console.warn("Falha ao carregar a fila:", error);
+      })
+      .finally(() => {
+        if (pageGenerationRef.current === generation) {
+          pageLoadingRef.current = false;
+          setLoadingMoreQueue(false);
+        }
+      });
+  }, [activeQueue, baileysConnectionFilter, chatListReady, currentOperatorId, currentScopeKey, tenant]);
 
   const loadNextPage = () => {
     const cursor = pageCursorRef.current;
     if (!cursor || pageLoadingRef.current || searchQuery.trim()) return;
     pageLoadingRef.current = true;
+    setLoadingMoreQueue(true);
     const generation = pageGenerationRef.current;
+    const scopeKey = currentScopeKey;
     void loadPageRef.current(activeQueue, cursor, baileysConnectionFilter)
-      .then(({ nextCursor }) => { if (pageGenerationRef.current === generation) pageCursorRef.current = nextCursor; })
+      .then(({ nextCursor }) => {
+        scopeCursorByKeyRef.current.set(scopeKey, nextCursor);
+        if (pageGenerationRef.current === generation) {
+          pageCursorRef.current = nextCursor;
+          setHasMoreInQueue(Boolean(nextCursor));
+        }
+      })
       .catch((error) => console.warn("Falha ao carregar mais atendimentos:", error))
-      .finally(() => { if (pageGenerationRef.current === generation) pageLoadingRef.current = false; });
+      .finally(() => {
+        if (pageGenerationRef.current === generation) {
+          pageLoadingRef.current = false;
+          setLoadingMoreQueue(false);
+        }
+      });
   };
 
   // Fecha o context menu ao clicar em qualquer lugar
@@ -1146,6 +1177,26 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {chatListReady && !searchQuery.trim() && (hasMoreInQueue || loadingMoreQueue) && (
+          <div className="pt-1 pb-2 flex justify-center">
+            <button
+              type="button"
+              onClick={loadNextPage}
+              disabled={loadingMoreQueue}
+              className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-border bg-muted/70 hover:bg-muted px-3 py-1.5 text-[11px] font-semibold text-muted-foreground hover:text-foreground transition cursor-pointer disabled:opacity-60 disabled:cursor-default"
+            >
+              {loadingMoreQueue ? (
+                <>
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Carregando atendimentos...
+                </>
+              ) : (
+                "Carregar mais atendimentos"
+              )}
+            </button>
+          </div>
+        )}
       </div>
 
     </aside>
