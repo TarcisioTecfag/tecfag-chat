@@ -143,6 +143,7 @@ export interface UtmAndAttributionInput {
   hasMetaAdReferral?: boolean;
   referrer?: string | null;
   landingPage?: string | null;
+  channel?: string | null;
   entryChannel?: string | null;
 }
 
@@ -160,148 +161,231 @@ export interface NormalizedMarketingAttribution {
 }
 
 const PAID_MEDIUM_RE =
-  /\b(cpc|ppc|paid|paid_social|paidsocial|ads|adwords|shopping|display|pmax|performance_max|remarketing|retargeting|sponsored|trafego_pago|midia_paga|metaads|googleads)\b/i;
+  /\b(cpc|ppc|paid|paid_social|paidsocial|ads|adwords|shopping|display|pmax|performance_max|remarketing|retargeting|sponsored|trafego_pago|midia_paga|metaads|googleads|google\s+ads|facebook\s+ads|meta\s+ads|rede[-_\s]?pesquisa)\b/i;
 
 const ORGANIC_MEDIUM_RE = /\b(organic|organico|seo)\b/i;
+
+const OWN_COMPANY_DOMAIN_RE =
+  /(?:^|\.)(?:tecfag[a-z0-9-]*|valem[a-z0-9-]*)\.com(?:\.br)?$|(?:^|\.)(?:tecfagchat|valemchat)\.up\.railway\.app$/i;
+
+function stripOuterParens(val: string): string {
+  return val.replace(/^\((.+)\)$/, "$1").trim();
+}
+
+function extractBareHostname(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!trimmed || /\s/.test(trimmed)) return null;
+  let host = trimmed.toLowerCase();
+  if (/^https?:\/\//i.test(host)) {
+    try {
+      host = new URL(host).hostname.toLowerCase();
+    } catch {
+      return null;
+    }
+  } else {
+    host = host.split(/[/?#]/)[0].replace(/:\d+$/, "");
+  }
+  if (!/^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/.test(host)) return null;
+  return host.replace(/^www\./, "");
+}
+
+function registrableRoot(host: string): string {
+  const parts = host.toLowerCase().replace(/^www\./, "").split(".");
+  if (
+    parts.length >= 3 &&
+    ["com", "net", "org", "gov", "edu", "ind"].includes(parts[parts.length - 2]) &&
+    parts[parts.length - 1].length === 2
+  ) {
+    return parts.slice(-3).join(".");
+  }
+  return parts.slice(-2).join(".");
+}
+
+function isSelfDomainHost(host: string, landingPage?: string | null): boolean {
+  if (OWN_COMPANY_DOMAIN_RE.test(host)) return true;
+  const landingHost = extractBareHostname(landingPage);
+  if (landingHost && registrableRoot(host) === registrableRoot(landingHost)) {
+    return true;
+  }
+  return false;
+}
 
 /**
  * Converte sinais de UTM / Click IDs / Referrals exatamente para a taxonomia oficial
  * de `deal_source_name` do RD Station CRM usada pelos dashboards de Marketing:
- * - "Busca Paga | Google"
+ * - "Busca Paga | Google" / "Busca Paga | google-shopping" / "Busca Paga | google-rede-pesquisa"
  * - "Busca Paga | Meta"
  * - "Busca Paga | Mercado Livre"
  * - "Busca Orgânica | Google"
- * - etc.
+ * - "Tráfego Direto" (incluindo "(direct)", "(none)" e domínios próprios como tecfagpersonnalite.com.br)
+ * - "Referência | <domínio externo>"
  */
 export function normalizeRdDealSource(input: UtmAndAttributionInput): string | null {
   const explicit = cleanStr(input.explicitSource, 160);
+  const explicitClean = explicit && !isOperationalChannelLabel(explicit) ? explicit : null;
 
-  // Se já veio formatado no padrão do RD (ex.: "Busca Paga | ...", "Feiras e Eventos", "Prospecção Ativa")
-  // e não é um rótulo operacional ("manual"/"chat"/"whatsapp") nem um utm_source cru ("google"/"meta"),
-  // preserva fielmente.
-  if (explicit && !isOperationalChannelLabel(explicit)) {
-    const expNorm = normText(explicit);
-    const isRawPlatformToken = [
-      "google",
-      "googleads",
-      "adwords",
-      "meta",
-      "metaads",
-      "fb",
-      "ig",
-      "facebook",
-      "instagram",
-      "facebook ads",
-      "mercadolivre",
-      "meli",
-      "bing",
-      "linkedin",
-      "tiktok",
-      "youtube",
-      "linktree",
-      "direct",
-      "email",
-      "newsletter",
-    ].includes(expNorm);
-
-    if (!isRawPlatformToken) {
-      return explicit;
+  // Se já veio formatado no padrão canônico do RD ("Categoria | Subfonte"), preserva fielmente —
+  // exceto "Referência | <domínio próprio>" (auto-referência do próprio site → Tráfego Direto).
+  if (explicitClean && /\s\|\s/.test(explicitClean)) {
+    const refMatch = explicitClean.match(/^refer[eê]ncia\s*\|\s*(.+)$/i);
+    if (refMatch) {
+      const refHost = extractBareHostname(refMatch[1]);
+      if (refHost && isSelfDomainHost(refHost, input.landingPage)) {
+        return "Tráfego Direto";
+      }
     }
+    return explicitClean;
   }
 
-  const rawSourceToken = normText(
-    input.utmSource || (!isOperationalChannelLabel(explicit) ? explicit : null),
-  );
-  const rawMedium = normText(input.utmMedium);
+  const rawSourceOriginal = cleanStr(input.utmSource, 160) || explicitClean;
+  const rawSourceToken = normText(rawSourceOriginal);
+  const rawSourceBare = stripOuterParens(rawSourceToken);
+  const rawMedium = stripOuterParens(normText(input.utmMedium));
+  const rawChannel = normText(input.channel);
   const refNorm = normText(input.referrer);
   const hasGclid = Boolean(cleanStr(input.gclid));
   const hasFbclid = Boolean(cleanStr(input.fbclid));
   const hasCtwa = Boolean(cleanStr(input.ctwaClid)) || Boolean(input.hasMetaAdReferral);
 
+  const isPaidChannel =
+    rawChannel === "paid search" ||
+    rawChannel === "busca paga" ||
+    rawChannel === "display" ||
+    rawChannel === "other advertising" ||
+    rawChannel === "paid social";
+
   const isPaid =
     hasGclid ||
     hasFbclid ||
     hasCtwa ||
+    isPaidChannel ||
     PAID_MEDIUM_RE.test(rawMedium) ||
-    PAID_MEDIUM_RE.test(rawSourceToken);
+    PAID_MEDIUM_RE.test(rawSourceBare);
 
-  if (hasCtwa || (isPaid && /\b(meta|metaads|fb|ig|facebook|instagram)\b/.test(rawSourceToken)) || (hasFbclid && !rawSourceToken)) {
+  if (
+    hasCtwa ||
+    (isPaid && /\b(meta|metaads|fb|ig|facebook|instagram)\b/.test(rawSourceBare)) ||
+    (hasFbclid && !rawSourceBare)
+  ) {
     return "Busca Paga | Meta";
   }
 
-  if (hasGclid || (isPaid && /\b(google|googleads|adwords)\b/.test(rawSourceToken))) {
+  // Preserva subfontes pagas compostas do Google usadas pelo Marketing (ex.: google-shopping, google-rede-pesquisa)
+  if (isPaid && /^google[-_][a-z0-9_-]+$/i.test(rawSourceBare)) {
+    return `Busca Paga | ${rawSourceOriginal || rawSourceBare}`;
+  }
+
+  if (hasGclid || (isPaid && /\b(google|googleads|google ads|adwords)\b/.test(rawSourceBare))) {
     return "Busca Paga | Google";
   }
 
-  if (isPaid && /\b(mercadolivre|mercado livre|meli)\b/.test(rawSourceToken)) {
+  if (isPaid && /\b(mercadolivre|mercado livre|meli)\b/.test(rawSourceBare)) {
     return "Busca Paga | Mercado Livre";
   }
 
-  if (isPaid && /\bbing\b/.test(rawSourceToken)) {
+  if (isPaid && /\bbing\b/.test(rawSourceBare)) {
     return "Busca Paga | Bing";
   }
 
-  if (isPaid && /\blinkedin\b/.test(rawSourceToken)) {
+  if (isPaid && /\blinkedin\b/.test(rawSourceBare)) {
     return "Busca Paga | LinkedIn";
   }
 
-  if (isPaid && /\btiktok\b/.test(rawSourceToken)) {
+  if (isPaid && /\btiktok\b/.test(rawSourceBare)) {
     return "Busca Paga | TikTok";
   }
 
-  if (isPaid && rawSourceToken) {
-    return `Busca Paga | ${cleanStr(input.utmSource || explicit) || rawSourceToken}`;
+  if (isPaid && rawSourceBare) {
+    return `Busca Paga | ${rawSourceOriginal || rawSourceBare}`;
   }
 
-  // Orgânico / Social / E-mail / Direto
+  // Tráfego Direto: "(direct)", "direct", "direto", "(none)", "trafego direto", canal "Direct"
   if (
-    (/\bgoogle\b/.test(rawSourceToken) && (!rawMedium || ORGANIC_MEDIUM_RE.test(rawMedium))) ||
-    (!rawSourceToken && refNorm.includes("google."))
+    rawSourceBare === "direct" ||
+    rawSourceBare === "direto" ||
+    rawSourceBare === "none" ||
+    rawSourceBare === "trafego direto" ||
+    rawSourceBare === "acesso direto" ||
+    rawSourceBare === "direct traffic" ||
+    (!rawSourceBare && (rawChannel === "direct" || rawChannel === "trafego direto"))
+  ) {
+    return "Tráfego Direto";
+  }
+
+  // Domínio / URL como fonte: auto-referência do próprio site -> Tráfego Direto; domínio externo -> canal ou Referência
+  const sourceHost = extractBareHostname(rawSourceOriginal);
+  if (sourceHost) {
+    if (isSelfDomainHost(sourceHost, input.landingPage)) {
+      return "Tráfego Direto";
+    }
+    if (/(^|\.)google\./.test(sourceHost)) return "Busca Orgânica | Google";
+    if (/(^|\.)bing\./.test(sourceHost)) return "Busca Orgânica | Bing";
+    if (/(^|\.)yahoo\./.test(sourceHost)) return "Busca Orgânica | Yahoo";
+    if (/(^|\.)linktr\.ee$/.test(sourceHost)) return "Social | linktree";
+    if (/(^|\.)instagram\.com$/.test(sourceHost)) return "Social | Instagram";
+    if (/(^|\.)facebook\.com$|(^|\.)fb\.com$/.test(sourceHost)) return "Social | Facebook";
+    if (/(^|\.)youtube\.com$|(^|\.)youtu\.be$/.test(sourceHost)) return "Social | YouTube";
+    return `Referência | ${sourceHost}`;
+  }
+
+  // Orgânico / Social / E-mail
+  if (
+    (/\bgoogle\b/.test(rawSourceBare) &&
+      (!rawMedium || rawMedium === "none" || ORGANIC_MEDIUM_RE.test(rawMedium) || rawChannel === "organic search")) ||
+    (!rawSourceBare && refNorm.includes("google."))
   ) {
     return "Busca Orgânica | Google";
   }
 
   if (
-    (/\bbing\b/.test(rawSourceToken) && (!rawMedium || ORGANIC_MEDIUM_RE.test(rawMedium))) ||
-    (!rawSourceToken && refNorm.includes("bing."))
+    (/\bbing\b/.test(rawSourceBare) &&
+      (!rawMedium || rawMedium === "none" || ORGANIC_MEDIUM_RE.test(rawMedium) || rawChannel === "organic search")) ||
+    (!rawSourceBare && refNorm.includes("bing."))
   ) {
     return "Busca Orgânica | Bing";
   }
 
-  if (/\byahoo\b/.test(rawSourceToken) || (!rawSourceToken && refNorm.includes("yahoo."))) {
+  if (/\byahoo\b/.test(rawSourceBare) || (!rawSourceBare && refNorm.includes("yahoo."))) {
     return "Busca Orgânica | Yahoo";
   }
 
-  if (/\blinktree\b/.test(rawSourceToken) || refNorm.includes("linktr.ee")) {
+  if (/\blinktree\b/.test(rawSourceBare) || refNorm.includes("linktr.ee")) {
     return "Social | linktree";
   }
 
-  if (/\b(instagram|ig)\b/.test(rawSourceToken) || refNorm.includes("instagram.com")) {
+  if (/\b(instagram|ig)\b/.test(rawSourceBare) || refNorm.includes("instagram.com")) {
     return "Social | Instagram";
   }
 
-  if (/\b(facebook|fb)\b/.test(rawSourceToken) || refNorm.includes("facebook.com")) {
+  if (/\b(facebook|fb)\b/.test(rawSourceBare) || refNorm.includes("facebook.com")) {
     return "Social | Facebook";
   }
 
-  if (/\byoutube\b/.test(rawSourceToken) || refNorm.includes("youtube.com")) {
+  if (/\byoutube\b/.test(rawSourceBare) || refNorm.includes("youtube.com")) {
     return "Social | YouTube";
   }
 
-  if (/\b(email|e-mail|newsletter|rdstation)\b/.test(rawMedium) || /\b(newsletter)\b/.test(rawSourceToken)) {
+  if (
+    /\b(email|e-mail|newsletter|rdstation)\b/.test(rawMedium) ||
+    /\b(newsletter)\b/.test(rawSourceBare) ||
+    rawChannel === "email"
+  ) {
     return "E-mail Marketing";
-  }
-
-  if (rawSourceToken === "direct" || rawSourceToken === "direto") {
-    return "Tráfego Direto";
   }
 
   if (input.entryChannel === "site_chat") {
     return "Contato pelo Site";
   }
 
-  if (explicit && !isOperationalChannelLabel(explicit)) {
-    return explicit;
+  // Referrer de domínio próprio sem outra fonte (exceto site_chat acima) -> Tráfego Direto
+  const refHost = extractBareHostname(input.referrer);
+  if (!rawSourceBare && refHost && isSelfDomainHost(refHost, input.landingPage)) {
+    return "Tráfego Direto";
+  }
+
+  if (explicitClean) {
+    return explicitClean;
   }
 
   return null;
@@ -884,6 +968,7 @@ export async function resolveInheritedMarketingAttribution(
       utmMedium,
       utmCampaign,
       clickId,
+      landingPage,
       entryChannel: inferredChannel,
     }) || null;
 

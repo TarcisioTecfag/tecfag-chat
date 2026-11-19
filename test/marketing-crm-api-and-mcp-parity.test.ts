@@ -88,6 +88,73 @@ describe("Marketing × CRM — Taxonomia RD, Setores Imutáveis, Regra Única de
 
     // Preserva fontes customizadas válidas do RD
     expect(normalizeRdDealSource({ explicitSource: "Feiras e Eventos" })).toBe("Feiras e Eventos");
+
+    // Normaliza "(direct)", "(none)", canal Direct e domínios próprios (auto-referência) para Tráfego Direto
+    expect(
+      normalizeRdDealSource({
+        explicitSource: "(direct)",
+        landingPage: "https://www.tecfag.com.br/",
+        entryChannel: "rd_webhook",
+      }),
+    ).toBe("Tráfego Direto");
+    expect(normalizeRdDealSource({ explicitSource: "(none)", entryChannel: "rd_webhook" })).toBe(
+      "Tráfego Direto",
+    );
+    expect(normalizeRdDealSource({ channel: "Direct", entryChannel: "rd_webhook" })).toBe(
+      "Tráfego Direto",
+    );
+    expect(
+      normalizeRdDealSource({
+        explicitSource: "tecfagpersonnalite.com.br",
+        entryChannel: "rd_webhook",
+      }),
+    ).toBe("Tráfego Direto");
+    expect(
+      normalizeRdDealSource({
+        explicitSource: "www.tecfag.com.br",
+        entryChannel: "rd_webhook",
+      }),
+    ).toBe("Tráfego Direto");
+    expect(
+      normalizeRdDealSource({
+        explicitSource: "Referência | tecfagpersonnalite.com.br",
+        entryChannel: "rd_webhook",
+      }),
+    ).toBe("Tráfego Direto");
+    expect(
+      normalizeRdDealSource({
+        explicitSource: "cliente-proprio.com.br",
+        landingPage: "https://www.cliente-proprio.com.br/orcamento",
+        entryChannel: "rd_webhook",
+      }),
+    ).toBe("Tráfego Direto");
+
+    // Domínios externos viram Referência | <domínio> ou canal específico
+    expect(normalizeRdDealSource({ explicitSource: "chatgpt.com" })).toBe(
+      "Referência | chatgpt.com",
+    );
+    expect(normalizeRdDealSource({ explicitSource: "l.instagram.com" })).toBe("Social | Instagram");
+    expect(normalizeRdDealSource({ explicitSource: "www.google.com.br" })).toBe(
+      "Busca Orgânica | Google",
+    );
+
+    // Subfontes pagas compostas do Google (ex.: google-shopping, google-rede-pesquisa)
+    expect(
+      normalizeRdDealSource({
+        explicitSource: "google-shopping",
+        utmSource: "google-shopping",
+        utmMedium: "cpc",
+        entryChannel: "rd_webhook",
+      }),
+    ).toBe("Busca Paga | google-shopping");
+    expect(
+      normalizeRdDealSource({
+        explicitSource: "google-rede-pesquisa",
+        utmSource: "google-rede-pesquisa",
+        utmMedium: "cpc",
+        entryChannel: "rd_webhook",
+      }),
+    ).toBe("Busca Paga | google-rede-pesquisa");
   });
 
   it("extrai atribuição de anúncios Click-to-WhatsApp (Meta Cloud API referral) e separa campaign_name de utm_campaign", () => {

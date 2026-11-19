@@ -678,6 +678,35 @@ if (!databaseUrl) {
       );
     }
 
+    // 10d. Saneamento único de fontes brutas em cards não-legados (ex.: "(direct)", "tecfagpersonnalite.com.br", "google-shopping", "Google" — 19/11/2026)
+    const normalizeRdDealSourcesName =
+      "normalize_rd_deal_sources_2026_11_19_v1";
+    const [appliedNormalizeRdDealSources] = await sql`
+      SELECT name FROM app_deploy_migrations WHERE name = ${normalizeRdDealSourcesName}
+    `;
+    if (!appliedNormalizeRdDealSources) {
+      console.log(
+        `[platform migration] Iniciando execução única de ${normalizeRdDealSourcesName}...`,
+      );
+      const { runNormalizeRdDealSourcesBackfill } = await import(
+        "./normalize-rd-deal-sources.mjs"
+      );
+      const summary = await runNormalizeRdDealSourcesBackfill(sql);
+      await sql`
+        INSERT INTO app_deploy_migrations (name)
+        VALUES (${normalizeRdDealSourcesName})
+        ON CONFLICT (name) DO NOTHING
+      `;
+      console.log(
+        `[platform migration] ${normalizeRdDealSourcesName} concluída com sucesso:`,
+        summary,
+      );
+    } else {
+      console.log(
+        `[platform migration] ${normalizeRdDealSourcesName} já aplicada anteriormente.`,
+      );
+    }
+
     // 11. Higienização contínua de sectors.operator_ids (remove IDs de operadores órfãos/excluídos e deduplica por setor)
     try {
       const [allSectors, allOperators] = await Promise.all([

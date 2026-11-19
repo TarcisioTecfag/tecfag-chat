@@ -178,13 +178,47 @@ async function prepareLead(
   return mapped;
 }
 
+function normalizeMappedDealSource(
+  lead: Record<string, unknown>,
+  settings: FlowSettings,
+  mapped: Awaited<ReturnType<typeof prepareLead>>,
+) {
+  const selectedConvKey =
+    settings.attributionConversion === "last" ? "last_conversion" : "first_conversion";
+  const detailedUtm = extractDetailedConversionUtm(readPath(lead, selectedConvKey) || lead);
+  const rawMappedSource = mapped.deal.source ? String(mapped.deal.source) : null;
+  const normalizedSource = normalizeRdDealSource({
+    explicitSource: rawMappedSource,
+    utmSource: detailedUtm.utmSource,
+    utmMedium: detailedUtm.utmMedium || detailedUtm.originMedium,
+    utmCampaign: detailedUtm.utmCampaign,
+    clickId: detailedUtm.clickId,
+    landingPage: detailedUtm.landingPage,
+    channel: detailedUtm.originChannel,
+    entryChannel: "rd_webhook",
+  });
+  const dealSource = normalizedSource || rawMappedSource || "Não informada";
+  if (rawMappedSource && dealSource !== rawMappedSource) {
+    mapped.deal.source = dealSource;
+    if (typeof mapped.deal.initialNote === "string") {
+      mapped.deal.initialNote = mapped.deal.initialNote.replace(
+        `Fonte: ${rawMappedSource}`,
+        `Fonte: ${dealSource}`,
+      );
+    }
+  }
+  return { detailedUtm, normalizedSource, dealSource };
+}
+
 export async function previewFlow(tenantId: string, input: unknown, payload: unknown) {
   const settings = await validateFlow(tenantId, input);
   const leads = extractLeads(payload);
   const results = [];
   for (const lead of leads) {
     deliveryIdentity(lead, settings);
-    results.push(await prepareLead(tenantId, lead, settings));
+    const mapped = await prepareLead(tenantId, lead, settings);
+    normalizeMappedDealSource(lead, settings, mapped);
+    results.push(mapped);
   }
   return { paths: availablePaths(leads[0]), results };
 }
@@ -400,19 +434,12 @@ export async function receiveLeads(flow: Flow, payload: unknown) {
         continue;
       }
       const mapped = await prepareLead(tenantId, lead, settings, tx);
-      const selectedConvKey =
-        settings.attributionConversion === "last" ? "last_conversion" : "first_conversion";
-      const detailedUtm = extractDetailedConversionUtm(readPath(lead, selectedConvKey) || lead);
+      const { detailedUtm, normalizedSource, dealSource } = normalizeMappedDealSource(
+        lead,
+        settings,
+        mapped,
+      );
       const convMeta = conversionForLead(lead);
-      const rawMappedSource = mapped.deal.source ? String(mapped.deal.source) : null;
-      const normalizedFirstSource = normalizeRdDealSource({
-        explicitSource: rawMappedSource,
-        utmSource: detailedUtm.utmSource,
-        utmMedium: detailedUtm.utmMedium,
-        utmCampaign: detailedUtm.utmCampaign,
-        clickId: detailedUtm.clickId,
-        entryChannel: "rd_webhook",
-      });
       const conversionPointLabel =
         detailedUtm.conversionIdentifier ||
         convMeta.identifier ||
@@ -422,7 +449,7 @@ export async function receiveLeads(flow: Flow, payload: unknown) {
         tenantId,
         mapped,
         {
-          firstSource: normalizedFirstSource,
+          firstSource: normalizedSource,
           firstCampaign: conversionPointLabel,
           utmSource: detailedUtm.utmSource,
           utmMedium: detailedUtm.utmMedium,
@@ -527,7 +554,7 @@ export async function receiveLeads(flow: Flow, payload: unknown) {
                   customFields: mapped.company.customFields as CustomFieldValues,
                 }
               : null,
-          source: mapped.deal.source ? String(mapped.deal.source) : "Não informada",
+          source: dealSource,
           campaign: mapped.deal.campaign ? String(mapped.deal.campaign) : undefined,
           entryChannel: "rd_webhook",
           utmSource: detailedUtm.utmSource,

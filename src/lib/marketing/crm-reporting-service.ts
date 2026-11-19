@@ -120,6 +120,7 @@ export function projectCanonicalDealSourceName(row: {
   utm_medium?: string | null;
   utm_campaign?: string | null;
   click_id?: string | null;
+  landing_page?: string | null;
   entry_channel?: string | null;
 }): string | null {
   const rawSource = typeof row.source === "string" ? row.source.trim() : "";
@@ -135,6 +136,7 @@ export function projectCanonicalDealSourceName(row: {
     utmMedium: row.utm_medium || null,
     utmCampaign: row.utm_campaign || null,
     clickId: row.click_id || null,
+    landingPage: row.landing_page || null,
     entryChannel: row.entry_channel || null,
   });
 
@@ -1111,6 +1113,7 @@ export async function listMarketingContacts(
         utmMedium: r.utm_medium || null,
         utmCampaign: r.utm_campaign || null,
         clickId: r.click_id || null,
+        landingPage: r.landing_page || null,
       }) ||
       r.first_source ||
       null;

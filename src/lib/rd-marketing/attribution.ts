@@ -122,12 +122,17 @@ export interface DetailedConversionUtm {
   clickId: string | null;
   landingPage: string | null;
   conversionIdentifier: string | null;
+  originMedium: string | null;
+  originChannel: string | null;
 }
 
 export function extractDetailedConversionUtm(value: unknown): DetailedConversionUtm {
   const conversion = record(value);
   const payload = Object.hasOwn(conversion, "payload") ? record(conversion.payload) : conversion;
+  const originValue = payload.conversion_origin ?? conversion.conversion_origin;
+  const origin = record(originValue);
   const content = record(payload.content);
+  const contentOrigin = record(content.conversion_origin);
   const traffic = payload.traffic_source ?? content.traffic_source;
   const structuredTraffic = record(traffic);
 
@@ -236,6 +241,20 @@ export function extractDetailedConversionUtm(value: unknown): DetailedConversion
       conversion.event_identifier,
       content.identificador,
       payload.identificador,
+    ),
+    originMedium: text(
+      origin.medium,
+      contentOrigin.medium,
+      structuredTraffic.medium,
+      payload.traffic_medium,
+      payload.medium,
+    ),
+    originChannel: text(
+      origin.channel,
+      contentOrigin.channel,
+      structuredTraffic.channel,
+      payload.traffic_channel,
+      payload.channel,
     ),
   };
 }
