@@ -581,6 +581,12 @@ export const MCP_EXTENDED_TOOLS: McpToolDefinition[] = [
         },
         operatorId: { type: "string", description: "ID do operador remetente (opcional)." },
         senderName: { type: "string", description: "Nome exibido como remetente interno (opcional)." },
+        reopenIfClosed: {
+          type: "boolean",
+          default: false,
+          description:
+            "Quando true, reabre automaticamente a conversa caso ela esteja em 'finalizados' (vai para 'meus' se operatorId for informado, ou 'automacao' por padrão) antes de disparar o template.",
+        },
         idempotencyKey: { type: "string", description: "Chave de idempotência opcional." },
       },
     },
@@ -940,6 +946,49 @@ export function isExtendedMcpTool(name: string): boolean {
   return EXTENDED_TOOL_NAMES.has(name);
 }
 
+/**
+ * Normaliza `parameters` vindos do MCP para `resolveMetaTemplateValues`:
+ * - Se `parameters` não for enviado (ou tiver menos itens que `variableCount`) mas as variáveis
+ *   possuírem binding automático (`customer_name` / `operator_name`), preenche os slots faltantes
+ *   para que o binding resolva automaticamente sem exigir `parameters` redundante.
+ * - Se alguma variável `manual` não receber valor, `resolveMetaTemplateValues` continua lançando
+ *   erro explícito (`Valor ausente para {{N}}.`).
+ */
+export function buildMcpMetaTemplateSuppliedParams(
+  variableCount: number,
+  bindings: Record<string, string> | undefined,
+  suppliedParameters: unknown,
+): Array<{ type: "text"; text: string }> {
+  if (variableCount <= 0) return [];
+  const rawList = Array.isArray(suppliedParameters)
+    ? suppliedParameters.map((p) => ({ type: "text" as const, text: String(p ?? "") }))
+    : [];
+  if (rawList.length === variableCount) return rawList;
+
+  const map = bindings || {};
+  // Caso comum: o cliente passou apenas os parâmetros manuais em ordem, omitindo os auto-bound
+  const manualIndexes: number[] = [];
+  for (let i = 1; i <= variableCount; i++) {
+    const b = map[String(i)] || "manual";
+    if (b === "manual") manualIndexes.push(i);
+  }
+  if (rawList.length > 0 && rawList.length === manualIndexes.length && manualIndexes.length < variableCount) {
+    let manualCursor = 0;
+    return Array.from({ length: variableCount }, (_, offset) => {
+      const idx = offset + 1;
+      const b = map[String(idx)] || "manual";
+      if (b === "manual") {
+        return rawList[manualCursor++] ?? { type: "text" as const, text: "" };
+      }
+      return { type: "text" as const, text: "" };
+    });
+  }
+
+  return Array.from({ length: variableCount }, (_, offset) => {
+    return rawList[offset] ?? { type: "text" as const, text: "" };
+  });
+}
+
 function asTrimmedString(val: unknown): string | undefined {
   if (typeof val !== "string") return undefined;
   const trimmed = val.trim();
@@ -1168,6 +1217,7 @@ export async function executeExtendedMcpTool(
 
       return {
         tenantId,
+        syncedFromMeta: args.syncFromMeta === true,
         total: filtered.length,
         templates: filtered.map((t) => ({
           id: t.id,
@@ -2249,10 +2299,39 @@ export async function executeExtendedMcpTool(
       const { conv, contact, effectivePhone, effectiveUserId } =
         await resolveConversationRecipient(tenantId, conversationId);
 
+      const reopenIfClosed = args.reopenIfClosed === true;
+      let reopened = false;
+      let effectiveQueueState = conv.queueState;
+
       if (conv.queueState === "finalizados") {
-        throw new Error(
-          "A conversa está finalizada ('finalizados'). Reabra a conversa antes de disparar o template.",
-        );
+        if (!reopenIfClosed) {
+          throw new Error(
+            "A conversa está finalizada ('finalizados'). Reabra a conversa antes de disparar o template (ou passe reopenIfClosed=true).",
+          );
+        }
+        const nextQueueState = operator ? "meus" : "automacao";
+        const [reopenedConv] = await db
+          .update(conversations)
+          .set({
+            queueState: nextQueueState,
+            operatorId: nextQueueState === "meus" ? operator!.id : null,
+            version: sql`${conversations.version} + 1`,
+            updatedAt: new Date(),
+          })
+          .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)))
+          .returning();
+        if (reopenedConv) {
+          reopened = true;
+          effectiveQueueState = reopenedConv.queueState;
+          emitSseSafe(tenantId, {
+            type: "queue_update",
+            conversationId: reopenedConv.id,
+            queueState: reopenedConv.queueState,
+            operatorId: reopenedConv.operatorId,
+            sectorId: reopenedConv.sectorId,
+            version: reopenedConv.version,
+          });
+        }
       }
 
       const target = await resolveConversationConnection(tenantId, conversationId);
@@ -2276,14 +2355,21 @@ export async function executeExtendedMcpTool(
         );
       }
 
-      const rawParams = Array.isArray(args.parameters)
-        ? args.parameters.map((p) => ({ type: "text", text: String(p) }))
-        : undefined;
+      const rawParams = buildMcpMetaTemplateSuppliedParams(
+        selected.variableCount,
+        selected.bindings,
+        args.parameters,
+      );
+      const fallbackCustomerName =
+        contact.name?.trim() ||
+        (Array.isArray(args.parameters) && args.parameters[0] !== undefined
+          ? String(args.parameters[0]).trim()
+          : "");
       const values = resolveMetaTemplateValues(
         selected.variableCount,
         selected.bindings,
         rawParams,
-        { customerName: contact.name, operatorName: senderName },
+        { customerName: fallbackCustomerName, operatorName: senderName },
       );
       const resolvedParams = values.map((value) => ({ type: "text" as const, text: value }));
       const templateComponents = resolvedParams.length
@@ -2321,8 +2407,11 @@ export async function executeExtendedMcpTool(
         success: true,
         tenantId,
         conversationId,
+        reopened,
+        queueState: effectiveQueueState,
         templateName: selected.name,
         templateLanguage: selected.language,
+        resolvedParameters: values,
         renderedText,
         messageId: result.messageId,
         externalId: result.externalId ?? null,

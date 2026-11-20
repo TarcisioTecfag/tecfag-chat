@@ -29,6 +29,8 @@ import {
   type McpAccessContext,
 } from "../src/lib/mcp/valem-tecfag-mcp-core";
 import { computeCycleTierForValue } from "../src/lib/mcp/valem-tecfag-mcp-wave1-tools";
+import { buildMcpMetaTemplateSuppliedParams } from "../src/lib/mcp/valem-tecfag-mcp-write-tools";
+import { resolveMetaTemplateValues } from "../src/lib/whatsapp/meta-template-common";
 
 function hasLocalPostgres(): boolean {
   if (!fs.existsSync(".env")) return false;
@@ -129,6 +131,43 @@ describe("MCP v3.2.0 — Onda 1 (Unitário & Validações)", () => {
       expect(res.isError).toBe(true);
       expect(res.errorText).toContain(c.expected);
     }
+  });
+
+  it("send_meta_template resolve auto-bindings (customer_name/operator_name) mesmo sem enviar parameters", () => {
+    // Caso real dos 9 templates fagner_* com {{1}} = customer_name e parameters omitido
+    const suppliedAuto = buildMcpMetaTemplateSuppliedParams(1, { "1": "customer_name" }, undefined);
+    const resolvedAuto = resolveMetaTemplateValues(
+      1,
+      { "1": "customer_name" },
+      suppliedAuto,
+      { customerName: "joão silva", operatorName: "Fagner" },
+    );
+    expect(resolvedAuto).toEqual(["João"]);
+
+    // Caso real de templates sem variáveis (fagner_coringa_c, fagner_coringa_e)
+    const suppliedEmpty = buildMcpMetaTemplateSuppliedParams(0, {}, undefined);
+    expect(resolveMetaTemplateValues(0, {}, suppliedEmpty, { customerName: "Maria" })).toEqual([]);
+
+    // Caso misto: {{1}} = customer_name (auto) e {{2}} = manual; cliente passa só o valor manual
+    const suppliedMixed = buildMcpMetaTemplateSuppliedParams(
+      2,
+      { "1": "customer_name", "2": "manual" },
+      ["Seladora FR-900"],
+    );
+    expect(
+      resolveMetaTemplateValues(
+        2,
+        { "1": "customer_name", "2": "manual" },
+        suppliedMixed,
+        { customerName: "CARLOS" },
+      ),
+    ).toEqual(["Carlos", "Seladora FR-900"]);
+
+    // Caso manual faltando continua bloqueando corretamente
+    const suppliedMissingManual = buildMcpMetaTemplateSuppliedParams(1, { "1": "manual" }, undefined);
+    expect(() =>
+      resolveMetaTemplateValues(1, { "1": "manual" }, suppliedMissingManual, { customerName: "Ana" }),
+    ).toThrow("Valor ausente para {{1}}.");
   });
 });
 
