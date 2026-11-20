@@ -11,7 +11,7 @@ import {
   crmDeals,
   crmDealContacts,
 } from "../../../db/schema";
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and, desc, inArray, isNotNull, sql } from "drizzle-orm";
 import { requireSession } from "../../../lib/auth-session";
 import { getAiPersona } from "../../../lib/ai-persona";
 import { projectIndustrialMonitoring } from "../../../lib/triage/industrial-monitor";
@@ -33,6 +33,16 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
 };
+
+function canAccessSdrApi(session: {
+  operator: { role: string };
+  permissions?: { valentina?: { canAccessSdr?: boolean } } | null;
+}): boolean {
+  return (
+    session.operator.role === "admin" ||
+    session.permissions?.valentina?.canAccessSdr === true
+  );
+}
 
 function safeFormatTime(dateVal: any): string {
   if (!dateVal) return "Agora";
@@ -80,7 +90,12 @@ function safeFormatIso(dateVal: any): string {
   }
 }
 
-function parseMediaInfo(content: string, mediaUrl?: string | null, mediaType?: string | null, fileName?: string | null) {
+function parseMediaInfo(
+  content: string,
+  mediaUrl?: string | null,
+  mediaType?: string | null,
+  fileName?: string | null,
+) {
   let url = mediaUrl || undefined;
   let type = mediaType || undefined;
   let name = fileName || undefined;
@@ -108,26 +123,85 @@ function parseMediaInfo(content: string, mediaUrl?: string | null, mediaType?: s
   return { mediaUrl: url, mediaType: type, fileName: name };
 }
 
-export const Route = createFileRoute('/api/valentina/sdr')({
+export type SdrResolvedStatus =
+  | "active"
+  | "awaiting_approval"
+  | "completed"
+  | "abandoned"
+  | "stopped"
+  | "manual";
+
+export function resolveFaithfulSdrStatus(
+  outcome: string | null | undefined,
+  monitoringState?: string | null,
+): SdrResolvedStatus {
+  // Desfechos explícitos do ciclo de triagem NUNCA podem ser mascarados como "completed"
+  if (outcome === "abandoned") return "abandoned";
+  if (outcome === "stopped" || outcome === "escalated") return "stopped";
+  if (outcome === "completed" || outcome === "transferred") return "completed";
+
+  if (monitoringState) {
+    if (monitoringState === "awaiting_approval") return "awaiting_approval";
+    if (monitoringState === "no_response") return "abandoned";
+    if (monitoringState === "stopped") return "stopped";
+    if (monitoringState === "transferred" || monitoringState === "resolved") return "completed";
+    if (
+      monitoringState === "manual" ||
+      monitoringState === "manual_queue" ||
+      monitoringState === "closed" ||
+      monitoringState === "continued"
+    ) {
+      return "manual";
+    }
+    return "active";
+  }
+
+  return "active";
+}
+
+export function resolveCleanTargetFunnel(
+  meta: Record<string, any> | null | undefined,
+  collectedData: Record<string, any> | null | undefined,
+): string | undefined {
+  const fromMeta = typeof meta?.targetFunnel === "string" ? meta.targetFunnel.trim() : "";
+  if (fromMeta && !/^aguardando/i.test(fromMeta)) return fromMeta;
+
+  const entry = collectedData?.["SETOR / FUNIL DE DESTINO"];
+  if (entry && entry.status === "filled" && typeof entry.value === "string") {
+    const val = entry.value.trim();
+    if (val && !/^aguardando/i.test(val)) return val;
+  }
+
+  return undefined;
+}
+
+export const Route = createFileRoute("/api/valentina/sdr")({
   server: {
     handlers: {
       OPTIONS: async () => new Response(null, { status: 204, headers: corsHeaders }),
 
-      // ── GET: Configurações do SDR + Lista de Triagens Reais do Banco ─────────
+      // ── GET: Configurações do SDR + Sessões em Lote (Zero N+1) ou Mensagens sob Demanda ──
       GET: async ({ request }) => {
         const auth = await requireSession(request);
         if ("response" in auth) return auth.response;
         const { session } = auth;
         const tenantId = session.tenantId;
+
+        if (!canAccessSdrApi(session)) {
+          return new Response(
+            JSON.stringify({
+              error: "Permissão insuficiente para acessar o módulo SDR.",
+              code: "FORBIDDEN",
+            }),
+            { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          );
+        }
+
         const persona = getAiPersona(tenantId);
-
-        let config = {
-          enabled: false,
-        };
-
-        const sessions: any[] = [];
-        const addedConvIds = new Set<string>();
-        const sessionsByConvId = new Map<string, any>();
+        const isIndustrial = persona.triagePolicy === "industrial";
+        const url = new URL(request.url);
+        const onDemandConversationId = (url.searchParams.get("conversationId") || "").trim();
+        const selectedConversationId = (url.searchParams.get("selectedConversationId") || "").trim();
 
         // Mapa de operadores do tenant para identificar nome e foto nas mensagens de operador
         const operatorsById = new Map<string, { id: string; name: string; avatar: string | null }>();
@@ -152,94 +226,6 @@ export const Route = createFileRoute('/api/valentina/sdr')({
           console.warn("[api/valentina/sdr] Erro ao carregar operadores do tenant:", err);
         }
 
-        const currentSessionOp = session.operator?.id
-          ? operatorsById.get(session.operator.id) || {
-              id: session.operator.id,
-              name: session.operator.name,
-              avatar: (session.operator as any).avatar || null,
-            }
-          : null;
-
-        const resolveLinkedDeal = async (
-          conversationId: string,
-          contactId?: string | null,
-          meta?: Record<string, any>,
-        ) => {
-          if (persona.triagePolicy !== "industrial" && meta?.localCrmDealId) {
-            return {
-              dealId: String(meta.localCrmDealId),
-              dealTitle: String(meta.localCrmDealTitle || "Negociação CRM Local"),
-              action: String(meta.localCrmDealAction || "created_new"),
-              operatorId: meta.allocatedOperatorId ? String(meta.allocatedOperatorId) : null,
-            };
-          }
-
-          const [convDealRow] = await db
-            .select({
-              dealId: crmDeals.id,
-              dealTitle: crmDeals.title,
-              createdAt: crmDeals.createdAt,
-              operatorId: crmDeals.operatorId,
-            })
-            .from(crmConversationDeals)
-            .innerJoin(
-              crmDeals,
-              and(
-                eq(crmConversationDeals.dealId, crmDeals.id),
-                eq(crmDeals.tenantId, tenantId),
-              ),
-            )
-            .where(
-              and(
-                eq(crmConversationDeals.tenantId, tenantId),
-                eq(crmConversationDeals.conversationId, conversationId),
-                eq(crmConversationDeals.isActive, true),
-              ),
-            )
-            .orderBy(desc(crmDeals.createdAt))
-            .limit(1);
-
-          if (convDealRow) {
-            return {
-              dealId: convDealRow.dealId,
-              dealTitle: convDealRow.dealTitle,
-              createdAt: safeFormatIso(convDealRow.createdAt),
-              operatorId: convDealRow.operatorId || null,
-            };
-          }
-
-          if (contactId && persona.triagePolicy !== "industrial") {
-            const [contactDealRow] = await db
-              .select({
-                dealId: crmDeals.id,
-                dealTitle: crmDeals.title,
-                createdAt: crmDeals.createdAt,
-                operatorId: crmDeals.operatorId,
-              })
-              .from(crmDeals)
-              .innerJoin(crmDealContacts, and(eq(crmDealContacts.dealId, crmDeals.id), eq(crmDealContacts.tenantId, tenantId)))
-              .where(
-                and(
-                  eq(crmDeals.tenantId, tenantId),
-                  eq(crmDealContacts.contactId, contactId),
-                ),
-              )
-              .orderBy(desc(crmDeals.createdAt))
-              .limit(1);
-
-            if (contactDealRow) {
-              return {
-                dealId: contactDealRow.dealId,
-                dealTitle: contactDealRow.dealTitle,
-                createdAt: safeFormatIso(contactDealRow.createdAt),
-                operatorId: contactDealRow.operatorId || null,
-              };
-            }
-          }
-
-          return null;
-        };
-
         const resolveConversationOperator = (
           convOperatorId?: string | null,
           meta?: Record<string, any>,
@@ -247,7 +233,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
           dealOperatorId?: string | null,
           rawMsgs?: any[],
         ) => {
-          if (persona.triagePolicy === "industrial") {
+          if (isIndustrial) {
             return convOperatorId ? operatorsById.get(convOperatorId) || null : null;
           }
           const candidateIds = [
@@ -282,7 +268,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
             }
           }
 
-          return currentSessionOp;
+          return null;
         };
 
         const formatConversationMessages = (
@@ -293,14 +279,14 @@ export const Route = createFileRoute('/api/valentina/sdr')({
           return rawMsgs.map((m: any) => {
             const mediaInfo = parseMediaInfo(m.content, m.mediaUrl, m.mediaType, m.fileName);
             const rawText = (m.content || "").trim();
-            const isSystemResetMsg =
-              m.senderType === "system" ||
+            const isCycleReset =
               rawText.toLowerCase() === "!reset" ||
               rawText.includes("Fluxo de triagem reiniciado") ||
               rawText.includes("Triagem anterior encerrada");
+            const isSystemMsg = m.senderType === "system" || isCycleReset;
 
             let sender: "client" | "bot" | "agent" | "system" = "bot";
-            if (isSystemResetMsg) {
+            if (isSystemMsg) {
               sender = "system";
             } else if (m.senderType === "client") {
               sender = "client";
@@ -324,7 +310,8 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                 m.senderName && m.senderName !== "Operador"
                   ? operatorsByName.get(String(m.senderName).trim().toLowerCase())
                   : undefined;
-              const resolvedOp = byId || byName || defaultOperator || currentSessionOp;
+              // Nunca atribui ao operador que está apenas visualizando a tela (sem currentSessionOp)
+              const resolvedOp = byId || byName || defaultOperator || null;
 
               const cleanMsgSenderName =
                 m.senderName && String(m.senderName).trim().toLowerCase() !== "operador"
@@ -345,6 +332,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
               date: safeFormatDate(m.sentAt),
               sentAt: safeFormatIso(m.sentAt),
               isInternalNote: Boolean(m.isInternalNote),
+              isCycleReset,
               mediaUrl: mediaInfo.mediaUrl,
               mediaType: mediaInfo.mediaType,
               fileName: mediaInfo.fileName,
@@ -352,369 +340,653 @@ export const Route = createFileRoute('/api/valentina/sdr')({
           });
         };
 
-        // 1. Tentar buscar Config do SDR no banco de forma segura
-        try {
-          const dbConfig = await db.query.agentConfigs.findFirst({
-            where: (table, { eq: dEq, and: dAnd }) =>
-              dAnd(dEq(table.tenantId, tenantId), dEq(table.agentType, "sdr")),
-          });
+        // ── MODO SOB DEMANDA: Mensagens completas de 1 conversa específica ──────
+        if (onDemandConversationId) {
+          try {
+            const [conv] = await db
+              .select()
+              .from(conversations)
+              .where(
+                and(
+                  eq(conversations.id, onDemandConversationId),
+                  eq(conversations.tenantId, tenantId),
+                ),
+              )
+              .limit(1);
 
-          if (dbConfig) {
-            config = {
-              enabled: dbConfig.enabled === 1,
-            };
-          }
-        } catch (err) {
-          console.warn("[api/valentina/sdr] Erro ao buscar agentConfigs:", err);
-        }
+            if (!conv) {
+              return new Response(
+                JSON.stringify({ error: "Conversa não encontrada.", code: "NOT_FOUND" }),
+                { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+              );
+            }
 
-        // 2. Buscar sessões registradas em agentFlowStates do tenant
-        try {
-          const flowStates = persona.triagePolicy === "industrial"
-            ? await readLatestSdrFlows(db, tenantId)
-            : await db.select()
-            .from(agentFlowStates)
-            .where(and(eq(agentFlowStates.tenantId, tenantId), eq(agentFlowStates.agentType, "sdr")))
-            .orderBy(desc(agentFlowStates.lastInteractionAt))
-            .limit(50);
-
-          for (const fs of flowStates) {
-            try {
-              // Evitar duplicar cards/chats para o mesmo cliente: compilar ciclos anteriores na mesma sessão
-              if (addedConvIds.has(fs.conversationId)) {
-                const existingSession = sessionsByConvId.get(fs.conversationId);
-                if (existingSession) {
-                  const fsMeta = (fs.metadata as Record<string, any>) || {};
-                  const fsData = (fs.collectedData as Record<string, any>) || {};
-                  const alreadyAdded = existingSession.previousTriages.some((p: any) => p.id === fs.id);
-                  if (!alreadyAdded) {
-                    existingSession.previousTriages.push({
-                      id: fs.id,
-                      startedAt: safeFormatIso(fs.startedAt),
-                      completedAt: fs.completedAt ? safeFormatIso(fs.completedAt) : safeFormatIso(fs.lastInteractionAt),
-                      outcome: fs.outcome || "completed",
-                      targetFunnel: fsMeta.targetFunnel || undefined,
-                      subflow: fsMeta.subflow || undefined,
-                      company: fsData["EMPRESA"]?.value || undefined,
-                      document: fsData["CNPJ OU CPF"]?.value || fsData["CNPJ"]?.value || undefined,
-                      clientName: fsData["NOME COMPLETO"]?.value || undefined,
-                      interest: fsData["MÁQUINA / PEÇA / INTERESSE"]?.value || undefined,
-                      responsibleName: fsMeta.allocatedOperatorName || undefined,
-                    });
-                  }
-                }
-                continue;
-              }
-
-              addedConvIds.add(fs.conversationId);
-
-              const conv = await db.query.conversations.findFirst({
-                where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.id, fs.conversationId), dEq(t.tenantId, tenantId)),
-              });
-
-              const contact = conv
-                ? await db.query.contacts.findFirst({
-                    where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.id, conv.contactId), dEq(t.tenantId, tenantId)),
-                  })
-                : null;
-
-              const recentMsgsDesc = await db
+            const [contact, recentMsgsDesc] = await Promise.all([
+              db.query.contacts.findFirst({
+                where: (t, { eq: dEq, and: dAnd }) =>
+                  dAnd(dEq(t.id, conv.contactId), dEq(t.tenantId, tenantId)),
+              }),
+              db
                 .select()
                 .from(messages)
-                .where(and(eq(messages.conversationId, fs.conversationId), eq(messages.tenantId, tenantId), persona.triagePolicy === "industrial" ? sql`${messages.metaDetails}->'industrialTriage' IS NULL` : undefined))
+                .where(
+                  and(
+                    eq(messages.conversationId, onDemandConversationId),
+                    eq(messages.tenantId, tenantId),
+                    isIndustrial ? sql`${messages.metaDetails}->'industrialTriage' IS NULL` : undefined,
+                  ),
+                )
                 .orderBy(desc(messages.sentAt))
-                .limit(200);
-              const realMsgs = recentMsgsDesc.reverse();
+                .limit(200),
+            ]);
 
-              const meta = (fs.metadata as Record<string, any>) || {};
-              const linkedDealRow = await resolveLinkedDeal(fs.conversationId, conv?.contactId, meta);
-              const linkedDeal = linkedDealRow
+            const realMsgs = recentMsgsDesc.reverse();
+            const defaultOp = conv.operatorId ? operatorsById.get(conv.operatorId) || null : null;
+            const formattedMessages = formatConversationMessages(
+              realMsgs,
+              defaultOp,
+              contact?.name || "Contato WhatsApp",
+            );
+
+            return new Response(
+              JSON.stringify({
+                conversationId: onDemandConversationId,
+                messages: formattedMessages,
+              }),
+              {
+                status: 200,
+                headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-store" },
+              },
+            );
+          } catch (err) {
+            console.error("[api/valentina/sdr] Erro ao carregar mensagens sob demanda:", err);
+            return new Response(
+              JSON.stringify({ error: "Erro ao carregar mensagens da conversa." }),
+              { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+            );
+          }
+        }
+
+        // ── MODO LISTAGEM OTIMIZADO (Batch Queries — Zero N+1) ──────────────────
+        let config = { enabled: false };
+
+        const [dbConfig, flowStates, automacaoConvs, monitoringSummary] = await Promise.all([
+          db.query.agentConfigs
+            .findFirst({
+              where: (table, { eq: dEq, and: dAnd }) =>
+                dAnd(dEq(table.tenantId, tenantId), dEq(table.agentType, "sdr")),
+            })
+            .catch((err) => {
+              console.warn("[api/valentina/sdr] Erro ao buscar agentConfigs:", err);
+              return null;
+            }),
+          (isIndustrial
+            ? readLatestSdrFlows(db, tenantId, 100)
+            : db
+                .select()
+                .from(agentFlowStates)
+                .where(and(eq(agentFlowStates.tenantId, tenantId), eq(agentFlowStates.agentType, "sdr")))
+                .orderBy(desc(agentFlowStates.lastInteractionAt))
+                .limit(100)
+          ).catch((err) => {
+            console.warn("[api/valentina/sdr] Erro ao buscar agentFlowStates:", err);
+            return [] as (typeof agentFlowStates.$inferSelect)[];
+          }),
+          db
+            .select()
+            .from(conversations)
+            .where(and(eq(conversations.tenantId, tenantId), eq(conversations.queueState, "automacao")))
+            .orderBy(desc(conversations.lastMessageTime))
+            .limit(30)
+            .catch((err) => {
+              console.warn("[api/valentina/sdr] Erro ao buscar conversations automacao:", err);
+              return [] as (typeof conversations.$inferSelect)[];
+            }),
+          readAgentMonitoringSummary(db, tenantId).catch((error) => {
+            console.error("[api/valentina/sdr] Métricas indisponíveis:", error);
+            return { available: false as const, reason: "Métricas temporariamente indisponíveis." };
+          }),
+        ]);
+
+        if (dbConfig) {
+          config = { enabled: dbConfig.enabled === 1 };
+        }
+
+        // Deduplicar flowStates por conversationId preservando ciclos anteriores
+        const primaryFlows: (typeof agentFlowStates.$inferSelect)[] = [];
+        const previousTriagesByConv = new Map<string, any[]>();
+        const seenFlowConvIds = new Set<string>();
+
+        for (const fs of flowStates) {
+          if (seenFlowConvIds.has(fs.conversationId)) {
+            const list = previousTriagesByConv.get(fs.conversationId) || [];
+            if (!list.some((p) => p.id === fs.id)) {
+              const fsMeta = (fs.metadata as Record<string, any>) || {};
+              const fsData = (fs.collectedData as Record<string, any>) || {};
+              list.push({
+                id: fs.id,
+                startedAt: safeFormatIso(fs.startedAt),
+                completedAt: fs.completedAt
+                  ? safeFormatIso(fs.completedAt)
+                  : safeFormatIso(fs.lastInteractionAt),
+                outcome: fs.outcome || "completed",
+                targetFunnel: resolveCleanTargetFunnel(fsMeta, fsData),
+                subflow: fsMeta.subflow || undefined,
+                company: fsData["EMPRESA"]?.value || undefined,
+                document: fsData["CNPJ OU CPF"]?.value || fsData["CNPJ"]?.value || undefined,
+                clientName: fsData["NOME COMPLETO"]?.value || undefined,
+                interest: fsData["MÁQUINA / PEÇA / INTERESSE"]?.value || undefined,
+                responsibleName: fsMeta.allocatedOperatorName || undefined,
+              });
+              previousTriagesByConv.set(fs.conversationId, list);
+            }
+            continue;
+          }
+          seenFlowConvIds.add(fs.conversationId);
+          primaryFlows.push(fs);
+        }
+
+        const orphanAutoConvs = automacaoConvs.filter(
+          (c) =>
+            !seenFlowConvIds.has(c.id) &&
+            c.id !== "tec-1" &&
+            c.id !== "tec-2" &&
+            c.id !== "val-1" &&
+            c.id !== "val-2",
+        );
+
+        const allConvIds = [
+          ...new Set([
+            ...primaryFlows.map((f) => f.conversationId),
+            ...orphanAutoConvs.map((c) => c.id),
+          ]),
+        ];
+
+        // Batch fetch conversations, contacts, linked deals e última msg (any + client)
+        const convById = new Map<string, typeof conversations.$inferSelect>();
+        const contactById = new Map<string, typeof contacts.$inferSelect>();
+        const dealByConvId = new Map<
+          string,
+          { dealId: string; dealTitle: string; createdAt?: string; operatorId?: string | null; action?: string }
+        >();
+        const dealByContactId = new Map<
+          string,
+          { dealId: string; dealTitle: string; createdAt?: string; operatorId?: string | null }
+        >();
+        const lastAnyMsgByConv = new Map<string, { sentAt: Date; content: string; senderType: string }>();
+        const lastClientMsgByConv = new Map<string, { sentAt: Date }>();
+
+        if (allConvIds.length > 0) {
+          const [convRows, convDealRows, lastAnyRows, lastClientRows] = await Promise.all([
+            db
+              .select()
+              .from(conversations)
+              .where(and(eq(conversations.tenantId, tenantId), inArray(conversations.id, allConvIds))),
+            db
+              .select({
+                conversationId: crmConversationDeals.conversationId,
+                dealId: crmDeals.id,
+                dealTitle: crmDeals.title,
+                createdAt: crmDeals.createdAt,
+                operatorId: crmDeals.operatorId,
+              })
+              .from(crmConversationDeals)
+              .innerJoin(
+                crmDeals,
+                and(eq(crmConversationDeals.dealId, crmDeals.id), eq(crmDeals.tenantId, tenantId)),
+              )
+              .where(
+                and(
+                  eq(crmConversationDeals.tenantId, tenantId),
+                  inArray(crmConversationDeals.conversationId, allConvIds),
+                  eq(crmConversationDeals.isActive, true),
+                ),
+              )
+              .orderBy(desc(crmDeals.createdAt)),
+            db
+              .selectDistinctOn([messages.conversationId], {
+                conversationId: messages.conversationId,
+                sentAt: messages.sentAt,
+                content: messages.content,
+                senderType: messages.senderType,
+              })
+              .from(messages)
+              .where(
+                and(
+                  eq(messages.tenantId, tenantId),
+                  inArray(messages.conversationId, allConvIds),
+                  isNotNull(messages.sentAt),
+                  isIndustrial ? sql`${messages.metaDetails}->'industrialTriage' IS NULL` : undefined,
+                ),
+              )
+              .orderBy(messages.conversationId, desc(messages.sentAt), desc(messages.id)),
+            db
+              .selectDistinctOn([messages.conversationId], {
+                conversationId: messages.conversationId,
+                sentAt: messages.sentAt,
+              })
+              .from(messages)
+              .where(
+                and(
+                  eq(messages.tenantId, tenantId),
+                  inArray(messages.conversationId, allConvIds),
+                  eq(messages.senderType, "client"),
+                  isNotNull(messages.sentAt),
+                ),
+              )
+              .orderBy(messages.conversationId, desc(messages.sentAt), desc(messages.id)),
+          ]);
+
+          const contactIds = new Set<string>();
+          for (const c of convRows) {
+            convById.set(c.id, c);
+            if (c.contactId) contactIds.add(c.contactId);
+          }
+          for (const d of convDealRows) {
+            if (!dealByConvId.has(d.conversationId)) {
+              dealByConvId.set(d.conversationId, {
+                dealId: d.dealId,
+                dealTitle: d.dealTitle,
+                createdAt: safeFormatIso(d.createdAt),
+                operatorId: d.operatorId || null,
+              });
+            }
+          }
+          for (const row of lastAnyRows) {
+            lastAnyMsgByConv.set(row.conversationId, {
+              sentAt: row.sentAt,
+              content: row.content,
+              senderType: row.senderType,
+            });
+          }
+          for (const row of lastClientRows) {
+            lastClientMsgByConv.set(row.conversationId, { sentAt: row.sentAt });
+          }
+
+          if (contactIds.size > 0) {
+            const contactIdArr = [...contactIds];
+            const [contactRows, contactDealRows] = await Promise.all([
+              db
+                .select()
+                .from(contacts)
+                .where(and(eq(contacts.tenantId, tenantId), inArray(contacts.id, contactIdArr))),
+              !isIndustrial
+                ? db
+                    .select({
+                      contactId: crmDealContacts.contactId,
+                      dealId: crmDeals.id,
+                      dealTitle: crmDeals.title,
+                      createdAt: crmDeals.createdAt,
+                      operatorId: crmDeals.operatorId,
+                    })
+                    .from(crmDeals)
+                    .innerJoin(
+                      crmDealContacts,
+                      and(
+                        eq(crmDealContacts.dealId, crmDeals.id),
+                        eq(crmDealContacts.tenantId, tenantId),
+                      ),
+                    )
+                    .where(
+                      and(
+                        eq(crmDeals.tenantId, tenantId),
+                        inArray(crmDealContacts.contactId, contactIdArr),
+                      ),
+                    )
+                    .orderBy(desc(crmDeals.createdAt))
+                : Promise.resolve([]),
+            ]);
+
+            for (const ct of contactRows) {
+              contactById.set(ct.id, ct);
+            }
+            for (const cd of contactDealRows) {
+              if (!dealByContactId.has(cd.contactId)) {
+                dealByContactId.set(cd.contactId, {
+                  dealId: cd.dealId,
+                  dealTitle: cd.dealTitle,
+                  createdAt: safeFormatIso(cd.createdAt),
+                  operatorId: cd.operatorId || null,
+                });
+              }
+            }
+          }
+        }
+
+        // Pré-ordenar e determinar qual conversa única terá as 200 mensagens completas carregadas agora
+        const sessions: any[] = [];
+
+        // Montar sessões de agentFlowStates
+        for (const fs of primaryFlows) {
+          try {
+            const conv = convById.get(fs.conversationId) || null;
+            const contact = conv ? contactById.get(conv.contactId) || null : null;
+            const meta = (fs.metadata as Record<string, any>) || {};
+            const collectedData = (fs.collectedData as Record<string, any>) || {};
+
+            const linkedDealRow =
+              (!isIndustrial && meta?.localCrmDealId
                 ? {
-                    dealId: linkedDealRow.dealId,
-                    dealTitle: linkedDealRow.dealTitle,
-                    ...(linkedDealRow.action ? { action: linkedDealRow.action } : {}),
-                    ...(linkedDealRow.createdAt ? { createdAt: linkedDealRow.createdAt } : {}),
+                    dealId: String(meta.localCrmDealId),
+                    dealTitle: String(meta.localCrmDealTitle || "Negociação CRM Local"),
+                    action: String(meta.localCrmDealAction || "created_new"),
+                    operatorId: meta.allocatedOperatorId ? String(meta.allocatedOperatorId) : null,
                   }
-                : null;
+                : null) ||
+              dealByConvId.get(fs.conversationId) ||
+              (!isIndustrial && conv?.contactId ? dealByContactId.get(conv.contactId) || null : null);
 
-              const operator = resolveConversationOperator(
-                conv?.operatorId,
-                meta,
-                contact?.walletOperatorId,
-                linkedDealRow?.operatorId,
-                realMsgs,
-              );
+            const linkedDeal = linkedDealRow
+              ? {
+                  dealId: linkedDealRow.dealId,
+                  dealTitle: linkedDealRow.dealTitle,
+                  ...("action" in linkedDealRow && linkedDealRow.action
+                    ? { action: linkedDealRow.action }
+                    : {}),
+                  ...("createdAt" in linkedDealRow && linkedDealRow.createdAt
+                    ? { createdAt: linkedDealRow.createdAt }
+                    : {}),
+                }
+              : null;
 
-              const collectedData = (fs.collectedData as any) || {};
-              const resolvedContactName =
-                contact?.name || collectedData["NOME COMPLETO"]?.value || "Contato WhatsApp";
+            const operator = resolveConversationOperator(
+              conv?.operatorId,
+              meta,
+              contact?.walletOperatorId,
+              linkedDealRow?.operatorId,
+            );
 
-              const formattedMessages = formatConversationMessages(realMsgs, operator, resolvedContactName);
+            const resolvedContactName =
+              contact?.name || collectedData["NOME COMPLETO"]?.value || "Contato WhatsApp";
 
-              let status: "active" | "completed" | "abandoned" = "active";
-              if (fs.outcome === "completed" || fs.outcome === "transferred") status = "completed";
-              if (fs.outcome === "abandoned" || fs.outcome === "stopped") status = "abandoned";
+            const monitoring = isIndustrial
+              ? projectIndustrialMonitoring(fs, conv || null)
+              : undefined;
 
-              const monitoring = persona.triagePolicy === "industrial" ? projectIndustrialMonitoring(fs, conv || null) : undefined;
-              if (monitoring) {
-                status = ["transferred", "resolved", "closed", "continued", "manual", "manual_queue"].includes(monitoring.state)
-                  ? "completed" : ["stopped", "no_response"].includes(monitoring.state) ? "abandoned" : "active";
-              }
+            const status = resolveFaithfulSdrStatus(fs.outcome, monitoring?.state);
 
-              let responsibleName = "IA (Em Triagem)";
-              if (status === "completed") {
-                responsibleName = operator?.name || meta.allocatedOperatorName || "Vendedor Alocado (Rodízio)";
-              } else if (fs.outcome === "stopped") {
-                responsibleName = operator?.name || "Interrompido (Atendimento Manual)";
-              }
-              if (monitoring) responsibleName = operator?.name || (monitoring.state === "collecting" || monitoring.state === "ready" ? `${persona.name} IA` : "Sem responsável atribuído");
+            let responsibleName = `${persona.name} IA (Em Triagem)`;
+            if (status === "awaiting_approval") {
+              responsibleName =
+                monitoring?.pendingApproval?.suggestedOperatorName
+                  ? `Aguardando aprovação → ${monitoring.pendingApproval.suggestedOperatorName}`
+                  : "Aguardando Aprovação SDR";
+            } else if (status === "completed") {
+              responsibleName =
+                operator?.name || meta.allocatedOperatorName || "Vendedor Alocado (Rodízio)";
+            } else if (status === "stopped") {
+              responsibleName = operator?.name || "Interrompido (Atendimento Manual)";
+            } else if (status === "abandoned") {
+              responsibleName = operator?.name || "Sem resposta do cliente";
+            } else if (status === "manual") {
+              responsibleName = operator?.name || "Atendimento humano";
+            } else if (monitoring) {
+              responsibleName =
+                operator?.name ||
+                (monitoring.state === "collecting" || monitoring.state === "ready"
+                  ? `${persona.name} IA`
+                  : "Sem responsável atribuído");
+            }
 
-              const previousTriages = Array.isArray(meta.previousTriages) ? [...meta.previousTriages] : [];
-              const knownClient =
-                persona.triagePolicy === "industrial"
-                  ? meta.knownClient ||
-                    (await lookupKnownClientByPhoneOrContact(tenantId, {
-                      contactId: conv?.contactId || null,
-                      phone: contact?.phone || null,
-                      conversationId: fs.conversationId,
-                      previousTriages,
-                    }))
-                  : null;
+            const previousTriages = [
+              ...(Array.isArray(meta.previousTriages) ? meta.previousTriages : []),
+              ...(previousTriagesByConv.get(fs.conversationId) || []),
+            ];
 
-              const companyVal =
-                collectedData["EMPRESA"]?.value ||
-                collectedData["empresa"]?.value ||
-                (typeof collectedData["EMPRESA"] === "string" ? collectedData["EMPRESA"] : "") ||
+            const knownClient = isIndustrial
+              ? meta.knownClient ||
+                (await lookupKnownClientByPhoneOrContact(tenantId, {
+                  contactId: conv?.contactId || null,
+                  phone: contact?.phone || null,
+                  conversationId: fs.conversationId,
+                  previousTriages,
+                }))
+              : null;
+
+            const companyVal =
+              (collectedData["EMPRESA"]?.status === "filled" ? collectedData["EMPRESA"]?.value : "") ||
+              (collectedData["empresa"]?.status === "filled" ? collectedData["empresa"]?.value : "") ||
+              (typeof collectedData["EMPRESA"] === "string" ? collectedData["EMPRESA"] : "") ||
+              (contact?.cnpjDetails as any)?.razaoSocial ||
+              (contact?.customFields as any)?.company ||
+              knownClient?.companyName ||
+              "Empresa não informada";
+
+            const cleanTargetFunnel = resolveCleanTargetFunnel(meta, collectedData);
+
+            const resolvedSubflow = isIndustrial
+              ? resolveEffectiveIndustrialSubflow({
+                  subflow: meta.subflow || null,
+                  funnelStage: meta.funnelStage || meta.targetArea || null,
+                  targetFunnel: cleanTargetFunnel || null,
+                  collectedData,
+                  company: companyVal !== "Empresa não informada" ? companyVal : null,
+                  document:
+                    collectedData["CNPJ OU CPF"]?.value ||
+                    contact?.cnpj ||
+                    contact?.cpf ||
+                    knownClient?.document ||
+                    null,
+                  isCompleted: status === "completed",
+                })
+              : undefined;
+
+            const industrialProgress = isIndustrial
+              ? computeIndustrialTriageProgress({
+                  subflow: resolvedSubflow || null,
+                  funnelStage: meta.funnelStage || meta.targetArea || null,
+                  targetFunnel: cleanTargetFunnel || null,
+                  collectedData,
+                  company: companyVal !== "Empresa não informada" ? companyVal : null,
+                  document:
+                    collectedData["CNPJ OU CPF"]?.value ||
+                    contact?.cnpj ||
+                    contact?.cpf ||
+                    knownClient?.document ||
+                    null,
+                  isCompleted: status === "completed",
+                })
+              : null;
+
+            const effectiveCollectedData = industrialProgress
+              ? industrialProgress.adaptiveData
+              : collectedData;
+
+            const effectiveTargetFunnel = resolveCleanTargetFunnel(meta, effectiveCollectedData);
+
+            const lastAny = lastAnyMsgByConv.get(fs.conversationId);
+            const lastClient = lastClientMsgByConv.get(fs.conversationId);
+            const lastMessageAtIso = lastAny
+              ? safeFormatIso(lastAny.sentAt)
+              : conv?.lastMessageTime
+                ? safeFormatIso(conv.lastMessageTime)
+                : safeFormatIso(fs.lastInteractionAt || fs.startedAt);
+            const lastClientMessageAtIso = lastClient
+              ? safeFormatIso(lastClient.sentAt)
+              : lastMessageAtIso;
+
+            const rawChannel = contact?.mainChannel || "whatsapp";
+            const normalizedChannel =
+              rawChannel === "livechat" || rawChannel === "site" ? "site" : "whatsapp";
+
+            sessions.push({
+              id: fs.id,
+              conversationId: fs.conversationId,
+              contactName: resolvedContactName,
+              contactAvatar: contact?.avatar || null,
+              company: companyVal,
+              phone: contact?.phone || "",
+              currentStep: fs.currentStep,
+              collectedData: effectiveCollectedData,
+              startedAt: safeFormatIso(fs.startedAt),
+              completedAt: fs.completedAt ? safeFormatIso(fs.completedAt) : null,
+              lastClientMessageAt: lastClientMessageAtIso,
+              lastMessageAt: lastMessageAtIso,
+              lastMessagePreview: lastAny?.content ? String(lastAny.content).slice(0, 160) : undefined,
+              status,
+              outcome: fs.outcome || undefined,
+              responsibleName,
+              unreadCount: conv?.unreadCount || 0,
+              channel: normalizedChannel,
+              subflow: resolvedSubflow || meta.subflow || undefined,
+              funnelStage: meta.funnelStage || meta.targetArea || undefined,
+              targetFunnel: effectiveTargetFunnel,
+              ...(industrialProgress
+                ? {
+                    triageProgress: {
+                      filledCount: industrialProgress.filledCount,
+                      totalCount: industrialProgress.totalCount,
+                      percentage: industrialProgress.percentage,
+                      targetFields: industrialProgress.targetFields,
+                    },
+                  }
+                : {}),
+              ...(knownClient ? { knownClient } : {}),
+              linkedDeal,
+              ...(monitoring ? { monitoring } : {}),
+              ...(monitoring?.pendingApproval ? { pendingApproval: monitoring.pendingApproval } : {}),
+              previousTriages,
+              messagesLoaded: false,
+              messages: [],
+              _defaultOperator: operator,
+            });
+          } catch (innerErr) {
+            console.warn("[api/valentina/sdr] Erro ao processar flowState individual:", innerErr);
+          }
+        }
+
+        // Montar sessões órfãs em queueState === "automacao"
+        for (const c of orphanAutoConvs) {
+          try {
+            const contact = contactById.get(c.contactId) || null;
+            const linkedDealRow =
+              dealByConvId.get(c.id) ||
+              (!isIndustrial ? dealByContactId.get(c.contactId) || null : null);
+            const linkedDeal = linkedDealRow
+              ? {
+                  dealId: linkedDealRow.dealId,
+                  dealTitle: linkedDealRow.dealTitle,
+                  ...(linkedDealRow.createdAt ? { createdAt: linkedDealRow.createdAt } : {}),
+                }
+              : null;
+
+            const operator = resolveConversationOperator(
+              c.operatorId,
+              undefined,
+              contact?.walletOperatorId,
+              linkedDealRow?.operatorId,
+            );
+
+            const resolvedContactName = contact?.name || "Contato WhatsApp";
+            const lastAny = lastAnyMsgByConv.get(c.id);
+            const lastClient = lastClientMsgByConv.get(c.id);
+            const lastMessageAtIso = lastAny
+              ? safeFormatIso(lastAny.sentAt)
+              : safeFormatIso(c.lastMessageTime || c.createdAt);
+            const lastClientMessageAtIso = lastClient
+              ? safeFormatIso(lastClient.sentAt)
+              : lastMessageAtIso;
+
+            const knownClient = isIndustrial
+              ? await lookupKnownClientByPhoneOrContact(tenantId, {
+                  contactId: c.contactId,
+                  phone: contact?.phone || null,
+                  conversationId: c.id,
+                })
+              : null;
+
+            const rawChannel = contact?.mainChannel || "whatsapp";
+            const normalizedChannel =
+              rawChannel === "livechat" || rawChannel === "site" ? "site" : "whatsapp";
+
+            sessions.push({
+              id: `fs-auto-${c.id}`,
+              conversationId: c.id,
+              contactName: resolvedContactName,
+              contactAvatar: contact?.avatar || null,
+              company:
                 (contact?.cnpjDetails as any)?.razaoSocial ||
                 (contact?.customFields as any)?.company ||
                 knownClient?.companyName ||
-                "Empresa não informada";
-
-              const resolvedSubflow =
-                persona.triagePolicy === "industrial"
-                  ? resolveEffectiveIndustrialSubflow({
-                      subflow: meta.subflow || null,
-                      funnelStage: meta.funnelStage || meta.targetArea || null,
-                      targetFunnel:
-                        meta.targetFunnel ||
-                        collectedData["SETOR / FUNIL DE DESTINO"]?.value ||
-                        null,
-                      collectedData,
-                      company: companyVal !== "Empresa não informada" ? companyVal : null,
-                      document:
-                        collectedData["CNPJ OU CPF"]?.value ||
-                        contact?.cnpj ||
-                        contact?.cpf ||
-                        knownClient?.document ||
-                        null,
-                      isCompleted: status === "completed",
-                    })
-                  : undefined;
-
-              const industrialProgress =
-                persona.triagePolicy === "industrial"
-                  ? computeIndustrialTriageProgress({
-                      subflow: resolvedSubflow || null,
-                      funnelStage: meta.funnelStage || meta.targetArea || null,
-                      targetFunnel:
-                        meta.targetFunnel ||
-                        collectedData["SETOR / FUNIL DE DESTINO"]?.value ||
-                        null,
-                      collectedData,
-                      company: companyVal !== "Empresa não informada" ? companyVal : null,
-                      document:
-                        collectedData["CNPJ OU CPF"]?.value ||
-                        contact?.cnpj ||
-                        contact?.cpf ||
-                        knownClient?.document ||
-                        null,
-                      isCompleted: status === "completed",
-                    })
-                  : null;
-
-              const effectiveCollectedData = industrialProgress
-                ? industrialProgress.adaptiveData
-                : collectedData;
-
-              const lastClientMsg = [...formattedMessages].reverse().find((m) => m.sender === "client");
-              const lastAnyMsg = formattedMessages[formattedMessages.length - 1];
-              const lastMessageAtIso =
-                lastAnyMsg?.sentAt ||
-                (conv?.lastMessageTime ? safeFormatIso(conv.lastMessageTime) : safeFormatIso(fs.lastInteractionAt || fs.startedAt));
-              const lastClientMessageAtIso = lastClientMsg?.sentAt || lastMessageAtIso;
-
-              const sessionObj = {
-                id: fs.id,
-                conversationId: fs.conversationId,
-                contactName: resolvedContactName,
-                contactAvatar: contact?.avatar || null,
-                company: companyVal,
-                phone: contact?.phone || "",
-                currentStep: fs.currentStep,
-                collectedData: effectiveCollectedData,
-                startedAt: safeFormatIso(fs.startedAt),
-                completedAt: fs.completedAt ? safeFormatIso(fs.completedAt) : null,
-                lastClientMessageAt: lastClientMessageAtIso,
-                lastMessageAt: lastMessageAtIso,
-                status,
-                outcome: fs.outcome || undefined,
-                responsibleName,
-                unreadCount: conv?.unreadCount || 0,
-                channel: contact?.mainChannel || "whatsapp",
-                subflow: resolvedSubflow || meta.subflow || undefined,
-                funnelStage: meta.funnelStage || meta.targetArea || undefined,
-                targetFunnel: meta.targetFunnel || effectiveCollectedData["SETOR / FUNIL DE DESTINO"]?.value || undefined,
-                ...(industrialProgress
-                  ? {
-                      triageProgress: {
-                        filledCount: industrialProgress.filledCount,
-                        totalCount: industrialProgress.totalCount,
-                        percentage: industrialProgress.percentage,
-                        targetFields: industrialProgress.targetFields,
-                      },
-                    }
-                  : {}),
-                ...(knownClient ? { knownClient } : {}),
-                linkedDeal,
-                ...(monitoring ? { monitoring } : {}),
-                previousTriages,
-                messages: formattedMessages,
-              };
-
-              sessions.push(sessionObj);
-              sessionsByConvId.set(fs.conversationId, sessionObj);
-            } catch (innerErr) {
-              console.warn("[api/valentina/sdr] Erro ao processar flowState individual:", innerErr);
-            }
+                "Empresa não informada",
+              phone: contact?.phone || "",
+              currentStep: "Em Qualificação",
+              collectedData: {},
+              startedAt: safeFormatIso(c.createdAt),
+              completedAt: null,
+              lastClientMessageAt: lastClientMessageAtIso,
+              lastMessageAt: lastMessageAtIso,
+              lastMessagePreview: lastAny?.content ? String(lastAny.content).slice(0, 160) : undefined,
+              status: "active",
+              outcome: "in_progress",
+              responsibleName: operator?.name || `${persona.name} IA (Em Triagem)`,
+              unreadCount: c.unreadCount || 0,
+              channel: normalizedChannel,
+              funnelStage: "triagem",
+              ...(knownClient ? { knownClient } : {}),
+              linkedDeal,
+              ...(isIndustrial
+                ? {
+                    monitoring: projectIndustrialMonitoring(
+                      { startedAt: c.createdAt, outcome: "in_progress", metadata: {} },
+                      c,
+                    ),
+                  }
+                : {}),
+              previousTriages: [],
+              messagesLoaded: false,
+              messages: [],
+              _defaultOperator: operator,
+            });
+          } catch (innerErr) {
+            console.warn("[api/valentina/sdr] Erro ao processar conversa automacao:", innerErr);
           }
-        } catch (err) {
-          console.warn("[api/valentina/sdr] Erro ao buscar agentFlowStates:", err);
         }
 
-        // 3. Buscar conversas que estão em queueState === "automacao" mas ainda não geraram agentFlowStates
-        try {
-          const allConvs = await db
-            .select()
-            .from(conversations)
-            .where(
-              and(
-                eq(conversations.tenantId, tenantId),
-                eq(conversations.queueState, "automacao"),
-              ),
-            )
-            .orderBy(desc(conversations.lastMessageTime))
-            .limit(30);
-
-          for (const c of allConvs) {
-            if (c.id === "tec-1" || c.id === "tec-2" || c.id === "val-1" || c.id === "val-2") continue;
-
-            if (!addedConvIds.has(c.id)) {
-              try {
-                addedConvIds.add(c.id);
-
-                const contact = await db.query.contacts.findFirst({
-                  where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.id, c.contactId), dEq(t.tenantId, tenantId)),
-                });
-
-                const recentMsgsDesc = await db
-                  .select()
-                  .from(messages)
-                  .where(and(eq(messages.conversationId, c.id), eq(messages.tenantId, tenantId), persona.triagePolicy === "industrial" ? sql`${messages.metaDetails}->'industrialTriage' IS NULL` : undefined))
-                  .orderBy(desc(messages.sentAt))
-                  .limit(200);
-                const realMsgs = recentMsgsDesc.reverse();
-
-                const linkedDealRow = await resolveLinkedDeal(c.id, c.contactId);
-                const linkedDeal = linkedDealRow
-                  ? {
-                      dealId: linkedDealRow.dealId,
-                      dealTitle: linkedDealRow.dealTitle,
-                      ...(linkedDealRow.createdAt ? { createdAt: linkedDealRow.createdAt } : {}),
-                    }
-                  : null;
-
-                const operator = resolveConversationOperator(
-                  c.operatorId,
-                  undefined,
-                  contact?.walletOperatorId,
-                  linkedDealRow?.operatorId,
-                  realMsgs,
-                );
-
-                const resolvedContactName = contact?.name || "Contato WhatsApp";
-                const formattedMessages = formatConversationMessages(realMsgs, operator, resolvedContactName);
-
-                const isFinished = c.queueState === "finalizados";
-                const lastClientMsg = [...formattedMessages].reverse().find((m) => m.sender === "client");
-                const lastAnyMsg = formattedMessages[formattedMessages.length - 1];
-                const lastMessageAtIso =
-                  lastAnyMsg?.sentAt || safeFormatIso(c.lastMessageTime || c.createdAt);
-                const lastClientMessageAtIso = lastClientMsg?.sentAt || lastMessageAtIso;
-
-                const knownClient =
-                  persona.triagePolicy === "industrial"
-                    ? await lookupKnownClientByPhoneOrContact(tenantId, {
-                        contactId: c.contactId,
-                        phone: contact?.phone || null,
-                        conversationId: c.id,
-                      })
-                    : null;
-
-                const sessionObj = {
-                  id: `fs-auto-${c.id}`,
-                  conversationId: c.id,
-                  contactName: resolvedContactName,
-                  contactAvatar: contact?.avatar || null,
-                  company:
-                    (contact?.cnpjDetails as any)?.razaoSocial ||
-                    (contact?.customFields as any)?.company ||
-                    knownClient?.companyName ||
-                    "Empresa não informada",
-                  phone: contact?.phone || "",
-                  currentStep: isFinished ? "Concluído" : "Em Qualificação",
-                  collectedData: {},
-                  startedAt: safeFormatIso(c.createdAt),
-                  completedAt: null,
-                  lastClientMessageAt: lastClientMessageAtIso,
-                  lastMessageAt: lastMessageAtIso,
-                  status: isFinished ? "completed" : "active",
-                  outcome: isFinished ? "completed" : "in_progress",
-                  responsibleName: operator?.name || "IA (Em Triagem)",
-                  unreadCount: c.unreadCount || 0,
-                  channel: contact?.mainChannel || "whatsapp",
-                  funnelStage: "triagem",
-                  ...(knownClient ? { knownClient } : {}),
-                  linkedDeal,
-                  ...(persona.triagePolicy === "industrial" ? { monitoring: projectIndustrialMonitoring({ startedAt: c.createdAt, outcome: "in_progress", metadata: {} }, c) } : {}),
-                  previousTriages: [],
-                  messages: formattedMessages,
-                };
-
-                sessions.push(sessionObj);
-                sessionsByConvId.set(c.id, sessionObj);
-              } catch (innerErr) {
-                console.warn("[api/valentina/sdr] Erro ao processar conversa individual:", innerErr);
-              }
-            }
-          }
-        } catch (err) {
-          console.warn("[api/valentina/sdr] Erro ao buscar conversations:", err);
-        }
-
-        // Ordenar todas as sessões SDR da mais recente para a mais antiga com base na última mensagem do cliente
+        // Ordenar sessões da mais recente para a mais antiga
         sessions.sort((a, b) => {
           const tsA = Date.parse(a.lastClientMessageAt || a.lastMessageAt || a.startedAt || "") || 0;
           const tsB = Date.parse(b.lastClientMessageAt || b.lastMessageAt || b.startedAt || "") || 0;
           return tsB - tsA;
         });
 
-        let monitoringSummary;
-        try {
-          monitoringSummary = await readAgentMonitoringSummary(db, tenantId);
-        } catch (error) {
-          console.error("[api/valentina/sdr] Métricas indisponíveis:", error);
-          monitoringSummary = { available: false, reason: "Métricas temporariamente indisponíveis." };
+        // Carregar mensagens completas APENAS da conversa selecionada (ou 1ª da lista)
+        const targetMsgSession =
+          (selectedConversationId
+            ? sessions.find((s) => s.conversationId === selectedConversationId)
+            : null) || sessions[0];
+
+        if (targetMsgSession) {
+          try {
+            const recentMsgsDesc = await db
+              .select()
+              .from(messages)
+              .where(
+                and(
+                  eq(messages.conversationId, targetMsgSession.conversationId),
+                  eq(messages.tenantId, tenantId),
+                  isIndustrial ? sql`${messages.metaDetails}->'industrialTriage' IS NULL` : undefined,
+                ),
+              )
+              .orderBy(desc(messages.sentAt))
+              .limit(200);
+            const realMsgs = recentMsgsDesc.reverse();
+            targetMsgSession.messages = formatConversationMessages(
+              realMsgs,
+              targetMsgSession._defaultOperator || null,
+              targetMsgSession.contactName,
+            );
+            targetMsgSession.messagesLoaded = true;
+          } catch (err) {
+            console.warn("[api/valentina/sdr] Erro ao carregar mensagens da sessão selecionada:", err);
+          }
         }
+
+        // Remover helper interno antes de serializar
+        for (const s of sessions) {
+          delete s._defaultOperator;
+        }
+
         return new Response(JSON.stringify({ config, sessions, monitoringSummary }), {
           status: 200,
           headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-store" },
@@ -728,9 +1000,19 @@ export const Route = createFileRoute('/api/valentina/sdr')({
         const { session } = auth;
         const tenantId = session.tenantId;
 
+        if (!canAccessSdrApi(session)) {
+          return new Response(
+            JSON.stringify({
+              error: "Permissão insuficiente para operar o módulo SDR.",
+              code: "FORBIDDEN",
+            }),
+            { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          );
+        }
+
         try {
           const body = await request.json();
-          const { action, conversationId, enabled, testMode, whitelistPhone } = body;
+          const { action, conversationId, enabled } = body;
 
           // Ação de vincular/confirmar dados de cliente recorrente na triagem atual
           if (action === "link_known_client" && conversationId) {
@@ -754,6 +1036,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
             const flowState = await db.query.agentFlowStates.findFirst({
               where: (t, { eq: dEq, and: dAnd }) =>
                 dAnd(dEq(t.tenantId, tenantId), dEq(t.conversationId, conversationId), dEq(t.agentType, "sdr")),
+              orderBy: (t, { desc: dDesc }) => [dDesc(t.startedAt), dDesc(t.id)],
             });
 
             const meta = (flowState?.metadata as Record<string, any>) || {};
@@ -791,7 +1074,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
             const progress = computeIndustrialTriageProgress({
               subflow: meta.subflow || null,
               funnelStage: meta.funnelStage || null,
-              targetFunnel: meta.targetFunnel || null,
+              targetFunnel: resolveCleanTargetFunnel(meta, enrichedData) || null,
               collectedData: enrichedData,
               company: knownClient.companyName,
               document: knownClient.document || null,
@@ -855,7 +1138,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
             if (!conv) {
               return new Response(
                 JSON.stringify({ error: "Conversa não encontrada ou não pertence a este tenant.", code: "NOT_FOUND" }),
-                { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+                { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } },
               );
             }
 
@@ -869,33 +1152,41 @@ export const Route = createFileRoute('/api/valentina/sdr')({
             if (getAiPersona(tenantId).triagePolicy === "industrial") {
               await stopIndustrialCycle(db, tenantId, conversationId, session.operator.id);
             } else {
-            await db
-              .update(agentFlowStates)
-              .set({
-                outcome: "stopped",
-                currentStep: "Interrompido Manualmente",
-                lastInteractionAt: new Date(),
-              })
-              .where(and(eq(agentFlowStates.conversationId, conversationId), eq(agentFlowStates.tenantId, tenantId)));
+              await db
+                .update(agentFlowStates)
+                .set({
+                  outcome: "stopped",
+                  currentStep: "Interrompido Manualmente",
+                  lastInteractionAt: new Date(),
+                })
+                .where(
+                  and(
+                    eq(agentFlowStates.conversationId, conversationId),
+                    eq(agentFlowStates.tenantId, tenantId),
+                    eq(agentFlowStates.outcome, "in_progress"),
+                  ),
+                );
 
-            await db
-              .update(conversations)
-              .set({
-                queueState: "fila",
-              })
-              .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)));
+              await db
+                .update(conversations)
+                .set({ queueState: "fila" })
+                .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)));
             }
 
-            return new Response(JSON.stringify({ success: true, message: "IA de triagem interrompida para esta conversa." }), {
-              headers: { ...corsHeaders, "Content-Type": "application/json" },
-            });
+            return new Response(
+              JSON.stringify({ success: true, message: "IA de triagem interrompida para esta conversa." }),
+              { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+            );
           }
 
           // Apenas administradores podem salvar/alterar configurações globais de SDR
           if (session.operator.role !== "admin") {
             return new Response(
-              JSON.stringify({ error: "Permissão insuficiente. Apenas administradores podem alterar configurações do SDR.", code: "FORBIDDEN" }),
-              { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+              JSON.stringify({
+                error: "Permissão insuficiente. Apenas administradores podem alterar configurações do SDR.",
+                code: "FORBIDDEN",
+              }),
+              { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
             );
           }
 
@@ -905,18 +1196,13 @@ export const Route = createFileRoute('/api/valentina/sdr')({
           });
 
           const currentJson = (existingConfig?.config as Record<string, any>) || {};
-          const updatedJson = {
-            ...currentJson,
-          };
-          if (testMode !== undefined) updatedJson.testMode = Boolean(testMode);
-          if (whitelistPhone !== undefined) updatedJson.whitelistPhone = String(whitelistPhone).trim();
 
           if (existingConfig) {
             await db
               .update(agentConfigs)
               .set({
                 enabled: enabled !== undefined ? (enabled ? 1 : 0) : existingConfig.enabled,
-                config: updatedJson,
+                config: currentJson,
                 updatedAt: new Date(),
               })
               .where(and(eq(agentConfigs.id, existingConfig.id), eq(agentConfigs.tenantId, tenantId)));
@@ -926,7 +1212,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
               tenantId,
               agentType: "sdr",
               enabled: enabled !== undefined ? (enabled ? 1 : 0) : 1,
-              config: updatedJson,
+              config: currentJson,
               createdAt: new Date(),
               updatedAt: new Date(),
             });
@@ -945,10 +1231,10 @@ export const Route = createFileRoute('/api/valentina/sdr')({
               );
           }
 
-          return new Response(JSON.stringify({ success: true, enabled: enabled !== undefined ? Boolean(enabled) : true }), {
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-
+          return new Response(
+            JSON.stringify({ success: true, enabled: enabled !== undefined ? Boolean(enabled) : true }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          );
         } catch (e: any) {
           console.error("[api/valentina/sdr] Erro ao processar POST no SDR:", e);
           return new Response(JSON.stringify({ error: e.message }), {

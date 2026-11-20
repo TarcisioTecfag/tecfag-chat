@@ -145,7 +145,7 @@ describe("paginação com contexto", () => {
       assert.throws(() => historyPageInput("cycles", "s", cursor, null), HistoryInputError));
 });
 
-function harness({ authenticated = true, industrial = true, fail = false } = {}) {
+function harness({ authenticated = true, industrial = true, fail = false, canAccessSdr = true } = {}) {
   const calls = [];
   class NotFound extends Error {}
   const read = async (_, tenant, ...args) => {
@@ -160,7 +160,13 @@ function harness({ authenticated = true, industrial = true, fail = false } = {})
     "../../../lib/auth-session": {
       requireSession: async () =>
         authenticated
-          ? { session: { tenantId: "session-tenant" } }
+          ? {
+              session: {
+                tenantId: "session-tenant",
+                operator: { id: "op-1", name: "Teste", role: "operator" },
+                permissions: { valentina: { canAccessSdr } },
+              },
+            }
           : { response: new Response(null, { status: 401 }) },
     },
     "../../../lib/ai-persona": {
@@ -209,6 +215,11 @@ describe("consulta de histórico autenticada", () => {
   it("401 antes de qualquer leitura", async () => {
     const api = harness({ authenticated: false });
     assert.equal((await api.get()).status, 401);
+    assert.equal(api.calls.length, 0);
+  });
+  it("403 quando operador não possui permissão canAccessSdr", async () => {
+    const api = harness({ canAccessSdr: false });
+    assert.equal((await api.get()).status, 403);
     assert.equal(api.calls.length, 0);
   });
   it("não disponibiliza fluxo industrial para outro perfil", async () => {

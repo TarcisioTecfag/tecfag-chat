@@ -328,6 +328,7 @@ export class SdrEngine {
         where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.id, conversationId), dEq(t.tenantId, tenantId)),
       });
 
+      const flowMetaCheck = (flowState?.metadata as Record<string, any>) || {};
       if (
         convCheck?.operatorId ||
         convCheck?.queueState === "meus" ||
@@ -335,9 +336,11 @@ export class SdrEngine {
         flowState?.outcome === "completed" ||
         flowState?.outcome === "transferred" ||
         flowState?.outcome === "stopped" ||
-        flowState?.outcome === "paused"
+        flowState?.outcome === "paused" ||
+        flowMetaCheck.handoffStatus === "awaiting_approval" ||
+        Boolean(flowMetaCheck.pendingApproval)
       ) {
-        console.log(`[SdrEngine] 🛑 TRAVA DE OPERADOR ATIVA: Conversa ${conversationId} (Cliente ${contactPhone}) possui operador alocado (${convCheck?.operatorId || 'Sim'}) ou status ${flowState?.outcome}. ${aiPersona.name} SILENCIADO(A).`);
+        console.log(`[SdrEngine] 🛑 TRAVA DE OPERADOR/APROVAÇÃO ATIVA: Conversa ${conversationId} (Cliente ${contactPhone}) possui operador alocado (${convCheck?.operatorId || 'Não'}) ou status ${flowMetaCheck.handoffStatus || flowState?.outcome}. ${aiPersona.name} SILENCIADO(A).`);
         return false;
       }
 
@@ -1374,67 +1377,54 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
           if (industrialTriage && industrialRoute) {
             if (!flowState) return false;
-            const store = createIndustrialHandoffStore(db, ensureLocalCrmDealBeforeTransfer);
-            const key = { tenantId, conversationId, flowId: flowState.id, cycle: flowState.startedAt.toISOString() };
-            if (!await store.prepare(key, { route: industrialRoute, data: updatedCollectedData, clientName, companyName: company, machineDecision, siteContext })) return false;
-            const committed = await store.execute(key, { signal });
-            if (committed.replayed || committed.superseded) return false;
-            industrialHandoff = committed;
+            // ── MODO HUMAN-IN-THE-LOOP (TECFAG / FAGNER) ────────────────────────
+            // O Fagner conclui a triagem, sugere destino + próximo operador do rodízio
+            // (sem consumir slot nem transferir), garante card no FUNIL CWR em CONTATANDO,
+            // envia mensagem neutra ao cliente e aguarda aprovação do SDR humano.
+            const { prepareIndustrialApproval, notifySdrTeamApprovalPending } = await import(
+              "../triage/industrial-approval-store"
+            );
+            const key = {
+              tenantId,
+              conversationId,
+              flowId: flowState.id,
+              cycle: flowState.startedAt.toISOString(),
+            };
+            const approvalPrep = await prepareIndustrialApproval(db, key, {
+              route: industrialRoute,
+              data: updatedCollectedData,
+              clientName,
+              companyName: company,
+              contactId: convCheck?.contactId || null,
+              machineDecision,
+              siteContext,
+            });
+            if (!approvalPrep.prepared || !approvalPrep.suggestion) return false;
+
+            industrialHandoff = {
+              status: "awaiting_approval",
+              operator: null,
+              deal: approvalPrep.suggestion.dealId
+                ? {
+                    dealId: approvalPrep.suggestion.dealId,
+                    dealTitle: clientName,
+                    action: "reused_within_3h",
+                    funnelId: approvalPrep.suggestion.suggestedPipelineId || "",
+                    stageId: approvalPrep.suggestion.suggestedStageId || "",
+                  }
+                : null,
+            };
             industrialHandoffPersisted = true;
-            industrialHandoffStoreRef = store;
-            industrialHandoffKeyRef = key;
-            allocatedOp = industrialHandoff.operator;
+            allocatedOp = null;
             localCrmResult = industrialHandoff.deal;
 
-            if (allocatedOp?.id) {
-              if (!localCrmResult?.dealId) {
-                const fallbackDeal = await ensureLocalCrmDealBeforeTransfer({
-                  tenantId,
-                  conversationId,
-                  contactId: convCheck?.contactId || null,
-                  contactPhone,
-                  clientName,
-                  companyName: company,
-                  targetOperatorId: allocatedOp.id,
-                  targetOperatorName: allocatedOp.name,
-                  targetFunnel: effectiveTargetFunnel || INDUSTRIAL_REVIEW_FUNNEL,
-                  funnelStage: isIndustrialReviewRoute ? "outros" : (industrialRoute.funnelStage || "Qualificação"),
-                  collectedData: updatedCollectedData,
-                  requireConfiguredPipeline: false,
-                });
-                if (fallbackDeal.success) {
-                  localCrmResult = fallbackDeal;
-                }
-              }
-
-              SessionManager.getInstance().notifyPublic(tenantId, {
-                type: "chat_updated", chat: { id: conversationId, contactId: convCheck?.contactId || null,
-                  queue: "meus", operatorId: allocatedOp.id, walletOperatorId: allocatedOp.id, responsibleName: allocatedOp.name,
-                  version: committed.conversationVersion, sectorId: committed.sectorId },
-              });
-              const { notifyOperatorLeadTransferred } = await import("./operator-notifications");
-              const opNotified = await notifyOperatorLeadTransferred({
-                tenantId,
-                operatorId: allocatedOp.id,
-                operatorName: allocatedOp.name,
-                conversationId,
-                clientName,
-                company,
-                interest: productVal || effectiveTargetFunnel || "",
-                targetFunnel: effectiveTargetFunnel || null,
-                dealId: localCrmResult?.dealId || null,
-                dealTitle: localCrmResult?.dealTitle || null,
-                taskId: localCrmResult?.taskId || null,
-                taskTitle: localCrmResult?.taskTitle || null,
-                temperature: "quente",
-                transferSource: "sdr_auto",
-                cycle: key.cycle,
-                collectedData: updatedCollectedData,
-              });
-              if (opNotified) {
-                await store.ackPostCommit(key, { operatorNotified: true });
-              }
-            }
+            void notifySdrTeamApprovalPending(db, {
+              tenantId,
+              conversationId,
+              suggestion: approvalPrep.suggestion,
+            }).catch((err: any) =>
+              console.warn("[SdrEngine] Aviso ao notificar setor SDR sobre aprovação pendente:", err?.message),
+            );
           } else {
             // ══════════════════════════════════════════════════════════════════
             // 🏢 FLUXO VALENTINA SDR (VALEM) — INALTERADO
@@ -2026,8 +2016,8 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
               context: deliveryTurnContext });
             if (!result.sent) return false;
           }
-          const store = industrialHandoffStoreRef;
-          const key = industrialHandoffKeyRef;
+          const store = industrialHandoffStoreRef as ReturnType<typeof createIndustrialHandoffStore>;
+          const key = industrialHandoffKeyRef as { tenantId: string; conversationId: string; flowId: string; cycle: string };
           const claimed = await store.claimPostCommitOutbox(key, { immediate: true });
           if (claimed) {
             const { notifyOperatorLeadTransferred } = await import("./operator-notifications");
@@ -2042,17 +2032,38 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
               clientFailed: claimed.needClientConfirmation && !ack.clientNotified,
             });
           }
-        } else await this.sendHumanizedBotMessages(
-          tenantId,
-          conversationId,
-          contactPhone,
-          [...industrialGreetingMessages, ...aiResult.messagesToSend],
-          signal,
-          targetQuoteItem,
-          aiResult.quoteMessageId,
-          allocatedOp?.id || null,
-          deliveryTurnContext ? { ...deliveryTurnContext, scope: "reply", images: industrialImageItems, greetingCount: industrialGreetingMessages.length } : undefined
-        );
+        } else {
+          await this.sendHumanizedBotMessages(
+            tenantId,
+            conversationId,
+            contactPhone,
+            [...industrialGreetingMessages, ...aiResult.messagesToSend],
+            signal,
+            targetQuoteItem,
+            aiResult.quoteMessageId,
+            allocatedOp?.id || null,
+            deliveryTurnContext ? { ...deliveryTurnContext, scope: "reply", images: industrialImageItems, greetingCount: industrialGreetingMessages.length } : undefined
+          );
+
+          // Ciclo de vida FUNIL CWR: assim que o Fagner responde ao cliente no WhatsApp,
+          // garante o card no FUNIL CWR e move de CONTATAR -> CONTATANDO automaticamente.
+          if (industrialTriage && !industrialHandoffPersisted) {
+            void import("../triage/industrial-cwr-crm")
+              .then(({ ensureCwrDealOnContacting }) =>
+                ensureCwrDealOnContacting(db, {
+                  tenantId,
+                  conversationId,
+                  contactId: convCheck?.contactId || null,
+                  clientName: nameVal || undefined,
+                  companyName: companyVal || undefined,
+                  actorName: aiPersona.name,
+                }),
+              )
+              .catch((cwrErr: any) =>
+                console.warn("[SdrEngine] Aviso ao atualizar card CWR para CONTATANDO:", cwrErr?.message),
+              );
+          }
+        }
       }
 
 

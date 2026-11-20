@@ -41,6 +41,11 @@ export function projectIndustrialMonitoring(
       ? { conversationId: text(value.conversationId)!, channel: text(value.channel) }
       : null;
   };
+  const pendingApproval = object(meta.pendingApproval);
+  const validPendingApproval = Boolean(
+    meta.handoffStatus === "awaiting_approval" ||
+      (Object.keys(pendingApproval).length > 0 && (!cycle || !pendingApproval.cycle || pendingApproval.cycle === cycle)),
+  );
   const continuedTo = link(meta.continuedTo);
   let state = "collecting",
     label = "Em triagem";
@@ -69,6 +74,9 @@ export function projectIndustrialMonitoring(
   ) {
     state = "closed";
     label = "Ciclo encerrado";
+  } else if (validPendingApproval) {
+    state = "awaiting_approval";
+    label = "Aguardando aprovação SDR";
   } else if (conversation && conversation.queueState !== "automacao") {
     state = "manual_queue";
     label = "Aguardando atendimento humano";
@@ -166,6 +174,27 @@ export function projectIndustrialMonitoring(
     nextAttemptAt: validRequest && !validReceipt && !human ? iso(meta.handoffNextAttemptAt) : null,
     continuedFrom: link(meta.continuedFrom),
     continuedTo,
+    pendingApproval:
+      state === "awaiting_approval" && Object.keys(pendingApproval).length > 0
+        ? {
+            preparedAt: iso(pendingApproval.preparedAt),
+            subflow: text(pendingApproval.subflow),
+            targetFunnel: text(pendingApproval.targetFunnel),
+            destinationKey: text(pendingApproval.destinationKey),
+            suggestedSectorId: text(pendingApproval.suggestedSectorId),
+            suggestedSectorName: text(pendingApproval.suggestedSectorName),
+            suggestedOperatorId: text(pendingApproval.suggestedOperatorId),
+            suggestedOperatorName: text(pendingApproval.suggestedOperatorName),
+            suggestedOperatorIsAbsent: pendingApproval.suggestedOperatorIsAbsent === true,
+            suggestedPipelineId: text(pendingApproval.suggestedPipelineId),
+            suggestedPipelineName: text(pendingApproval.suggestedPipelineName),
+            suggestedStageId: text(pendingApproval.suggestedStageId),
+            suggestedStageName: text(pendingApproval.suggestedStageName),
+            reason: text(pendingApproval.reason),
+            needsReview: pendingApproval.needsReview === true,
+            dealId: text(pendingApproval.dealId),
+          }
+        : null,
   };
 }
 export type IndustrialMonitoring = ReturnType<typeof projectIndustrialMonitoring>;

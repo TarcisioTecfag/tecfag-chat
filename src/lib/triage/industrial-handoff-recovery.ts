@@ -45,6 +45,7 @@ export async function recoverIndustrialHandoffs(params: {
           eq(agentFlowStates.outcome, "in_progress"),
           sql`${agentFlowStates.metadata}->'handoffRequest' IS NOT NULL`,
           sql`${agentFlowStates.metadata}->'handoffReceipt' IS NULL`,
+          sql`${agentFlowStates.metadata}->'approvedBy' IS NOT NULL`,
           notExists(
             params.database
               .select({ id: newer.id })

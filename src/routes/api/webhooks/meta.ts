@@ -420,6 +420,99 @@ export const Route = createFileRoute("/api/webhooks/meta")({
                     continue;
                   }
 
+                  // Eventos de sistema da Meta (ex.: user_changed_number) NÃO são mensagens de cliente:
+                  // não podem abrir conversa nova, abrir janela 24h falsa ou acionar o SDR (Fagner/Valentina).
+                  if (msg.type === "system") {
+                    try {
+                      const { conversations: convTable, messages: msgTable } = await import("../../../db/schema");
+                      const { isNull: dIsNull, or: dOr, desc: dDesc } = await import("drizzle-orm");
+                      const { normalizeCanonicalPhone, buildPhoneSearchTerms } = await import("../../../lib/utils");
+                      const { sql: dSql } = await import("drizzle-orm");
+                      const cleanOld = (fromPhone || "").replace(/\D/g, "");
+                      const canonicalOld = normalizeCanonicalPhone(cleanOld);
+                      const terms = buildPhoneSearchTerms(canonicalOld || cleanOld);
+                      const [existingContact] =
+                        terms.length > 0
+                          ? await db
+                              .select()
+                              .from(contacts)
+                              .where(
+                                and(
+                                  eq(contacts.tenantId, tenantId),
+                                  dOr(
+                                    ...terms.map(
+                                      (term) => dSql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${term}`,
+                                    ),
+                                  ),
+                                ),
+                              )
+                              .limit(1)
+                          : [];
+
+                      const rawNewWaId = typeof msg.system?.wa_id === "string" ? msg.system.wa_id.replace(/\D/g, "") : "";
+                      const canonicalNew = rawNewWaId ? normalizeCanonicalPhone(rawNewWaId) : "";
+                      if (existingContact && canonicalNew && canonicalNew !== existingContact.phone) {
+                        const [collision] = await db
+                          .select({ id: contacts.id })
+                          .from(contacts)
+                          .where(and(eq(contacts.tenantId, tenantId), eq(contacts.phone, canonicalNew)))
+                          .limit(1);
+                        if (!collision || collision.id === existingContact.id) {
+                          await db
+                            .update(contacts)
+                            .set({ phone: canonicalNew })
+                            .where(and(eq(contacts.tenantId, tenantId), eq(contacts.id, existingContact.id)));
+                        }
+                      }
+
+                      if (existingContact) {
+                        const [existingConv] = await db
+                          .select({ id: convTable.id })
+                          .from(convTable)
+                          .where(
+                            and(
+                              eq(convTable.tenantId, tenantId),
+                              eq(convTable.contactId, existingContact.id),
+                              dIsNull(convTable.whatsappConnectionId),
+                            ),
+                          )
+                          .orderBy(dDesc(convTable.lastMessageTime))
+                          .limit(1);
+
+                        if (existingConv) {
+                          const sysBody =
+                            typeof msg.system?.body === "string" && msg.system.body.trim()
+                              ? `ℹ️ ${msg.system.body.trim()}`
+                              : "ℹ️ Atualização de número/sistema do WhatsApp.";
+                          const sysId = `sys_meta_${crypto.createHash("sha256").update(`${tenantId}:${messageId || JSON.stringify(msg)}`).digest("hex").slice(0, 28)}`;
+                          await db
+                            .insert(msgTable)
+                            .values({
+                              id: sysId,
+                              tenantId,
+                              conversationId: existingConv.id,
+                              senderType: "system",
+                              senderName: "Sistema",
+                              content: sysBody,
+                              isInternalNote: true,
+                              direction: "inbound",
+                              provider: "system",
+                              externalId: messageId ? `meta_sys:${tenantId}:${messageId}` : null,
+                              status: "accepted",
+                              metaDetails: { metaMessageType: "system", attendanceSkip: true, rawSystem: msg.system || null },
+                              sentAt: timestamp,
+                              updatedAt: timestamp,
+                            })
+                            .onConflictDoNothing();
+                        }
+                      }
+                    } catch (sysErr: any) {
+                      console.warn("[Meta Webhook] Aviso ao registrar evento system:", sysErr?.message || sysErr);
+                    }
+                    processedMessagesCount++;
+                    continue;
+                  }
+
                   if (isIgnorableMetaMessage(msg)) continue;
 
                   let textContent: string | undefined;

@@ -3,9 +3,21 @@
 // Segue exatamente o padrão do MonitorView.tsx (shell, tabs, content)
 // ══════════════════════════════════════════════════════════════════════════════
 
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useTabNavigation } from "@/hooks/useTabNavigation";
-import { Bot, MessageCircle, UserPlus, Eye, ShoppingBag, Database, Shuffle, Power, Sparkles } from "lucide-react";
+import {
+  Bot,
+  MessageCircle,
+  UserPlus,
+  Eye,
+  ShoppingBag,
+  Database,
+  Shuffle,
+  Power,
+  Sparkles,
+  Workflow,
+  Loader2,
+} from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ValentinaTab } from "./valentina-mock-data";
 import { ValentinaChatTab } from "./ValentinaChatTab";
@@ -16,14 +28,19 @@ import { SupervisorTab } from "./SupervisorTab";
 import { VendedorTab } from "./VendedorTab";
 import { KnowledgeTab } from "./KnowledgeTab";
 import { SdrHeaderControls } from "./SdrHeaderControls";
-import { SdrFilterState, DEFAULT_SDR_FILTER_STATE } from "./sdr-kanban-data";
+import {
+  SdrFilterState,
+  DEFAULT_SDR_FILTER_STATE,
+  SdrViewMode,
+} from "./sdr-kanban-data";
 import { SystemTooltip } from "@/components/ui/tooltip";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useChat } from "@/hooks/useChatState";
 import { getAiPersona } from "@/lib/ai-persona";
 import { ValentinaFeed } from "@/components/mobile/ValentinaFeed";
-import { Workflow } from "lucide-react";
 import { toast } from "sonner";
+import { getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
+import { parseSdrTargetFromSearch, type SdrTargetLookup } from "@/lib/rodizio-external-links";
 
 // ── Definição das tabs ──────────────────────────────────────────────────────
 
@@ -39,15 +56,14 @@ const allTabs: { id: ValentinaTab; label: string; icon: React.ElementType }[] = 
 
 // ── Componente principal ────────────────────────────────────────────────────
 
-import { getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
-import { parseSdrTargetFromSearch, type SdrTargetLookup } from "@/lib/rodizio-external-links";
-
 export function ValentinaView() {
-  const { tenant, setActiveView, setSelectedChatId } = useChat();
-  const persona = getAiPersona(tenant || "valem");
+  const { tenant, sessionRole, setActiveView, setSelectedChatId } = useChat();
+  const isAdmin = sessionRole === "admin";
+  const persona = getAiPersona(tenant || "");
   const { canAccessValentinaTab } = usePermissions();
-  const allowedTabs = allTabs.filter(tab => canAccessValentinaTab(tab.id));
+  const allowedTabs = allTabs.filter((tab) => canAccessValentinaTab(tab.id));
   const allowedTabIds = useMemo(() => allowedTabs.map((t) => t.id), [allowedTabs]);
+
   const [sdrTargetConversation, setSdrTargetConversation] = useState<SdrTargetLookup | null>(() =>
     typeof window !== "undefined" ? parseSdrTargetFromSearch(window.location.search) : null,
   );
@@ -61,34 +77,30 @@ export function ValentinaView() {
   });
   const [showMobileFeed, setShowMobileFeed] = useState(false);
 
-  // Estado e Controle de SDR Triagem Automática (elevado ao Header para maximizar espaço de tela)
-  const [sdrEnabled, setSdrEnabled] = useState(true);
+  // Estado e Controle de SDR Triagem Automática (inicializado como null para não piscar "SDR Ativo")
+  const [sdrEnabled, setSdrEnabled] = useState<boolean | null>(null);
   const [isSavingSdrConfig, setIsSavingSdrConfig] = useState(false);
   const [sdrFilterState, setSdrFilterState] = useState<SdrFilterState>(DEFAULT_SDR_FILTER_STATE);
+  const [sdrViewMode, setSdrViewMode] = useState<SdrViewMode>(() =>
+    typeof window !== "undefined" && parseSdrTargetFromSearch(window.location.search)
+      ? "live"
+      : "kanban",
+  );
   const [sdrRefreshKey, setSdrRefreshKey] = useState(0);
   const [isSdrLoading, setIsSdrLoading] = useState(false);
-  const [sdrSelectedConversationId, setSdrSelectedConversationId] = useState<string | undefined>(undefined);
+  const [sdrSelectedInfo, setSdrSelectedInfo] = useState<{
+    conversationId?: string;
+    contactName?: string;
+  }>({});
   const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
   useEffect(() => {
-    if (!canAccessValentinaTab("sdr")) return;
-    async function loadSdrConfig() {
-      try {
-        const res = await fetch(`${BACKEND_URL}/api/valentina/sdr?tenantId=${tenant || "valem"}`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.config) {
-            setSdrEnabled(Boolean(data.config.enabled));
-          }
-        }
-      } catch (e) {
-        console.warn("[ValentinaView] Erro ao carregar status do SDR:", e);
-      }
-    }
-    loadSdrConfig();
-  }, [tenant, BACKEND_URL]);
+    setSdrEnabled(null);
+    setSdrSelectedInfo({});
+  }, [tenant]);
 
   const handleToggleSdr = async () => {
+    if (!isAdmin || sdrEnabled === null || isSavingSdrConfig) return;
     const nextState = !sdrEnabled;
     setSdrEnabled(nextState);
     setIsSavingSdrConfig(true);
@@ -97,7 +109,6 @@ export function ValentinaView() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          tenantId: tenant || "valem",
           enabled: nextState,
         }),
       });
@@ -106,15 +117,16 @@ export function ValentinaView() {
         toast.success(
           nextState
             ? `SDR ${persona.name} ativado para todos os contatos!`
-            : `SDR ${persona.name} pausado com sucesso!`
+            : `SDR ${persona.name} pausado com sucesso!`,
         );
       } else {
-        setSdrEnabled(!nextState); // rollback
-        toast.error("Erro ao alternar status do SDR.");
+        const err = await res.json().catch(() => ({}));
+        setSdrEnabled(!nextState);
+        toast.error(err.error || "Erro ao alternar status do SDR.");
       }
     } catch (e) {
       console.error("Erro ao alternar status do SDR:", e);
-      setSdrEnabled(!nextState); // rollback
+      setSdrEnabled(!nextState);
       toast.error("Erro de comunicação com o servidor.");
     } finally {
       setIsSavingSdrConfig(false);
@@ -135,18 +147,46 @@ export function ValentinaView() {
   });
 
   useEffect(() => {
-    if (!allowedTabs.some(t => t.id === activeTab)) {
+    if (!allowedTabs.some((t) => t.id === activeTab)) {
       if (allowedTabs.length > 0) {
         setActiveTab(allowedTabs[0].id);
       }
     }
   }, [allowedTabs, activeTab]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleApprovalOpen = (ev: Event) => {
+      const detail = (ev as CustomEvent)?.detail;
+      if (!allowedTabs.some((t) => t.id === "sdr")) return;
+      setShowMobileFeed(false);
+      setActiveTab("sdr");
+      setSdrViewMode("live");
+      if (detail?.conversationId) {
+        setSdrTargetConversation({
+          conversationId: String(detail.conversationId),
+          leadName: detail.clientName ? String(detail.clientName) : undefined,
+          ts: Date.now(),
+        });
+      }
+    };
+    window.addEventListener("sdr_approval_open", handleApprovalOpen);
+    return () => window.removeEventListener("sdr_approval_open", handleApprovalOpen);
+  }, [allowedTabs]);
+
   const today = new Date().toLocaleDateString("pt-BR", {
     weekday: "long",
     day: "2-digit",
     month: "long",
   });
+
+  const sdrToggleTooltip = !isAdmin
+    ? "Apenas administradores podem ativar ou pausar o SDR globalmente"
+    : sdrEnabled === null
+      ? "Carregando estado atual do SDR..."
+      : sdrEnabled
+        ? `Clique para pausar ${persona.gender === "female" ? "a" : "o"} ${persona.name} globalmente`
+        : `Clique para ativar ${persona.gender === "female" ? "a" : "o"} ${persona.name} globalmente`;
 
   return (
     <div className="flex flex-col h-full bg-card rounded-3xl border border-border shadow-soft overflow-hidden">
@@ -162,56 +202,65 @@ export function ValentinaView() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2.5 flex-wrap">
           {activeTab === "sdr" && (
             <div className="flex items-center gap-2 animate-fadeIn flex-wrap">
-              <SystemTooltip
-                content={
-                  sdrEnabled
-                    ? `Clique para pausar ${persona.gender === "female" ? "a" : "o"} ${persona.name} globalmente`
-                    : `Clique para ativar ${persona.gender === "female" ? "a" : "o"} ${persona.name} globalmente`
-                }
-              >
+              <SystemTooltip content={sdrToggleTooltip}>
                 <button
+                  type="button"
                   onClick={handleToggleSdr}
-                  disabled={isSavingSdrConfig}
-                  className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold transition flex items-center gap-1.5 cursor-pointer shadow-soft border ${
-                    sdrEnabled
+                  disabled={!isAdmin || sdrEnabled === null || isSavingSdrConfig}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold transition flex items-center gap-1.5 shadow-soft border ${
+                    sdrEnabled === true
                       ? "bg-primary text-primary-foreground border-primary hover:bg-primary-hover"
                       : "bg-muted text-muted-foreground border-border hover:bg-muted/80"
-                  } ${isSavingSdrConfig ? "opacity-70 cursor-not-allowed" : ""}`}
+                  } ${
+                    !isAdmin || sdrEnabled === null || isSavingSdrConfig
+                      ? "opacity-70 cursor-not-allowed"
+                      : "cursor-pointer"
+                  }`}
                 >
-                  <Power className="h-3 w-3" />
-                  <span>{sdrEnabled ? "SDR Ativo" : "SDR Inativo"}</span>
+                  {sdrEnabled === null || isSavingSdrConfig ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Power className="h-3 w-3" />
+                  )}
+                  <span>
+                    {sdrEnabled === null
+                      ? "Carregando..."
+                      : sdrEnabled
+                        ? "SDR Ativo"
+                        : "SDR Inativo"}
+                  </span>
                 </button>
               </SystemTooltip>
 
-              {/* Controles de Busca, Filtros Avançados, Varredura, Histórico e notas e Atualizar */}
               <SdrHeaderControls
                 filterState={sdrFilterState}
                 onFilterChange={setSdrFilterState}
+                viewMode={sdrViewMode}
+                onViewModeChange={setSdrViewMode}
                 onRefresh={() => setSdrRefreshKey((k) => k + 1)}
                 isLoading={isSdrLoading}
                 personaName={persona.name}
-                onVarredura={() => {
-                  toast.info(`Varredura ativa: ${persona.name} está monitorando 100% das mensagens recebidas.`);
-                  setSdrRefreshKey((k) => k + 1);
-                }}
                 showTriageHistory={persona.triagePolicy === "industrial"}
-                tenantId={tenant || "valem"}
-                selectedConversationId={sdrSelectedConversationId}
+                tenantId={tenant || undefined}
+                selectedConversationId={sdrSelectedInfo.conversationId}
+                selectedConversationName={sdrSelectedInfo.contactName}
+                onSelectConversationFromSweep={(conversationId) => {
+                  setSdrTargetConversation({
+                    conversationId,
+                    ts: Date.now(),
+                  });
+                  setSdrViewMode("live");
+                }}
+                onOpenChatFromSweep={(conversationId) => {
+                  setSelectedChatId(conversationId);
+                  setActiveView("chat");
+                }}
               />
-
-              <div className="h-4 w-px bg-border mx-0.5" />
             </div>
           )}
-
-          <SystemTooltip content={`Serviço de inteligência artificial de ${persona.name} conectado e operando em tempo real`}>
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-primary-soft text-primary text-[10px] font-extrabold cursor-default">
-              <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
-              Online
-            </span>
-          </SystemTooltip>
         </div>
       </div>
 
@@ -223,6 +272,7 @@ export function ValentinaView() {
           return (
             <button
               key={tab.id}
+              type="button"
               onClick={() => {
                 setShowMobileFeed(false);
                 setActiveTab(tab.id);
@@ -253,7 +303,15 @@ export function ValentinaView() {
       </div>
 
       {/* Tab Content */}
-      <div className={`flex-1 overflow-hidden flex flex-col ${showMobileFeed || activeTab === "chat" ? "" : activeTab === "sdr" ? "px-2 md:px-4 py-2" : "px-3 md:px-5 py-3 md:py-4"}`}>
+      <div
+        className={`flex-1 overflow-hidden flex flex-col ${
+          showMobileFeed || activeTab === "chat"
+            ? ""
+            : activeTab === "sdr"
+              ? "px-2 md:px-4 py-2.5"
+              : "px-3 md:px-5 py-3 md:py-4"
+        }`}
+      >
         <AnimatePresence mode="wait">
           <motion.div
             key={showMobileFeed ? "mobile-feed" : activeTab}
@@ -277,12 +335,17 @@ export function ValentinaView() {
                 {activeTab === "chat" && <ValentinaChatTab />}
                 {activeTab === "sdr" && (
                   <SdrTab
-                    sdrEnabled={sdrEnabled}
+                    sdrEnabled={sdrEnabled ?? false}
                     onSdrConfigChange={setSdrEnabled}
                     filterState={sdrFilterState}
+                    onFilterChange={setSdrFilterState}
+                    viewMode={sdrViewMode}
+                    onViewModeChange={setSdrViewMode}
                     refreshKey={sdrRefreshKey}
                     onLoadingChange={setIsSdrLoading}
-                    onSelectedConversationChange={setSdrSelectedConversationId}
+                    onSelectedConversationChange={(conversationId, contactName) =>
+                      setSdrSelectedInfo({ conversationId, contactName })
+                    }
                     targetConversation={sdrTargetConversation}
                     onTargetConversationHandled={() => setSdrTargetConversation(null)}
                   />
@@ -295,6 +358,7 @@ export function ValentinaView() {
                         leadName,
                         ts: Date.now(),
                       });
+                      setSdrViewMode("live");
                       setActiveTab("sdr");
                     }}
                   />

@@ -19,7 +19,15 @@ export interface HandoffDeal {
   stageId: string;
 }
 export type IndustrialHandoffStatus =
-  "collecting" | "resolved" | "waiting_for_team" | "handoff_failed" | "transferred";
+  | "collecting"
+  | "awaiting_approval"
+  | "resolved"
+  | "waiting_for_team"
+  | "handoff_failed"
+  | "transferred";
+
+export const INDUSTRIAL_AWAITING_APPROVAL_CLIENT_MESSAGE =
+  "Perfeito, já coletei tudo! Estou validando e já te encaminho para o responsável.";
 export interface IndustrialHandoffResult {
   status: IndustrialHandoffStatus;
   operator: HandoffOperator | null;
@@ -84,13 +92,17 @@ export function industrialHandoffOutcome(
 export function industrialHandoffMessage(
   status: IndustrialHandoffStatus,
   operatorName?: string,
-  options?: { isOperatorAbsent?: boolean },
+  options?: { isOperatorAbsent?: boolean; offHoursNotice?: string | null },
 ): string | null {
+  if (status === "awaiting_approval") {
+    return INDUSTRIAL_AWAITING_APPROVAL_CLIENT_MESSAGE;
+  }
   if (status === "transferred" && operatorName) {
-    if (options?.isOperatorAbsent) {
-      return `Seu atendimento foi encaminhado para ${operatorName}. No momento está ausente, mas em breve entrará em contato com você por aqui.`;
-    }
-    return `Seu atendimento foi encaminhado para ${operatorName}. A equipe dará continuidade por aqui.`;
+    const base = options?.isOperatorAbsent
+      ? `Seu atendimento foi encaminhado para ${operatorName}. No momento está ausente, mas em breve entrará em contato com você por aqui.`
+      : `Seu atendimento foi encaminhado para ${operatorName}. A equipe dará continuidade por aqui.`;
+    const offHours = options?.offHoursNotice?.trim();
+    return offHours ? `${base}\n\n${offHours}` : base;
   }
   if (status === "waiting_for_team")
     return "Seu atendimento está aguardando a equipe responsável. Assim que houver um atendente disponível, ele poderá dar continuidade por aqui.";

@@ -14,7 +14,7 @@ import {
   Layers,
   MessageSquareOff,
 } from "lucide-react";
-import { SdrTriageSession } from "./SdrTab";
+import type { SdrTriageSession } from "./SdrTab";
 
 export type KanbanColumnKey =
   | "triagem"
@@ -26,6 +26,18 @@ export type KanbanColumnKey =
   | "pecas"
   | "outros"
   | "sem_resposta";
+
+export type SdrViewMode = "kanban" | "live";
+export type SdrChannelFilter = "all" | "whatsapp" | "site";
+export type SdrPeriodFilter = "todos" | "hoje" | "7dias" | "30dias";
+export type SdrStatusFilter =
+  | "all"
+  | "awaiting_approval"
+  | "active"
+  | "completed"
+  | "abandoned"
+  | "stopped"
+  | "manual";
 
 export interface KanbanColumnDef {
   key: KanbanColumnKey;
@@ -140,17 +152,169 @@ export interface SdrFilterState {
   searchQuery: string;
   unreadOnly: boolean;
   showCompleted: boolean;
-  statusFilter: "all" | "analisando" | "concluida";
+  statusFilter: SdrStatusFilter;
+  channelFilter: SdrChannelFilter;
+  periodFilter: SdrPeriodFilter;
   selectedDate: Date | null;
 }
 
 export const DEFAULT_SDR_FILTER_STATE: SdrFilterState = {
   searchQuery: "",
   unreadOnly: false,
-  showCompleted: true,
+  showCompleted: false,
   statusFilter: "all",
+  channelFilter: "all",
+  periodFilter: "todos",
   selectedDate: null,
 };
+
+const BRT_OFFSET_MS = -3 * 60 * 60 * 1000;
+
+export function getBrtDateKey(dateInput: Date | string | number): string | null {
+  const ms =
+    typeof dateInput === "number"
+      ? dateInput
+      : dateInput instanceof Date
+        ? dateInput.getTime()
+        : Date.parse(dateInput);
+  if (Number.isNaN(ms)) return null;
+  const shifted = new Date(ms + BRT_OFFSET_MS);
+  const y = shifted.getUTCFullYear();
+  const m = String(shifted.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(shifted.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+export function getSessionActivityTimestamp(session: SdrTriageSession): number {
+  let maxClientTs = 0;
+  if (session.lastClientMessageAt) {
+    const parsed = Date.parse(session.lastClientMessageAt);
+    if (!Number.isNaN(parsed)) maxClientTs = parsed;
+  }
+
+  let maxAnyTs = 0;
+  if (session.lastMessageAt) {
+    const parsed = Date.parse(session.lastMessageAt);
+    if (!Number.isNaN(parsed)) maxAnyTs = parsed;
+  }
+
+  if (Array.isArray(session.messages)) {
+    for (const msg of session.messages) {
+      if (!msg.sentAt) continue;
+      const ts = Date.parse(msg.sentAt);
+      if (Number.isNaN(ts)) continue;
+      if (ts > maxAnyTs) maxAnyTs = ts;
+      if (msg.sender === "client" && ts > maxClientTs) {
+        maxClientTs = ts;
+      }
+    }
+  }
+
+  if (maxClientTs > 0) return maxClientTs;
+  if (maxAnyTs > 0) return maxAnyTs;
+  if (session.startedAt) {
+    const started = Date.parse(session.startedAt);
+    if (!Number.isNaN(started)) return started;
+  }
+  return 0;
+}
+
+/**
+ * Fonte única de filtragem para Kanban SDR e Lista Ao Vivo.
+ * Garante consistência 100% entre os dois modos de visualização.
+ */
+export function filterSdrSessions(
+  sessions: SdrTriageSession[],
+  filterState: SdrFilterState,
+  now: Date = new Date(),
+): SdrTriageSession[] {
+  const q = (filterState.searchQuery || "").trim().toLowerCase();
+  const todayBrt = getBrtDateKey(now);
+  const selectedBrt = filterState.selectedDate
+    ? `${filterState.selectedDate.getFullYear()}-${String(filterState.selectedDate.getMonth() + 1).padStart(2, "0")}-${String(filterState.selectedDate.getDate()).padStart(2, "0")}`
+    : null;
+
+  return sessions
+    .filter((session) => {
+      // 1. Canal (WhatsApp ou Site)
+      if (filterState.channelFilter !== "all") {
+        const rawChan = session.channel || "whatsapp";
+        const normalizedChan = rawChan === "livechat" || rawChan === "site" ? "site" : "whatsapp";
+        if (normalizedChan !== filterState.channelFilter) return false;
+      }
+
+      // 2. Apenas não lidas
+      if (filterState.unreadOnly) {
+        if ((session.unreadCount || 0) <= 0) return false;
+      }
+
+      // 3. Status explícito da triagem
+      if (filterState.statusFilter !== "all") {
+        if (session.status !== filterState.statusFilter) return false;
+      } else if (!filterState.showCompleted && (session.status === "completed" || session.status === "manual")) {
+        // Oculta concluídos / assumidos manualmente do Kanban ativo por padrão
+        return false;
+      }
+
+      // 4. Data específica (calendário em Horário de Brasília)
+      const activityTs = getSessionActivityTimestamp(session);
+      const startedTs = session.startedAt ? Date.parse(session.startedAt) : NaN;
+
+      if (selectedBrt) {
+        const actKey = activityTs > 0 ? getBrtDateKey(activityTs) : null;
+        const startKey = !Number.isNaN(startedTs) ? getBrtDateKey(startedTs) : null;
+        if (actKey !== selectedBrt && startKey !== selectedBrt) return false;
+      } else if (filterState.periodFilter !== "todos") {
+        const refTs = activityTs > 0 ? activityTs : !Number.isNaN(startedTs) ? startedTs : 0;
+        if (refTs <= 0) return false;
+
+        if (filterState.periodFilter === "hoje") {
+          const refKey = getBrtDateKey(refTs);
+          const startKey = !Number.isNaN(startedTs) ? getBrtDateKey(startedTs) : null;
+          if (refKey !== todayBrt && startKey !== todayBrt) return false;
+        } else if (filterState.periodFilter === "7dias") {
+          const diffDays = (now.getTime() - refTs) / (1000 * 60 * 60 * 24);
+          if (diffDays > 7) return false;
+        } else if (filterState.periodFilter === "30dias") {
+          const diffDays = (now.getTime() - refTs) / (1000 * 60 * 60 * 24);
+          if (diffDays > 30) return false;
+        }
+      }
+
+      // 5. Busca textual (nome, empresa, telefone, prévia ou mensagens carregadas)
+      if (q) {
+        const matchName = (session.contactName || "").toLowerCase().includes(q);
+        const matchCompany = (session.company || "").toLowerCase().includes(q);
+        const matchPhone = (session.phone || "").toLowerCase().includes(q);
+        const matchPreview = (session.lastMessagePreview || "").toLowerCase().includes(q);
+        const matchMessages = (session.messages || []).some((msg) =>
+          (msg.text || "").toLowerCase().includes(q),
+        );
+        if (!matchName && !matchCompany && !matchPhone && !matchPreview && !matchMessages) {
+          return false;
+        }
+      }
+
+      return true;
+    })
+    .sort((a, b) => {
+      const aAwaiting = a.status === "awaiting_approval" ? 0 : 1;
+      const bAwaiting = b.status === "awaiting_approval" ? 0 : 1;
+      if (aAwaiting !== bAwaiting) return aAwaiting - bAwaiting;
+      return getSessionActivityTimestamp(b) - getSessionActivityTimestamp(a);
+    });
+}
+
+export function hasActiveSdrFilters(filterState: SdrFilterState): boolean {
+  return (
+    filterState.unreadOnly ||
+    filterState.showCompleted ||
+    filterState.statusFilter !== "all" ||
+    filterState.channelFilter !== "all" ||
+    filterState.periodFilter !== "todos" ||
+    Boolean(filterState.selectedDate)
+  );
+}
 
 export const NEUTRAL_STAGE_STYLE = {
   headerBorder: "border-slate-300 dark:border-slate-700",
@@ -230,8 +394,8 @@ const VALID_COLUMN_KEYS = new Set<KanbanColumnKey>(KANBAN_COLUMNS.map((c) => c.k
 
 // ─── Classificador Inteligente de Funil ──────────────────────────────────────
 export function classifySessionToColumn(session: SdrTriageSession): KanbanColumnKey {
-  if ((session as any).funnelStage) {
-    const rawStage = String((session as any).funnelStage) as KanbanColumnKey;
+  if (session.funnelStage) {
+    const rawStage = String(session.funnelStage) as KanbanColumnKey;
     if (VALID_COLUMN_KEYS.has(rawStage)) {
       return rawStage;
     }
@@ -284,11 +448,14 @@ export function classifySessionToColumn(session: SdrTriageSession): KanbanColumn
     return "financeiro";
   }
 
-  // 3. Concluída ou transferida / escalada sem setor específico -> Outros
+  // 3. Concluída, interrompida, manual ou transferida sem setor específico -> Outros
   if (
     session.status === "completed" ||
+    session.status === "stopped" ||
+    session.status === "manual" ||
     outcome === "completed" ||
     outcome === "transferred" ||
+    outcome === "stopped" ||
     outcome === "problem" ||
     outcome === "escalated"
   ) {
@@ -301,4 +468,3 @@ export function classifySessionToColumn(session: SdrTriageSession): KanbanColumn
 
 // ─── Sessões Mock Removidas — Sistema opera 100% com atendimentos reais ──────
 export const BENCHMARK_SDR_SESSIONS: SdrTriageSession[] = [];
-

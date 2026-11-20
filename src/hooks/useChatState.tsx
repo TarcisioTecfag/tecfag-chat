@@ -39,6 +39,7 @@ import {
   UserCheck,
   Users,
   ArrowRight,
+  Bell,
 } from "lucide-react";
 
 export type MetaConfig = {
@@ -678,6 +679,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Refs to avoid stale closures in SSE event listener
   const selectedChatIdRef = useRef(selectedChatId);
   const currentOperatorIdRef = useRef(currentOperatorId);
+  const sessionRoleRef = useRef(sessionRole);
+  const sessionPermissionsRef = useRef(sessionPermissions);
   const tenantRef = useRef(tenant);
   const refreshAssignedChatRef = useRef<(conversationId: string) => Promise<void>>(async () => {});
   const conversationsRef = useRef<Conversation[]>([]);
@@ -691,6 +694,14 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     currentOperatorIdRef.current = currentOperatorId;
   }, [currentOperatorId]);
+
+  useEffect(() => {
+    sessionRoleRef.current = sessionRole;
+  }, [sessionRole]);
+
+  useEffect(() => {
+    sessionPermissionsRef.current = sessionPermissions;
+  }, [sessionPermissions]);
 
   useEffect(() => {
     tenantRef.current = tenant;
@@ -5653,6 +5664,94 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             ),
             { id: notifToastId, duration: 9000, position: "top-right" },
           );
+        } else if (data.type === "sdr_approval_pending") {
+          const canAccessSdr =
+            sessionRoleRef.current === "admin" ||
+            Boolean((sessionPermissionsRef.current as any)?.valentina?.canAccessSdr);
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(
+              new CustomEvent("sdr_approval_pending", { detail: data }),
+            );
+          }
+          if (canAccessSdr) {
+            playNotificationSound();
+            const persona = getAiPersona(tenantRef.current || "");
+            const clientName = String(data.clientName || "Cliente");
+            const sectorLabel = String(
+              data.suggestedSectorName || data.targetFunnel || "Triagem SDR",
+            );
+            const suggestedOp = data.suggestedOperatorName
+              ? ` · Sugestão: ${String(data.suggestedOperatorName)}`
+              : "";
+            const convId = String(data.conversationId || "");
+            const approvalToastId = `sdr-approval-${convId || Date.now()}`;
+
+            toast.custom(
+              (t) => (
+                <div className="w-[370px] max-w-[calc(100vw-24px)] rounded-xl border border-border/80 border-l-[3px] border-l-amber-500 bg-card/98 backdrop-blur-md text-foreground shadow-[0_12px_32px_-8px_rgba(0,0,0,0.28)] overflow-hidden">
+                  <div className="px-3.5 pt-3 pb-2.5 flex items-start gap-2.5">
+                    <div className="h-8 w-8 rounded-lg border border-amber-500/30 bg-amber-500/12 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0 mt-0.5">
+                      <Bell className="h-4 w-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">
+                          {persona.name} · Aprovação SDR
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => toast.dismiss(t)}
+                          className="p-0.5 rounded-md text-muted-foreground/70 hover:text-foreground hover:bg-muted transition cursor-pointer"
+                          aria-label="Fechar notificação"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                      <p className="text-[13px] font-bold text-foreground truncate mt-0.5">
+                        {clientName}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground leading-snug mt-0.5">
+                        Triagem concluída ({sectorLabel}{suggestedOp}). Confirme o destino e o responsável.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="px-3.5 py-2 bg-muted/40 border-t border-border/60 flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-semibold text-amber-700 dark:text-amber-300">
+                      Aguardando aprovação humana
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveView("valentina");
+                        if (typeof window !== "undefined") {
+                          window.dispatchEvent(
+                            new CustomEvent("sdr_approval_open", { detail: data }),
+                          );
+                          setTimeout(() => {
+                            window.dispatchEvent(
+                              new CustomEvent("sdr_approval_open", { detail: data }),
+                            );
+                          }, 250);
+                        }
+                        toast.dismiss(t);
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-amber-600 hover:bg-amber-700 text-white shadow-2xs transition cursor-pointer shrink-0"
+                    >
+                      <span>Revisar e Aprovar</span>
+                      <ArrowRight className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ),
+              { id: approvalToastId, duration: 12000, position: "top-right" },
+            );
+          }
+        } else if (data.type === "sdr_flow_updated") {
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(
+              new CustomEvent("sdr_approval_pending", { detail: data }),
+            );
+          }
         } else if (data.type === "valentina_thought_progress" && data.trace) {
           if (data.operatorId && data.operatorId !== currentOperatorIdRef.current) return;
           if (data.scope !== "admin") {

@@ -21,6 +21,7 @@ export interface UniversalOutboundMessage {
   templateLanguage?: string;
   templateComponents?: any[];
   operatorId?: string | null;
+  senderType?: "agent" | "bot";
   senderName?: string;
   senderId?: string;
   isInternalNote?: boolean;

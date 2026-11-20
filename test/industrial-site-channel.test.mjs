@@ -137,9 +137,9 @@ describe("canal Site — contratos de integração (inspeção de código)", () 
     assert.match(sender, /if \(isSiteConversationId\(conversationId\)\) \{\s*await pushSiteTyping/);
   });
 
-  it("handoff do site exige canal habilitado e não depende da whitelist de telefone", () => {
+  it("handoff do site exige canal habilitado e não possui bloqueio residual de whitelist de telefone", () => {
     assert.match(store, /siteContact && settings\.siteChannelEnabled !== true/);
-    assert.match(store, /!siteContact && settings\.whitelistEnabled === true/);
+    assert.doesNotMatch(store, /settings\.whitelistEnabled === true/);
   });
 
   it("rota de envio do operador entrega texto ao site após as validações de posse e card", () => {

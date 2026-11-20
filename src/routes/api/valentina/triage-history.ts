@@ -22,7 +22,16 @@ export const Route = createFileRoute("/api/valentina/triage-history")({
       GET: async ({ request }) => {
         const auth = await requireSession(request);
         if ("response" in auth) return auth.response;
-        const tenantId = auth.session.tenantId;
+        const { session } = auth;
+        const tenantId = session.tenantId;
+        const canAccessSdr =
+          session.operator?.role === "admin" ||
+          session.permissions?.valentina?.canAccessSdr === true;
+        if (!canAccessSdr)
+          return new Response(
+            JSON.stringify({ error: "Permissão insuficiente para acessar o histórico de triagem.", code: "FORBIDDEN" }),
+            { status: 403, headers },
+          );
         if (getAiPersona(tenantId).triagePolicy !== "industrial")
           return new Response(JSON.stringify({ error: "Recurso indisponível." }), {
             status: 404,

@@ -54,8 +54,10 @@ import { Route as ApiWhatsappConnectionsRouteImport } from './routes/api/whatsap
 import { Route as ApiWebhooksMetaRouteImport } from './routes/api/webhooks/meta'
 import { Route as ApiValentinaTriageReviewRouteImport } from './routes/api/valentina/triage-review'
 import { Route as ApiValentinaTriageHistoryRouteImport } from './routes/api/valentina/triage-history'
+import { Route as ApiValentinaTriageApprovalRouteImport } from './routes/api/valentina/triage-approval'
 import { Route as ApiValentinaSupervisorRouteImport } from './routes/api/valentina/supervisor'
 import { Route as ApiValentinaSiteChannelRouteImport } from './routes/api/valentina/site-channel'
+import { Route as ApiValentinaSdrSweepRouteImport } from './routes/api/valentina/sdr-sweep'
 import { Route as ApiValentinaSdrRouteImport } from './routes/api/valentina/sdr'
 import { Route as ApiValentinaRodizioRouteImport } from './routes/api/valentina/rodizio'
 import { Route as ApiValentinaMessagesRouteImport } from './routes/api/valentina/messages'
@@ -437,6 +439,12 @@ const ApiValentinaTriageHistoryRoute =
     path: '/api/valentina/triage-history',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiValentinaTriageApprovalRoute =
+  ApiValentinaTriageApprovalRouteImport.update({
+    id: '/api/valentina/triage-approval',
+    path: '/api/valentina/triage-approval',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiValentinaSupervisorRoute = ApiValentinaSupervisorRouteImport.update({
   id: '/api/valentina/supervisor',
   path: '/api/valentina/supervisor',
@@ -445,6 +453,11 @@ const ApiValentinaSupervisorRoute = ApiValentinaSupervisorRouteImport.update({
 const ApiValentinaSiteChannelRoute = ApiValentinaSiteChannelRouteImport.update({
   id: '/api/valentina/site-channel',
   path: '/api/valentina/site-channel',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiValentinaSdrSweepRoute = ApiValentinaSdrSweepRouteImport.update({
+  id: '/api/valentina/sdr-sweep',
+  path: '/api/valentina/sdr-sweep',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiValentinaSdrRoute = ApiValentinaSdrRouteImport.update({
@@ -1375,8 +1388,10 @@ export interface FileRoutesByFullPath {
   '/api/valentina/messages': typeof ApiValentinaMessagesRoute
   '/api/valentina/rodizio': typeof ApiValentinaRodizioRoute
   '/api/valentina/sdr': typeof ApiValentinaSdrRoute
+  '/api/valentina/sdr-sweep': typeof ApiValentinaSdrSweepRoute
   '/api/valentina/site-channel': typeof ApiValentinaSiteChannelRoute
   '/api/valentina/supervisor': typeof ApiValentinaSupervisorRoute
+  '/api/valentina/triage-approval': typeof ApiValentinaTriageApprovalRoute
   '/api/valentina/triage-history': typeof ApiValentinaTriageHistoryRoute
   '/api/valentina/triage-review': typeof ApiValentinaTriageReviewRoute
   '/api/webhooks/meta': typeof ApiWebhooksMetaRoute
@@ -1574,8 +1589,10 @@ export interface FileRoutesByTo {
   '/api/valentina/messages': typeof ApiValentinaMessagesRoute
   '/api/valentina/rodizio': typeof ApiValentinaRodizioRoute
   '/api/valentina/sdr': typeof ApiValentinaSdrRoute
+  '/api/valentina/sdr-sweep': typeof ApiValentinaSdrSweepRoute
   '/api/valentina/site-channel': typeof ApiValentinaSiteChannelRoute
   '/api/valentina/supervisor': typeof ApiValentinaSupervisorRoute
+  '/api/valentina/triage-approval': typeof ApiValentinaTriageApprovalRoute
   '/api/valentina/triage-history': typeof ApiValentinaTriageHistoryRoute
   '/api/valentina/triage-review': typeof ApiValentinaTriageReviewRoute
   '/api/webhooks/meta': typeof ApiWebhooksMetaRoute
@@ -1774,8 +1791,10 @@ export interface FileRoutesById {
   '/api/valentina/messages': typeof ApiValentinaMessagesRoute
   '/api/valentina/rodizio': typeof ApiValentinaRodizioRoute
   '/api/valentina/sdr': typeof ApiValentinaSdrRoute
+  '/api/valentina/sdr-sweep': typeof ApiValentinaSdrSweepRoute
   '/api/valentina/site-channel': typeof ApiValentinaSiteChannelRoute
   '/api/valentina/supervisor': typeof ApiValentinaSupervisorRoute
+  '/api/valentina/triage-approval': typeof ApiValentinaTriageApprovalRoute
   '/api/valentina/triage-history': typeof ApiValentinaTriageHistoryRoute
   '/api/valentina/triage-review': typeof ApiValentinaTriageReviewRoute
   '/api/webhooks/meta': typeof ApiWebhooksMetaRoute
@@ -1975,8 +1994,10 @@ export interface FileRouteTypes {
     | '/api/valentina/messages'
     | '/api/valentina/rodizio'
     | '/api/valentina/sdr'
+    | '/api/valentina/sdr-sweep'
     | '/api/valentina/site-channel'
     | '/api/valentina/supervisor'
+    | '/api/valentina/triage-approval'
     | '/api/valentina/triage-history'
     | '/api/valentina/triage-review'
     | '/api/webhooks/meta'
@@ -2174,8 +2195,10 @@ export interface FileRouteTypes {
     | '/api/valentina/messages'
     | '/api/valentina/rodizio'
     | '/api/valentina/sdr'
+    | '/api/valentina/sdr-sweep'
     | '/api/valentina/site-channel'
     | '/api/valentina/supervisor'
+    | '/api/valentina/triage-approval'
     | '/api/valentina/triage-history'
     | '/api/valentina/triage-review'
     | '/api/webhooks/meta'
@@ -2373,8 +2396,10 @@ export interface FileRouteTypes {
     | '/api/valentina/messages'
     | '/api/valentina/rodizio'
     | '/api/valentina/sdr'
+    | '/api/valentina/sdr-sweep'
     | '/api/valentina/site-channel'
     | '/api/valentina/supervisor'
+    | '/api/valentina/triage-approval'
     | '/api/valentina/triage-history'
     | '/api/valentina/triage-review'
     | '/api/webhooks/meta'
@@ -2561,8 +2586,10 @@ export interface RootRouteChildren {
   ApiValentinaMessagesRoute: typeof ApiValentinaMessagesRoute
   ApiValentinaRodizioRoute: typeof ApiValentinaRodizioRoute
   ApiValentinaSdrRoute: typeof ApiValentinaSdrRoute
+  ApiValentinaSdrSweepRoute: typeof ApiValentinaSdrSweepRoute
   ApiValentinaSiteChannelRoute: typeof ApiValentinaSiteChannelRoute
   ApiValentinaSupervisorRoute: typeof ApiValentinaSupervisorRoute
+  ApiValentinaTriageApprovalRoute: typeof ApiValentinaTriageApprovalRoute
   ApiValentinaTriageHistoryRoute: typeof ApiValentinaTriageHistoryRoute
   ApiValentinaTriageReviewRoute: typeof ApiValentinaTriageReviewRoute
   ApiWebhooksMetaRoute: typeof ApiWebhooksMetaRoute
@@ -2910,6 +2937,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiValentinaTriageHistoryRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/valentina/triage-approval': {
+      id: '/api/valentina/triage-approval'
+      path: '/api/valentina/triage-approval'
+      fullPath: '/api/valentina/triage-approval'
+      preLoaderRoute: typeof ApiValentinaTriageApprovalRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/valentina/supervisor': {
       id: '/api/valentina/supervisor'
       path: '/api/valentina/supervisor'
@@ -2922,6 +2956,13 @@ declare module '@tanstack/react-router' {
       path: '/api/valentina/site-channel'
       fullPath: '/api/valentina/site-channel'
       preLoaderRoute: typeof ApiValentinaSiteChannelRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/valentina/sdr-sweep': {
+      id: '/api/valentina/sdr-sweep'
+      path: '/api/valentina/sdr-sweep'
+      fullPath: '/api/valentina/sdr-sweep'
+      preLoaderRoute: typeof ApiValentinaSdrSweepRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/valentina/sdr': {
@@ -4442,8 +4483,10 @@ const rootRouteChildren: RootRouteChildren = {
   ApiValentinaMessagesRoute: ApiValentinaMessagesRoute,
   ApiValentinaRodizioRoute: ApiValentinaRodizioRoute,
   ApiValentinaSdrRoute: ApiValentinaSdrRoute,
+  ApiValentinaSdrSweepRoute: ApiValentinaSdrSweepRoute,
   ApiValentinaSiteChannelRoute: ApiValentinaSiteChannelRoute,
   ApiValentinaSupervisorRoute: ApiValentinaSupervisorRoute,
+  ApiValentinaTriageApprovalRoute: ApiValentinaTriageApprovalRoute,
   ApiValentinaTriageHistoryRoute: ApiValentinaTriageHistoryRoute,
   ApiValentinaTriageReviewRoute: ApiValentinaTriageReviewRoute,
   ApiWebhooksMetaRoute: ApiWebhooksMetaRoute,

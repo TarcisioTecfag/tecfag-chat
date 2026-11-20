@@ -472,6 +472,7 @@ export class InboundProcessor {
         dAnd(dEq(t.conversationId, convId), dEq(t.tenantId, tenantId)),
     });
 
+    const currentFlowMeta = (currentFlow?.metadata as Record<string, any>) || {};
     const isHandledByOperator = Boolean(
       conv.operatorId !== null ||
       conv.queueState === "meus" ||
@@ -479,7 +480,9 @@ export class InboundProcessor {
       currentFlow?.outcome === "completed" ||
       currentFlow?.outcome === "transferred" ||
       currentFlow?.outcome === "stopped" ||
-      currentFlow?.outcome === "paused"
+      currentFlow?.outcome === "paused" ||
+      currentFlowMeta.handoffStatus === "awaiting_approval" ||
+      Boolean(currentFlowMeta.pendingApproval)
     );
 
     if (isHandledByOperator) {

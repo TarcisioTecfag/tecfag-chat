@@ -1,6 +1,9 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { outboundQueue } from "../whatsapp/outbound";
 import { and, eq, ne, or, sql, desc, isNull } from "drizzle-orm";
+import {
+  dispatchRdSdrTemplatePostCommit,
+  type RdTemplateDispatchJob,
+} from "./sdr-template-dispatch";
 
 import { db } from "../../db";
 import {
@@ -401,9 +404,10 @@ export async function receiveLeads(flow: Flow, payload: unknown) {
     mapLead(lead, parsed.data);
   }
   const settings = await validateFlow(tenantId, parsed.data);
+  const templateJobs: RdTemplateDispatchJob[] = [];
   // Card, contato e recibo são confirmados juntos. Reenvios simultâneos aguardam o índice único.
-  return db.transaction(async (tx) => {
-    const outcomes = [];
+  const outcomes = await db.transaction(async (tx) => {
+    const txOutcomes = [];
     for (const lead of leads) {
       const identityHash = hashToken(deliveryIdentity(lead, settings));
       const [receipt] = await tx
@@ -422,7 +426,7 @@ export async function receiveLeads(flow: Flow, payload: unknown) {
               eq(rdMarketingReceipts.identityHash, identityHash),
             ),
           );
-        outcomes.push({ status: "duplicate", dealId: previous?.dealId });
+        txOutcomes.push({ status: "duplicate", dealId: previous?.dealId });
         await tx.insert(rdMarketingLogs).values({
           id: randomUUID(),
           tenantId,
@@ -590,29 +594,32 @@ export async function receiveLeads(flow: Flow, payload: unknown) {
         message: "Contato vinculado e card criado no CRM.",
       });
       if (settings.whatsappTemplateId) {
-        try {
-          const conversationId = `conv-${randomUUID()}`;
-          await tx.insert(conversations).values({
-            id: conversationId,
-            tenantId,
-            contactId: contact.id,
-            whatsappConnectionId: null, // Provedor vai resolver
-            queueState: "automacao",
-          });
-          await outboundQueue.enqueueAndSend({
-            tenantId,
-            conversationId,
-            text: `[Automação RD: Template ${settings.whatsappTemplateId}]`,
-            templateName: settings.whatsappTemplateId,
-          });
-        } catch (err) {
-          console.error("[RD Marketing] Erro ao disparar template:", err);
-        }
+        templateJobs.push({
+          tenantId,
+          flowId: flow.id,
+          dealId: deal.id,
+          contactId: contact.id,
+          whatsappTemplateId: settings.whatsappTemplateId,
+          clientName: contact.name,
+          companyName: mapped.company.name ? String(mapped.company.name) : null,
+          document: mapped.company.document ? String(mapped.company.document) : null,
+        });
       }
-      outcomes.push({ status: "created", dealId: deal.id });
+      txOutcomes.push({ status: "created", dealId: deal.id });
     }
-    return outcomes;
+    return txOutcomes;
   });
+
+  // Disparo pós-commit do template WhatsApp pelo Fagner/SDR + movimentação CONTATAR -> CONTATANDO no CWR
+  for (const job of templateJobs) {
+    try {
+      await dispatchRdSdrTemplatePostCommit(job);
+    } catch (err) {
+      console.error("[RD Marketing] Erro ao disparar template pós-commit:", err);
+    }
+  }
+
+  return outcomes;
 }
 
 export async function listFlows(tenantId: string, origin?: string) {

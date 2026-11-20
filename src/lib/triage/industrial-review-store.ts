@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
 import { and, desc, eq } from "drizzle-orm";
-import { agentFlowStates, conversations, operators } from "../../db/schema";
+import { agentFlowStates, contacts, conversations, operators } from "../../db/schema";
 import type { IndustrialDatabase, IndustrialTransaction } from "./industrial-rodizio-store";
 import { buildJournalSnapshot, normalizeJournalData } from "./industrial-triage-journal";
 import { appendIndustrialJournal } from "./industrial-triage-journal-store";
 import { buildIndustrialBriefing } from "./industrial-briefing";
+import { isValidKnownCompanyName } from "./known-client-lookup";
 import {
   assessIndustrialReadiness,
   INDUSTRIAL_ROUTES,
@@ -205,6 +206,69 @@ export async function saveIndustrialReview(
       "human_review",
       `${actor.id}:${input.expectedRevision}`,
     );
+
+    // Sincroniza Nome, Empresa e CNPJ/CPF revisados para o cadastro do contato (mesma transação)
+    if (state.conversation.contactId) {
+      const [contactRow] = await tx
+        .select()
+        .from(contacts)
+        .where(
+          and(eq(contacts.id, state.conversation.contactId), eq(contacts.tenantId, tenantId)),
+        )
+        .limit(1);
+
+      if (contactRow) {
+        const contactUpdates: Record<string, unknown> = {};
+        const nameEntry = input.fields["NOME COMPLETO"];
+        if (
+          nameEntry?.status === "filled" &&
+          nameEntry.value?.trim() &&
+          !/^aguardando/i.test(nameEntry.value.trim()) &&
+          nameEntry.value.trim() !== contactRow.name
+        ) {
+          contactUpdates.name = nameEntry.value.trim();
+        }
+
+        const companyEntry = input.fields["EMPRESA"];
+        if (companyEntry?.status === "filled" && isValidKnownCompanyName(companyEntry.value)) {
+          const cleanCompany = companyEntry.value.trim();
+          const currentCustom = (contactRow.customFields as Record<string, unknown>) || {};
+          if (currentCustom.company !== cleanCompany) {
+            contactUpdates.customFields = { ...currentCustom, company: cleanCompany };
+          }
+          const currentCnpjDetails = (contactRow.cnpjDetails as Record<string, unknown>) || {};
+          if (!currentCnpjDetails.razaoSocial) {
+            contactUpdates.cnpjDetails = { ...currentCnpjDetails, razaoSocial: cleanCompany };
+          }
+        }
+
+        const docEntry =
+          input.fields["CNPJ OU CPF"] || input.fields["CNPJ"] || input.fields["CPF"];
+        if (
+          docEntry?.status === "filled" &&
+          docEntry.value?.trim() &&
+          !/aguardando|invalido/i.test(docEntry.value)
+        ) {
+          const cleanVal = docEntry.value.trim();
+          const digits = cleanVal.replace(/\D/g, "");
+          if (digits.length === 14 && contactRow.cnpj !== cleanVal) {
+            contactUpdates.cnpj = cleanVal;
+          } else if (digits.length === 11 && contactRow.cpf !== cleanVal) {
+            contactUpdates.cpf = cleanVal;
+          }
+        }
+
+        if (Object.keys(contactUpdates).length > 0) {
+          await tx
+            .update(contacts)
+            .set(contactUpdates)
+            .where(
+              and(eq(contacts.id, contactRow.id), eq(contacts.tenantId, tenantId)),
+            );
+        }
+      }
+    }
+
     return project({ conversation: state.conversation, flow: updated }, actor);
   });
 }

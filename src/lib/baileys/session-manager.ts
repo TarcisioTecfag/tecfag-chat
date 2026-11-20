@@ -80,13 +80,32 @@ export type SessionEvent =
       walletOperatorId?: string | null;
       queueState: string;
       operatorId: string | null;
-      sectorId: string | null;
+      sectorId?: string | null;
       responsibleName?: string;
       version?: number;
     }
   | { type: "contact_updated"; contactId?: string; contact?: any; updates?: any }
   | { type: "chat_updated"; chat: any }
-  | { type: "sdr_flow_updated"; conversationId: string; funnelStage: string; targetFunnel: string | null; outcome?: string | null; handoffStatus?: string; subflow?: string | null; localCrmDeal?: unknown }
+  | {
+      type: "sdr_flow_updated";
+      conversationId: string;
+      funnelStage?: string;
+      targetFunnel?: string | null;
+      outcome?: string | null;
+      handoffStatus?: string;
+      subflow?: string | null;
+      localCrmDeal?: unknown;
+    }
+  | {
+      type: "sdr_approval_pending";
+      conversationId: string;
+      clientName: string;
+      companyName: string;
+      targetFunnel: string | null;
+      suggestedOperatorName: string | null;
+      suggestedSectorName: string | null;
+      preparedAt: string;
+    }
   | { type: "message_reaction"; conversationId: string; messageId: string; reactions: Array<{ emoji: string; from: string; at: string }> }
   | { type: "message_status"; conversationId: string; messageId: string; status: string; error?: string | null }
   | { type: "operator_typing"; conversationId: string; operatorId: string; operatorName: string }

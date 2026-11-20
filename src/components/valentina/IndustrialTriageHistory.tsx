@@ -197,9 +197,11 @@ function PageControls({ page }: { page: ReturnType<typeof useHistoryPage<unknown
 export function IndustrialTriageHistory({
   tenantId,
   initialConversationId,
+  initialConversationName,
 }: {
   tenantId: string;
   initialConversationId?: string;
+  initialConversationName?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -447,7 +449,10 @@ export function IndustrialTriageHistory({
               <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
                 {selectedConversationObj
                   ? selectedConversationObj.name
-                  : "Selecione um atendimento ao lado"}
+                  : conversationId
+                    ? (conversationId === initialConversationId && initialConversationName) ||
+                      "Atendimento selecionado"
+                    : "Selecione um atendimento ao lado"}
               </p>
             </div>
 

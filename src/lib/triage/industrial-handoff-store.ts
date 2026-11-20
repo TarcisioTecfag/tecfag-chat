@@ -43,6 +43,11 @@ import { appendIndustrialJournal } from "./industrial-triage-journal-store";
 import { setAttendanceActor } from "../attendance-events";
 import { getAiPersona } from "../ai-persona";
 import { readSiteContext, type SiteContext } from "../livechat/site-context";
+import {
+  buildIndustrialOffHoursClosingNotice,
+  isWithinIndustrialSchedule,
+  parseIndustrialScheduleConfig,
+} from "./industrial-silence-policy";
 
 export interface HandoffRequest {
   version: 1;
@@ -332,33 +337,7 @@ export function createIndustrialHandoffStore(
               );
             return { status: "handoff_failed", ...empty, superseded: true };
           }
-          if (!siteContact && settings.whitelistEnabled === true) {
-            const normalizePhone = (phone: string) =>
-              phone.replace(/\D/g, "").replace(/^55(?=\d{10,11}$)/, "");
-            if (
-              !contact.phone ||
-              normalizePhone(contact.phone) !==
-                normalizePhone(String(settings.whitelistPhone || ""))
-            ) {
-              // Não monopoliza o lote do worker enquanto a whitelist estiver restrita.
-              await tx
-                .update(agentFlowStates)
-                .set({
-                  metadata: {
-                    ...state.meta,
-                    ...recordHandoffIssue(state.meta, key.cycle, "whitelist_restricted"),
-                    handoffNextAttemptAt: new Date(Date.now() + 15 * 60_000).toISOString(),
-                  },
-                })
-                .where(
-                  and(
-                    eq(agentFlowStates.tenantId, key.tenantId),
-                    eq(agentFlowStates.id, key.flowId),
-                  ),
-                );
-              return { status: "handoff_failed", ...empty, superseded: true };
-            }
-          }
+          // Trava residual de whitelist removida: quando o SDR industrial está ativo, todos os leads elegíveis podem ser encaminhados.
           let readiness = assessIndustrialReadiness(request.route, request.data);
           if (!readiness.ready) return { status: "collecting", ...empty, superseded: true };
           let result: IndustrialStoredResult;
@@ -661,7 +640,19 @@ export function createIndustrialHandoffStore(
               : {}),
           };
           if (result.status === "transferred" || result.status === "resolved") {
-            const committedIso = new Date().toISOString();
+            const committedDate = new Date();
+            const committedIso = committedDate.toISOString();
+            const scheduleCfg = parseIndustrialScheduleConfig(settings);
+            const offHoursNotice =
+              result.status === "transferred" &&
+              scheduleCfg.enabled &&
+              !isWithinIndustrialSchedule(committedDate, scheduleCfg)
+                ? buildIndustrialOffHoursClosingNotice(
+                    committedDate,
+                    scheduleCfg,
+                    result.operator?.name || null,
+                  )
+                : null;
             const confirmationText = industrialHandoffMessage(
               result.status,
               result.operator?.name,
@@ -669,6 +660,7 @@ export function createIndustrialHandoffStore(
                 isOperatorAbsent: Boolean(
                   result.operator?.isAbsent || request.route.targetOperator?.isAbsent,
                 ),
+                offHoursNotice,
               },
             );
             meta.handoffReceipt = {

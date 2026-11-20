@@ -867,27 +867,10 @@ export function computeIndustrialTriageProgress(ctx: AdaptiveIndustrialFieldCont
     Boolean(collectedValue(adaptiveData, key)),
   ).length;
 
-  const subflow = resolveEffectiveIndustrialSubflow(ctx);
-  const readiness = subflow
-    ? assessIndustrialReadiness(routeFor(subflow, "declared_route"), {
-        ...(ctx.collectedData || {}),
-        ...adaptiveData,
-        ...(ctx.collectedData?._KNOWN_COMPANY_CONFIRMED
-          ? { _KNOWN_COMPANY_CONFIRMED: ctx.collectedData._KNOWN_COMPANY_CONFIRMED }
-          : {}),
-      })
-    : null;
-
-  const isRouteFullyReady = Boolean(
-    ctx.isCompleted || (readiness?.ready && Boolean(collectedValue(adaptiveData, "SETOR / FUNIL DE DESTINO"))),
-  );
-
-  const percentage = isRouteFullyReady
-    ? 100
-    : Math.min(100, Math.round((filledCount / totalCount) * 100));
+  const percentage = Math.min(100, Math.round((filledCount / totalCount) * 100));
 
   return {
-    filledCount: ctx.isCompleted && filledCount === 0 ? totalCount : filledCount,
+    filledCount,
     totalCount,
     percentage,
     targetFields,

@@ -1,7 +1,10 @@
 import crypto from "node:crypto";
 
 function isSiteConversationId(conversationId: string): boolean {
-  return typeof conversationId === "string" && conversationId.startsWith("site-");
+  return (
+    typeof conversationId === "string" &&
+    (conversationId.startsWith("conv-lc-") || conversationId.startsWith("site-"))
+  );
 }
 
 export interface IndustrialScheduleConfig {
@@ -453,7 +456,12 @@ export function evaluateIndustrialSilence(
   }
 
   const metadata = flow.metadata || {};
-  if (Boolean(metadata.handoffRequest) || Boolean(metadata.handoffReceipt)) {
+  if (
+    Boolean(metadata.handoffRequest) ||
+    Boolean(metadata.handoffReceipt) ||
+    metadata.handoffStatus === "awaiting_approval" ||
+    Boolean(metadata.pendingApproval)
+  ) {
     return { action: "none", reason: "handoff_committed_or_pending", rescuePartialLead: false };
   }
 
@@ -702,7 +710,12 @@ export function evaluateIndustrialTurnRecovery(
   }
 
   const metadata = flow?.metadata || {};
-  if (Boolean(metadata.handoffRequest) || Boolean(metadata.handoffReceipt)) {
+  if (
+    Boolean(metadata.handoffRequest) ||
+    Boolean(metadata.handoffReceipt) ||
+    metadata.handoffStatus === "awaiting_approval" ||
+    Boolean(metadata.pendingApproval)
+  ) {
     return {
       shouldRecover: false,
       reason: "handoff_committed_or_pending",
