@@ -686,6 +686,7 @@ export function McpSettingsTab() {
     `Como está o faturamento fechado deste mês na ${companyLabel}, o pacing da meta e o ranking por consultor?`,
     `Me mostre o panorama da triagem do ${aiPersona.name} nos últimos 7 dias e se há algum alerta de handoff.`,
     `Busque as últimas negociações ganhas na ${companyLabel} e me traga os detalhes e valores.`,
+    `Liste as pastas da Base de Conhecimento da ${companyLabel} e teste o RAG para "${activeTenant === "valem" ? "válvula spray" : "seladora"}".`,
     `Qual o status atual da escala do rodízio e quais operadores estão online agora?`,
   ];
 
@@ -722,9 +723,10 @@ export function McpSettingsTab() {
               <strong className="text-foreground">Claude</strong>,{" "}
               <strong className="text-foreground">Antigravity</strong> ou{" "}
               <strong className="text-foreground">Codex</strong> diretamente às conversas, triagens
-              do <strong className="text-foreground">{aiPersona.name}</strong>, CRM e métricas
-              comerciais da <strong className="text-foreground">{companyLabel}</strong> — com
-              auditoria completa de tudo que foi consultado em cada link.
+              do <strong className="text-foreground">{aiPersona.name}</strong>, Base de Conhecimento
+              (RAG), CRM, Webhooks e métricas comerciais da{" "}
+              <strong className="text-foreground">{companyLabel}</strong> — com auditoria completa
+              de tudo que foi consultado ou alterado em cada link.
             </p>
           </div>
 
