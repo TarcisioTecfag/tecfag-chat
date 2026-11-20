@@ -6,6 +6,7 @@ import {
   commercialEvidence,
   contacts,
   contactPhones,
+  conversationDealContexts,
   conversations,
   crmActionHistory,
   crmConversationDeals,
@@ -57,6 +58,12 @@ import {
   executeKnowledgeMcpTool,
   isKnowledgeMcpTool,
 } from "./valem-tecfag-mcp-knowledge-tools";
+import {
+  MCP_WAVE1_TOOLS,
+  MCP_WAVE1_TOOL_LABELS_PT,
+  executeWave1McpTool,
+  isWave1McpTool,
+} from "./valem-tecfag-mcp-wave1-tools";
 
 export type McpToolAccessKind = "read" | "write";
 
@@ -876,6 +883,12 @@ export const MCP_EXTENDED_TOOLS: McpToolDefinition[] = [
           default: false,
           description: "Trava de segurança obrigatória (deve ser true) quando mode='delete_permanent'.",
         },
+        detachConversations: {
+          type: "boolean",
+          default: false,
+          description:
+            "Quando true junto com mode='delete_permanent' e confirmPermanentDelete=true, desvincula automaticamente as conversas ligadas ao card (preservando 100% das conversas no chat) e exclui o card definitivamente em uma única chamada.",
+        },
         operatorId: { type: "string", description: "ID do operador autor da ação (opcional)." },
         actorName: { type: "string", description: "Nome legível de quem solicitou o arquivamento/exclusão (opcional)." },
       },
@@ -883,6 +896,7 @@ export const MCP_EXTENDED_TOOLS: McpToolDefinition[] = [
   },
   ...MCP_PHASE23_TOOLS,
   ...MCP_KNOWLEDGE_TOOLS,
+  ...MCP_WAVE1_TOOLS,
 ];
 
 export const MCP_EXTENDED_TOOL_LABELS_PT: Record<string, string> = {
@@ -917,6 +931,7 @@ export const MCP_EXTENDED_TOOL_LABELS_PT: Record<string, string> = {
   update_sector: "Atualizar Setor",
   ...MCP_PHASE23_TOOL_LABELS_PT,
   ...MCP_KNOWLEDGE_TOOL_LABELS_PT,
+  ...MCP_WAVE1_TOOL_LABELS_PT,
 };
 
 const EXTENDED_TOOL_NAMES = new Set(MCP_EXTENDED_TOOLS.map((t) => t.name));
@@ -3165,6 +3180,7 @@ export async function executeExtendedMcpTool(
       }
 
       // mode === "delete_permanent"
+      const detachConversations = args.detachConversations === true;
       const now = new Date();
       const deletedInfo = await db.transaction(async (tx) => {
         const [deal] = await tx
@@ -3177,8 +3193,9 @@ export async function executeExtendedMcpTool(
           throw new Error(`Negociação '${dealId}' não encontrada no tenant '${tenantId}'.`);
         }
 
-        // Proteção: não exclui permanentemente card com conversa ativa vinculada
-        const [directConv] = await tx
+        // Proteção: não exclui permanentemente card com conversa ativa vinculada,
+        // a menos que detachConversations=true seja passado explicitamente (preservando as conversas no chat).
+        const activeConvLinks = await tx
           .select({ conversationId: crmConversationDeals.conversationId })
           .from(crmConversationDeals)
           .where(
@@ -3187,12 +3204,49 @@ export async function executeExtendedMcpTool(
               eq(crmConversationDeals.dealId, dealId),
               eq(crmConversationDeals.isActive, true),
             ),
-          )
-          .limit(1);
-        if (directConv) {
-          throw new Error(
-            `Exclusão definitiva bloqueada: a negociação '${dealId}' possui conversa vinculada ('${directConv.conversationId}'). Use mode='archive' para arquivar sem perder o histórico.`,
           );
+
+        const detachedConversationIds = Array.from(
+          new Set(activeConvLinks.map((row) => row.conversationId)),
+        );
+
+        if (detachedConversationIds.length > 0 && !detachConversations) {
+          throw new Error(
+            `Exclusão definitiva bloqueada: a negociação '${dealId}' possui conversa vinculada ('${detachedConversationIds[0]}'). Use mode='archive' para arquivar sem perder o histórico, ou passe detachConversations=true (ou use unlink_conversation_deal antes) para excluir preservando a conversa no chat.`,
+          );
+        }
+
+        if (detachedConversationIds.length > 0 && detachConversations) {
+          await tx
+            .update(crmConversationDeals)
+            .set({
+              isActive: false,
+              unlinkedAt: now,
+              unlinkedByOperatorId: operator?.id ?? null,
+            })
+            .where(
+              and(
+                eq(crmConversationDeals.tenantId, tenantId),
+                eq(crmConversationDeals.dealId, dealId),
+                eq(crmConversationDeals.isActive, true),
+              ),
+            );
+
+          await tx
+            .update(conversationDealContexts)
+            .set({
+              currentDealId: null,
+              previousDealId: null,
+              version: sql`${conversationDealContexts.version} + 1`,
+              updatedAt: now,
+            })
+            .where(
+              and(
+                eq(conversationDealContexts.tenantId, tenantId),
+                inArray(conversationDealContexts.conversationId, detachedConversationIds),
+                eq(conversationDealContexts.currentDealId, dealId),
+              ),
+            );
         }
 
         await tx
@@ -3214,12 +3268,15 @@ export async function executeExtendedMcpTool(
             dealIds: [dealId],
             deals: [{ id: deal.id, title: deal.title }],
             reason,
+            detachConversations,
+            detachedConversationIds,
+            conversationsPreserved: detachedConversationIds.length > 0,
             source: "mcp",
           },
           createdAt: now,
         });
 
-        return { id: deal.id, title: deal.title };
+        return { id: deal.id, title: deal.title, detachedConversationIds };
       });
 
       return {
@@ -3229,6 +3286,9 @@ export async function executeExtendedMcpTool(
         title: deletedInfo.title,
         mode: "delete_permanent",
         deleted: true,
+        detachConversations,
+        detachedConversationIds: deletedInfo.detachedConversationIds,
+        conversationsPreserved: deletedInfo.detachedConversationIds.length > 0,
         reason,
         deletedBy: actorName,
       };
@@ -3240,6 +3300,9 @@ export async function executeExtendedMcpTool(
       }
       if (isKnowledgeMcpTool(name)) {
         return executeKnowledgeMcpTool(name, args, tenantId, actor);
+      }
+      if (isWave1McpTool(name)) {
+        return executeWave1McpTool(name, args, tenantId, actor);
       }
       throw new Error(`Ferramenta estendida desconhecida: '${name}'.`);
   }

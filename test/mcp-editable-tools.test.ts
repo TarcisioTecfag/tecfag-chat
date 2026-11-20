@@ -28,21 +28,21 @@ function makeAccess(accessLevel: "read" | "read_write" | undefined): McpAccessCo
 }
 
 describe("MCP Editável Real (/api/mcp + permissão read/read_write + ponte stdio)", () => {
-  it("possui 68 ferramentas únicas (24 leitura + 44 escrita) com 100% de paridade no catálogo da Biblioteca de API", () => {
+  it("possui 73 ferramentas únicas (29 leitura + 44 escrita) com 100% de paridade no catálogo da Biblioteca de API", () => {
     const readTools = MCP_TOOLS.filter((t) => t.access === "read");
     const writeTools = MCP_TOOLS.filter((t) => t.access === "write");
 
-    expect(MCP_TOOLS).toHaveLength(68);
-    expect(readTools).toHaveLength(24);
+    expect(MCP_TOOLS).toHaveLength(73);
+    expect(readTools).toHaveLength(29);
     expect(writeTools).toHaveLength(44);
-    expect(new Set(MCP_TOOLS.map((t) => t.name)).size).toBe(68);
+    expect(new Set(MCP_TOOLS.map((t) => t.name)).size).toBe(73);
 
     const catalogMcp = getApiLibraryCatalog("tecfag").filter((e) => e.kind === "mcp");
     const coreNames = new Set(MCP_TOOLS.map((t) => t.name));
     const catalogNames = new Set(catalogMcp.map((e) => e.mcpToolName));
 
-    expect(catalogMcp).toHaveLength(68);
-    expect(catalogNames.size).toBe(68);
+    expect(catalogMcp).toHaveLength(73);
+    expect(catalogNames.size).toBe(73);
     for (const name of coreNames) {
       expect(catalogNames.has(name)).toBe(true);
     }
@@ -56,15 +56,15 @@ describe("MCP Editável Real (/api/mcp + permissão read/read_write + ponte stdi
 
     const readVisible = getVisibleMcpTools(makeAccess("read"));
     const rwVisible = getVisibleMcpTools(makeAccess("read_write"));
-    expect(readVisible).toHaveLength(24);
+    expect(readVisible).toHaveLength(29);
     expect(readVisible.every((t) => t.access === "read")).toBe(true);
-    expect(rwVisible).toHaveLength(68);
+    expect(rwVisible).toHaveLength(73);
 
     const listRead = await processMcpJsonRpcPayload(
       { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} },
       makeAccess("read"),
     );
-    expect(listRead.body?.result?.tools).toHaveLength(24);
+    expect(listRead.body?.result?.tools).toHaveLength(29);
     expect(
       listRead.body.result.tools.some((t: { name: string }) => isWriteMcpTool(t.name)),
     ).toBe(false);
@@ -73,7 +73,7 @@ describe("MCP Editável Real (/api/mcp + permissão read/read_write + ponte stdi
       { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} },
       makeAccess("read_write"),
     );
-    expect(listRw.body?.result?.tools).toHaveLength(68);
+    expect(listRw.body?.result?.tools).toHaveLength(73);
   });
 
   it("bloqueia TODAS as 44 ferramentas de escrita quando a chave tem permissão 'read' ou indefinida", async () => {
@@ -298,6 +298,50 @@ describe("MCP Editável Real (/api/mcp + permissão read/read_write + ponte stdi
     expect(
       summarizeMcpToolResult("query_knowledge_rag", { query: "FR-900", returnedChars: 900 }),
     ).toContain("FR-900");
+    expect(inferMcpAuditEventType("get_stage_rules")).toBe("query");
+    expect(inferMcpAuditEventType("validate_deal_stage_transition")).toBe("query");
+    expect(inferMcpAuditEventType("check_operator_schedule_conflict")).toBe("query");
+    expect(inferMcpAuditEventType("get_stage_queue")).toBe("query");
+    expect(inferMcpAuditEventType("get_deal_audit_log")).toBe("query");
+    expect(
+      summarizeMcpToolResult("get_stage_rules", {
+        stage: { name: "ATENDER" },
+        requiredFields: { count: 2 },
+        lossReasons: { count: 5 },
+        metaTemplates: { count: 3 },
+      }),
+    ).toContain("ATENDER");
+    expect(
+      summarizeMcpToolResult("validate_deal_stage_transition", {
+        dealId: "deal-1",
+        targetStageName: "ATENDER",
+        missingFieldsCount: 1,
+        overdueActivitiesCount: 2,
+      }),
+    ).toContain("1 campo(s) faltando");
+    expect(
+      summarizeMcpToolResult("check_operator_schedule_conflict", {
+        operatorName: "Diana",
+        hasConflict: true,
+        conflictCount: 1,
+      }),
+    ).toContain("Conflito detectado");
+    expect(
+      summarizeMcpToolResult("get_stage_queue", {
+        stage: { name: "ATENDER" },
+        totalOpenInStage: 4,
+        breachedCount: 2,
+        slaMinutes: 15,
+      }),
+    ).toContain("2 acima de 15 min");
+    expect(
+      summarizeMcpToolResult("get_deal_audit_log", {
+        dealId: "deal-1",
+        returnedEvents: 5,
+        totalEvents: 5,
+        adminActionsCount: 1,
+      }),
+    ).toContain("5/5 evento(s)");
   });
 
   it("executa scripts/mcp-server.mjs com sintaxe válida e ponte stdio JSON-RPC real", async () => {

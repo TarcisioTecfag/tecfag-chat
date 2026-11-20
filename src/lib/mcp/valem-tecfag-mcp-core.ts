@@ -43,7 +43,7 @@ export const DEFAULT_MCP_ADMIN_TOKEN = "mcp_admin_7d9e3b5c1a8f4e6d2b0c9a7e5f3d1b
 
 export const MCP_SERVER_INFO = {
   name: "valem-tecfag-mcp",
-  version: "3.0.0",
+  version: "3.2.0",
 };
 
 export type McpAccessLevel = "read" | "read_write";
@@ -498,10 +498,12 @@ export function summarizeMcpToolResult(toolName: string, data: any): string {
         return `Contato ${data.mergedSourceContactId} mesclado em "${data.contact?.name || data.targetContactId}" (${data.targetContactId})`;
       case "replace_crm_deal_contact":
         return `Contato do card ${data.dealId} trocado para "${data.newContactName || data.newContactId}"`;
-      case "archive_crm_deal":
+      case "archive_crm_deal": {
+        const detached = Array.isArray(data.detachedConversationIds) ? data.detachedConversationIds.length : 0;
         return data.mode === "delete_permanent"
-          ? `Negociação ${data.dealId} excluída definitivamente (${data.reason || "sem motivo"})`
+          ? `Negociação ${data.dealId} excluída definitivamente${detached > 0 ? ` (${detached} conversa(s) preservada(s))` : ""} (${data.reason || "sem motivo"})`
           : `Negociação ${data.dealId} arquivada na Lixeira (${data.reason || "sem motivo"})`;
+      }
       case "get_deal_conversations":
         return `Vínculos consultados (${Number(data.totalConversations ?? 0)} conversa(s), ${Number(data.totalDeals ?? 0)} card(s))`;
       case "link_conversation_deal":
@@ -571,6 +573,25 @@ export function summarizeMcpToolResult(toolName: string, data: any): string {
       }
       case "delete_knowledge_file":
         return `${Number(data.deletedCount ?? 0)} arquivo(s) removido(s) do Knowledge`;
+      case "get_stage_rules": {
+        const stageName = (data.stage as Record<string, unknown> | undefined)?.name || "";
+        const reqCount = Number((data.requiredFields as Record<string, unknown> | undefined)?.count ?? 0);
+        const tplCount = Number((data.metaTemplates as Record<string, unknown> | undefined)?.count ?? 0);
+        const lossCount = Number((data.lossReasons as Record<string, unknown> | undefined)?.count ?? 0);
+        return `Regras de "${stageName}": ${reqCount} campo(s) obrigatório(s), ${lossCount} motivo(s) de perda, ${tplCount} template(s)`;
+      }
+      case "validate_deal_stage_transition":
+        return `Pré-validação do card ${data.dealId} → "${data.targetStageName}": ${Number(data.missingFieldsCount ?? 0)} campo(s) faltando, ${Number(data.overdueActivitiesCount ?? 0)} tarefa(s) atrasada(s)`;
+      case "check_operator_schedule_conflict":
+        return data.hasConflict
+          ? `Conflito detectado para ${data.operatorName || data.operatorId}: ${Number(data.conflictCount ?? 0)} atividade(s) no horário`
+          : `Agenda livre para ${data.operatorName || data.operatorId} no horário consultado`;
+      case "get_stage_queue": {
+        const stageName = (data.stage as Record<string, unknown> | undefined)?.name || "";
+        return `Fila "${stageName}": ${Number(data.totalOpenInStage ?? 0)} aberto(s), ${Number(data.breachedCount ?? 0)} acima de ${Number(data.slaMinutes ?? 15)} min`;
+      }
+      case "get_deal_audit_log":
+        return `Auditoria do card ${data.dealId}: ${Number(data.returnedEvents ?? 0)}/${Number(data.totalEvents ?? 0)} evento(s), ${Number(data.adminActionsCount ?? 0)} ação(ões) administrativa(s)`;
       default:
         return "Dados retornados com sucesso";
     }

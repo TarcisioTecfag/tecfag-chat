@@ -399,7 +399,15 @@ export function ApiLibrarySettingsTab() {
           if (!clean) continue;
           if (clean === "true") argsObj[k] = true;
           else if (clean === "false") argsObj[k] = false;
-          else if ((k === "limit" || k === "offset" || k === "maxChars") && !Number.isNaN(Number(clean))) {
+          else if (
+            (k === "limit" ||
+              k === "offset" ||
+              k === "maxChars" ||
+              k === "slaMinutes" ||
+              k === "durationMinutes" ||
+              k === "dealValue") &&
+            !Number.isNaN(Number(clean))
+          ) {
             argsObj[k] = Number(clean);
           } else {
             argsObj[k] = clean;
