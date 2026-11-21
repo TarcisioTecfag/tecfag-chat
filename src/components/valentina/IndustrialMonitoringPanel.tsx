@@ -29,11 +29,17 @@ const fields: Record<string, string> = {
   application: "Aplicação",
   production: "Produção",
 };
-export function IndustrialMonitoringPanel({ monitoring: m }: { monitoring: IndustrialMonitoring }) {
+export function IndustrialMonitoringPanel({
+  monitoring: m,
+  className,
+}: {
+  monitoring: IndustrialMonitoring;
+  className?: string;
+}) {
   const reason = reasons[m.machine?.reason || ""] || reasons[m.reason || ""];
   return (
     <section
-      className="mx-4 my-3 rounded-xl border border-border bg-muted/30 p-3 space-y-2"
+      className={className ?? "mx-3 my-2 sm:mx-4 sm:my-3 rounded-xl border border-border bg-muted/30 p-3 space-y-2"}
       aria-label="Situação da triagem"
     >
       <p className="text-xs font-bold">{m.label}</p>

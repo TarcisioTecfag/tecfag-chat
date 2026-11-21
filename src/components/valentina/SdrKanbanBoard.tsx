@@ -79,7 +79,7 @@ export function SdrKanbanBoard({
   } | null>(null);
 
   const handleBoardPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return;
+    if (e.pointerType !== "mouse" || e.button !== 0) return;
     const target = e.target as HTMLElement;
 
     if (
@@ -322,7 +322,7 @@ export function SdrKanbanBoard({
     <div className="relative flex flex-col flex-1 h-full min-h-0 shrink-0">
       {/* ── INDICADOR DISCRETO ESQUERDO ── */}
       {offscreenIndicators.left && (
-        <div className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 z-20">
+        <div className="pointer-events-none absolute left-1.5 sm:left-2 top-11 sm:top-1/2 sm:-translate-y-1/2 z-20">
           <SystemTooltip
             content={`${offscreenIndicators.left.targetCount} atendimento(s) em ${offscreenIndicators.left.targetColumnLabel} — Clique para rolar`}
           >
@@ -333,13 +333,13 @@ export function SdrKanbanBoard({
                 offscreenIndicators.left &&
                 handleScrollToColumn("left", offscreenIndicators.left.targetColumnKey)
               }
-              className="pointer-events-auto group/nav flex items-center gap-1.5 h-8 px-2.5 rounded-full bg-card/95 dark:bg-zinc-900/95 backdrop-blur-md border border-border/90 hover:border-primary/60 shadow-md hover:shadow-lg transition-all duration-200 cursor-pointer"
+              className="pointer-events-auto group/nav flex items-center gap-1 sm:gap-1.5 h-8 px-2 sm:px-2.5 rounded-full bg-card/95 dark:bg-zinc-900/95 backdrop-blur-md border border-border/90 hover:border-primary/60 shadow-md hover:shadow-lg transition-all duration-200 cursor-pointer"
             >
               <ChevronLeft className="h-3.5 w-3.5 text-muted-foreground group-hover/nav:text-primary group-hover/nav:-translate-x-0.5 transition-all shrink-0" />
               <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-full bg-primary text-primary-foreground leading-none">
                 {offscreenIndicators.left.targetCount}
               </span>
-              <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground group-hover/nav:text-foreground transition-colors">
+              <span className="hidden sm:inline text-[10px] font-bold uppercase tracking-wide text-muted-foreground group-hover/nav:text-foreground transition-colors">
                 {offscreenIndicators.left.targetColumnLabel}
               </span>
             </button>
@@ -349,7 +349,7 @@ export function SdrKanbanBoard({
 
       {/* ── INDICADOR DISCRETO DIREITO ── */}
       {offscreenIndicators.right && (
-        <div className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 z-20">
+        <div className="pointer-events-none absolute right-1.5 sm:right-2 top-11 sm:top-1/2 sm:-translate-y-1/2 z-20">
           <SystemTooltip
             content={
               offscreenIndicators.right.hiddenColumnsWithCards.length > 1
@@ -364,7 +364,7 @@ export function SdrKanbanBoard({
                 offscreenIndicators.right &&
                 handleScrollToColumn("right", offscreenIndicators.right.targetColumnKey)
               }
-              className={`pointer-events-auto group/nav flex items-center gap-1.5 h-8 px-2.5 rounded-full bg-card/95 dark:bg-zinc-900/95 backdrop-blur-md border shadow-md hover:shadow-lg transition-all duration-200 cursor-pointer ${
+              className={`pointer-events-auto group/nav flex items-center gap-1 sm:gap-1.5 h-8 px-2 sm:px-2.5 rounded-full bg-card/95 dark:bg-zinc-900/95 backdrop-blur-md border shadow-md hover:shadow-lg transition-all duration-200 cursor-pointer ${
                 hasNewRightArrival
                   ? "border-primary ring-2 ring-primary/30"
                   : "border-border/90 hover:border-primary/60"
@@ -380,7 +380,7 @@ export function SdrKanbanBoard({
                     : offscreenIndicators.right.accentColor,
                 }}
               />
-              <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground group-hover/nav:text-foreground transition-colors">
+              <span className="hidden sm:inline text-[10px] font-bold uppercase tracking-wide text-muted-foreground group-hover/nav:text-foreground transition-colors">
                 {offscreenIndicators.right.targetColumnLabel}
               </span>
               <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-full bg-primary text-primary-foreground leading-none">
@@ -398,11 +398,11 @@ export function SdrKanbanBoard({
         onScroll={handleBoardScroll}
         onPointerDown={handleBoardPointerDown}
         onWheel={handleBoardWheel}
-        className={`w-full flex-1 min-h-0 flex flex-col overflow-x-auto overflow-y-hidden pb-2 pt-0.5 select-none transition-colors ${
-          isPanning ? "cursor-grabbing" : "cursor-grab"
+        className={`w-full flex-1 min-h-0 flex flex-col overflow-x-auto overflow-y-hidden touch-pan-x snap-x snap-mandatory sm:snap-none pb-2 pt-0.5 select-none transition-colors ${
+          isPanning ? "sm:cursor-grabbing" : "sm:cursor-grab"
         } [&::-webkit-scrollbar]:h-2.5 [&::-webkit-scrollbar-track]:bg-muted/40 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/35 [&::-webkit-scrollbar-thumb:hover]:bg-primary [&::-webkit-scrollbar-thumb]:rounded-full`}
       >
-        <div className="flex items-stretch gap-3 min-w-max flex-1 min-h-0 h-full">
+        <div className="flex items-stretch gap-2.5 sm:gap-3 min-w-max flex-1 min-h-0 h-full">
           {KANBAN_COLUMNS.map((column) => {
             const ColumnIcon = column.icon;
             const columnSessions = sessionsByColumn[column.key] || [];
@@ -418,7 +418,7 @@ export function SdrKanbanBoard({
                   columnRefs.current[column.key] = el;
                 }}
                 data-kanban-col={column.key}
-                className="w-[260px] shrink-0 h-full min-h-0 flex flex-col bg-muted/15 dark:bg-zinc-900/30 rounded-2xl border border-border/80 overflow-hidden shadow-xs"
+                className="w-[82vw] max-w-[290px] sm:w-[260px] shrink-0 snap-start h-full min-h-0 flex flex-col bg-muted/15 dark:bg-zinc-900/30 rounded-2xl border border-border/80 overflow-hidden shadow-xs"
               >
                 {/* Cabeçalho da Coluna */}
                 <div
@@ -658,10 +658,10 @@ export function SdrKanbanBoard({
                             </span>
 
                             <span
-                              className={`text-[8px] font-bold transition flex items-center gap-0.5 ${
+                              className={`text-[9px] sm:text-[8px] font-bold transition flex items-center gap-0.5 ${
                                 isAwaitingApproval
                                   ? "text-amber-700 dark:text-amber-300 opacity-100"
-                                  : "opacity-0 group-hover:opacity-100 text-primary"
+                                  : "opacity-100 sm:opacity-0 sm:group-hover:opacity-100 text-primary"
                               }`}
                             >
                               {isAwaitingApproval ? (

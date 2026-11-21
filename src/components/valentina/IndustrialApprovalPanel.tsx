@@ -62,6 +62,7 @@ export interface IndustrialApprovalPanelProps {
   personaName: string;
   session: SdrTriageSession;
   onActionCompleted: (kind: "approved" | "dismissed" | "assumed", conversationId: string) => void;
+  className?: string;
 }
 
 export function IndustrialApprovalPanel({
@@ -69,6 +70,7 @@ export function IndustrialApprovalPanel({
   personaName,
   session,
   onActionCompleted,
+  className,
 }: IndustrialApprovalPanelProps) {
   const isAwaitingApproval =
     session.status === "awaiting_approval" || session.monitoring?.state === "awaiting_approval";
@@ -311,11 +313,11 @@ export function IndustrialApprovalPanel({
 
   return (
     <section
-      className={`mx-4 my-3 rounded-2xl border p-3.5 space-y-3 transition ${
+      className={`rounded-2xl border p-3 sm:p-3.5 space-y-3 transition ${
         isAwaitingApproval
           ? "border-amber-500/50 bg-amber-500/8 shadow-sm ring-1 ring-amber-500/20"
           : "border-border bg-card/80"
-      }`}
+      } ${className ?? ""}`}
       aria-label="Aprovação Human-in-the-Loop SDR"
     >
       {/* Cabeçalho */}
@@ -378,22 +380,24 @@ export function IndustrialApprovalPanel({
               <div className="space-y-2.5">
                 {/* Setor */}
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground flex items-center gap-1">
-                    <Building2 className="h-3 w-3 text-primary" />
-                    Setor de Destino
+                  <label className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground flex items-center flex-wrap gap-x-1.5 gap-y-0.5">
+                    <span className="inline-flex items-center gap-1">
+                      <Building2 className="h-3 w-3 text-primary shrink-0" />
+                      Setor de Destino
+                    </span>
                     {pending?.suggestedSectorName && (
-                      <span className="ml-auto text-[9px] font-semibold text-amber-600 dark:text-amber-300 normal-case">
+                      <span className="ml-auto text-[10px] sm:text-[9px] font-semibold text-amber-600 dark:text-amber-300 normal-case truncate max-w-full">
                         Sugestão: {pending.suggestedSectorName}
                       </span>
                     )}
                   </label>
                   <Select value={sectorId} onValueChange={handleSectorChange}>
-                    <SelectTrigger className="h-8.5 text-xs rounded-xl">
+                    <SelectTrigger className="h-10 sm:h-8.5 text-xs rounded-xl">
                       <SelectValue placeholder="Selecione o setor..." />
                     </SelectTrigger>
                     <SelectContent>
                       {(options?.sectors || []).map((sec) => (
-                        <SelectItem key={sec.id} value={sec.id} className="text-xs">
+                        <SelectItem key={sec.id} value={sec.id} className="text-xs py-2 sm:py-1.5">
                           {sec.name}
                         </SelectItem>
                       ))}
@@ -403,17 +407,19 @@ export function IndustrialApprovalPanel({
 
                 {/* Operador */}
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground flex items-center gap-1">
-                    <User className="h-3 w-3 text-primary" />
-                    Operador (Rodízio)
+                  <label className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground flex items-center flex-wrap gap-x-1.5 gap-y-0.5">
+                    <span className="inline-flex items-center gap-1">
+                      <User className="h-3 w-3 text-primary shrink-0" />
+                      Operador (Rodízio)
+                    </span>
                     {pending?.suggestedOperatorName && (
-                      <span className="ml-auto text-[9px] font-semibold text-emerald-600 dark:text-emerald-400 normal-case">
+                      <span className="ml-auto text-[10px] sm:text-[9px] font-semibold text-emerald-600 dark:text-emerald-400 normal-case truncate max-w-full">
                         Próx. Rodízio: {pending.suggestedOperatorName}
                       </span>
                     )}
                   </label>
                   <Select value={operatorId} onValueChange={setOperatorId}>
-                    <SelectTrigger className="h-8.5 text-xs rounded-xl">
+                    <SelectTrigger className="h-10 sm:h-8.5 text-xs rounded-xl">
                       <SelectValue placeholder="Selecione o responsável..." />
                     </SelectTrigger>
                     <SelectContent>
@@ -425,7 +431,7 @@ export function IndustrialApprovalPanel({
                         if (op.isOnLeave) badgeParts.push("Ausente");
                         else if (inSector) badgeParts.push(`${op.activeChatsNow} chats`);
                         return (
-                          <SelectItem key={op.id} value={op.id} className="text-xs">
+                          <SelectItem key={op.id} value={op.id} className="text-xs py-2 sm:py-1.5">
                             {op.name}
                             {badgeParts.length > 0 ? ` (${badgeParts.join(" · ")})` : ""}
                           </SelectItem>
@@ -438,16 +444,16 @@ export function IndustrialApprovalPanel({
                 {/* Funil CRM */}
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground flex items-center gap-1">
-                    <Kanban className="h-3 w-3 text-primary" />
+                    <Kanban className="h-3 w-3 text-primary shrink-0" />
                     Mover Card para Funil CRM
                   </label>
                   <Select value={pipelineId} onValueChange={handlePipelineChange}>
-                    <SelectTrigger className="h-8.5 text-xs rounded-xl">
+                    <SelectTrigger className="h-10 sm:h-8.5 text-xs rounded-xl">
                       <SelectValue placeholder="Selecione o funil de destino..." />
                     </SelectTrigger>
                     <SelectContent>
                       {(options?.pipelines || []).map((pipe) => (
-                        <SelectItem key={pipe.id} value={pipe.id} className="text-xs">
+                        <SelectItem key={pipe.id} value={pipe.id} className="text-xs py-2 sm:py-1.5">
                           {pipe.name}
                         </SelectItem>
                       ))}
@@ -459,16 +465,16 @@ export function IndustrialApprovalPanel({
                 {pipelineId && (
                   <div className="space-y-1">
                     <label className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground flex items-center gap-1">
-                      <Layers className="h-3 w-3 text-primary" />
+                      <Layers className="h-3 w-3 text-primary shrink-0" />
                       Etapa de Entrada
                     </label>
                     <Select value={stageId} onValueChange={setStageId}>
-                      <SelectTrigger className="h-8.5 text-xs rounded-xl">
+                      <SelectTrigger className="h-10 sm:h-8.5 text-xs rounded-xl">
                         <SelectValue placeholder="Selecione a etapa..." />
                       </SelectTrigger>
                       <SelectContent>
                         {stagesForSelectedPipeline.map((st) => (
-                          <SelectItem key={st.id} value={st.id} className="text-xs">
+                          <SelectItem key={st.id} value={st.id} className="text-xs py-2 sm:py-1.5">
                             {st.name}
                           </SelectItem>
                         ))}
@@ -484,12 +490,12 @@ export function IndustrialApprovalPanel({
                   type="button"
                   disabled={submittingAction !== null || !operatorId}
                   onClick={handleApprove}
-                  className="w-full py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-sm transition cursor-pointer disabled:opacity-50"
+                  className="w-full py-3 sm:py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-sm transition cursor-pointer disabled:opacity-50"
                 >
                   {submittingAction === "approve" ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <Loader2 className="h-4 w-4 sm:h-3.5 sm:w-3.5 animate-spin" />
                   ) : (
-                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    <CheckCircle2 className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
                   )}
                   <span>
                     {submittingAction === "approve" ? "Aprovando..." : "Aprovar e Transferir"}
@@ -504,7 +510,7 @@ export function IndustrialApprovalPanel({
                     type="button"
                     disabled={submittingAction !== null}
                     onClick={() => setShowDismissBox((prev) => !prev)}
-                    className="py-2 px-2.5 rounded-xl border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/15 text-rose-700 dark:text-rose-300 text-[11px] font-bold flex items-center justify-center gap-1 transition cursor-pointer disabled:opacity-50"
+                    className="py-2.5 sm:py-2 px-2.5 rounded-xl border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/15 active:scale-[0.99] text-rose-700 dark:text-rose-300 text-[11px] font-bold flex items-center justify-center gap-1 transition cursor-pointer disabled:opacity-50"
                   >
                     <XCircle className="h-3.5 w-3.5 shrink-0" />
                     <span className="truncate">Concluir s/ Enviar</span>
@@ -516,7 +522,7 @@ export function IndustrialApprovalPanel({
                     type="button"
                     disabled={submittingAction !== null}
                     onClick={handleAssume}
-                    className="py-2 px-2.5 rounded-xl border border-primary/30 bg-primary/10 hover:bg-primary/15 text-primary text-[11px] font-bold flex items-center justify-center gap-1 transition cursor-pointer disabled:opacity-50"
+                    className="py-2.5 sm:py-2 px-2.5 rounded-xl border border-primary/30 bg-primary/10 hover:bg-primary/15 active:scale-[0.99] text-primary text-[11px] font-bold flex items-center justify-center gap-1 transition cursor-pointer disabled:opacity-50"
                   >
                     {submittingAction === "assume" ? (
                       <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />

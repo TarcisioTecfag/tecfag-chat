@@ -189,22 +189,58 @@ export function ValentinaView() {
         : `Clique para ativar ${persona.gender === "female" ? "a" : "o"} ${persona.name} globalmente`;
 
   return (
-    <div className="flex flex-col h-full bg-card rounded-3xl border border-border shadow-soft overflow-hidden">
+    <div className="flex flex-col h-full bg-card rounded-2xl md:rounded-3xl border border-border shadow-soft overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-3.5 border-b border-line shrink-0 gap-3 flex-wrap">
-        <div className="flex items-center gap-3">
-          <div>
-            <h1 className="text-base font-extrabold text-foreground flex items-center gap-2">
-              <Bot className="h-4.5 w-4.5 text-primary" />
-              {persona.name}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between px-3.5 py-2.5 md:px-6 md:py-3.5 border-b border-line shrink-0 gap-2 md:gap-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <h1 className="text-sm md:text-base font-extrabold text-foreground flex items-center gap-2 truncate">
+              <Bot className="h-4 w-4 md:h-4.5 md:w-4.5 text-primary shrink-0" />
+              <span className="truncate">{persona.name}</span>
             </h1>
-            <p className="text-[11px] text-muted-foreground capitalize mt-0.5">{today}</p>
+            <p className="hidden sm:block text-[11px] text-muted-foreground capitalize mt-0.5">
+              {today}
+            </p>
           </div>
+
+          {activeTab === "sdr" && (
+            <div className="md:hidden shrink-0">
+              <SystemTooltip content={sdrToggleTooltip}>
+                <button
+                  type="button"
+                  onClick={handleToggleSdr}
+                  disabled={!isAdmin || sdrEnabled === null || isSavingSdrConfig}
+                  className={`px-2.5 py-1.5 rounded-lg text-[10px] font-extrabold transition flex items-center gap-1.5 shadow-soft border ${
+                    sdrEnabled === true
+                      ? "bg-primary text-primary-foreground border-primary hover:bg-primary-hover"
+                      : "bg-muted text-muted-foreground border-border hover:bg-muted/80"
+                  } ${
+                    !isAdmin || sdrEnabled === null || isSavingSdrConfig
+                      ? "opacity-70 cursor-not-allowed"
+                      : "cursor-pointer"
+                  }`}
+                >
+                  {sdrEnabled === null || isSavingSdrConfig ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Power className="h-3 w-3" />
+                  )}
+                  <span>
+                    {sdrEnabled === null
+                      ? "Carregando..."
+                      : sdrEnabled
+                        ? "SDR Ativo"
+                        : "SDR Inativo"}
+                  </span>
+                </button>
+              </SystemTooltip>
+            </div>
+          )}
         </div>
 
-        <div className="flex items-center gap-2.5 flex-wrap">
-          {activeTab === "sdr" && (
-            <div className="flex items-center gap-2 animate-fadeIn flex-wrap">
+        {activeTab === "sdr" && (
+          <div className="flex items-center gap-2 md:gap-2.5 flex-wrap w-full md:w-auto animate-fadeIn">
+            <div className="hidden md:block">
               <SystemTooltip content={sdrToggleTooltip}>
                 <button
                   type="button"
@@ -234,34 +270,34 @@ export function ValentinaView() {
                   </span>
                 </button>
               </SystemTooltip>
-
-              <SdrHeaderControls
-                filterState={sdrFilterState}
-                onFilterChange={setSdrFilterState}
-                viewMode={sdrViewMode}
-                onViewModeChange={setSdrViewMode}
-                onRefresh={() => setSdrRefreshKey((k) => k + 1)}
-                isLoading={isSdrLoading}
-                personaName={persona.name}
-                showTriageHistory={persona.triagePolicy === "industrial"}
-                tenantId={tenant || undefined}
-                selectedConversationId={sdrSelectedInfo.conversationId}
-                selectedConversationName={sdrSelectedInfo.contactName}
-                onSelectConversationFromSweep={(conversationId) => {
-                  setSdrTargetConversation({
-                    conversationId,
-                    ts: Date.now(),
-                  });
-                  setSdrViewMode("live");
-                }}
-                onOpenChatFromSweep={(conversationId) => {
-                  setSelectedChatId(conversationId);
-                  setActiveView("chat");
-                }}
-              />
             </div>
-          )}
-        </div>
+
+            <SdrHeaderControls
+              filterState={sdrFilterState}
+              onFilterChange={setSdrFilterState}
+              viewMode={sdrViewMode}
+              onViewModeChange={setSdrViewMode}
+              onRefresh={() => setSdrRefreshKey((k) => k + 1)}
+              isLoading={isSdrLoading}
+              personaName={persona.name}
+              showTriageHistory={persona.triagePolicy === "industrial"}
+              tenantId={tenant || undefined}
+              selectedConversationId={sdrSelectedInfo.conversationId}
+              selectedConversationName={sdrSelectedInfo.contactName}
+              onSelectConversationFromSweep={(conversationId) => {
+                setSdrTargetConversation({
+                  conversationId,
+                  ts: Date.now(),
+                });
+                setSdrViewMode("live");
+              }}
+              onOpenChatFromSweep={(conversationId) => {
+                setSelectedChatId(conversationId);
+                setActiveView("chat");
+              }}
+            />
+          </div>
+        )}
       </div>
 
       {/* Internal Tab Bar */}

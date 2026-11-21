@@ -149,91 +149,80 @@ export function SdrHeaderControls({
   };
 
   return (
-    <div className="flex items-center gap-2 flex-wrap">
-      {/* ── ALTERNADOR DE VISÃO: KANBAN | AO VIVO ── */}
-      <div className="inline-flex items-center rounded-lg border border-border bg-muted/40 p-0.5 shadow-2xs">
-        <SystemTooltip content="Visualizar quadro Kanban de funis em tela cheia">
-          <button
-            type="button"
-            onClick={() => onViewModeChange("kanban")}
-            className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition flex items-center gap-1.5 cursor-pointer ${
-              viewMode === "kanban"
-                ? "bg-primary text-primary-foreground shadow-2xs"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <Kanban className="h-3.5 w-3.5" />
-            <span>Kanban</span>
-          </button>
-        </SystemTooltip>
-        <SystemTooltip content="Visualizar Triagens Ao Vivo e chat compilado em tela cheia">
-          <button
-            type="button"
-            onClick={() => onViewModeChange("live")}
-            className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition flex items-center gap-1.5 cursor-pointer ${
-              viewMode === "live"
-                ? "bg-primary text-primary-foreground shadow-2xs"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <MessageSquare className="h-3.5 w-3.5" />
-            <span>Ao Vivo</span>
-          </button>
-        </SystemTooltip>
-      </div>
-
-      {/* ── CAMPO DE BUSCA UNIFICADO (VALE PARA KANBAN E LISTA AO VIVO) ── */}
-      <div className="relative w-44 sm:w-52 md:w-60">
-        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-        <input
-          type="text"
-          placeholder="Nome, empresa, fone ou msg..."
-          value={filterState.searchQuery}
-          onChange={(e) => handleUpdate({ searchQuery: e.target.value })}
-          className="w-full pl-8 pr-7 py-1 rounded-lg border border-border bg-muted/30 text-xs focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground/60 text-foreground transition"
-        />
-        {filterState.searchQuery && (
-          <SystemTooltip content="Limpar busca">
+    <div className="flex flex-col sm:flex-row sm:items-center gap-2 flex-wrap w-full sm:w-auto">
+      <div className="flex items-center justify-between gap-1.5 w-full sm:w-auto sm:contents">
+        {/* ── ALTERNADOR DE VISÃO: KANBAN | AO VIVO ── */}
+        <div className="inline-flex items-center rounded-lg border border-border bg-muted/40 p-0.5 shadow-2xs shrink-0">
+          <SystemTooltip content="Visualizar quadro Kanban de funis em tela cheia">
             <button
               type="button"
-              onClick={() => handleUpdate({ searchQuery: "" })}
-              className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded-full hover:bg-muted text-muted-foreground transition cursor-pointer"
+              onClick={() => onViewModeChange("kanban")}
+              className={`px-2.5 py-1.5 sm:py-1 rounded-md text-[11px] font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                viewMode === "kanban"
+                  ? "bg-primary text-primary-foreground shadow-2xs"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
             >
-              <X className="h-3 w-3" />
+              <Kanban className="h-3.5 w-3.5" />
+              <span>Kanban</span>
             </button>
           </SystemTooltip>
-        )}
-      </div>
-
-      {/* ── BOTÃO DE FILTROS UNIFICADOS COM POPOVER ── */}
-      <div className="relative" ref={filterRef}>
-        <SystemTooltip content="Filtros unificados (status, canal, não lidas e período — aplicados no Kanban e no Ao Vivo)">
-          <button
-            type="button"
-            onClick={() => setIsFilterOpen(!isFilterOpen)}
-            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 border cursor-pointer shadow-soft ${
-              isFilterOpen || hasActiveFilter
-                ? "bg-primary text-primary-foreground border-primary"
-                : "bg-card text-foreground border-border hover:bg-muted/60"
-            }`}
-          >
-            <Filter className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Filtros</span>
-            {hasActiveFilter && (
-              <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
-            )}
-          </button>
-        </SystemTooltip>
-
-        <AnimatePresence>
-          {isFilterOpen && (
-            <motion.div
-              initial={{ opacity: 0, y: 6, scale: 0.97 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 6, scale: 0.97 }}
-              transition={{ duration: 0.16 }}
-              className="absolute right-0 mt-2 z-50 w-80 max-h-[82vh] overflow-y-auto scrollbar-thin rounded-2xl bg-card border border-border text-foreground shadow-2xl p-4 space-y-4"
+          <SystemTooltip content="Visualizar Triagens Ao Vivo e chat compilado em tela cheia">
+            <button
+              type="button"
+              onClick={() => onViewModeChange("live")}
+              className={`px-2.5 py-1.5 sm:py-1 rounded-md text-[11px] font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                viewMode === "live"
+                  ? "bg-primary text-primary-foreground shadow-2xs"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
             >
+              <MessageSquare className="h-3.5 w-3.5" />
+              <span>Ao Vivo</span>
+            </button>
+          </SystemTooltip>
+        </div>
+
+        {/* ── AÇÕES COMPACTAS (NO MOBILE FICAM ALINHADAS À DIREITA DO ALTERNADOR) ── */}
+        <div className="flex items-center gap-1.5 sm:contents">
+          {/* ── BOTÃO DE FILTROS UNIFICADOS COM POPOVER / BOTTOM SHEET MOBILE ── */}
+          <div className="relative sm:order-3" ref={filterRef}>
+            <SystemTooltip content="Filtros unificados (status, canal, não lidas e período — aplicados no Kanban e no Ao Vivo)">
+              <button
+                type="button"
+                onClick={() => setIsFilterOpen(!isFilterOpen)}
+                aria-label="Filtros da triagem"
+                className={`px-2.5 py-1.5 sm:py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 border cursor-pointer shadow-soft ${
+                  isFilterOpen || hasActiveFilter
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-card text-foreground border-border hover:bg-muted/60"
+                }`}
+              >
+                <Filter className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Filtros</span>
+                {hasActiveFilter && (
+                  <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
+                )}
+              </button>
+            </SystemTooltip>
+
+            <AnimatePresence>
+              {isFilterOpen && (
+                <>
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    onClick={() => setIsFilterOpen(false)}
+                    className="fixed inset-0 z-[85] bg-black/50 backdrop-blur-xs sm:hidden"
+                  />
+                  <motion.div
+                    initial={{ opacity: 0, y: 12, scale: 0.98 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 12, scale: 0.98 }}
+                    transition={{ duration: 0.16 }}
+                    className="fixed inset-x-3 bottom-3 z-[90] max-h-[82dvh] sm:absolute sm:inset-auto sm:right-0 sm:bottom-auto sm:mt-2 sm:z-50 sm:w-80 sm:max-h-[82vh] overflow-y-auto scrollbar-thin rounded-2xl bg-card border border-border text-foreground shadow-2xl p-4 space-y-4"
+                  >
               <div className="flex items-center justify-between border-b border-border pb-2">
                 <h4 className="text-xs font-extrabold tracking-wide uppercase text-foreground">
                   Filtros da Triagem
@@ -484,39 +473,73 @@ export function SdrHeaderControls({
                   </p>
                 </div>
               </div>
-            </motion.div>
+                </motion.div>
+                </>
+              )}
+            </AnimatePresence>
+          </div>
+
+          {/* ── VARREDURA REAL (MODAL DE DIAGNÓSTICO) ── */}
+          <div className="sm:order-4">
+            <SdrSweepModal
+              personaName={personaName}
+              onSelectConversation={(convId) => onSelectConversationFromSweep?.(convId)}
+              onOpenChat={(convId) => onOpenChatFromSweep?.(convId)}
+            />
+          </div>
+
+          {/* ── BOTÃO HISTÓRICO E NOTAS ── */}
+          {showTriageHistory && tenantId && (
+            <div className="sm:order-5">
+              <IndustrialTriageHistory
+                key={tenantId}
+                tenantId={tenantId}
+                initialConversationId={selectedConversationId}
+                initialConversationName={selectedConversationName}
+              />
+            </div>
           )}
-        </AnimatePresence>
+
+          {/* ── BOTÃO ATUALIZAR ── */}
+          <div className="sm:order-6">
+            <SystemTooltip content="Atualizar conversas e kanban agora">
+              <button
+                type="button"
+                onClick={onRefresh}
+                aria-label="Atualizar conversas e kanban"
+                className="px-2.5 py-1.5 sm:py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 border border-border bg-card text-foreground hover:bg-muted/60 cursor-pointer shadow-soft"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 text-primary ${isLoading ? "animate-spin" : ""}`} />
+                <span className="hidden sm:inline">Atualizar</span>
+              </button>
+            </SystemTooltip>
+          </div>
+        </div>
       </div>
 
-      {/* ── VARREDURA REAL (MODAL DE DIAGNÓSTICO) ── */}
-      <SdrSweepModal
-        personaName={personaName}
-        onSelectConversation={(convId) => onSelectConversationFromSweep?.(convId)}
-        onOpenChat={(convId) => onOpenChatFromSweep?.(convId)}
-      />
-
-      {/* ── BOTÃO HISTÓRICO E NOTAS ── */}
-      {showTriageHistory && tenantId && (
-        <IndustrialTriageHistory
-          key={tenantId}
-          tenantId={tenantId}
-          initialConversationId={selectedConversationId}
-          initialConversationName={selectedConversationName}
+      {/* ── CAMPO DE BUSCA UNIFICADO (VALE PARA KANBAN E LISTA AO VIVO) ── */}
+      <div className="relative w-full sm:w-52 md:w-60 sm:order-2">
+        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+        <input
+          type="text"
+          placeholder="Nome, empresa, fone ou msg..."
+          value={filterState.searchQuery}
+          onChange={(e) => handleUpdate({ searchQuery: e.target.value })}
+          className="w-full pl-8 pr-7 py-1.5 sm:py-1 rounded-lg border border-border bg-muted/30 text-xs focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground/60 text-foreground transition"
         />
-      )}
-
-      {/* ── BOTÃO ATUALIZAR ── */}
-      <SystemTooltip content="Atualizar conversas e kanban agora">
-        <button
-          type="button"
-          onClick={onRefresh}
-          className="px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 border border-border bg-card text-foreground hover:bg-muted/60 cursor-pointer shadow-soft"
-        >
-          <RefreshCw className={`h-3.5 w-3.5 text-primary ${isLoading ? "animate-spin" : ""}`} />
-          <span className="hidden sm:inline">Atualizar</span>
-        </button>
-      </SystemTooltip>
+        {filterState.searchQuery && (
+          <SystemTooltip content="Limpar busca">
+            <button
+              type="button"
+              onClick={() => handleUpdate({ searchQuery: "" })}
+              aria-label="Limpar busca"
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded-full hover:bg-muted text-muted-foreground transition cursor-pointer"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </SystemTooltip>
+        )}
+      </div>
     </div>
   );
 }

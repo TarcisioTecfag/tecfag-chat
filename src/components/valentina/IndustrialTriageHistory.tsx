@@ -209,6 +209,9 @@ export function IndustrialTriageHistory({
   const [conversationId, setConversationId] = useState("");
   const [selectedCycle, setSelectedCycle] = useState<Cycle | null>(null);
   const [revisionNumber, setRevisionNumber] = useState(0);
+  const [mobileStep, setMobileStep] = useState<"conversations" | "cycles" | "dossier">(
+    "conversations",
+  );
 
   // Debounce automático na busca
   useEffect(() => {
@@ -244,9 +247,12 @@ export function IndustrialTriageHistory({
     setQuery("");
   }, [tenantId]);
 
-  function selectConversation(id: string) {
+  function selectConversation(id: string, advanceMobile = false) {
     setConversationId(id);
     setSelectedCycle(null);
+    if (advanceMobile && id) {
+      setMobileStep("cycles");
+    }
   }
 
   // Auto-seleciona o 1º atendimento quando abrir sem atendimento pré-selecionado
@@ -280,6 +286,7 @@ export function IndustrialTriageHistory({
         setOpen(value);
         if (value) {
           selectConversation(initialConversationId || "");
+          setMobileStep(initialConversationId ? "dossier" : "conversations");
         }
       }}
     >
@@ -287,7 +294,8 @@ export function IndustrialTriageHistory({
         <DialogTrigger asChild>
           <button
             type="button"
-            className="px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 border border-border bg-card text-foreground hover:bg-muted/60 cursor-pointer shadow-soft"
+            aria-label="Histórico e notas"
+            className="px-2.5 py-1.5 sm:py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 border border-border bg-card text-foreground hover:bg-muted/60 cursor-pointer shadow-soft"
           >
             <History className="h-3.5 w-3.5 text-primary" />
             <span className="hidden sm:inline">Histórico e notas</span>
@@ -295,30 +303,60 @@ export function IndustrialTriageHistory({
         </DialogTrigger>
       </SystemTooltip>
 
-      <DialogContent className="w-[96vw] max-w-6xl max-h-[90vh] flex flex-col overflow-hidden p-0 gap-0 rounded-3xl border border-border bg-card shadow-2xl">
+      <DialogContent className="w-[96vw] max-w-6xl h-[90dvh] md:h-auto max-h-[90dvh] flex flex-col overflow-hidden p-0 gap-0 rounded-2xl md:rounded-3xl border border-border bg-card shadow-2xl">
         {/* Header do Modal */}
-        <DialogHeader className="px-6 py-4 border-b border-border/80 bg-muted/15 shrink-0">
+        <DialogHeader className="px-4 py-3 md:px-6 md:py-4 border-b border-border/80 bg-muted/15 shrink-0">
           <div className="flex items-center justify-between gap-3 pr-6">
-            <div className="flex items-center gap-3">
-              <div className="grid h-10 w-10 place-items-center rounded-2xl bg-primary/12 border border-primary/25 text-primary shrink-0">
-                <History className="h-5 w-5" />
+            <div className="flex items-center gap-2.5 md:gap-3">
+              <div className="grid h-9 w-9 md:h-10 md:w-10 place-items-center rounded-xl md:rounded-2xl bg-primary/12 border border-primary/25 text-primary shrink-0">
+                <History className="h-4.5 w-4.5 md:h-5 md:w-5" />
               </div>
-              <div>
-                <DialogTitle className="text-base font-extrabold text-foreground">
+              <div className="text-left">
+                <DialogTitle className="text-sm md:text-base font-extrabold text-foreground">
                   Histórico e Auditoria da Triagem
                 </DialogTitle>
-                <DialogDescription className="text-xs text-muted-foreground mt-0.5">
+                <DialogDescription className="hidden sm:block text-xs text-muted-foreground mt-0.5">
                   Inspecione ciclos de atendimento, revise dados coletados pela IA e acompanhe os eventos progressivos (Horário de Brasília).
                 </DialogDescription>
               </div>
             </div>
           </div>
+
+          {/* Navegação por Etapas no Mobile (< md) */}
+          <div className="mt-2.5 grid grid-cols-3 gap-1 rounded-xl bg-muted/60 border border-border/70 p-1 md:hidden">
+            {(
+              [
+                { id: "conversations", label: "1. Leads" },
+                { id: "cycles", label: "2. Ciclos" },
+                { id: "dossier", label: "3. Dossiê" },
+              ] as const
+            ).map((step) => (
+              <button
+                key={step.id}
+                type="button"
+                onClick={() => setMobileStep(step.id)}
+                className={cn(
+                  "py-1.5 px-2 rounded-lg text-[11px] font-extrabold transition cursor-pointer truncate",
+                  mobileStep === step.id
+                    ? "bg-primary text-primary-foreground shadow-xs"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {step.label}
+              </button>
+            ))}
+          </div>
         </DialogHeader>
 
-        {/* Corpo em 3 Colunas */}
-        <div className="grid md:grid-cols-[270px_260px_1fr] divide-y md:divide-y-0 md:divide-x divide-border/70 min-h-0 flex-1 overflow-hidden">
+        {/* Corpo em 3 Colunas (Desktop) / 1 Etapa por vez (Mobile) */}
+        <div className="flex flex-col md:grid md:grid-cols-[270px_260px_1fr] md:divide-x divide-border/70 min-h-0 flex-1 overflow-hidden">
           {/* ── COLUNA 1: ATENDIMENTOS ─────────────────────────────────────────── */}
-          <section className="flex flex-col min-h-0 bg-muted/5">
+          <section
+            className={cn(
+              "flex flex-col flex-1 min-h-0 bg-muted/5",
+              mobileStep !== "conversations" && "hidden md:flex",
+            )}
+          >
             <div className="p-3.5 border-b border-border/60 space-y-2.5 shrink-0">
               <div className="flex items-center justify-between">
                 <h4 className="text-xs font-extrabold uppercase tracking-wider text-muted-foreground">
@@ -378,7 +416,7 @@ export function IndustrialTriageHistory({
                   <button
                     key={item.id}
                     type="button"
-                    onClick={() => selectConversation(item.id)}
+                    onClick={() => selectConversation(item.id, true)}
                     className={cn(
                       "w-full text-left rounded-2xl border p-2.5 transition-all cursor-pointer flex items-center gap-2.5",
                       isSelected
@@ -434,7 +472,12 @@ export function IndustrialTriageHistory({
           </section>
 
           {/* ── COLUNA 2: CICLOS DO ATENDIMENTO ────────────────────────────────── */}
-          <section className="flex flex-col min-h-0 bg-muted/5">
+          <section
+            className={cn(
+              "flex flex-col flex-1 min-h-0 bg-muted/5",
+              mobileStep !== "cycles" && "hidden md:flex",
+            )}
+          >
             <div className="p-3.5 border-b border-border/60 shrink-0">
               <div className="flex items-center justify-between">
                 <h4 className="text-xs font-extrabold uppercase tracking-wider text-muted-foreground">
@@ -474,7 +517,10 @@ export function IndustrialTriageHistory({
                   <button
                     key={item.snapshot.cycleId}
                     type="button"
-                    onClick={() => setSelectedCycle(item)}
+                    onClick={() => {
+                      setSelectedCycle(item);
+                      setMobileStep("dossier");
+                    }}
                     className={cn(
                       "w-full text-left rounded-2xl border p-3 transition-all cursor-pointer space-y-2",
                       isSelected
@@ -531,7 +577,12 @@ export function IndustrialTriageHistory({
           </section>
 
           {/* ── COLUNA 3: DOSSIÊ DO CICLO, REVISÃO E LINHA DO TEMPO ────────────── */}
-          <section className="flex flex-col min-h-0 bg-card">
+          <section
+            className={cn(
+              "flex flex-col flex-1 min-h-0 bg-card",
+              mobileStep !== "dossier" && "hidden md:flex",
+            )}
+          >
             <div className="p-3.5 border-b border-border/60 shrink-0 flex items-center justify-between gap-2">
               <div>
                 <h4 className="text-xs font-extrabold uppercase tracking-wider text-muted-foreground">

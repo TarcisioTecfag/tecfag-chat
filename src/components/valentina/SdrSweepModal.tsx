@@ -193,7 +193,8 @@ export function SdrSweepModal({
         <DialogTrigger asChild>
           <button
             type="button"
-            className="px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 border border-border bg-card text-foreground hover:bg-muted/60 cursor-pointer shadow-soft"
+            aria-label="Varredura de triagens"
+            className="px-2.5 py-1.5 sm:py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 border border-border bg-card text-foreground hover:bg-muted/60 cursor-pointer shadow-soft"
           >
             <Radio className="h-3.5 w-3.5 text-primary" />
             <span className="hidden sm:inline">Varredura</span>
@@ -201,19 +202,19 @@ export function SdrSweepModal({
         </DialogTrigger>
       </SystemTooltip>
 
-      <DialogContent className="w-[96vw] max-w-5xl max-h-[90vh] flex flex-col overflow-hidden p-0 gap-0 rounded-3xl border border-border bg-card shadow-2xl">
+      <DialogContent className="w-[96vw] max-w-5xl max-h-[90dvh] flex flex-col overflow-hidden p-0 gap-0 rounded-2xl md:rounded-3xl border border-border bg-card shadow-2xl">
         {/* Header */}
-        <DialogHeader className="px-6 py-4 border-b border-border/80 bg-muted/15 shrink-0">
+        <DialogHeader className="px-4 py-3 sm:px-6 sm:py-4 border-b border-border/80 bg-muted/15 shrink-0">
           <div className="flex items-center justify-between gap-3 pr-6 flex-wrap">
-            <div className="flex items-center gap-3">
-              <div className="grid h-10 w-10 place-items-center rounded-2xl bg-primary/12 border border-primary/25 text-primary shrink-0">
-                <Radio className="h-5 w-5" />
+            <div className="flex items-center gap-2.5 sm:gap-3 text-left">
+              <div className="grid h-9 w-9 sm:h-10 sm:w-10 place-items-center rounded-xl sm:rounded-2xl bg-primary/12 border border-primary/25 text-primary shrink-0">
+                <Radio className="h-4.5 w-4.5 sm:h-5 sm:w-5" />
               </div>
               <div>
-                <DialogTitle className="text-base font-extrabold text-foreground">
+                <DialogTitle className="text-sm sm:text-base font-extrabold text-foreground">
                   Varredura de Triagens — {personaName}
                 </DialogTitle>
-                <DialogDescription className="text-xs text-muted-foreground mt-0.5">
+                <DialogDescription className="hidden sm:block text-xs text-muted-foreground mt-0.5">
                   Diagnóstico real em banco: quem aguarda resposta do cliente, quem aguarda resposta do {personaName}, quantos foram transferidos e para qual consultor.
                 </DialogDescription>
               </div>
@@ -257,8 +258,8 @@ export function SdrSweepModal({
             </div>
 
             {period === "range" && (
-              <div className="flex items-center gap-2 flex-wrap">
-                <div className="w-40">
+              <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
+                <div className="flex-1 min-w-[130px] sm:flex-none sm:w-40">
                   <CrmDatePicker
                     value={startDate}
                     onChange={setStartDate}
@@ -267,7 +268,7 @@ export function SdrSweepModal({
                   />
                 </div>
                 <span className="text-xs font-bold text-muted-foreground">até</span>
-                <div className="w-40">
+                <div className="flex-1 min-w-[130px] sm:flex-none sm:w-40">
                   <CrmDatePicker
                     value={endDate}
                     onChange={setEndDate}

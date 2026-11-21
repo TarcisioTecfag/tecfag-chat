@@ -10,6 +10,7 @@ import {
   CheckCircle,
   Clock,
   Bot,
+  ChevronLeft,
   ChevronRight,
   ChevronDown,
   Circle,
@@ -30,6 +31,7 @@ import {
   Loader2,
   Info,
   RotateCcw,
+  Sparkles,
 } from "lucide-react";
 import { useChat } from "@/hooks/useChatState";
 import { getAiPersona } from "@/lib/ai-persona";
@@ -788,6 +790,22 @@ export function SdrTab({
     onLoadingChange?.(isLoading);
   }, [isLoading, onLoadingChange]);
 
+  // Viewport compacto (< 1024px): alterna entre Lista -> Detalhe (Aprovar & Dados | Conversa)
+  const [isCompactViewport, setIsCompactViewport] = useState<boolean>(() =>
+    typeof window !== "undefined" ? window.innerWidth < 1024 : false,
+  );
+  const [mobileStage, setMobileStage] = useState<"list" | "detail">("list");
+  const [mobileDetailTab, setMobileDetailTab] = useState<"approval" | "chat">("approval");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 1023px)");
+    const sync = () => setIsCompactViewport(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+
   // Painel direito aberto por padrão em desktop (minimizável)
   const [isInfoPanelOpen, setIsInfoPanelOpen] = useState<boolean>(() =>
     typeof window !== "undefined" ? window.innerWidth >= 1024 : true,
@@ -930,6 +948,7 @@ export function SdrTab({
   useEffect(() => {
     setIsOpenActionPopupOpen(false);
     if (!selectedSession?.id || viewMode !== "live") return;
+    if (isCompactViewport && (mobileStage !== "detail" || mobileDetailTab !== "chat")) return;
     chatOpenedAtRef.current = Date.now();
     shouldStickChatToBottomRef.current = true;
     scrollChatToBottom();
@@ -941,7 +960,15 @@ export function SdrTab({
       clearTimeout(t1);
       clearTimeout(t2);
     };
-  }, [selectedSession?.id, selectedSession?.conversationId, viewMode, scrollChatToBottom]);
+  }, [
+    selectedSession?.id,
+    selectedSession?.conversationId,
+    viewMode,
+    isCompactViewport,
+    mobileStage,
+    mobileDetailTab,
+    scrollChatToBottom,
+  ]);
 
   useEffect(() => {
     if (!selectedSession?.messages?.length || !shouldStickChatToBottomRef.current) return;
@@ -1043,6 +1070,8 @@ export function SdrTab({
     (session: SdrTriageSession) => {
       setSelectedSessionId(session.id);
       setSelectedChatId(session.conversationId);
+      setMobileStage("detail");
+      setMobileDetailTab(session.status === "awaiting_approval" ? "approval" : "chat");
       onViewModeChange?.("live");
     },
     [setSelectedChatId, onViewModeChange],
@@ -1185,6 +1214,8 @@ export function SdrTab({
         onFilterChange?.(DEFAULT_SDR_FILTER_STATE);
         setSelectedSessionId(String(detail.conversationId));
         setSelectedChatId(String(detail.conversationId));
+        setMobileStage("detail");
+        setMobileDetailTab("approval");
         onViewModeChange?.("live");
       }
     };
@@ -1249,6 +1280,8 @@ export function SdrTab({
       onFilterChange?.(DEFAULT_SDR_FILTER_STATE);
       setSelectedSessionId(matched.id);
       setSelectedChatId(matched.conversationId);
+      setMobileStage("detail");
+      setMobileDetailTab(matched.status === "awaiting_approval" ? "approval" : "chat");
       onViewModeChange?.("live");
     }
 
@@ -1374,26 +1407,33 @@ export function SdrTab({
     [sessions],
   );
 
+  const showListPanel = !isCompactViewport || mobileStage === "list";
+  const showChatPanel = !isCompactViewport || (mobileStage === "detail" && mobileDetailTab === "chat");
+  const showRightPanel = isCompactViewport
+    ? mobileStage === "detail" && mobileDetailTab === "approval"
+    : isInfoPanelOpen;
+
   return (
     <div className="relative flex-1 h-full overflow-hidden flex flex-col">
       {isIndustrial && awaitingApprovalSessions.length > 0 && (
-        <div className="mb-2 shrink-0 flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl border border-amber-500/40 bg-amber-500/10">
-          <div className="flex items-center gap-2 min-w-0">
+        <div className="mb-2 shrink-0 flex flex-wrap items-center justify-between gap-2 px-3 py-2 sm:py-1.5 rounded-xl border border-amber-500/40 bg-amber-500/10">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
             <span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse shrink-0" />
-            <span className="text-[11px] font-extrabold text-amber-800 dark:text-amber-200 truncate">
+            <span className="text-[11px] font-extrabold text-amber-800 dark:text-amber-200 leading-tight sm:truncate">
               {awaitingApprovalSessions.length === 1
                 ? `1 triagem concluída pelo ${persona.name} aguardando aprovação SDR`
                 : `${awaitingApprovalSessions.length} triagens concluídas pelo ${persona.name} aguardando aprovação SDR`}
             </span>
           </div>
-          <div className="flex items-center gap-1.5 shrink-0">
+          <div className="flex items-center gap-1.5 shrink-0 w-full sm:w-auto justify-end">
             {onFilterChange && effectiveFilterState.statusFilter !== "awaiting_approval" && (
               <button
                 type="button"
-                onClick={() =>
-                  onFilterChange((prev) => ({ ...prev, statusFilter: "awaiting_approval" }))
-                }
-                className="px-2 py-1 rounded-lg text-[10px] font-bold border border-amber-500/40 bg-card hover:bg-amber-500/15 text-amber-800 dark:text-amber-200 transition cursor-pointer"
+                onClick={() => {
+                  onFilterChange((prev) => ({ ...prev, statusFilter: "awaiting_approval" }));
+                  if (isCompactViewport) setMobileStage("list");
+                }}
+                className="px-2.5 py-1.5 sm:px-2 sm:py-1 rounded-lg text-[10px] font-bold border border-amber-500/40 bg-card hover:bg-amber-500/15 text-amber-800 dark:text-amber-200 transition cursor-pointer"
               >
                 Filtrar pendentes
               </button>
@@ -1401,7 +1441,7 @@ export function SdrTab({
             <button
               type="button"
               onClick={() => handleSelectSessionFromKanban(awaitingApprovalSessions[0])}
-              className="px-2.5 py-1 rounded-lg text-[10px] font-extrabold bg-amber-600 hover:bg-amber-700 text-white transition cursor-pointer shadow-2xs"
+              className="px-3 py-1.5 sm:px-2.5 sm:py-1 rounded-lg text-[10px] font-extrabold bg-amber-600 hover:bg-amber-700 text-white transition cursor-pointer shadow-2xs"
             >
               Revisar agora
             </button>
@@ -1420,9 +1460,108 @@ export function SdrTab({
           />
         </div>
       ) : (
-        <div className="flex gap-3.5 flex-1 h-full min-h-0 overflow-hidden">
-          {/* ── PAINEL ESQUERDO — Lista de sessões reais (28%) ────────────────── */}
-          <div className="w-[28%] min-w-[270px] max-w-[360px] shrink-0 flex flex-col overflow-hidden bg-card rounded-2xl border border-border shadow-soft">
+        <div
+          className={`flex flex-1 h-full min-h-0 overflow-hidden ${
+            isCompactViewport ? "flex-col gap-2" : "gap-3.5"
+          }`}
+        >
+          {/* ── CABEÇALHO + SUB-ABAS MOBILE/TABLET (QUANDO EM DETALHE) ──────── */}
+          {isCompactViewport && mobileStage === "detail" && (
+            <div className="shrink-0 bg-card rounded-2xl border border-border shadow-soft px-3 py-2.5 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <button
+                    type="button"
+                    onClick={() => setMobileStage("list")}
+                    className="inline-flex items-center gap-1 px-2 py-1.5 rounded-xl bg-muted/70 hover:bg-muted text-foreground text-[11px] font-extrabold transition cursor-pointer shrink-0"
+                    aria-label="Voltar para a lista de triagens"
+                  >
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                    <span>Lista</span>
+                  </button>
+
+                  {selectedSession && (
+                    <div className="flex items-center gap-2 min-w-0">
+                      {selectedSession.contactAvatar ? (
+                        <img
+                          src={selectedSession.contactAvatar}
+                          alt={selectedSession.contactName}
+                          className="h-7 w-7 rounded-full object-cover border border-primary/25 shrink-0"
+                        />
+                      ) : (
+                        <div className="grid h-7 w-7 place-items-center rounded-full bg-primary/15 text-primary font-bold text-[10px] shrink-0 border border-primary/20">
+                          {selectedSession.contactName[0]?.toUpperCase() || "C"}
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <h3 className="text-xs font-extrabold text-foreground truncate leading-tight">
+                          {selectedSession.contactName}
+                        </h3>
+                        <p className="text-[10px] text-muted-foreground truncate leading-tight">
+                          {selectedSession.company}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {selectedSession && (
+                  <div className="shrink-0">
+                    <StatusBadge status={selectedSession.status} />
+                  </div>
+                )}
+              </div>
+
+              {/* Alternador de Sub-abas: Aprovar & Dados | Conversa */}
+              <div className="grid grid-cols-2 gap-1 rounded-xl bg-muted/50 border border-border/70 p-1">
+                <button
+                  type="button"
+                  onClick={() => setMobileDetailTab("approval")}
+                  className={`py-2 px-2.5 rounded-lg text-[11px] font-extrabold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                    mobileDetailTab === "approval"
+                      ? selectedSession?.status === "awaiting_approval"
+                        ? "bg-amber-600 text-white shadow-xs"
+                        : "bg-primary text-primary-foreground shadow-xs"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <Sparkles className="h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate">
+                    {isIndustrial ? "Aprovar & Dados" : "Dados Coletados"}
+                  </span>
+                  {selectedSession?.status === "awaiting_approval" && (
+                    <span
+                      className={`h-2 w-2 rounded-full shrink-0 animate-pulse ${
+                        mobileDetailTab === "approval" ? "bg-white" : "bg-amber-500"
+                      }`}
+                    />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMobileDetailTab("chat")}
+                  className={`py-2 px-2.5 rounded-lg text-[11px] font-extrabold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                    mobileDetailTab === "chat"
+                      ? "bg-primary text-primary-foreground shadow-xs"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <MessageSquare className="h-3.5 w-3.5 shrink-0" />
+                  <span>Conversa</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── PAINEL ESQUERDO — Lista de sessões reais (28% desktop / 100% mobile) ── */}
+          {showListPanel && (
+          <div
+            className={
+              isCompactViewport
+                ? "w-full flex-1 min-h-0 flex flex-col overflow-hidden bg-card rounded-2xl border border-border shadow-soft"
+                : "w-[28%] min-w-[270px] max-w-[360px] shrink-0 flex flex-col overflow-hidden bg-card rounded-2xl border border-border shadow-soft"
+            }
+          >
             <div className="px-4 py-3 border-b border-line shrink-0 flex flex-col gap-2">
               <div className="flex items-center justify-between gap-2">
                 <div className="min-w-0">
@@ -1523,9 +1662,17 @@ export function SdrTab({
                     <button
                       key={session.id}
                       type="button"
-                      onClick={() => setSelectedSessionId(session.id)}
+                      onClick={() => {
+                        setSelectedSessionId(session.id);
+                        if (isCompactViewport) {
+                          setMobileStage("detail");
+                          setMobileDetailTab(
+                            session.status === "awaiting_approval" ? "approval" : "chat",
+                          );
+                        }
+                      }}
                       className={`w-full text-left px-4 py-3 border-b border-line transition cursor-pointer ${
-                        isSelected
+                        isSelected && !isCompactViewport
                           ? "bg-primary-soft border-l-2 border-l-primary"
                           : session.status === "awaiting_approval"
                             ? "bg-amber-500/[0.06] border-l-2 border-l-amber-500 hover:bg-amber-500/10"
@@ -1572,11 +1719,14 @@ export function SdrTab({
               )}
             </div>
           </div>
+          )}
 
           {/* ── PAINEL CENTRAL — Chat Compilado em Tempo Real ─────────────────── */}
-          <div className="flex-1 min-w-0 flex flex-col overflow-hidden bg-card rounded-2xl border border-border shadow-soft">
+          {showChatPanel && (
+          <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden bg-card rounded-2xl border border-border shadow-soft">
             {selectedSession ? (
               <>
+                {!isCompactViewport && (
                 <div className="px-4 py-3 border-b border-line shrink-0">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2.5 min-w-0">
@@ -1659,12 +1809,13 @@ export function SdrTab({
                     </div>
                   </div>
                 </div>
+                )}
 
                 <div
                   ref={chatMessagesContainerRef}
                   onScroll={handleChatContainerScroll}
                   onLoadCapture={handleChatMediaLoad}
-                  className="flex-1 overflow-y-auto px-4 py-3 space-y-2.5 scrollbar-thin"
+                  className="flex-1 overflow-y-auto px-3 sm:px-4 py-3 space-y-2.5 scrollbar-thin"
                 >
                   {isLoadingMessages && !selectedSession.messagesLoaded ? (
                     <div className="flex items-center justify-center h-full gap-2 text-xs text-muted-foreground">
@@ -1806,7 +1957,7 @@ export function SdrTab({
                               ))}
 
                             <div
-                              className={`max-w-[75%] rounded-2xl px-3 py-2 text-[11px] leading-relaxed shadow-soft transition-colors ${
+                              className={`max-w-[85%] sm:max-w-[75%] rounded-2xl px-3 py-2 text-[11px] leading-relaxed shadow-soft transition-colors ${
                                 isBot
                                   ? "bg-primary text-primary-foreground rounded-br-[5px]"
                                   : isAgent
@@ -2126,16 +2277,21 @@ export function SdrTab({
               </div>
             )}
           </div>
+          )}
 
-          {/* ── PAINEL DIREITO — Dados Coletados Reais (Aberto por Padrão em Desktop) ── */}
+          {/* ── PAINEL DIREITO — Aprovação & Dados Coletados Reais ── */}
           <AnimatePresence>
-            {isInfoPanelOpen && (
+            {showRightPanel && (
               <motion.div
-                initial={{ width: 0, opacity: 0 }}
-                animate={{ width: "26%", opacity: 1 }}
-                exit={{ width: 0, opacity: 0 }}
+                initial={isCompactViewport ? { opacity: 0, y: 6 } : { width: 0, opacity: 0 }}
+                animate={isCompactViewport ? { opacity: 1, y: 0 } : { width: "26%", opacity: 1 }}
+                exit={isCompactViewport ? { opacity: 0, y: 6 } : { width: 0, opacity: 0 }}
                 transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
-                className="w-[26%] min-w-[270px] max-w-[340px] shrink-0 flex flex-col overflow-hidden bg-card rounded-2xl border border-border shadow-soft"
+                className={
+                  isCompactViewport
+                    ? "w-full flex-1 min-h-0 flex flex-col overflow-hidden bg-card rounded-2xl border border-border shadow-soft"
+                    : "w-[26%] min-w-[270px] max-w-[340px] shrink-0 flex flex-col overflow-hidden bg-card rounded-2xl border border-border shadow-soft"
+                }
               >
                 {selectedSession ? (
                   (() => {
@@ -2231,7 +2387,7 @@ export function SdrTab({
                                       animate={{ opacity: 1, y: 0, scale: 1 }}
                                       exit={{ opacity: 0, y: 4, scale: 0.96 }}
                                       transition={{ duration: 0.16, ease: [0.4, 0, 0.2, 1] }}
-                                      className="absolute right-0 top-full mt-2 w-64 rounded-2xl bg-card border border-border shadow-2xl p-2 z-50 select-none"
+                                      className="absolute right-0 top-full mt-2 w-64 max-w-[calc(100vw-2rem)] rounded-2xl bg-card border border-border shadow-2xl p-2 z-50 select-none"
                                     >
                                       <div className="flex items-center justify-between px-2 py-1.5 border-b border-border/70 mb-1.5">
                                         <span className="text-[10px] font-extrabold text-foreground tracking-wide">
@@ -2317,23 +2473,25 @@ export function SdrTab({
                                 </AnimatePresence>
                               </div>
 
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <button
-                                    type="button"
-                                    onClick={() => setIsInfoPanelOpen(false)}
-                                    className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer shrink-0"
-                                  >
-                                    <PanelRightClose className="h-3.5 w-3.5" />
-                                  </button>
-                                </TooltipTrigger>
-                                <TooltipContent side="bottom">Minimizar</TooltipContent>
-                              </Tooltip>
+                              {!isCompactViewport && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <button
+                                      type="button"
+                                      onClick={() => setIsInfoPanelOpen(false)}
+                                      className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer shrink-0"
+                                    >
+                                      <PanelRightClose className="h-3.5 w-3.5" />
+                                    </button>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="bottom">Minimizar</TooltipContent>
+                                </Tooltip>
+                              )}
                             </TooltipProvider>
                           </div>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2 scrollbar-thin">
+                        <div className="flex-1 overflow-y-auto px-3 sm:px-4 py-3 space-y-2.5 scrollbar-thin">
                           {isIndustrial && selectedSession && (
                             <IndustrialApprovalPanel
                               tenantId={tenant || ""}
@@ -2358,6 +2516,9 @@ export function SdrTab({
                                       ? null
                                       : prev,
                                   );
+                                  if (isCompactViewport) {
+                                    setMobileStage("list");
+                                  }
                                 }
                                 void fetchSdrData();
                               }}
@@ -2429,12 +2590,94 @@ export function SdrTab({
                               </p>
                             </div>
                           ))}
+
+                          {isCompactViewport && selectedSession.monitoring && (
+                            <IndustrialMonitoringPanel
+                              monitoring={selectedSession.monitoring}
+                              className="rounded-xl border border-border bg-muted/30 p-3 space-y-2"
+                            />
+                          )}
+
+                          {isCompactViewport && (
+                            <div className="pt-2 border-t border-line space-y-2">
+                              {selectedSession.linkedDeal && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenLinkedCardFromPopup(selectedSession)}
+                                  className="w-full text-left rounded-xl border border-emerald-500/25 bg-emerald-500/10 hover:bg-emerald-500/15 hover:border-emerald-500/40 p-2.5 transition cursor-pointer group"
+                                >
+                                  <div className="flex items-center justify-between mb-0.5">
+                                    <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wide flex items-center gap-1">
+                                      <ShieldCheck className="h-3 w-3 text-emerald-600" />
+                                      Negociação (CRM Local)
+                                    </span>
+                                    <span className="text-[9px] font-extrabold px-1.5 py-0.2 bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 rounded-md">
+                                      {selectedSession.linkedDeal.action === "reused_within_3h"
+                                        ? "Vinculado (< 3h)"
+                                        : selectedSession.linkedDeal.action === "created_new"
+                                          ? "Criado neste ciclo"
+                                          : "Vinculado"}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center justify-between gap-1 mt-0.5">
+                                    <p className="text-xs font-extrabold text-foreground truncate group-hover:text-primary transition">
+                                      {selectedSession.linkedDeal.dealTitle}
+                                    </p>
+                                    <ExternalLink className="h-3 w-3 text-muted-foreground group-hover:text-primary transition shrink-0" />
+                                  </div>
+                                </button>
+                              )}
+
+                              <div className="rounded-xl border border-primary/20 bg-primary-soft/30 p-2.5">
+                                <div className="flex items-center justify-between mb-0.5">
+                                  <span className="text-[10px] font-bold text-primary uppercase tracking-wide flex items-center gap-1">
+                                    <UserCheck className="h-3 w-3 text-primary" />
+                                    Responsável (Rodízio)
+                                  </span>
+                                  <span className="text-[9px] font-extrabold px-1.5 py-0.2 bg-primary/15 text-primary rounded-md">
+                                    {selectedSession.monitoring
+                                      ? selectedSession.monitoring.operatorId
+                                        ? "Atribuído"
+                                        : "Sem atribuição"
+                                      : selectedSession.status === "completed"
+                                        ? "Alocado"
+                                        : "Pendente"}
+                                  </span>
+                                </div>
+                                <p className="text-xs font-extrabold text-foreground mt-0.5">
+                                  {selectedSession.responsibleName || `${persona.name} IA (Em Triagem)`}
+                                </p>
+                              </div>
+
+                              <div className="flex items-center justify-between text-[10px] text-muted-foreground pt-0.5 pb-1">
+                                <span className="flex items-center gap-1">
+                                  <Clock className="h-3 w-3 text-primary" />
+                                  Início:{" "}
+                                  {selectedSession.startedAt
+                                    ? new Date(selectedSession.startedAt).toLocaleTimeString("pt-BR", {
+                                        hour: "2-digit",
+                                        minute: "2-digit",
+                                        timeZone: "America/Sao_Paulo",
+                                      })
+                                    : "—"}
+                                </span>
+                                <span className="flex items-center gap-1 truncate max-w-[160px]">
+                                  <ChevronRight className="h-3 w-3 text-primary" />
+                                  Etapa:{" "}
+                                  <span className="font-bold text-foreground truncate">
+                                    {selectedSession.currentStep || "—"}
+                                  </span>
+                                </span>
+                              </div>
+                            </div>
+                          )}
                         </div>
 
-                        {selectedSession.monitoring && (
+                        {!isCompactViewport && selectedSession.monitoring && (
                           <IndustrialMonitoringPanel monitoring={selectedSession.monitoring} />
                         )}
 
+                        {!isCompactViewport && (
                         <div className="px-4 py-3 border-t border-line shrink-0 space-y-2">
                           {selectedSession.linkedDeal && (
                             <button
@@ -2506,6 +2749,7 @@ export function SdrTab({
                             </span>
                           </div>
                         </div>
+                        )}
                       </>
                     );
                   })()
