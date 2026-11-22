@@ -2134,9 +2134,9 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
               await new Promise(r => setTimeout(r, 600));
             } catch (imgErr: any) {
               if (!signal?.aborted) {
-                console.error(`[SdrEngine] ❌ Falha ao enviar imagem Formato Real:`, imgErr?.message || imgErr);
+                console.error(`[SdrEngine] ❌ Falha ao carregar/enviar imagem Formato Real (seguindo com texto):`, imgErr?.message || imgErr);
               }
-              if (industrialTriage) return false;
+              if (signal?.aborted) return false;
             }
           }
         }
