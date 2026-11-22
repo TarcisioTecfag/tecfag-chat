@@ -7,11 +7,16 @@ import { db } from "../../../db";
 import { conversations, contacts, contactPhones, mediaFiles, channelConfigs, messages } from "../../../db/schema";
 import { eq, and } from "drizzle-orm";
 import { metaAdapter } from "../../../lib/whatsapp/adapters/meta";
-import { isMetaExperimentError, resolveMetaTemplateValues } from "../../../lib/whatsapp/meta-template-common";
+import {
+  getDealFieldBindingKey,
+  isMetaExperimentError,
+  resolveMetaTemplateValues,
+} from "../../../lib/whatsapp/meta-template-common";
 import {
   filterMetaTemplatesForContext,
   getMetaTemplatesRestrictByStage,
   listMetaTemplateGroups,
+  loadDealCustomFieldsForTemplate,
   resolveConversationActiveDealStage,
 } from "../../../lib/whatsapp/meta-templates";
 import { convertAudioToOggOpus, metaAudioNeedsConversion } from "../../../lib/whatsapp/audio-convert";
@@ -404,10 +409,26 @@ export const Route = createFileRoute("/api/whatsapp/send")({
             }
 
             const supplied = templateComponents?.find((item: any) => item?.type === "body")?.parameters;
+            const hasDealFieldBindings = Object.values(selected.bindings || {}).some((b) =>
+              Boolean(getDealFieldBindingKey(b)),
+            );
+            const dealFieldContext = hasDealFieldBindings
+              ? await loadDealCustomFieldsForTemplate(session.tenantId, conv.id)
+              : null;
+            const normalizedSupplied =
+              Array.isArray(supplied) && supplied.length === selected.variableCount
+                ? supplied
+                : Array.from({ length: selected.variableCount }, (_, idx) =>
+                    Array.isArray(supplied) && supplied[idx] ? supplied[idx] : { type: "text", text: "" },
+                  );
             let values: string[];
             try {
-              values = resolveMetaTemplateValues(selected.variableCount, selected.bindings, supplied,
-                { customerName: recipientName, operatorName: session.operator.name });
+              values = resolveMetaTemplateValues(selected.variableCount, selected.bindings, normalizedSupplied, {
+                customerName: recipientName,
+                operatorName: session.operator.name,
+                dealCustomFields: dealFieldContext?.dealCustomFields,
+                dealCustomFieldNamesById: dealFieldContext?.dealCustomFieldNamesById,
+              });
             } catch (error) {
               return Response.json({ error: error instanceof Error ? error.message : "Variáveis inválidas." }, { status: 400 });
             }

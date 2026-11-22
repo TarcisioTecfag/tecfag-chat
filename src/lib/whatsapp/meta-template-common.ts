@@ -1,5 +1,79 @@
-export type TemplateBinding = "customer_name" | "operator_name" | "manual";
+export type TemplateBinding = "customer_name" | "operator_name" | "manual" | `deal_field:${string}`;
 export type TemplateBindings = Record<string, TemplateBinding>;
+
+const DEAL_FIELD_BINDING_REGEX = /^deal_field:[a-zA-Z0-9._-]{1,120}$/;
+
+export function isValidTemplateBinding(value: unknown): value is TemplateBinding {
+  if (value === "customer_name" || value === "operator_name" || value === "manual") {
+    return true;
+  }
+  return typeof value === "string" && DEAL_FIELD_BINDING_REGEX.test(value.trim());
+}
+
+export function getDealFieldBindingKey(binding: string | undefined | null): string | null {
+  if (typeof binding !== "string") return null;
+  const trimmed = binding.trim();
+  if (!DEAL_FIELD_BINDING_REGEX.test(trimmed)) return null;
+  return trimmed.slice("deal_field:".length);
+}
+
+/**
+ * Meta Cloud API rejeita parâmetros de template contendo quebras de linha (\n),
+ * tabulações (\t) ou mais de 4 espaços consecutivos (erro 132018).
+ */
+export function sanitizeMetaTemplateParamText(value: string): string {
+  return value
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/ {5,}/g, "    ")
+    .trim();
+}
+
+export function resolveDealCustomFieldValue(
+  dealCustomFields: Record<string, unknown> | null | undefined,
+  fieldKey: string,
+  dealCustomFieldNamesById?: Record<string, string>,
+): string {
+  if (!dealCustomFields || typeof dealCustomFields !== "object") return "";
+  const formatVal = (raw: unknown): string => {
+    if (raw === null || raw === undefined) return "";
+    if (Array.isArray(raw)) {
+      return sanitizeMetaTemplateParamText(
+        raw.map((item) => String(item ?? "").trim()).filter(Boolean).join(", "),
+      );
+    }
+    return sanitizeMetaTemplateParamText(String(raw));
+  };
+
+  const direct = formatVal(dealCustomFields[fieldKey]);
+  if (direct) return direct;
+
+  const mappedName = dealCustomFieldNamesById?.[fieldKey];
+  if (mappedName) {
+    const byName = formatVal(dealCustomFields[mappedName]);
+    if (byName) return byName;
+  }
+
+  const lowerKey = fieldKey.trim().toLowerCase();
+  const lowerMappedName = mappedName?.trim().toLowerCase();
+  for (const [k, v] of Object.entries(dealCustomFields)) {
+    const kLower = k.trim().toLowerCase();
+    if (kLower === lowerKey || (lowerMappedName && kLower === lowerMappedName)) {
+      const candidate = formatVal(v);
+      if (candidate) return candidate;
+    }
+  }
+
+  if (dealCustomFieldNamesById) {
+    for (const [defId, defName] of Object.entries(dealCustomFieldNamesById)) {
+      if (defName.trim().toLowerCase() === lowerKey) {
+        const byDefId = formatVal(dealCustomFields[defId]);
+        if (byDefId) return byDefId;
+      }
+    }
+  }
+
+  return "";
+}
 
 export function bodyVariableIndexes(bodyText: string): number[] {
   const matches = [...bodyText.matchAll(/\{\{(\d+)\}\}/g)].map((match) => Number(match[1]));
@@ -48,20 +122,44 @@ export function resolveMetaTemplateValues(
   variableCount: number,
   bindings: TemplateBindings,
   supplied: unknown,
-  names: { customerName?: string; operatorName?: string },
+  names: {
+    customerName?: string;
+    operatorName?: string;
+    dealCustomFields?: Record<string, unknown> | null;
+    dealCustomFieldNamesById?: Record<string, string>;
+  },
 ): string[] {
   const manual = Array.isArray(supplied) ? supplied : [];
   if (manual.length !== variableCount) throw new Error("Preencha todas as variáveis do template.");
   return Array.from({ length: variableCount }, (_, offset) => {
     const index = offset + 1;
     const binding = bindings[String(index)] || "manual";
-    const raw =
-      binding === "customer_name"
-        ? formatTemplateFirstName(names.customerName)
-        : binding === "operator_name"
-          ? formatTemplateFirstName(names.operatorName)
-          : manual[offset]?.text;
-    const value = typeof raw === "string" ? raw.trim() : "";
+    const dealFieldKey = getDealFieldBindingKey(binding);
+    const manualText =
+      typeof manual[offset]?.text === "string"
+        ? sanitizeMetaTemplateParamText(manual[offset].text)
+        : "";
+    let value = "";
+    if (binding === "customer_name") {
+      value = formatTemplateFirstName(names.customerName).trim();
+    } else if (binding === "operator_name") {
+      value = formatTemplateFirstName(names.operatorName).trim();
+    } else if (dealFieldKey) {
+      value =
+        manualText ||
+        resolveDealCustomFieldValue(
+          names.dealCustomFields,
+          dealFieldKey,
+          names.dealCustomFieldNamesById,
+        );
+      if (!value) {
+        throw new Error(
+          `Valor ausente para {{${index}}} (campo do card '${dealFieldKey}' vazio e nenhum parâmetro informado).`,
+        );
+      }
+    } else {
+      value = manualText;
+    }
     if (!value) throw new Error(`Valor ausente para {{${index}}}.`);
     return value;
   });

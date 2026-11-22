@@ -10,6 +10,7 @@ import {
   conversations,
   crmActionHistory,
   crmConversationDeals,
+  crmCustomFieldDefinitions,
   crmDealActivities,
   crmDealContacts,
   crmDealEvents,
@@ -21,11 +22,18 @@ import {
   metaMessageTemplates,
   operators,
   quickResponses,
+  rdMarketingFlows,
   sectors,
   tasks,
 } from "../../db/schema";
 import { crmService } from "../crm/crm-service";
-import { listCustomFields } from "../crm/custom-fields";
+import {
+  conflictsWithStandardField,
+  isCustomFieldEntity,
+  isCustomFieldType,
+  listCustomFields,
+  type CustomFieldEntity,
+} from "../crm/custom-fields";
 import { mergeContactsInTenant } from "../crm/contact-merge-service";
 import {
   findContactByAnyPhone,
@@ -37,11 +45,16 @@ import { resolveConversationConnection } from "../whatsapp/connections";
 import { connectionPeerJid } from "../whatsapp/connection-contacts";
 import {
   createMetaTemplate,
+  deleteMetaTemplate,
   ensureMetaTemplateGroupsSchema,
+  loadDealCustomFieldsForTemplate,
   setMetaTemplateBindings,
   syncMetaTemplates,
 } from "../whatsapp/meta-templates";
-import { resolveMetaTemplateValues } from "../whatsapp/meta-template-common";
+import {
+  getDealFieldBindingKey,
+  resolveMetaTemplateValues,
+} from "../whatsapp/meta-template-common";
 import { SITE_CHANNEL } from "../livechat/site-channel-policy";
 import { sendSiteOperatorText } from "../livechat/site-delivery";
 import { SessionManager } from "../baileys/session-manager";
@@ -167,6 +180,11 @@ export const MCP_EXTENDED_TOOLS: McpToolDefinition[] = [
         campaign: { type: "string", description: "Campanha de marketing (opcional)." },
         initialNote: { type: "string", description: "Anotação inicial registrada na linha do tempo do card." },
         expectedCloseDate: { type: "string", description: "Previsão de fechamento (ISO YYYY-MM-DD)." },
+        customFields: {
+          type: "object",
+          description:
+            "Mapa chave→valor de campos personalizados do card (aceita ID ou nome exato do campo, ex: { 'black_maquina': 'FX-800', 'black_preco': 'R$ 1.063,12' }).",
+        },
       },
     },
   },
@@ -520,6 +538,96 @@ export const MCP_EXTENDED_TOOLS: McpToolDefinition[] = [
           items: { type: "string" },
           description: "Lista de IDs de etapas permitidas.",
         },
+        bindings: {
+          type: "object",
+          description:
+            "Opcional: mapa de vínculos das variáveis {{1}}..{{N}} ('customer_name' | 'operator_name' | 'manual' | 'deal_field:<fieldId>'), ex: { '1': 'deal_field:black_maquina', '2': 'deal_field:black_preco', '3': 'deal_field:gap_t1' }.",
+        },
+      },
+    },
+  },
+  {
+    name: "delete_meta_template",
+    access: "write",
+    description:
+      "[ESCRITA] Exclui PERMANENTEMENTE um template oficial na Graph API da Meta (DELETE /{waba_id}/message_templates) e marca status='DELETED' no banco local. Exige confirmDelete=true e bloqueia exclusão se o template estiver vinculado a um fluxo de Webhook RD Marketing (a menos que forceDeleteIfReferenced=true).",
+    inputSchema: {
+      type: "object",
+      required: ["confirmDelete"],
+      properties: {
+        tenantId: TENANT_ID_PROP,
+        metaTemplateId: {
+          type: "string",
+          description: "ID oficial do template na Meta (ex: '1169671662173358').",
+        },
+        templateId: {
+          type: "string",
+          description: "ID interno (meta_message_templates.id) — alternativa a metaTemplateId.",
+        },
+        templateName: {
+          type: "string",
+          description: "Nome exato do template na Meta (alternativa a metaTemplateId).",
+        },
+        confirmDelete: {
+          type: "boolean",
+          description: "OBRIGATÓRIO ser true para confirmar exclusão definitiva na Meta (a Meta bloqueia reutilizar o mesmo nome por 30 dias).",
+        },
+        forceDeleteIfReferenced: {
+          type: "boolean",
+          default: false,
+          description: "Quando true, permite excluir mesmo se houver fluxo de Webhook RD Marketing referenciando o template.",
+        },
+      },
+    },
+  },
+  {
+    name: "create_crm_custom_field",
+    access: "write",
+    description:
+      "[ESCRITA] Cria um campo personalizado oficial no CRM (crm_custom_field_definitions) para negociações, empresas, contatos ou produtos — com suporte a ID previsível (slug) e idempotência opcional.",
+    inputSchema: {
+      type: "object",
+      required: ["name", "fieldType"],
+      properties: {
+        tenantId: TENANT_ID_PROP,
+        entityType: {
+          type: "string",
+          enum: ["deal", "company", "contact", "product"],
+          default: "deal",
+          description: "Entidade alvo do campo personalizado (padrão: 'deal').",
+        },
+        name: {
+          type: "string",
+          description: "Título exibido no CRM (até 120 caracteres, ex: 'Máquina Black').",
+        },
+        fieldId: {
+          type: "string",
+          description: "ID/slug opcional e previsível para facilitar integrações (apenas letras, números, _ e -, ex: 'black_maquina'). Se omitido, gera 'cf-<uuid>'.",
+        },
+        fieldType: {
+          type: "string",
+          enum: ["text", "date", "single", "multiple", "number", "url"],
+          description: "Tipo de dado do campo personalizado.",
+        },
+        required: { type: "boolean", default: false, description: "Se o campo é obrigatório." },
+        visibleOnCreate: { type: "boolean", default: true, description: "Se aparece no formulário de criação." },
+        isUnique: { type: "boolean", default: false, description: "Se impede valores duplicados entre cards (apenas para entityType='deal')." },
+        allPipelines: { type: "boolean", default: true, description: "Quando true, aplica a todos os funis (apenas para entityType='deal')." },
+        pipelineIds: {
+          type: "array",
+          items: { type: "string" },
+          description: "Lista de IDs de funis quando allPipelines=false.",
+        },
+        options: {
+          type: "array",
+          description: "Opções obrigatórias quando fieldType='single' ou 'multiple' (itens { id?, label } ou strings).",
+          items: { type: "object" },
+        },
+        ifExistsReturnExisting: {
+          type: "boolean",
+          default: true,
+          description: "Quando true, retorna o campo existente sem erro se já houver campo ativo com mesmo ID ou nome.",
+        },
       },
     },
   },
@@ -577,7 +685,13 @@ export const MCP_EXTENDED_TOOLS: McpToolDefinition[] = [
         parameters: {
           type: "array",
           items: { type: "string" },
-          description: "Lista ordenada dos valores para as variáveis {{1}}, {{2}}, ... do corpo do template (opcional quando os bindings automáticos resolvem).",
+          description:
+            "Lista ordenada dos valores para as variáveis {{1}}, {{2}}, ... do corpo do template (opcional quando os bindings automáticos 'customer_name', 'operator_name' ou 'deal_field:<campo>' resolvem). Quando informado, prevalece sobre 'deal_field:*'.",
+        },
+        dealId: {
+          type: "string",
+          description:
+            "ID opcional do card (crm_deals) usado para preencher automaticamente variáveis com binding 'deal_field:<campo>'. Se omitido, resolve automaticamente o card ativo vinculado à conversa.",
         },
         operatorId: { type: "string", description: "ID do operador remetente (opcional)." },
         senderName: { type: "string", description: "Nome exibido como remetente interno (opcional)." },
@@ -929,8 +1043,10 @@ export const MCP_EXTENDED_TOOL_LABELS_PT: Record<string, string> = {
   chat_transfer_conversation: "Transferir Conversa",
   chat_close_conversation: "Finalizar Conversa",
   create_conversation: "Abrir / Criar Conversa",
-  update_meta_template_visibility: "Atualizar Visibilidade de Template Meta",
+  update_meta_template_visibility: "Atualizar Visibilidade e Bindings de Template Meta",
   create_meta_template: "Criar & Submeter Template Meta",
+  delete_meta_template: "Excluir Template Oficial na Meta",
+  create_crm_custom_field: "Criar Campo Personalizado (CRM)",
   send_meta_template: "Enviar Template Oficial Meta",
   create_quick_response: "Criar Resposta Rápida",
   delete_quick_response: "Excluir Resposta Rápida",
@@ -1259,6 +1375,24 @@ export async function executeExtendedMcpTool(
         ? args.contactIds.filter((v): v is string => typeof v === "string" && v.trim().length > 0)
         : undefined;
 
+      let resolvedCustomFields: Record<string, unknown> | undefined;
+      if (args.customFields !== undefined) {
+        if (!args.customFields || typeof args.customFields !== "object" || Array.isArray(args.customFields)) {
+          throw new Error("Campo 'customFields' deve ser um objeto chave→valor.");
+        }
+        const defs = await listCustomFields(tenantId, "deal");
+        const idSet = new Set(defs.map((d) => d.id));
+        const idByLowerName = new Map(defs.map((d) => [d.name.trim().toLowerCase(), d.id]));
+        resolvedCustomFields = {};
+        for (const [k, v] of Object.entries(args.customFields as Record<string, unknown>)) {
+          if (idSet.has(k)) {
+            resolvedCustomFields[k] = v;
+          } else {
+            resolvedCustomFields[idByLowerName.get(k.trim().toLowerCase()) || k] = v;
+          }
+        }
+      }
+
       const deal = await crmService.createDeal(tenantId, operator?.id ?? null, {
         title,
         pipelineId,
@@ -1280,6 +1414,7 @@ export async function executeExtendedMcpTool(
         source: asTrimmedString(args.source),
         campaign: asTrimmedString(args.campaign),
         initialNote: asTrimmedString(args.initialNote) ?? null,
+        ...(resolvedCustomFields ? { customFields: resolvedCustomFields } : {}),
       });
 
       return {
@@ -1293,6 +1428,7 @@ export async function executeExtendedMcpTool(
         status: deal.status,
         value: deal.value,
         operatorId: deal.operatorId,
+        customFields: deal.customFields ?? {},
       };
     }
 
@@ -2225,10 +2361,15 @@ export async function executeExtendedMcpTool(
         ? args.stageIds.filter((v): v is string => typeof v === "string" && v.trim().length > 0)
         : [];
 
+      const bindingsInput =
+        args.bindings && typeof args.bindings === "object" && !Array.isArray(args.bindings)
+          ? (args.bindings as Record<string, unknown>)
+          : undefined;
+
       await setMetaTemplateBindings(
         tenantId,
         tpl.metaTemplateId,
-        undefined,
+        bindingsInput,
         undefined,
         {
           allPipelines: args.allPipelines,
@@ -2242,6 +2383,7 @@ export async function executeExtendedMcpTool(
           allPipelines: metaMessageTemplates.allPipelines,
           pipelineIds: metaMessageTemplates.pipelineIds,
           stageIds: metaMessageTemplates.stageIds,
+          bindings: metaMessageTemplates.bindings,
         })
         .from(metaMessageTemplates)
         .where(and(eq(metaMessageTemplates.id, tpl.id), eq(metaMessageTemplates.tenantId, tenantId)))
@@ -2256,6 +2398,226 @@ export async function executeExtendedMcpTool(
         allPipelines: refreshedTpl?.allPipelines ?? args.allPipelines,
         pipelineIds: refreshedTpl?.pipelineIds ?? pipelineIds,
         stageIds: refreshedTpl?.stageIds ?? stageIds,
+        bindings: refreshedTpl?.bindings ?? {},
+      };
+    }
+
+    // ── 18b. DELETE META TEMPLATE (GRAPH API REAL) ───────────────────────────
+    case "delete_meta_template": {
+      if (args.confirmDelete !== true) {
+        throw new Error(
+          "Exclusão definitiva na Meta bloqueada: passe confirmDelete=true para confirmar (a Meta bloqueia reutilizar o nome por 30 dias).",
+        );
+      }
+
+      const metaTemplateIdArg = asTrimmedString(args.metaTemplateId);
+      const templateIdArg = asTrimmedString(args.templateId);
+      const templateNameArg = asTrimmedString(args.templateName);
+      if (!metaTemplateIdArg && !templateIdArg && !templateNameArg) {
+        throw new Error(
+          "Informe 'metaTemplateId', 'templateId' ou 'templateName' para identificar o template a excluir.",
+        );
+      }
+
+      await ensureMetaTemplateGroupsSchema();
+      const lookupConds = [];
+      if (metaTemplateIdArg) lookupConds.push(eq(metaMessageTemplates.metaTemplateId, metaTemplateIdArg));
+      if (templateIdArg) {
+        lookupConds.push(eq(metaMessageTemplates.id, templateIdArg));
+        lookupConds.push(eq(metaMessageTemplates.metaTemplateId, templateIdArg));
+      }
+      if (templateNameArg) lookupConds.push(eq(metaMessageTemplates.name, templateNameArg));
+
+      const matches = await db
+        .select({
+          id: metaMessageTemplates.id,
+          metaTemplateId: metaMessageTemplates.metaTemplateId,
+          name: metaMessageTemplates.name,
+          language: metaMessageTemplates.language,
+          status: metaMessageTemplates.status,
+        })
+        .from(metaMessageTemplates)
+        .where(and(eq(metaMessageTemplates.tenantId, tenantId), or(...lookupConds)));
+
+      const activeMatches = matches.filter((m) => m.status !== "DELETED");
+      if (activeMatches.length === 0) {
+        throw new Error(
+          `Template Meta '${metaTemplateIdArg || templateIdArg || templateNameArg}' não encontrado (ou já excluído) no tenant '${tenantId}'.`,
+        );
+      }
+      if (activeMatches.length > 1) {
+        throw new Error(
+          `Mais de um template corresponde ao filtro (${activeMatches.map((m) => `${m.name}:${m.metaTemplateId}`).join(", ")}). Informe 'metaTemplateId' exato.`,
+        );
+      }
+      const targetTpl = activeMatches[0];
+
+      // Guarda contra exclusão acidental de template vinculado a Webhook RD Marketing
+      const flows = await db
+        .select({ id: rdMarketingFlows.id, settings: rdMarketingFlows.settings })
+        .from(rdMarketingFlows)
+        .where(eq(rdMarketingFlows.tenantId, tenantId));
+
+      const referencingFlows = flows
+        .filter((f) => {
+          const ref = String((f.settings as any)?.whatsappTemplateId || "").trim();
+          return (
+            ref &&
+            (ref === targetTpl.id || ref === targetTpl.metaTemplateId || ref === targetTpl.name)
+          );
+        })
+        .map((f) => ({
+          flowId: f.id,
+          flowName: String((f.settings as any)?.name || f.id),
+        }));
+
+      if (referencingFlows.length > 0 && args.forceDeleteIfReferenced !== true) {
+        throw new Error(
+          `Template '${targetTpl.name}' está referenciado em ${referencingFlows.length} fluxo(s) de Webhook RD Marketing (${referencingFlows.map((f) => f.flowName).join(", ")}). Troque o template nos fluxos antes de excluir ou passe forceDeleteIfReferenced=true.`,
+        );
+      }
+
+      await deleteMetaTemplate(tenantId, targetTpl.metaTemplateId);
+
+      return {
+        success: true,
+        tenantId,
+        deleted: true,
+        templateId: targetTpl.id,
+        metaTemplateId: targetTpl.metaTemplateId,
+        name: targetTpl.name,
+        language: targetTpl.language,
+        previousStatus: targetTpl.status,
+        referencedByRdFlows: referencingFlows,
+      };
+    }
+
+    // ── 18c. CREATE CRM CUSTOM FIELD ─────────────────────────────────────────
+    case "create_crm_custom_field": {
+      const entityType = (asTrimmedString(args.entityType) || "deal") as CustomFieldEntity;
+      if (!isCustomFieldEntity(entityType)) {
+        throw new Error("Campo 'entityType' inválido. Use: 'deal', 'company', 'contact' ou 'product'.");
+      }
+      const fieldType = asTrimmedString(args.fieldType);
+      if (!isCustomFieldType(fieldType)) {
+        throw new Error("Campo 'fieldType' inválido. Use: 'text', 'date', 'single', 'multiple', 'number' ou 'url'.");
+      }
+      const name = asTrimmedString(args.name);
+      if (!name || name.length > 120) {
+        throw new Error("Campo obrigatório 'name' deve ter entre 1 e 120 caracteres.");
+      }
+      if (conflictsWithStandardField(entityType, name)) {
+        throw new Error(`O campo '${name}' já existe como campo padrão do sistema.`);
+      }
+
+      const customFieldId = asTrimmedString(args.fieldId);
+      if (customFieldId && !/^[a-zA-Z0-9_-]{2,80}$/.test(customFieldId)) {
+        throw new Error("Campo 'fieldId' inválido: use apenas letras, números, '_' e '-' (2 a 80 caracteres).");
+      }
+
+      const ifExistsReturnExisting = args.ifExistsReturnExisting !== false;
+      const existingFields = await listCustomFields(tenantId, entityType);
+      const matchedExisting = existingFields.find(
+        (f) =>
+          (customFieldId && f.id === customFieldId) ||
+          f.name.toLocaleLowerCase("pt-BR") === name.toLocaleLowerCase("pt-BR"),
+      );
+      if (matchedExisting) {
+        if (ifExistsReturnExisting) {
+          return {
+            success: true,
+            tenantId,
+            reused: true,
+            field: matchedExisting,
+          };
+        }
+        throw new Error(`Já existe um campo personalizado '${matchedExisting.name}' (${matchedExisting.id}).`);
+      }
+
+      let options: Array<{ id: string; label: string }> = [];
+      if (fieldType === "single" || fieldType === "multiple") {
+        if (!Array.isArray(args.options) || args.options.length === 0 || args.options.length > 100) {
+          throw new Error("Informe ao menos 1 opção (até 100) em 'options' para campos 'single' ou 'multiple'.");
+        }
+        options = args.options.map((entry: any) => {
+          const label =
+            typeof entry === "string"
+              ? entry.trim()
+              : typeof entry?.label === "string"
+                ? entry.label.trim()
+                : "";
+          if (!label || label.length > 120) {
+            throw new Error("Cada opção precisa ter 'label' de 1 a 120 caracteres.");
+          }
+          const optId =
+            typeof entry === "object" && typeof entry?.id === "string" && entry.id.trim()
+              ? entry.id.trim()
+              : `opt-${crypto.randomUUID()}`;
+          return { id: optId, label };
+        });
+      }
+
+      const allPipelines = entityType !== "deal" || args.allPipelines !== false;
+      let pipelineIds: string[] = [];
+      if (!allPipelines) {
+        const rawIds = Array.isArray(args.pipelineIds)
+          ? Array.from(
+              new Set(
+                args.pipelineIds.filter((v): v is string => typeof v === "string" && v.trim().length > 0),
+              ),
+            )
+          : [];
+        if (rawIds.length === 0) {
+          throw new Error("Informe ao menos um funil em 'pipelineIds' quando allPipelines=false.");
+        }
+        const tenantPipes = await db
+          .select({ id: crmPipelines.id })
+          .from(crmPipelines)
+          .where(eq(crmPipelines.tenantId, tenantId));
+        const allowedPipeSet = new Set(tenantPipes.map((p) => p.id));
+        const invalidPipe = rawIds.find((id) => !allowedPipeSet.has(id));
+        if (invalidPipe) {
+          throw new Error(`Funil '${invalidPipe}' não pertence ao tenant '${tenantId}'.`);
+        }
+        pipelineIds = rawIds;
+      }
+
+      const required = args.required === true;
+      const visibleOnCreate = args.visibleOnCreate !== false;
+      if (required && !visibleOnCreate) {
+        throw new Error("Um campo obrigatório deve ter visibleOnCreate=true.");
+      }
+
+      const finalId = customFieldId || `cf-${crypto.randomUUID()}`;
+      const nextSortOrder = existingFields.length
+        ? Math.max(...existingFields.map((item) => item.sortOrder)) + 1
+        : 0;
+
+      const [createdField] = await db
+        .insert(crmCustomFieldDefinitions)
+        .values({
+          id: finalId,
+          tenantId,
+          entityType,
+          name,
+          fieldType,
+          options,
+          required,
+          requiredRule: "always",
+          requiredFromStageId: null,
+          isUnique: entityType === "deal" && args.isUnique === true,
+          visibleOnCreate,
+          allPipelines,
+          pipelineIds,
+          sortOrder: nextSortOrder,
+        })
+        .returning();
+
+      return {
+        success: true,
+        tenantId,
+        reused: false,
+        field: createdField,
       };
     }
 
@@ -2360,6 +2722,14 @@ export async function executeExtendedMcpTool(
         selected.bindings,
         args.parameters,
       );
+      const preferredDealId = asTrimmedString(args.dealId);
+      const hasDealFieldBindings = Object.values(selected.bindings || {}).some((b) =>
+        Boolean(getDealFieldBindingKey(b)),
+      );
+      const dealFieldContext =
+        hasDealFieldBindings || preferredDealId
+          ? await loadDealCustomFieldsForTemplate(tenantId, conversationId, preferredDealId)
+          : null;
       const fallbackCustomerName =
         contact.name?.trim() ||
         (Array.isArray(args.parameters) && args.parameters[0] !== undefined
@@ -2369,7 +2739,12 @@ export async function executeExtendedMcpTool(
         selected.variableCount,
         selected.bindings,
         rawParams,
-        { customerName: fallbackCustomerName, operatorName: senderName },
+        {
+          customerName: fallbackCustomerName,
+          operatorName: senderName,
+          dealCustomFields: dealFieldContext?.dealCustomFields,
+          dealCustomFieldNamesById: dealFieldContext?.dealCustomFieldNamesById,
+        },
       );
       const resolvedParams = values.map((value) => ({ type: "text" as const, text: value }));
       const templateComponents = resolvedParams.length
@@ -2412,6 +2787,7 @@ export async function executeExtendedMcpTool(
         templateName: selected.name,
         templateLanguage: selected.language,
         resolvedParameters: values,
+        resolvedFromDealId: dealFieldContext?.dealId ?? null,
         renderedText,
         messageId: result.messageId,
         externalId: result.externalId ?? null,

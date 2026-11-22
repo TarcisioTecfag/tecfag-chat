@@ -735,6 +735,41 @@ if (!databaseUrl) {
       );
     }
 
+    // 10f. Bootstrap Piloto Black November (22/11/2026): 4 campos personalizados CRM + bindings automáticos + exclusão dos 10 templates obsoletos na Meta
+    const blackNovemberPilotName = "black_november_pilot_fields_bindings_cleanup_2026_11_22_v1";
+    const [appliedBlackNovemberPilot] = await sql`
+      SELECT name FROM app_deploy_migrations WHERE name = ${blackNovemberPilotName}
+    `;
+    if (!appliedBlackNovemberPilot) {
+      console.log(
+        `[platform migration] Iniciando execução única de ${blackNovemberPilotName}...`,
+      );
+      try {
+        const { runBlackNovemberPilotBootstrap } = await import(
+          "./black-november-pilot-bootstrap.mjs"
+        );
+        const summary = await runBlackNovemberPilotBootstrap(sql, "tecfag");
+        await sql`
+          INSERT INTO app_deploy_migrations (name)
+          VALUES (${blackNovemberPilotName})
+          ON CONFLICT (name) DO NOTHING
+        `;
+        console.log(
+          `[platform migration] ${blackNovemberPilotName} concluída com sucesso:`,
+          JSON.stringify(summary),
+        );
+      } catch (blackErr) {
+        console.warn(
+          `[platform migration] Aviso ao executar ${blackNovemberPilotName}:`,
+          blackErr?.message || blackErr,
+        );
+      }
+    } else {
+      console.log(
+        `[platform migration] ${blackNovemberPilotName} já aplicada anteriormente.`,
+      );
+    }
+
     // 11. Higienização contínua de sectors.operator_ids (remove IDs de operadores órfãos/excluídos e deduplica por setor)
     try {
       const [allSectors, allOperators] = await Promise.all([

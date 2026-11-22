@@ -86,9 +86,9 @@ async function callTool(
   return { isError: false as const, errorText: "", data: JSON.parse(text) };
 }
 
-describe("MCP v3.2.0 — Onda 1 (Unitário & Validações)", () => {
-  it("expõe versão 3.2.0 e calcula corretamente faixas de ciclo 80% (esfria) e 110% (limite)", () => {
-    expect(MCP_SERVER_INFO.version).toBe("3.2.0");
+describe("MCP v3.3.0 — Onda 1 & Piloto Black (Unitário & Validações)", () => {
+  it("expõe versão 3.3.0 e calcula corretamente faixas de ciclo 80% (esfria) e 110% (limite)", () => {
+    expect(MCP_SERVER_INFO.version).toBe("3.3.0");
 
     const t1 = computeCycleTierForValue(5_000, DEFAULT_MATURITY_RULES)!;
     expect(t1.tierIndex).toBe(1);
@@ -168,6 +168,75 @@ describe("MCP v3.2.0 — Onda 1 (Unitário & Validações)", () => {
     expect(() =>
       resolveMetaTemplateValues(1, { "1": "manual" }, suppliedMissingManual, { customerName: "Ana" }),
     ).toThrow("Valor ausente para {{1}}.");
+  });
+
+  it("send_meta_template resolve bindings 'deal_field:*' (Black November T1/T3), aceita override manual e sanitiza quebras/tabs", () => {
+    const t1GapBindings = {
+      "1": "deal_field:black_maquina" as const,
+      "2": "deal_field:black_preco" as const,
+      "3": "deal_field:gap_t1" as const,
+    };
+    const t3GapBindings = {
+      "1": "deal_field:black_maquina" as const,
+      "2": "deal_field:black_preco" as const,
+      "3": "deal_field:gap_t3" as const,
+    };
+    const dealFields = {
+      black_maquina: "FX-800",
+      black_preco: "R$ 1.063,12",
+      gap_t1:
+        "acho que essas máquinas podem te interessar:\nDatadora Hot Stamp HP351 por R$ 462,94 e Seladora Conjugada 'L' de Bancada por R$ 3.966,67",
+      gap_t3:
+        "Datadora Hot Stamp HP351 por R$ 462,94\te Seladora Conjugada 'L' de Bancada por R$ 3.966,67",
+    };
+
+    // T1 com gap puxando automaticamente do card (sem enviar parameters)
+    const suppliedT1 = buildMcpMetaTemplateSuppliedParams(3, t1GapBindings, undefined);
+    expect(
+      resolveMetaTemplateValues(3, t1GapBindings, suppliedT1, {
+        dealCustomFields: dealFields,
+      }),
+    ).toEqual([
+      "FX-800",
+      "R$ 1.063,12",
+      "acho que essas máquinas podem te interessar: Datadora Hot Stamp HP351 por R$ 462,94 e Seladora Conjugada 'L' de Bancada por R$ 3.966,67",
+    ]);
+
+    // T3 com gap puxando gap_t3 na posição {{3}} (e sanitizando \t)
+    const suppliedT3 = buildMcpMetaTemplateSuppliedParams(3, t3GapBindings, undefined);
+    expect(
+      resolveMetaTemplateValues(3, t3GapBindings, suppliedT3, {
+        dealCustomFields: dealFields,
+      }),
+    ).toEqual([
+      "FX-800",
+      "R$ 1.063,12",
+      "Datadora Hot Stamp HP351 por R$ 462,94 e Seladora Conjugada 'L' de Bancada por R$ 3.966,67",
+    ]);
+
+    // Override explícito via parameters continua prevalecendo (útil para testes de amostras A/B/C)
+    const suppliedOverride = buildMcpMetaTemplateSuppliedParams(3, t1GapBindings, [
+      "FX-800",
+      "R$ 1.063,12",
+      "acho que essa máquina pode te interessar: Seladora de Pedal por cerca de R$ 783",
+    ]);
+    expect(
+      resolveMetaTemplateValues(3, t1GapBindings, suppliedOverride, {
+        dealCustomFields: dealFields,
+      }),
+    ).toEqual([
+      "FX-800",
+      "R$ 1.063,12",
+      "acho que essa máquina pode te interessar: Seladora de Pedal por cerca de R$ 783",
+    ]);
+
+    // Erro claro quando o campo do card está vazio e nenhum parameter foi enviado
+    const suppliedMissingDeal = buildMcpMetaTemplateSuppliedParams(3, t1GapBindings, undefined);
+    expect(() =>
+      resolveMetaTemplateValues(3, t1GapBindings, suppliedMissingDeal, {
+        dealCustomFields: { black_maquina: "FX-800", black_preco: "R$ 1.063,12" },
+      }),
+    ).toThrow("campo do card 'gap_t1' vazio");
   });
 });
 

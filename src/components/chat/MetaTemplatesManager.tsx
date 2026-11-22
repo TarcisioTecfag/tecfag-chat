@@ -160,11 +160,12 @@ async function api(path: string, init?: RequestInit) {
 }
 
 function bindingLabel(binding: TemplateBinding) {
-  return binding === "customer_name"
-    ? "Primeiro nome do cliente"
-    : binding === "operator_name"
-    ? "Primeiro nome do operador"
-    : "Preencher no envio";
+  if (binding === "customer_name") return "Primeiro nome do cliente";
+  if (binding === "operator_name") return "Primeiro nome do operador";
+  if (typeof binding === "string" && binding.startsWith("deal_field:")) {
+    return `Campo do card (${binding.slice("deal_field:".length)})`;
+  }
+  return "Preencher no envio";
 }
 
 export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {

@@ -43,7 +43,7 @@ export const DEFAULT_MCP_ADMIN_TOKEN = "mcp_admin_7d9e3b5c1a8f4e6d2b0c9a7e5f3d1b
 
 export const MCP_SERVER_INFO = {
   name: "valem-tecfag-mcp",
-  version: "3.2.0",
+  version: "3.3.0",
 };
 
 export type McpAccessLevel = "read" | "read_write";
@@ -469,9 +469,15 @@ export function summarizeMcpToolResult(toolName: string, data: any): string {
       case "create_conversation":
         return `Conversa ${data.conversationId} ${data.reopened ? "reaberta" : "criada"} (${data.queueState})`;
       case "update_meta_template_visibility":
-        return `Visibilidade do template "${data.name || data.templateId}" atualizada (${data.allPipelines ? "todos os funis" : `${data.pipelineIds?.length ?? 0} funil(is) · ${data.stageIds?.length ?? 0} etapa(s)`})`;
+        return `Visibilidade/bindings do template "${data.name || data.templateId}" atualizados (${data.allPipelines ? "todos os funis" : `${data.pipelineIds?.length ?? 0} funil(is) · ${data.stageIds?.length ?? 0} etapa(s)`})`;
       case "create_meta_template":
         return `Template Meta "${data.template?.name || ""}" submetido para aprovação`;
+      case "delete_meta_template":
+        return `Template Meta "${data.name || data.metaTemplateId}" excluído definitivamente na Meta`;
+      case "create_crm_custom_field":
+        return data.reused
+          ? `Campo personalizado "${data.field?.name || ""}" já existia e foi reutilizado (${data.field?.id || ""})`
+          : `Campo personalizado "${data.field?.name || ""}" criado (${data.field?.id || ""})`;
       case "send_meta_template":
         return `Template Meta "${data.templateName}" enviado na conversa ${data.conversationId} (${data.messageId})`;
       case "create_quick_response":

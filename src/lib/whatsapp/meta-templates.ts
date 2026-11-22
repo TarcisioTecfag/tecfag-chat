@@ -11,7 +11,14 @@ import {
   metaMessageTemplates,
   metaTemplateGroups,
 } from "../../db/schema";
-import { bodyVariableIndexes, stripTemplateAccents, type TemplateBinding, type TemplateBindings } from "./meta-template-common";
+import {
+  bodyVariableIndexes,
+  isValidTemplateBinding,
+  stripTemplateAccents,
+  type TemplateBinding,
+  type TemplateBindings,
+} from "./meta-template-common";
+import { listCustomFields } from "../crm/custom-fields";
 
 const GRAPH_BASE = "https://graph.facebook.com/v21.0";
 
@@ -194,8 +201,9 @@ export function validateMetaTemplateInput(value: unknown): MetaTemplateInput {
   if (examples.length !== indexes.length || examples.some((item) => !item)) throw new Error("Informe um exemplo para cada variável.");
   const bindings: TemplateBindings = {};
   for (const index of indexes) {
-    const binding = input.bindings?.[String(index)] || "manual";
-    if (!(["customer_name", "operator_name", "manual"] as string[]).includes(binding)) throw new Error("Vínculo de variável inválido.");
+    const rawBinding = input.bindings?.[String(index)] || "manual";
+    const binding = typeof rawBinding === "string" ? rawBinding.trim() : rawBinding;
+    if (!isValidTemplateBinding(binding)) throw new Error("Vínculo de variável inválido.");
     bindings[String(index)] = binding;
   }
 
@@ -511,9 +519,10 @@ export async function setMetaTemplateBindings(
     const indexes = bodyVariableIndexes(existing.bodyText);
     const bindings: TemplateBindings = {};
     for (const index of indexes) {
-      const binding = (value as Record<string, unknown>)?.[String(index)] || "manual";
-      if (!(["customer_name", "operator_name", "manual"] as unknown[]).includes(binding)) throw new Error("Vínculo inválido.");
-      bindings[String(index)] = binding as TemplateBinding;
+      const rawBinding = (value as Record<string, unknown>)?.[String(index)] || "manual";
+      const binding = typeof rawBinding === "string" ? rawBinding.trim() : rawBinding;
+      if (!isValidTemplateBinding(binding)) throw new Error("Vínculo inválido.");
+      bindings[String(index)] = binding;
     }
     updateFields.bindings = bindings;
   }
@@ -951,6 +960,71 @@ export async function resolveConversationActiveDealStage(
       pipelineName: dealRow.pipelineName || null,
       stageId: dealRow.stageId,
       stageName: dealRow.stageName || null,
+    };
+  } catch {
+    return empty;
+  }
+}
+
+/**
+ * Carrega os campos personalizados do card vinculado à conversa (ou de um dealId explícito)
+ * para preenchimento automático de variáveis Meta vinculadas via `deal_field:<fieldKey>`.
+ */
+export async function loadDealCustomFieldsForTemplate(
+  tenantId: string,
+  conversationId: string,
+  preferredDealId?: string | null,
+): Promise<{
+  dealId: string | null;
+  dealCustomFields: Record<string, unknown> | null;
+  dealCustomFieldNamesById: Record<string, string>;
+}> {
+  const empty = {
+    dealId: null,
+    dealCustomFields: null,
+    dealCustomFieldNamesById: {} as Record<string, string>,
+  };
+  try {
+    let targetDealId = preferredDealId?.trim() || null;
+    if (!targetDealId) {
+      const stageInfo = await resolveConversationActiveDealStage(tenantId, conversationId);
+      targetDealId = stageInfo.dealId;
+    }
+    if (!targetDealId) return empty;
+
+    const [[dealRow], defs] = await Promise.all([
+      db
+        .select({ id: crmDeals.id, customFields: crmDeals.customFields })
+        .from(crmDeals)
+        .where(and(eq(crmDeals.tenantId, tenantId), eq(crmDeals.id, targetDealId)))
+        .limit(1),
+      listCustomFields(tenantId, "deal"),
+    ]);
+
+    if (!dealRow) return empty;
+    let parsedCustomFields: Record<string, unknown> | null = null;
+    if (dealRow.customFields && typeof dealRow.customFields === "object" && !Array.isArray(dealRow.customFields)) {
+      parsedCustomFields = dealRow.customFields as Record<string, unknown>;
+    } else if (typeof dealRow.customFields === "string") {
+      try {
+        const parsed = JSON.parse(dealRow.customFields);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          parsedCustomFields = parsed as Record<string, unknown>;
+        }
+      } catch {
+        parsedCustomFields = null;
+      }
+    }
+
+    const dealCustomFieldNamesById: Record<string, string> = {};
+    for (const def of defs) {
+      dealCustomFieldNamesById[def.id] = def.name;
+    }
+
+    return {
+      dealId: dealRow.id,
+      dealCustomFields: parsedCustomFields,
+      dealCustomFieldNamesById,
     };
   } catch {
     return empty;
