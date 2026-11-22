@@ -306,6 +306,11 @@ export const MCP_EXTENDED_TOOLS: McpToolDefinition[] = [
         cpf: { type: "string", description: "Novo CPF do contato." },
         cnpj: { type: "string", description: "Novo CNPJ do contato." },
         accountId: { type: "string", description: "ID da empresa/conta vinculada (ou null para desvincular)." },
+        walletOperatorId: {
+          type: ["string", "null"],
+          description:
+            "ID do operador dono da carteira do contato (ou null / '' para limpar a carteira antiga). Sincroniza também responsibleName.",
+        },
       },
     },
   },
@@ -1637,10 +1642,26 @@ export async function executeExtendedMcpTool(
       if (args.cpf !== undefined) updates.cpf = asTrimmedString(args.cpf) ?? null;
       if (args.cnpj !== undefined) updates.cnpj = asTrimmedString(args.cnpj) ?? null;
       if (args.accountId !== undefined) updates.accountId = asTrimmedString(args.accountId) ?? null;
+      if (args.walletOperatorId !== undefined) {
+        if (args.walletOperatorId === null || args.walletOperatorId === "") {
+          updates.walletOperatorId = null;
+          updates.responsibleName = null;
+        } else {
+          const walletOp = await assertOperatorInTenant(
+            tenantId,
+            asTrimmedString(args.walletOperatorId),
+          );
+          if (!walletOp) {
+            throw new Error("Campo 'walletOperatorId' inválido.");
+          }
+          updates.walletOperatorId = walletOp.id;
+          updates.responsibleName = walletOp.name;
+        }
+      }
 
       if (Object.keys(updates).length === 1) {
         throw new Error(
-          "Informe ao menos um campo para atualizar ('name', 'phone', 'email', 'cpf', 'cnpj' ou 'accountId').",
+          "Informe ao menos um campo para atualizar ('name', 'phone', 'email', 'cpf', 'cnpj', 'accountId' ou 'walletOperatorId').",
         );
       }
 
@@ -1666,6 +1687,8 @@ export async function executeExtendedMcpTool(
         phone: updated.phone,
         email: updated.email,
         accountId: updated.accountId,
+        walletOperatorId: updated.walletOperatorId,
+        responsibleName: updated.responsibleName,
       };
     }
 

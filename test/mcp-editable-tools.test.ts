@@ -114,6 +114,7 @@ describe("MCP Editável Real (/api/mcp + permissão read/read_write + ponte stdi
       { name: "update_crm_deal_owner", args: { dealId: "d1" }, expectedError: "'operatorId'" },
       { name: "mark_deal_lost", args: { dealId: "d1" }, expectedError: "'lossReason'" },
       { name: "create_contact", args: {}, expectedError: "'name'" },
+      { name: "update_contact", args: {}, expectedError: "'contactId'" },
       { name: "create_account", args: {}, expectedError: "'name'" },
       { name: "create_task", args: {}, expectedError: "'title'" },
       { name: "chat_send_message", args: { conversationId: "c1" }, expectedError: "'content'" },
