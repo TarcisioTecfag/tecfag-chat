@@ -1080,7 +1080,14 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       if (signal?.aborted) return false;
 
       if (industrialTriage) {
+        const rawBeforeParse = aiResult;
         aiResult = parseIndustrialAiResult(aiResult);
+        if (!aiResult && rawBeforeParse) {
+          console.warn(
+            `[SdrEngine] ⚠️ parseIndustrialAiResult rejeitou resposta da IA para conversa ${conversationId}. Preview:`,
+            JSON.stringify(rawBeforeParse).slice(0, 500),
+          );
+        }
       }
 
       // Se a IA não retornar resultado válido (timeout, erro de parse, etc.), silencia sem enviar

@@ -8,6 +8,7 @@ import {
   formatSdrMessageTimestampTag,
   formatSdrRelativeAgePt,
 } from "../src/lib/valentina/sdr-tecfag-prompt";
+import { parseIndustrialAiResult } from "../src/lib/triage/industrial-ai-result";
 
 describe("Fagner — Noção Temporal de Histórico, Regra Anti-URA e Fix de 1ª Linha em SdrTab", () => {
   it("formata data/hora em Brasília (UTC-3) e idade relativa em todos os horizontes de tempo", () => {
@@ -65,5 +66,52 @@ describe("Fagner — Noção Temporal de Histórico, Regra Anti-URA e Fix de 1ª
       'const captionText = hasMediaTag\n                                  ? lines.slice(1).join("\\n").trim()\n                                  : "";',
     );
     expect(source).toContain("{hasMediaTag ? captionText || text : text}");
+  });
+
+  it("parseIndustrialAiResult aceita valores null/numéricos/objetos dentro de extractedData e normaliza subflow sem descartar a resposta do Fagner", () => {
+    const parsed = parseIndustrialAiResult({
+      subflow: "null",
+      extractedData: {
+        "NOME COMPLETO": null,
+        EMPRESA: undefined,
+        "CNPJ OU CPF": "null",
+        "MÁQUINA / PEÇA / INTERESSE": "dosadora para café em pó de até 500 gramas",
+        "VOLUME / PRODUÇÃO": 500,
+        "RAMO / O QUE EMBALA": { value: "café em pó", status: "filled" },
+        "SETOR / FUNIL DE DESTINO": null,
+      },
+      funnelStage: "triagem",
+      targetFunnel: "null",
+      directOperatorRequest: { intent: "none", citedName: null, matchedOperatorId: null },
+      messagesToSend: ["Trabalhamos sim com dosadoras para café em pó!", "", "Qual sua produção diária aproximada?"],
+      audioMessage: null,
+      quoteMessageId: null,
+      mediaDescription: null,
+      isCompleted: false,
+    });
+
+    expect(parsed).not.toBeNull();
+    expect(parsed!.subflow).toBeNull();
+    expect(parsed!.targetFunnel).toBeNull();
+    expect(parsed!.extractedData).toEqual({
+      "MÁQUINA / PEÇA / INTERESSE": "dosadora para café em pó de até 500 gramas",
+      "VOLUME / PRODUÇÃO": "500",
+      "RAMO / O QUE EMBALA": "café em pó",
+    });
+    expect(parsed!.messagesToSend).toEqual([
+      "Trabalhamos sim com dosadoras para café em pó!",
+      "Qual sua produção diária aproximada?",
+    ]);
+
+    // Subflow em lowercase também normaliza corretamente
+    const parsedLower = parseIndustrialAiResult({
+      subflow: "maquinas",
+      extractedData: null,
+      messagesToSend: ["Perfeito! Qual produto você embala hoje?"],
+      isCompleted: false,
+    });
+    expect(parsedLower).not.toBeNull();
+    expect(parsedLower!.subflow).toBe("MAQUINAS");
+    expect(parsedLower!.extractedData).toEqual({});
   });
 });
