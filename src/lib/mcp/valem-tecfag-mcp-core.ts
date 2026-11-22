@@ -45,7 +45,7 @@ export const DEFAULT_MCP_ADMIN_TOKEN = "mcp_admin_7d9e3b5c1a8f4e6d2b0c9a7e5f3d1b
 
 export const MCP_SERVER_INFO = {
   name: "valem-tecfag-mcp",
-  version: "3.4.0",
+  version: "3.5.0",
 };
 
 export type McpAccessLevel = "read" | "read_write";
@@ -380,8 +380,17 @@ export function summarizeMcpToolResult(toolName: string, data: any): string {
       }
       case "get_conversation_messages": {
         const client = data.conversation?.clientName || data.conversation?.id || "Conversa";
-        const msgs = Number(data.totalMessagesReturned ?? 0);
+        const msgs = Number(data.totalMessagesReturned ?? data.messageCountReturned ?? 0);
         return `Conversa de "${client}" (${msgs} mensagens lidas)`;
+      }
+      case "get_operator_conversations_messages": {
+        const opName = data.operator?.name || "Colaborador";
+        const s = data.summary || {};
+        return `${opName}: ${Number(s.returnedCount ?? 0)}/${Number(s.totalMatched ?? 0)} conversas (${Number(s.neverRepliedByAgentCount ?? 0)} sem resposta humana · ${Number(s.insideMeta24hWindowCount ?? 0)} na janela 24h · ${Number(s.outsideMeta24hWindowCount ?? 0)} fora 24h)`;
+      }
+      case "handoff_conversation_to_ai_proactive": {
+        const mode = data.dryRun ? "[DRY-RUN] " : "";
+        return `${mode}Repasse proativo para ${data.aiPersona || "IA"}: ${Number(data.handedOffCount ?? 0)}/${Number(data.totalRequested ?? 0)} (templates: ${Number(data.sentTemplateCount ?? 0)}, IA: ${Number(data.aiTriggeredCount ?? 0)}, puladas: ${Number(data.skippedCount ?? 0)}, erros: ${Number(data.errorCount ?? 0)})`;
       }
       case "get_fagner_triage_overview": {
         const total = Number(data.totalTrackedConversations ?? data.summary?.totalConversations ?? 0);

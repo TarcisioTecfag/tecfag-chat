@@ -83,6 +83,12 @@ import {
   executeTriageAuditMcpTool,
   isTriageAuditMcpTool,
 } from "./valem-tecfag-mcp-triage-tools";
+import {
+  MCP_OPERATOR_MESSAGES_TOOLS,
+  MCP_OPERATOR_MESSAGES_TOOL_LABELS_PT,
+  executeOperatorMessagesMcpTool,
+  isOperatorMessagesMcpTool,
+} from "./valem-tecfag-mcp-operator-messages-tools";
 
 export type McpToolAccessKind = "read" | "write";
 
@@ -1029,6 +1035,7 @@ export const MCP_EXTENDED_TOOLS: McpToolDefinition[] = [
   ...MCP_KNOWLEDGE_TOOLS,
   ...MCP_WAVE1_TOOLS,
   ...MCP_TRIAGE_AUDIT_TOOLS,
+  ...MCP_OPERATOR_MESSAGES_TOOLS,
 ];
 
 export const MCP_EXTENDED_TOOL_LABELS_PT: Record<string, string> = {
@@ -1067,6 +1074,7 @@ export const MCP_EXTENDED_TOOL_LABELS_PT: Record<string, string> = {
   ...MCP_KNOWLEDGE_TOOL_LABELS_PT,
   ...MCP_WAVE1_TOOL_LABELS_PT,
   ...MCP_TRIAGE_AUDIT_TOOL_LABELS_PT,
+  ...MCP_OPERATOR_MESSAGES_TOOL_LABELS_PT,
 };
 
 const EXTENDED_TOOL_NAMES = new Set(MCP_EXTENDED_TOOLS.map((t) => t.name));
@@ -3815,6 +3823,9 @@ export async function executeExtendedMcpTool(
       }
       if (isTriageAuditMcpTool(name)) {
         return executeTriageAuditMcpTool(name, args, tenantId, actor);
+      }
+      if (isOperatorMessagesMcpTool(name)) {
+        return executeOperatorMessagesMcpTool(name, args, tenantId, actor);
       }
       throw new Error(`Ferramenta estendida desconhecida: '${name}'.`);
   }
