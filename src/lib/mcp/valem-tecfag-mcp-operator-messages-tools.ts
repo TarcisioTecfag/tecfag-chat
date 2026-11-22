@@ -15,6 +15,7 @@ import {
 import { getAiPersona } from "../ai-persona";
 import { setAttendanceActor } from "../attendance-events";
 import { SessionManager } from "../baileys/session-manager";
+import { ensureCwrDealOnContacting } from "../triage/industrial-cwr-crm";
 import { isSdrEnabledForTenant } from "../triage/sdr-disabled-routing";
 import { SdrDebouncer } from "../valentina/sdr-debouncer";
 import { metaAdapter } from "../whatsapp/adapters/meta";
@@ -1632,6 +1633,30 @@ export async function executeOperatorMessagesMcpTool(
             }
           }
 
+          // 3b) Ciclo de vida FUNIL CWR: sempre que o assistente IA industrial envia template/mensagem proativa,
+          // garante o card no FUNIL CWR e move automaticamente de PROSPECTS/CONTATAR -> CONTATANDO.
+          let cwrAction: string | null = null;
+          if (
+            persona.triagePolicy === "industrial" &&
+            (plan.decision === "send_template" || plan.decision === "send_text")
+          ) {
+            try {
+              const cwrResult = await ensureCwrDealOnContacting(db, {
+                tenantId,
+                conversationId,
+                contactId: contactRow.id,
+                clientName: contactRow.name,
+                actorName: persona.name,
+              });
+              cwrAction = cwrResult.action;
+            } catch (cwrErr: any) {
+              console.warn(
+                "[MCP Proactive Handoff] Aviso ao mover card CWR para CONTATANDO:",
+                cwrErr?.message || cwrErr,
+              );
+            }
+          }
+
           emitSseSafe(tenantId, {
             type: "queue_update",
             conversationId,
@@ -1678,6 +1703,7 @@ export async function executeOperatorMessagesMcpTool(
                   templateName: resolvedTemplatePayload?.templateName ?? null,
                 }
               : {}),
+            ...(cwrAction ? { cwrAction } : {}),
             ...(plan.decision === "trigger_ai"
               ? { aiTriggered, aiSkipReason }
               : {}),

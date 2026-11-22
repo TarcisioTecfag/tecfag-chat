@@ -189,6 +189,7 @@ export async function ensureCwrDealOnContacting(
     const now = new Date();
 
     let targetDeal: typeof crmDeals.$inferSelect | null = null;
+    let allLinkedOpenCwrDeals: Array<typeof crmDeals.$inferSelect> = [];
 
     if (params.dealIdHint) {
       const [hinted] = await tx
@@ -205,27 +206,31 @@ export async function ensureCwrDealOnContacting(
       if (hinted) targetDeal = hinted;
     }
 
-    if (!targetDeal) {
-      const linked = await tx
-        .select({ deal: crmDeals })
-        .from(crmConversationDeals)
-        .innerJoin(
-          crmDeals,
-          and(eq(crmDeals.id, crmConversationDeals.dealId), eq(crmDeals.tenantId, tenantId)),
-        )
-        .where(
-          and(
-            eq(crmConversationDeals.tenantId, tenantId),
-            eq(crmConversationDeals.conversationId, conversationId),
-            eq(crmConversationDeals.isActive, true),
-            eq(crmDeals.status, "open"),
-          ),
-        )
-        .orderBy(desc(crmDeals.updatedAt), desc(crmDeals.createdAt))
-        .limit(5);
+    const linked = await tx
+      .select({ deal: crmDeals })
+      .from(crmConversationDeals)
+      .innerJoin(
+        crmDeals,
+        and(eq(crmDeals.id, crmConversationDeals.dealId), eq(crmDeals.tenantId, tenantId)),
+      )
+      .where(
+        and(
+          eq(crmConversationDeals.tenantId, tenantId),
+          eq(crmConversationDeals.conversationId, conversationId),
+          eq(crmConversationDeals.isActive, true),
+          eq(crmDeals.status, "open"),
+        ),
+      )
+      .orderBy(desc(crmDeals.updatedAt), desc(crmDeals.createdAt))
+      .limit(10);
 
+    allLinkedOpenCwrDeals = linked
+      .map((row) => row.deal)
+      .filter((d) => d.pipelineId === cwr.pipelineId);
+
+    if (!targetDeal) {
       targetDeal =
-        linked.find((row) => row.deal.pipelineId === cwr.pipelineId)?.deal ||
+        allLinkedOpenCwrDeals[0] ||
         linked[0]?.deal ||
         null;
     }
@@ -264,36 +269,50 @@ export async function ensureCwrDealOnContacting(
         [cwr.prospectsStageId, cwr.contatarStageId].filter((id): id is string => Boolean(id)),
       );
 
+      // Move TODOS os cards abertos do FUNIL CWR vinculados a esta conversa que ainda estejam em PROSPECTS/CONTATAR
+      // (evita que leads com mais de 1 card vinculado fiquem com algum card preso em CONTATAR após mensagem do Fagner)
+      const candidatesToMoveMap = new Map<string, typeof crmDeals.$inferSelect>();
       if (targetDeal.pipelineId === cwr.pipelineId && movableFromStages.has(targetDeal.stageId)) {
-        const fromStageId = targetDeal.stageId;
-        await tx
-          .update(crmDeals)
-          .set({
-            stageId: cwr.contatandoStageId,
-            version: sql`${crmDeals.version} + 1`,
-            lastActivityAt: now,
-            updatedAt: now,
-          })
-          .where(and(eq(crmDeals.tenantId, tenantId), eq(crmDeals.id, targetDeal.id)));
+        candidatesToMoveMap.set(targetDeal.id, targetDeal);
+      }
+      for (const linkedCwr of allLinkedOpenCwrDeals) {
+        if (movableFromStages.has(linkedCwr.stageId)) {
+          candidatesToMoveMap.set(linkedCwr.id, linkedCwr);
+        }
+      }
 
-        await tx.insert(crmDealEvents).values({
-          id: `ev-cwr-${Date.now()}-${crypto.randomUUID().slice(0, 6)}`,
-          tenantId,
-          dealId: targetDeal.id,
-          eventType: "stage_changed",
-          fromStageId,
-          toStageId: cwr.contatandoStageId,
-          operatorId: null,
-          metadata: {
-            origin: "auto_sdr_cwr",
-            actorName,
-            actorType: "ai_sdr",
-            conversationId,
-            pipelineId: cwr.pipelineId,
-            toStageName: "CONTATANDO",
-          },
-          createdAt: now,
-        });
+      if (candidatesToMoveMap.size > 0) {
+        for (const dealToMove of candidatesToMoveMap.values()) {
+          const fromStageId = dealToMove.stageId;
+          await tx
+            .update(crmDeals)
+            .set({
+              stageId: cwr.contatandoStageId,
+              version: sql`${crmDeals.version} + 1`,
+              lastActivityAt: now,
+              updatedAt: now,
+            })
+            .where(and(eq(crmDeals.tenantId, tenantId), eq(crmDeals.id, dealToMove.id)));
+
+          await tx.insert(crmDealEvents).values({
+            id: `ev-cwr-${Date.now()}-${crypto.randomUUID().slice(0, 6)}`,
+            tenantId,
+            dealId: dealToMove.id,
+            eventType: "stage_changed",
+            fromStageId,
+            toStageId: cwr.contatandoStageId,
+            operatorId: null,
+            metadata: {
+              origin: "auto_sdr_cwr",
+              actorName,
+              actorType: "ai_sdr",
+              conversationId,
+              pipelineId: cwr.pipelineId,
+              toStageName: "CONTATANDO",
+            },
+            createdAt: now,
+          });
+        }
 
         return {
           ok: true,
