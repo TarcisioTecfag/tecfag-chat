@@ -21,6 +21,7 @@ import {
   metaMessageTemplates,
   operators,
   tenants,
+  whatsappConnections,
 } from "../src/db/schema";
 import { DEFAULT_MATURITY_RULES } from "../src/lib/commercial/metrics";
 import {
@@ -749,6 +750,114 @@ describe.skipIf(!RUN_DB_TESTS)("MCP v3.2.0 — Onda 1 (Integração PostgreSQL R
     expect(deletedLog.data.adminActions[0].action).toBe("delete_permanent");
     for (const a of deletedLog.data.adminActions) {
       createdActionIds.push(a.id);
+    }
+  });
+
+  it("update_contact limpa walletOperatorId (null e '') gravando responsibleName='Na Fila' sem erro SQL e create_conversation cria/reabre o canal corporativo oficial mesmo quando existe conversa Baileys", async () => {
+    // 1. Atribui carteira no contato 2
+    const setWallet = await callTool(
+      "update_contact",
+      { contactId: contact2Id, walletOperatorId: op1Id },
+      "tecfag",
+      "read_write",
+    );
+    expect(setWallet.isError).toBe(false);
+    expect(setWallet.data.walletOperatorId).toBe(op1Id);
+    expect(setWallet.data.responsibleName).toBe(`Consultor Onda1 ${suffix}`);
+
+    // 2. Limpa carteira com null -> não quebra NOT NULL em responsible_name
+    const clearNull = await callTool(
+      "update_contact",
+      { contactId: contact2Id, walletOperatorId: null },
+      "tecfag",
+      "read_write",
+    );
+    expect(clearNull.isError).toBe(false);
+    expect(clearNull.data.walletOperatorId).toBeNull();
+    expect(clearNull.data.responsibleName).toBe("Na Fila");
+
+    // 3. Limpa carteira com "" -> também retorna "Na Fila"
+    const clearEmpty = await callTool(
+      "update_contact",
+      { contactId: contact2Id, walletOperatorId: "" },
+      "tecfag",
+      "read_write",
+    );
+    expect(clearEmpty.isError).toBe(false);
+    expect(clearEmpty.data.walletOperatorId).toBeNull();
+    expect(clearEmpty.data.responsibleName).toBe("Na Fila");
+
+    // 4. Simula conversa existente de celular pessoal (Baileys, whatsappConnectionId != null) para contact2Id
+    const baileysConnId = `conn-baileys-${suffix}`;
+    const baileysConvId = `conv-baileys-${suffix}`;
+    await db.insert(whatsappConnections).values({
+      id: baileysConnId,
+      tenantId,
+      name: `Celular Vendedor ${suffix}`,
+      provider: "baileys",
+      ownerOperatorId: op1Id,
+      enabled: true,
+    });
+    await db.insert(conversations).values({
+      id: baileysConvId,
+      tenantId,
+      contactId: contact2Id,
+      contactPhone: "5514999990002",
+      whatsappConnectionId: baileysConnId,
+      queueState: "meus",
+      operatorId: op1Id,
+      unreadCount: 0,
+      lastMessageTime: new Date(),
+    });
+
+    try {
+      // 5. create_conversation deve ignorar a conversa Baileys e criar uma nova no canal oficial (whatsappConnectionId = null)
+      const createdOfficial = await callTool(
+        "create_conversation",
+        {
+          contactId: contact2Id,
+          queueState: "meus",
+          operatorId: op1Id,
+          reopenIfExists: true,
+        },
+        "tecfag",
+        "read_write",
+      );
+      expect(createdOfficial.isError).toBe(false);
+      expect(createdOfficial.data.reopened).toBe(false);
+      expect(createdOfficial.data.conversationId).not.toBe(baileysConvId);
+      expect(createdOfficial.data.whatsappConnectionId).toBeNull();
+      expect(createdOfficial.data.isOfficialChannel).toBe(true);
+
+      const officialConvId = createdOfficial.data.conversationId as string;
+
+      // 6. Segunda chamada reutiliza/reabre a conversa do canal oficial (nunca a do Baileys)
+      const reopenedOfficial = await callTool(
+        "create_conversation",
+        {
+          contactId: contact2Id,
+          queueState: "meus",
+          operatorId: op1Id,
+          reopenIfExists: true,
+        },
+        "tecfag",
+        "read_write",
+      );
+      expect(reopenedOfficial.isError).toBe(false);
+      expect(reopenedOfficial.data.reopened).toBe(true);
+      expect(reopenedOfficial.data.conversationId).toBe(officialConvId);
+      expect(reopenedOfficial.data.isOfficialChannel).toBe(true);
+
+      await db
+        .delete(conversations)
+        .where(and(eq(conversations.tenantId, tenantId), eq(conversations.id, officialConvId)));
+    } finally {
+      await db
+        .delete(conversations)
+        .where(and(eq(conversations.tenantId, tenantId), eq(conversations.id, baileysConvId)));
+      await db
+        .delete(whatsappConnections)
+        .where(and(eq(whatsappConnections.tenantId, tenantId), eq(whatsappConnections.id, baileysConnId)));
     }
   });
 });

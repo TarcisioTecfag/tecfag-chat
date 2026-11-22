@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { db } from "../../db";
 import {
   accessGroups,
@@ -1645,7 +1645,7 @@ export async function executeExtendedMcpTool(
       if (args.walletOperatorId !== undefined) {
         if (args.walletOperatorId === null || args.walletOperatorId === "") {
           updates.walletOperatorId = null;
-          updates.responsibleName = null;
+          updates.responsibleName = "Na Fila";
         } else {
           const walletOp = await assertOperatorInTenant(
             tenantId,
@@ -2261,17 +2261,25 @@ export async function executeExtendedMcpTool(
       }
 
       const reopenIfExists = args.reopenIfExists !== false;
+      // Busca exclusivamente a conversa do canal corporativo oficial (whatsappConnectionId IS NULL),
+      // evitando reutilizar conversas paralelas de celulares Baileys individuais de vendedores.
       const [existingConv] = await db
         .select()
         .from(conversations)
-        .where(and(eq(conversations.tenantId, tenantId), eq(conversations.contactId, contactId)))
+        .where(
+          and(
+            eq(conversations.tenantId, tenantId),
+            eq(conversations.contactId, contactId),
+            isNull(conversations.whatsappConnectionId),
+          ),
+        )
         .limit(1);
 
       const now = new Date();
       if (existingConv) {
         if (!reopenIfExists) {
           throw new Error(
-            `Já existe uma conversa ('${existingConv.id}') para o contato '${contactId}'.`,
+            `Já existe uma conversa no canal oficial ('${existingConv.id}') para o contato '${contactId}'.`,
           );
         }
         const [reopened] = await db
@@ -2301,6 +2309,8 @@ export async function executeExtendedMcpTool(
           tenantId,
           conversationId: reopened.id,
           contactId,
+          whatsappConnectionId: reopened.whatsappConnectionId ?? null,
+          isOfficialChannel: !reopened.whatsappConnectionId,
           queueState: reopened.queueState,
           operatorId: reopened.operatorId,
           sectorId: reopened.sectorId,
@@ -2315,6 +2325,7 @@ export async function executeExtendedMcpTool(
           tenantId,
           contactId,
           contactPhone: contact.phone,
+          whatsappConnectionId: null,
           queueState,
           operatorId: queueState === "meus" ? targetOp!.id : null,
           sectorId: sectorId ?? null,
@@ -2340,6 +2351,8 @@ export async function executeExtendedMcpTool(
         tenantId,
         conversationId: created.id,
         contactId,
+        whatsappConnectionId: created.whatsappConnectionId ?? null,
+        isOfficialChannel: true,
         queueState: created.queueState,
         operatorId: created.operatorId,
         sectorId: created.sectorId,

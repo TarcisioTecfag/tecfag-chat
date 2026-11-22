@@ -1702,6 +1702,7 @@ export async function executeMcpTool(
       const rows = await sql`
         SELECT
           conv.id AS conversation_id,
+          conv.whatsapp_connection_id,
           conv.queue_state,
           conv.unread_count,
           conv.last_message_text,
@@ -1712,6 +1713,8 @@ export async function executeMcpTool(
           c.phone AS contact_phone,
           c.email AS contact_email,
           c.main_channel,
+          c.wallet_operator_id,
+          c.responsible_name,
           c.account_id,
           acc.name AS account_name,
           acc.trade_name AS account_trade_name,
@@ -1760,6 +1763,8 @@ export async function executeMcpTool(
         returnedCount: rows.length,
         conversations: rows.map((r: any) => ({
           conversationId: r.conversation_id,
+          whatsappConnectionId: r.whatsapp_connection_id ?? null,
+          isOfficialChannel: !r.whatsapp_connection_id,
           queueState: r.queue_state,
           unreadCount: r.unread_count,
           lastMessageText: r.last_message_text,
@@ -1771,6 +1776,8 @@ export async function executeMcpTool(
             phone: r.contact_phone,
             email: r.contact_email,
             channel: r.main_channel,
+            walletOperatorId: r.wallet_operator_id ?? null,
+            responsibleName: r.responsible_name ?? null,
           },
           account: r.account_id
             ? {
