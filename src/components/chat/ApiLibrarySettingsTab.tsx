@@ -401,6 +401,8 @@ export function ApiLibrarySettingsTab() {
           else if (clean === "false") argsObj[k] = false;
           else if (
             (k === "limit" ||
+              k === "limitPerBucket" ||
+              k === "messagesPerConversation" ||
               k === "offset" ||
               k === "maxChars" ||
               k === "slaMinutes" ||

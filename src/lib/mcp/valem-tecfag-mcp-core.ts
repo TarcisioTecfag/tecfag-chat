@@ -35,6 +35,8 @@ import {
   isExtendedMcpTool,
   type McpToolDefinition,
 } from "./valem-tecfag-mcp-write-tools";
+import { resolveTriageAuditDateWindow } from "./valem-tecfag-mcp-triage-tools";
+import { getAiPersona } from "../ai-persona";
 
 // Tokens operacionais padrão (podem ser sobrescritos via variáveis de ambiente no Railway)
 export const DEFAULT_MCP_TECFAG_TOKEN = "mcp_tf_8f4e2a9c1d7b6e3f5a0c2d4e8b1f7a3c";
@@ -43,7 +45,7 @@ export const DEFAULT_MCP_ADMIN_TOKEN = "mcp_admin_7d9e3b5c1a8f4e6d2b0c9a7e5f3d1b
 
 export const MCP_SERVER_INFO = {
   name: "valem-tecfag-mcp",
-  version: "3.3.0",
+  version: "3.4.0",
 };
 
 export type McpAccessLevel = "read" | "read_write";
@@ -382,10 +384,21 @@ export function summarizeMcpToolResult(toolName: string, data: any): string {
         return `Conversa de "${client}" (${msgs} mensagens lidas)`;
       }
       case "get_fagner_triage_overview": {
-        const total = Number(data.summary?.totalConversations ?? 0);
-        const auto = Number(data.summary?.inAutomationNow ?? 0);
-        const transf = Number(data.summary?.transferredCount ?? 0);
-        return `${total} triagens analisadas (${auto} em automação, ${transf} transferidas)`;
+        const total = Number(data.totalTrackedConversations ?? data.summary?.totalConversations ?? 0);
+        const collecting = Number(data.countsByState?.collecting ?? data.summary?.inAutomationNow ?? 0);
+        const approval = Number(data.countsByState?.awaiting_approval ?? 0);
+        const transf = Number(data.countsByState?.transferred ?? data.summary?.transferredCount ?? 0);
+        return approval > 0
+          ? `${total} triagens (${collecting} em coleta, ${approval} aguardando aprovação, ${transf} transferidas)`
+          : `${total} triagens analisadas (${collecting} em coleta, ${transf} transferidas)`;
+      }
+      case "get_fagner_triage_sweep": {
+        const s = data.summary || {};
+        return `Varredura (${data.period || "today"}): ${Number(s.totalAnalyzed ?? 0)} analisadas · ${Number(s.awaitingAiCount ?? 0)} aguardando IA · ${Number(s.awaitingApprovalCount ?? 0)} aprovação SDR · ${Number(s.transferredCount ?? 0)} transferidas`;
+      }
+      case "get_fagner_triage_audit_batch": {
+        const s = data.auditSummary || {};
+        return `Auditoria em lote (${data.period || "today"}): ${Number(s.returnedCount ?? 0)}/${Number(s.totalMatched ?? 0)} triagens inspecionadas`;
       }
       case "get_fagner_triage_history": {
         const client = data.conversation?.clientName || data.conversation?.id || "Cliente";
@@ -1307,7 +1320,7 @@ const MCP_READ_CORE_TOOLS_RAW = [
   {
     name: "get_fagner_triage_overview",
     description:
-      "Painel em tempo real das triagens da IA SDR (Fagner na Tecfag / Valentina na Valem). Mostra resumo de ciclos ativos, iniciados hoje, estado operacional de cada atendimento ('collecting', 'ready', 'waiting_for_team', 'handoff_pending', 'transferred', 'no_response', 'stopped', 'closed'), dados já coletados, máquina/funil decidido e diagnósticos de handoff.",
+      "Painel em tempo real das triagens do assistente IA (SDR). Mostra resumo de ciclos ativos e contagem por estado operacional ('collecting', 'awaiting_approval', 'ready', 'waiting_for_team', 'handoff_pending', 'transferred', 'no_response', 'stopped', 'manual', 'manual_queue', 'resolved', 'continued', 'closed'), dados já coletados, máquina/funil decidido e diagnósticos de handoff. Suporta filtro por período (today/7d/30d/range/all), datas em Brasília (startDate/endDate), estado, funil e canal.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1316,10 +1329,33 @@ const MCP_READ_CORE_TOOLS_RAW = [
           enum: ["tecfag", "valem"],
           default: "tecfag",
         },
+        period: {
+          type: "string",
+          enum: ["today", "7d", "30d", "range", "all"],
+          description:
+            "Período opcional em horário de Brasília ('today', '7d', '30d', 'range' ou 'all'). Se omitido (e sem startDate/endDate), analisa as 200 interações mais recentes.",
+        },
+        startDate: {
+          type: "string",
+          description: "Data inicial opcional YYYY-MM-DD (Brasília).",
+        },
+        endDate: {
+          type: "string",
+          description: "Data final opcional YYYY-MM-DD (Brasília).",
+        },
         stateFilter: {
           type: "string",
           description:
-            "Filtro opcional de estado (ex: 'collecting', 'ready', 'waiting_for_team', 'handoff_pending', 'transferred', 'no_response', 'stopped', 'closed').",
+            "Filtro opcional de estado (ex: 'collecting', 'awaiting_approval', 'ready', 'waiting_for_team', 'handoff_pending', 'transferred', 'no_response', 'stopped', 'manual', 'closed').",
+        },
+        targetFunnel: {
+          type: "string",
+          description: "Filtro opcional por nome parcial do funil/setor decidido (ex: 'Máquinas', 'Peças').",
+        },
+        channel: {
+          type: "string",
+          enum: ["whatsapp", "site"],
+          description: "Filtro opcional por canal ('whatsapp' ou 'site').",
         },
         limit: {
           type: "number",
@@ -1899,6 +1935,21 @@ export async function executeMcpTool(
     case "get_fagner_triage_overview": {
       const limit = clampLimit(args.limit, 30, 100);
       const stateFilter = args.stateFilter ? String(args.stateFilter).trim() : null;
+      const targetFunnelFilter = args.targetFunnel
+        ? String(args.targetFunnel).trim().toLowerCase()
+        : null;
+      const channelFilter =
+        args.channel === "whatsapp" || args.channel === "site" ? args.channel : null;
+      const hasDateArgs = Boolean(args.period || args.startDate || args.endDate);
+      const dateWindow = hasDateArgs
+        ? resolveTriageAuditDateWindow({
+            period: args.period,
+            startDate: args.startDate,
+            endDate: args.endDate,
+          })
+        : { period: "all" as const, startUtc: null, endUtc: null };
+
+      const sqlLimit = hasDateArgs ? 1000 : 200;
 
       const flows = await sql`
         WITH current_flows AS (
@@ -1926,14 +1977,49 @@ export async function executeMcpTool(
           ORDER BY af.conversation_id, af.started_at DESC, af.id DESC
         )
         SELECT * FROM current_flows
+        ${
+          dateWindow.startUtc && dateWindow.endUtc
+            ? sql`WHERE (
+                (started_at >= ${dateWindow.startUtc} AND started_at <= ${dateWindow.endUtc})
+                OR (last_interaction_at >= ${dateWindow.startUtc} AND last_interaction_at <= ${dateWindow.endUtc})
+                OR (completed_at >= ${dateWindow.startUtc} AND completed_at <= ${dateWindow.endUtc})
+              )`
+            : sql``
+        }
         ORDER BY last_interaction_at DESC NULLS LAST
-        LIMIT 200
+        LIMIT ${sqlLimit}
       `;
 
       const stateCounts: Record<string, number> = {};
+      const funnelCounts: Record<string, number> = {};
       const projectedList: any[] = [];
+      let matchedTotal = 0;
 
       for (const row of flows) {
+        const normalizedChannel: "whatsapp" | "site" =
+          row.main_channel === "livechat" || row.main_channel === "site" ? "site" : "whatsapp";
+        if (channelFilter && normalizedChannel !== channelFilter) continue;
+
+        const meta = (row.metadata && typeof row.metadata === "object" ? row.metadata : {}) as Record<string, any>;
+        const collected = (row.collected_data && typeof row.collected_data === "object" ? row.collected_data : {}) as Record<string, any>;
+        const rawFunnel =
+          (typeof meta?.pendingApproval?.targetFunnel === "string" && meta.pendingApproval.targetFunnel.trim()) ||
+          (typeof meta?.targetFunnel === "string" && !/^aguardando/i.test(meta.targetFunnel.trim())
+            ? meta.targetFunnel.trim()
+            : "") ||
+          (collected?.["SETOR / FUNIL DE DESTINO"]?.status === "filled" &&
+          typeof collected["SETOR / FUNIL DE DESTINO"].value === "string" &&
+          !/^aguardando/i.test(collected["SETOR / FUNIL DE DESTINO"].value.trim())
+            ? collected["SETOR / FUNIL DE DESTINO"].value.trim()
+            : "");
+        const resolvedFunnel = rawFunnel || null;
+
+        if (targetFunnelFilter) {
+          if (!resolvedFunnel || !resolvedFunnel.toLowerCase().includes(targetFunnelFilter)) {
+            continue;
+          }
+        }
+
         const projection = projectIndustrialMonitoring(
           {
             startedAt: row.started_at,
@@ -1945,7 +2031,10 @@ export async function executeMcpTool(
             queueState: row.queue_state,
           },
         );
+        matchedTotal += 1;
         stateCounts[projection.state] = (stateCounts[projection.state] || 0) + 1;
+        const fKey = resolvedFunnel || "Sem funil definido";
+        funnelCounts[fKey] = (funnelCounts[fKey] || 0) + 1;
 
         if (stateFilter && projection.state !== stateFilter) continue;
         if (projectedList.length >= limit) continue;
@@ -1955,24 +2044,30 @@ export async function executeMcpTool(
           conversationId: row.conversation_id,
           contactName: row.contact_name,
           contactPhone: row.contact_phone,
-          channel: row.main_channel,
+          channel: normalizedChannel,
           queueState: row.queue_state,
           operatorName: row.operator_name || null,
+          targetFunnel: resolvedFunnel,
           startedAt: row.started_at,
           lastInteractionAt: row.last_interaction_at,
           completedAt: row.completed_at,
           currentStep: row.current_step,
           outcome: row.outcome,
           monitoring: projection,
-          collectedData: row.collected_data || {},
+          collectedData: collected,
         });
       }
 
+      const persona = getAiPersona(tenantId);
       return {
         tenantId,
-        aiPersona: tenantId === "tecfag" ? "Fagner (Triagem Industrial)" : "Valentina (SDR)",
-        totalTrackedConversations: flows.length,
+        aiPersona: persona.name,
+        period: hasDateArgs ? dateWindow.period : "recent_200",
+        rangeStartIso: dateWindow.startUtc ? dateWindow.startUtc.toISOString() : null,
+        rangeEndIso: dateWindow.endUtc ? dateWindow.endUtc.toISOString() : null,
+        totalTrackedConversations: matchedTotal,
         countsByState: stateCounts,
+        countsByFunnel: funnelCounts,
         sessions: projectedList,
       };
     }

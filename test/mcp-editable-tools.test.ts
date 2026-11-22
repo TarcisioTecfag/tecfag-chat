@@ -28,21 +28,21 @@ function makeAccess(accessLevel: "read" | "read_write" | undefined): McpAccessCo
 }
 
 describe("MCP Editável Real (/api/mcp + permissão read/read_write + ponte stdio)", () => {
-  it("possui 75 ferramentas únicas (29 leitura + 46 escrita) com 100% de paridade no catálogo da Biblioteca de API", () => {
+  it("possui 77 ferramentas únicas (31 leitura + 46 escrita) com 100% de paridade no catálogo da Biblioteca de API", () => {
     const readTools = MCP_TOOLS.filter((t) => t.access === "read");
     const writeTools = MCP_TOOLS.filter((t) => t.access === "write");
 
-    expect(MCP_TOOLS).toHaveLength(75);
-    expect(readTools).toHaveLength(29);
+    expect(MCP_TOOLS).toHaveLength(77);
+    expect(readTools).toHaveLength(31);
     expect(writeTools).toHaveLength(46);
-    expect(new Set(MCP_TOOLS.map((t) => t.name)).size).toBe(75);
+    expect(new Set(MCP_TOOLS.map((t) => t.name)).size).toBe(77);
 
     const catalogMcp = getApiLibraryCatalog("tecfag").filter((e) => e.kind === "mcp");
     const coreNames = new Set(MCP_TOOLS.map((t) => t.name));
     const catalogNames = new Set(catalogMcp.map((e) => e.mcpToolName));
 
-    expect(catalogMcp).toHaveLength(75);
-    expect(catalogNames.size).toBe(75);
+    expect(catalogMcp).toHaveLength(77);
+    expect(catalogNames.size).toBe(77);
     for (const name of coreNames) {
       expect(catalogNames.has(name)).toBe(true);
     }
@@ -56,15 +56,15 @@ describe("MCP Editável Real (/api/mcp + permissão read/read_write + ponte stdi
 
     const readVisible = getVisibleMcpTools(makeAccess("read"));
     const rwVisible = getVisibleMcpTools(makeAccess("read_write"));
-    expect(readVisible).toHaveLength(29);
+    expect(readVisible).toHaveLength(31);
     expect(readVisible.every((t) => t.access === "read")).toBe(true);
-    expect(rwVisible).toHaveLength(75);
+    expect(rwVisible).toHaveLength(77);
 
     const listRead = await processMcpJsonRpcPayload(
       { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} },
       makeAccess("read"),
     );
-    expect(listRead.body?.result?.tools).toHaveLength(29);
+    expect(listRead.body?.result?.tools).toHaveLength(31);
     expect(
       listRead.body.result.tools.some((t: { name: string }) => isWriteMcpTool(t.name)),
     ).toBe(false);
@@ -73,7 +73,7 @@ describe("MCP Editável Real (/api/mcp + permissão read/read_write + ponte stdi
       { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} },
       makeAccess("read_write"),
     );
-    expect(listRw.body?.result?.tools).toHaveLength(75);
+    expect(listRw.body?.result?.tools).toHaveLength(77);
   });
 
   it("bloqueia TODAS as 46 ferramentas de escrita quando a chave tem permissão 'read' ou indefinida", async () => {

@@ -54,6 +54,7 @@ export interface SdrSweepResult {
     totalAnalyzed: number;
     awaitingClientCount: number;
     awaitingFagnerCount: number;
+    awaitingApprovalCount: number;
     transferredCount: number;
     distinctOperatorsCount: number;
     manualWithoutCompletionCount: number;
@@ -61,6 +62,7 @@ export interface SdrSweepResult {
   };
   awaitingClient: SdrSweepItem[];
   awaitingFagner: SdrSweepItem[];
+  awaitingApproval: SdrSweepItem[];
   transferred: SdrSweepItem[];
   transferredByOperator: SdrSweepOperatorBreakdown[];
 }
@@ -288,6 +290,7 @@ export async function runSdrSweep(
 
   const awaitingClient: SdrSweepItem[] = [];
   const awaitingFagner: SdrSweepItem[] = [];
+  const awaitingApproval: SdrSweepItem[] = [];
   const transferred: SdrSweepItem[] = [];
   let manualWithoutCompletionCount = 0;
   let stoppedCount = 0;
@@ -431,6 +434,36 @@ export async function runSdrSweep(
     }
 
     // Em automacao / triagem ativa
+    if (monitoring?.state === "awaiting_approval") {
+      const pending =
+        meta?.pendingApproval && typeof meta.pendingApproval === "object"
+          ? (meta.pendingApproval as Record<string, any>)
+          : {};
+      const suggestedOpName =
+        (typeof pending.suggestedOperatorName === "string" && pending.suggestedOperatorName.trim()) ||
+        (typeof pending.operatorName === "string" && pending.operatorName.trim()) ||
+        baseItem.operatorName;
+      const suggestedOpId =
+        (typeof pending.suggestedOperatorId === "string" && pending.suggestedOperatorId.trim()) ||
+        (typeof pending.operatorId === "string" && pending.operatorId.trim()) ||
+        baseItem.operatorId;
+      const suggestedFunnel =
+        (typeof pending.targetFunnel === "string" && pending.targetFunnel.trim()) ||
+        baseItem.targetFunnel;
+
+      awaitingApproval.push({
+        ...baseItem,
+        operatorId: suggestedOpId || null,
+        operatorName: suggestedOpName || null,
+        targetFunnel: suggestedFunnel || null,
+        statusLabel: monitoring.label || "Aguardando aprovação SDR",
+        reason: suggestedFunnel
+          ? `Triagem pronta para ${suggestedFunnel}${suggestedOpName ? ` (sugerido: ${suggestedOpName})` : ""} — aguardando aprovação humana SDR`
+          : "Triagem concluída pela IA — aguardando aprovação humana SDR",
+      });
+      continue;
+    }
+
     const isHandoffStuck =
       monitoring?.state === "handoff_pending" ||
       monitoring?.state === "waiting_for_team" ||
@@ -519,6 +552,7 @@ export async function runSdrSweep(
     Date.parse(a.lastMessageAt || a.lastInteractionAt);
 
   awaitingFagner.sort(sortByRecent);
+  awaitingApproval.sort(sortByRecent);
   awaitingClient.sort(sortByRecent);
   transferred.sort(sortByRecent);
 
@@ -550,6 +584,7 @@ export async function runSdrSweep(
   const totalAnalyzed =
     awaitingClient.length +
     awaitingFagner.length +
+    awaitingApproval.length +
     transferred.length +
     manualWithoutCompletionCount +
     stoppedCount;
@@ -564,6 +599,7 @@ export async function runSdrSweep(
       totalAnalyzed,
       awaitingClientCount: awaitingClient.length,
       awaitingFagnerCount: awaitingFagner.length,
+      awaitingApprovalCount: awaitingApproval.length,
       transferredCount: transferred.length,
       distinctOperatorsCount: transferredByOperator.filter((o) => Boolean(o.operatorId)).length,
       manualWithoutCompletionCount,
@@ -571,6 +607,7 @@ export async function runSdrSweep(
     },
     awaitingClient,
     awaitingFagner,
+    awaitingApproval,
     transferred,
     transferredByOperator,
   };
