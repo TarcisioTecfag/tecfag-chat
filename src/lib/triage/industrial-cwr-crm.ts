@@ -143,15 +143,27 @@ export interface EnsureCwrContactingResult {
   reason?: string;
 }
 
+export async function acquireCwrContactLock(
+  tx: IndustrialDatabase | IndustrialTransaction,
+  tenantId: string,
+  contactId: string | null | undefined,
+): Promise<void> {
+  if (!contactId) return;
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext(${`cwr_contact:${contactId}`}))`,
+  );
+}
+
 /**
  * Garante o ciclo de vida no FUNIL CWR quando o Fagner envia o template (RD Marketing)
  * ou responde pela primeira vez a um cliente no WhatsApp:
+ * - Usa pg_advisory_xact_lock por (tenantId, contactId) para eliminar corrida com o Webhook RD Marketing.
  * - Se já existe card aberto no CWR em `PROSPECTS` ou `CONTATAR`, move para `CONTATANDO`.
  * - Se já existe card aberto vinculado à conversa em outro funil, preserva sem duplicar.
  * - Se não existe nenhum card aberto vinculado, cria um novo card no `FUNIL CWR` já em `CONTATANDO`.
  */
 export async function ensureCwrDealOnContacting(
-  tx: IndustrialDatabase | IndustrialTransaction,
+  txOrDb: IndustrialDatabase | IndustrialTransaction,
   params: {
     tenantId: string;
     conversationId: string;
@@ -162,226 +174,236 @@ export async function ensureCwrDealOnContacting(
     actorName?: string | null;
   },
 ): Promise<EnsureCwrContactingResult> {
-  const { tenantId, conversationId, contactId } = params;
-  const cwr = await resolveCwrPipelineAndStages(tx, tenantId);
-  if (!cwr || !cwr.contatandoStageId) {
-    return { ok: false, action: "skipped", reason: "cwr_pipeline_or_stage_not_found" };
-  }
-
-  const persona = getAiPersona(tenantId);
-  const actorName = params.actorName || persona.name;
-  const now = new Date();
-
-  let targetDeal: typeof crmDeals.$inferSelect | null = null;
-
-  if (params.dealIdHint) {
-    const [hinted] = await tx
-      .select()
-      .from(crmDeals)
-      .where(
-        and(
-          eq(crmDeals.tenantId, tenantId),
-          eq(crmDeals.id, params.dealIdHint),
-          eq(crmDeals.status, "open"),
-        ),
-      )
-      .limit(1);
-    if (hinted) targetDeal = hinted;
-  }
-
-  if (!targetDeal) {
-    const linked = await tx
-      .select({ deal: crmDeals })
-      .from(crmConversationDeals)
-      .innerJoin(
-        crmDeals,
-        and(eq(crmDeals.id, crmConversationDeals.dealId), eq(crmDeals.tenantId, tenantId)),
-      )
-      .where(
-        and(
-          eq(crmConversationDeals.tenantId, tenantId),
-          eq(crmConversationDeals.conversationId, conversationId),
-          eq(crmConversationDeals.isActive, true),
-          eq(crmDeals.status, "open"),
-        ),
-      )
-      .orderBy(desc(crmDeals.updatedAt), desc(crmDeals.createdAt))
-      .limit(5);
-
-    targetDeal =
-      linked.find((row) => row.deal.pipelineId === cwr.pipelineId)?.deal ||
-      linked[0]?.deal ||
-      null;
-  }
-
-  if (!targetDeal && contactId) {
-    const contactDeals = await tx
-      .select({ deal: crmDeals })
-      .from(crmDealContacts)
-      .innerJoin(
-        crmDeals,
-        and(eq(crmDeals.id, crmDealContacts.dealId), eq(crmDeals.tenantId, tenantId)),
-      )
-      .where(
-        and(
-          eq(crmDealContacts.tenantId, tenantId),
-          eq(crmDealContacts.contactId, contactId),
-          eq(crmDeals.pipelineId, cwr.pipelineId),
-          eq(crmDeals.status, "open"),
-        ),
-      )
-      .orderBy(desc(crmDeals.updatedAt), desc(crmDeals.createdAt))
-      .limit(1);
-
-    if (contactDeals[0]?.deal) {
-      targetDeal = contactDeals[0].deal;
-    }
-  }
-
-  if (targetDeal) {
-    await ensureConversationDealLinkInTx(tx, tenantId, conversationId, targetDeal.id, "auto_sdr");
-    if (contactId) {
-      await ensureDealContactLinkInTx(tx, tenantId, targetDeal.id, contactId);
+  const runInTx = async (
+    tx: IndustrialDatabase | IndustrialTransaction,
+  ): Promise<EnsureCwrContactingResult> => {
+    const { tenantId, conversationId, contactId } = params;
+    await acquireCwrContactLock(tx, tenantId, contactId);
+    const cwr = await resolveCwrPipelineAndStages(tx, tenantId);
+    if (!cwr || !cwr.contatandoStageId) {
+      return { ok: false, action: "skipped", reason: "cwr_pipeline_or_stage_not_found" };
     }
 
-    const movableFromStages = new Set(
-      [cwr.prospectsStageId, cwr.contatarStageId].filter((id): id is string => Boolean(id)),
-    );
+    const persona = getAiPersona(tenantId);
+    const actorName = params.actorName || persona.name;
+    const now = new Date();
 
-    if (targetDeal.pipelineId === cwr.pipelineId && movableFromStages.has(targetDeal.stageId)) {
-      const fromStageId = targetDeal.stageId;
-      await tx
-        .update(crmDeals)
-        .set({
-          stageId: cwr.contatandoStageId,
-          version: sql`${crmDeals.version} + 1`,
-          lastActivityAt: now,
-          updatedAt: now,
-        })
-        .where(and(eq(crmDeals.tenantId, tenantId), eq(crmDeals.id, targetDeal.id)));
+    let targetDeal: typeof crmDeals.$inferSelect | null = null;
 
-      await tx.insert(crmDealEvents).values({
-        id: `ev-cwr-${Date.now()}-${crypto.randomUUID().slice(0, 6)}`,
-        tenantId,
-        dealId: targetDeal.id,
-        eventType: "stage_changed",
-        fromStageId,
-        toStageId: cwr.contatandoStageId,
-        operatorId: null,
-        metadata: {
-          origin: "auto_sdr_cwr",
-          actorName,
-          actorType: "ai_sdr",
-          conversationId,
+    if (params.dealIdHint) {
+      const [hinted] = await tx
+        .select()
+        .from(crmDeals)
+        .where(
+          and(
+            eq(crmDeals.tenantId, tenantId),
+            eq(crmDeals.id, params.dealIdHint),
+            eq(crmDeals.status, "open"),
+          ),
+        )
+        .limit(1);
+      if (hinted) targetDeal = hinted;
+    }
+
+    if (!targetDeal) {
+      const linked = await tx
+        .select({ deal: crmDeals })
+        .from(crmConversationDeals)
+        .innerJoin(
+          crmDeals,
+          and(eq(crmDeals.id, crmConversationDeals.dealId), eq(crmDeals.tenantId, tenantId)),
+        )
+        .where(
+          and(
+            eq(crmConversationDeals.tenantId, tenantId),
+            eq(crmConversationDeals.conversationId, conversationId),
+            eq(crmConversationDeals.isActive, true),
+            eq(crmDeals.status, "open"),
+          ),
+        )
+        .orderBy(desc(crmDeals.updatedAt), desc(crmDeals.createdAt))
+        .limit(5);
+
+      targetDeal =
+        linked.find((row) => row.deal.pipelineId === cwr.pipelineId)?.deal ||
+        linked[0]?.deal ||
+        null;
+    }
+
+    if (!targetDeal && contactId) {
+      const contactDeals = await tx
+        .select({ deal: crmDeals })
+        .from(crmDealContacts)
+        .innerJoin(
+          crmDeals,
+          and(eq(crmDeals.id, crmDealContacts.dealId), eq(crmDeals.tenantId, tenantId)),
+        )
+        .where(
+          and(
+            eq(crmDealContacts.tenantId, tenantId),
+            eq(crmDealContacts.contactId, contactId),
+            eq(crmDeals.pipelineId, cwr.pipelineId),
+            eq(crmDeals.status, "open"),
+          ),
+        )
+        .orderBy(desc(crmDeals.updatedAt), desc(crmDeals.createdAt))
+        .limit(1);
+
+      if (contactDeals[0]?.deal) {
+        targetDeal = contactDeals[0].deal;
+      }
+    }
+
+    if (targetDeal) {
+      await ensureConversationDealLinkInTx(tx, tenantId, conversationId, targetDeal.id, "auto_sdr");
+      if (contactId) {
+        await ensureDealContactLinkInTx(tx, tenantId, targetDeal.id, contactId);
+      }
+
+      const movableFromStages = new Set(
+        [cwr.prospectsStageId, cwr.contatarStageId].filter((id): id is string => Boolean(id)),
+      );
+
+      if (targetDeal.pipelineId === cwr.pipelineId && movableFromStages.has(targetDeal.stageId)) {
+        const fromStageId = targetDeal.stageId;
+        await tx
+          .update(crmDeals)
+          .set({
+            stageId: cwr.contatandoStageId,
+            version: sql`${crmDeals.version} + 1`,
+            lastActivityAt: now,
+            updatedAt: now,
+          })
+          .where(and(eq(crmDeals.tenantId, tenantId), eq(crmDeals.id, targetDeal.id)));
+
+        await tx.insert(crmDealEvents).values({
+          id: `ev-cwr-${Date.now()}-${crypto.randomUUID().slice(0, 6)}`,
+          tenantId,
+          dealId: targetDeal.id,
+          eventType: "stage_changed",
+          fromStageId,
+          toStageId: cwr.contatandoStageId,
+          operatorId: null,
+          metadata: {
+            origin: "auto_sdr_cwr",
+            actorName,
+            actorType: "ai_sdr",
+            conversationId,
+            pipelineId: cwr.pipelineId,
+            toStageName: "CONTATANDO",
+          },
+          createdAt: now,
+        });
+
+        return {
+          ok: true,
+          action: "moved_to_contacting",
+          dealId: targetDeal.id,
+          dealTitle: targetDeal.title,
           pipelineId: cwr.pipelineId,
-          toStageName: "CONTATANDO",
-        },
-        createdAt: now,
-      });
+          stageId: cwr.contatandoStageId,
+        };
+      }
 
       return {
         ok: true,
-        action: "moved_to_contacting",
+        action: "already_contacting",
         dealId: targetDeal.id,
         dealTitle: targetDeal.title,
-        pipelineId: cwr.pipelineId,
-        stageId: cwr.contatandoStageId,
+        pipelineId: targetDeal.pipelineId,
+        stageId: targetDeal.stageId,
       };
     }
 
+    // Nenhum card aberto vinculado: cria no FUNIL CWR já na etapa CONTATANDO
+    let contactRow: typeof contacts.$inferSelect | null = null;
+    if (contactId) {
+      const [found] = await tx
+        .select()
+        .from(contacts)
+        .where(and(eq(contacts.tenantId, tenantId), eq(contacts.id, contactId)))
+        .limit(1);
+      contactRow = found || null;
+    }
+
+    const resolvedName =
+      (!isPlaceholderName(params.clientName) ? params.clientName?.trim() : null) ||
+      (!isPlaceholderName(contactRow?.name) ? contactRow?.name?.trim() : null) ||
+      contactRow?.phone ||
+      "Lead WhatsApp";
+    const resolvedCompany =
+      params.companyName && !isPlaceholderName(params.companyName)
+        ? params.companyName.trim()
+        : null;
+    const dealTitle = resolvedCompany ? `${resolvedName} - ${resolvedCompany}` : resolvedName;
+    const newDealId = `deal-${Date.now()}-${crypto.randomUUID().slice(0, 6)}`;
+
+    await tx.insert(crmDeals).values({
+      id: newDealId,
+      tenantId,
+      title: dealTitle,
+      accountId: contactRow?.accountId || null,
+      pipelineId: cwr.pipelineId,
+      stageId: cwr.contatandoStageId,
+      originalPipelineId: cwr.pipelineId,
+      status: "open",
+      operatorId: null,
+      entryChannel: contactRow?.entryChannel || "whatsapp",
+      source: contactRow?.firstSource || "WhatsApp",
+      campaign: contactRow?.firstCampaign || null,
+      utmSource: contactRow?.utmSource || null,
+      utmMedium: contactRow?.utmMedium || null,
+      utmCampaign: contactRow?.utmCampaign || null,
+      utmContent: contactRow?.utmContent || null,
+      utmTerm: contactRow?.utmTerm || null,
+      clickId: contactRow?.clickId || null,
+      landingPage: contactRow?.landingPage || null,
+      sectorOrigin: "pre_venda",
+      sectorCurrent: "pre_venda",
+      isTest: isTestEntityTitle(dealTitle),
+      lastActivityAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    if (contactId) {
+      await ensureDealContactLinkInTx(tx, tenantId, newDealId, contactId);
+    }
+    await ensureConversationDealLinkInTx(tx, tenantId, conversationId, newDealId, "auto_sdr");
+
+    await tx.insert(crmDealEvents).values({
+      id: `ev-cwr-create-${Date.now()}-${crypto.randomUUID().slice(0, 6)}`,
+      tenantId,
+      dealId: newDealId,
+      eventType: "created",
+      toStageId: cwr.contatandoStageId,
+      toStatus: "open",
+      operatorId: null,
+      metadata: {
+        origin: "auto_sdr_cwr",
+        actorName,
+        actorType: "ai_sdr",
+        conversationId,
+        pipelineId: cwr.pipelineId,
+        stageName: "CONTATANDO",
+      },
+      createdAt: now,
+    });
+
     return {
       ok: true,
-      action: "already_contacting",
-      dealId: targetDeal.id,
-      dealTitle: targetDeal.title,
-      pipelineId: targetDeal.pipelineId,
-      stageId: targetDeal.stageId,
-    };
-  }
-
-  // Nenhum card aberto vinculado: cria no FUNIL CWR já na etapa CONTATANDO
-  let contactRow: typeof contacts.$inferSelect | null = null;
-  if (contactId) {
-    const [found] = await tx
-      .select()
-      .from(contacts)
-      .where(and(eq(contacts.tenantId, tenantId), eq(contacts.id, contactId)))
-      .limit(1);
-    contactRow = found || null;
-  }
-
-  const resolvedName =
-    (!isPlaceholderName(params.clientName) ? params.clientName?.trim() : null) ||
-    (!isPlaceholderName(contactRow?.name) ? contactRow?.name?.trim() : null) ||
-    contactRow?.phone ||
-    "Lead WhatsApp";
-  const resolvedCompany =
-    params.companyName && !isPlaceholderName(params.companyName)
-      ? params.companyName.trim()
-      : null;
-  const dealTitle = resolvedCompany ? `${resolvedName} - ${resolvedCompany}` : resolvedName;
-  const newDealId = `deal-${Date.now()}-${crypto.randomUUID().slice(0, 6)}`;
-
-  await tx.insert(crmDeals).values({
-    id: newDealId,
-    tenantId,
-    title: dealTitle,
-    accountId: contactRow?.accountId || null,
-    pipelineId: cwr.pipelineId,
-    stageId: cwr.contatandoStageId,
-    originalPipelineId: cwr.pipelineId,
-    status: "open",
-    operatorId: null,
-    entryChannel: contactRow?.entryChannel || "whatsapp",
-    source: contactRow?.firstSource || "WhatsApp",
-    campaign: contactRow?.firstCampaign || null,
-    utmSource: contactRow?.utmSource || null,
-    utmMedium: contactRow?.utmMedium || null,
-    utmCampaign: contactRow?.utmCampaign || null,
-    utmContent: contactRow?.utmContent || null,
-    utmTerm: contactRow?.utmTerm || null,
-    clickId: contactRow?.clickId || null,
-    landingPage: contactRow?.landingPage || null,
-    sectorOrigin: "pre_venda",
-    sectorCurrent: "pre_venda",
-    isTest: isTestEntityTitle(dealTitle),
-    lastActivityAt: now,
-    createdAt: now,
-    updatedAt: now,
-  });
-
-  if (contactId) {
-    await ensureDealContactLinkInTx(tx, tenantId, newDealId, contactId);
-  }
-  await ensureConversationDealLinkInTx(tx, tenantId, conversationId, newDealId, "auto_sdr");
-
-  await tx.insert(crmDealEvents).values({
-    id: `ev-cwr-create-${Date.now()}-${crypto.randomUUID().slice(0, 6)}`,
-    tenantId,
-    dealId: newDealId,
-    eventType: "created",
-    toStageId: cwr.contatandoStageId,
-    toStatus: "open",
-    operatorId: null,
-    metadata: {
-      origin: "auto_sdr_cwr",
-      actorName,
-      actorType: "ai_sdr",
-      conversationId,
+      action: "created_in_contacting",
+      dealId: newDealId,
+      dealTitle,
       pipelineId: cwr.pipelineId,
-      stageName: "CONTATANDO",
-    },
-    createdAt: now,
-  });
-
-  return {
-    ok: true,
-    action: "created_in_contacting",
-    dealId: newDealId,
-    dealTitle,
-    pipelineId: cwr.pipelineId,
-    stageId: cwr.contatandoStageId,
+      stageId: cwr.contatandoStageId,
+    };
   };
+
+  if (typeof (txOrDb as any).transaction === "function") {
+    return await (txOrDb as IndustrialDatabase).transaction((innerTx) => runInTx(innerTx));
+  }
+  return await runInTx(txOrDb);
 }
 
 export interface MoveDealOnSdrApprovalParams {

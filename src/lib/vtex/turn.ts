@@ -16,19 +16,21 @@ export function deriveVtexQuery(
   const shipping = /\b(?:frete|prazo de entrega|cep|entrega para)\b/.test(normalized);
   const price = /\b(?:preco|valor|quanto custa|custa quanto)\b/.test(normalized);
   const availability = /\b(?:estoque|disponibilidade|disponivel|pronta entrega)\b/.test(normalized);
-  const detail =
-    availability ||
-    /\b(?:especificac|ficha tecnica|informacoes sobre|medidas|dimensoes|potencia|voltagem|sku)\w*/.test(
-      normalized,
-    );
+  const product = readSiteContext(siteContext)?.product;
   const postal = text.match(/\b\d{5}-?\d{3}\b/)?.[0];
   const sku =
     text.match(/\bsku\s*[:#-]?\s*(\d{1,20})\b/i)?.[1] ||
     (previous?.status === "choices" ? text.match(/^\s*(\d{1,20})\s*$/)?.[1] : undefined);
   const url = text.match(/https:\/\/[^\s<>"']+/i)?.[0]?.replace(/[).,;]+$/, "");
   const postalReply = postal && previous?.selectedSkuId && /^\s*\d{5}-?\d{3}[.!]?\s*$/.test(text);
+  const hasStoreContext = Boolean(product || sku || url || previous?.selectedSkuId);
+  const detail =
+    availability ||
+    /\b(?:especificac|ficha tecnica|medidas|dimensoes|potencia|voltagem|sku)\w*/.test(
+      normalized,
+    ) ||
+    (hasStoreContext && /\binformacoes sobre\b/.test(normalized));
   if (!shipping && !price && !detail && !sku && !url && !postalReply) return null;
-  const product = readSiteContext(siteContext)?.product;
   let query: VtexQuery | null = sku
     ? { kind: "sku", value: sku, quantity: 1 }
     : url
@@ -43,7 +45,7 @@ export function deriveVtexQuery(
     .trim();
   const generic =
     !named ||
-    /^(?:d?esse|d?este|d?essa|d?esta|o|a)?\s*(?:produto|modelo|item|maquina)?$/i.test(named);
+    /^(?:d?esse|d?este|d?essa|d?esta|o|a)?\s*(?:produto|modelo|item|m[aá]quina)?$/i.test(named);
   if (!query && named && !generic && named.length >= 3 && named.length <= 120)
     query = { kind: "term", value: named, quantity: 1 };
   const changingProduct = /\b(?:outro|outra|diferente|mudar|trocar de modelo)\b/.test(normalized);

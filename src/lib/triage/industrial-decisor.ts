@@ -119,12 +119,24 @@ function namedMachineCategories(text: string) {
   );
 }
 export function machineCategories(text: string) {
+  const norm = normalized(text);
   const explicit = namedMachineCategories(text);
-  const words = normalized(text).split(" ");
+  const words = norm.split(" ");
+  const isVacuumSealerPhrase =
+    words.includes("vacuo") &&
+    !words.includes("emulsificador") &&
+    !words.includes("forming") &&
+    !words.includes("termoformadora") &&
+    !words.includes("misturador") &&
+    !words.includes("tanque") &&
+    !explicit.includes("termoformadora") &&
+    !explicit.includes("misturador");
   const synonyms: Record<string, string[]> = {
     seladora: ["selar", "selagem"],
     envasadora: ["envase", "envasar", "envasamento", "envazamento", "envaz"],
-    empacotadora: ["empacotar", "empacotamento", "embaladora", "flowpack"],
+    empacotadora: isVacuumSealerPhrase
+      ? ["empacotar", "empacotamento", "flowpack"]
+      : ["empacotar", "empacotamento", "embaladora", "flowpack"],
     dosadora: ["dosar", "dosagem"],
     enchedora: ["encher", "enchimento", "enchim"],
     rotuladora: ["rotular", "rotulagem"],
@@ -142,6 +154,7 @@ export function machineCategories(text: string) {
   return Array.from(
     new Set([
       ...explicit,
+      ...(isVacuumSealerPhrase ? ["seladora"] : []),
       ...Object.entries(synonyms)
         .filter(([, terms]) => terms.some((term) => words.includes(term)))
         .map(([category]) => category),

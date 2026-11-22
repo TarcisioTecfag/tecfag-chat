@@ -502,7 +502,11 @@ export function evaluateIndustrialSilence(
 
   const zonedNow = getZonedDateParts(input.now, DEFAULT_INDUSTRIAL_SCHEDULE.timezone);
   const isEndOfDay = zonedNow.hour >= cfg.endOfDayHour;
-  if (isEndOfDay && (stage >= 1 || silenceMinutes >= cfg.followUp1Minutes)) {
+  const canCloseWithoutFollowUp = !cfg.pauseOutsideSchedule || input.withinSchedule;
+  if (
+    isEndOfDay &&
+    (stage >= 1 || (canCloseWithoutFollowUp && silenceMinutes >= cfg.followUp1Minutes))
+  ) {
     return {
       action: "mark_no_response",
       nextStage: 3,

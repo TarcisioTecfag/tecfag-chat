@@ -1196,6 +1196,66 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         Object.assign(updatedCollectedData, enriched);
       }
 
+      // 8.0.1 Enriquecimento pós-extração de CNPJ (ex.: cliente informou CNPJ por ÁUDIO ou IMAGEM)
+      if (!detectedCnpjCandidate) {
+        const extractedDocRaw = String(
+          updatedCollectedData["CNPJ OU CPF"]?.value || updatedCollectedData["CNPJ"]?.value || "",
+        ).trim();
+        const extractedDocDigits = extractedDocRaw.replace(/\D/g, "");
+        const hasCompanyAlready = Boolean(
+          updatedCollectedData["EMPRESA"]?.value &&
+            String(updatedCollectedData["EMPRESA"].value).trim() !== "" &&
+            !String(updatedCollectedData["EMPRESA"].value).toLowerCase().includes("aguardando"),
+        );
+        if (extractedDocDigits.length === 14 && (!hasCompanyAlready || !fetchedCnpjInfo)) {
+          try {
+            const audioCnpjInfo = await fetchCnpjInfo(extractedDocDigits);
+            fetchedCnpjInfo = audioCnpjInfo;
+            if (audioCnpjInfo.valid) {
+              if (audioCnpjInfo.cnpjFormatted) {
+                updatedCollectedData["CNPJ OU CPF"] = {
+                  value: audioCnpjInfo.cnpjFormatted,
+                  status: "filled",
+                };
+              }
+              if (audioCnpjInfo.razaoSocial && !hasCompanyAlready) {
+                updatedCollectedData["EMPRESA"] = {
+                  value: audioCnpjInfo.razaoSocial,
+                  status: "filled",
+                };
+              }
+              if (audioCnpjInfo.details) {
+                updatedCollectedData._RECEITA_FEDERAL = {
+                  ...(typeof updatedCollectedData._RECEITA_FEDERAL === "object" &&
+                  updatedCollectedData._RECEITA_FEDERAL
+                    ? updatedCollectedData._RECEITA_FEDERAL
+                    : {}),
+                  razaoSocial: audioCnpjInfo.details.razaoSocial || audioCnpjInfo.razaoSocial || "",
+                  nomeFantasia:
+                    audioCnpjInfo.details.nomeFantasia || audioCnpjInfo.nomeFantasia || "",
+                  capitalSocial: audioCnpjInfo.details.capitalSocial || "",
+                  porte: audioCnpjInfo.details.porte || "",
+                  cnaePrincipal: audioCnpjInfo.details.cnaePrincipal || "",
+                };
+                if (convCheck?.contactId) {
+                  await syncContactDataFromTriage(
+                    tenantId,
+                    convCheck.contactId,
+                    updatedCollectedData,
+                    audioCnpjInfo.details,
+                  );
+                }
+              }
+            }
+          } catch (audioCnpjErr: any) {
+            console.warn(
+              "[SdrEngine] Aviso ao consultar Receita Federal pós-extração (áudio/mídia):",
+              audioCnpjErr?.message || audioCnpjErr,
+            );
+          }
+        }
+      }
+
       if (
         industrialTriage &&
         resolvedDirectOperator?.status === "matched" &&

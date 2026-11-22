@@ -1021,7 +1021,7 @@ export async function executeTriageAuditMcpTool(
                 suggestedSectorName: pendingApprovalRaw.suggestedSectorName ?? null,
                 suggestedOperatorId: pendingApprovalRaw.suggestedOperatorId ?? null,
                 suggestedOperatorName: pendingApprovalRaw.suggestedOperatorName ?? null,
-                requestedAt: pendingApprovalRaw.requestedAt ?? null,
+                requestedAt: pendingApprovalRaw.requestedAt ?? pendingApprovalRaw.preparedAt ?? null,
               }
             : null,
           fieldsProgress: {

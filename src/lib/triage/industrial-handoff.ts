@@ -126,12 +126,23 @@ export function industrialClientMessages(params: {
     params.result.operator?.name,
     { isOperatorAbsent },
   );
-  if (confirmation) return [confirmation];
-  const claimsSuccess = params.messages.some((text) =>
-    /(?:j[aá] (?:criei|vinculei|transferi)|(?:card|negocia[cç][aã]o|atendimento).{0,40}(?:criad[oa]|vinculad[oa]|transferid[oa]|encaminhad[oa])|(?:estou|te) transferindo)/i.test(
-      text,
-    ),
-  );
+  const claimsEffectPattern =
+    /(?:j[aá] (?:criei|vinculei|transferi|encaminhei)|(?:card|negocia[cç][aã]o|atendimento).{0,40}(?:criad[oa]|vinculad[oa]|transferid[oa]|encaminhad[oa])|(?:estou|te|vou) (?:te )?(?:transferindo|transferir|encaminhando|encaminhar|acionar)|j[aá] coletei tudo|estou validando)/i;
+  if (confirmation) {
+    if (params.result.status === "awaiting_approval" || params.result.status === "transferred") {
+      // Preserva balões informativos gerados pelo modelo para responder perguntas finais do cliente
+      // (ex.: cidade da empresa, origem da máquina, garantia), descartando promessas falsas de transferência ou novas perguntas de coleta.
+      const informativeReplies = params.messages
+        .map((m) => String(m || "").trim())
+        .filter((m) => Boolean(m) && !m.includes("?") && !claimsEffectPattern.test(m))
+        .slice(0, 3);
+      if (informativeReplies.length > 0) {
+        return [...informativeReplies, confirmation];
+      }
+    }
+    return [confirmation];
+  }
+  const claimsSuccess = params.messages.some((text) => claimsEffectPattern.test(text));
   if (!claimsSuccess) return params.messages;
   const next = assessIndustrialReadiness(params.route, params.data).missing[0];
   const questions = {

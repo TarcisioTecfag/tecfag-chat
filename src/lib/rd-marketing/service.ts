@@ -1,16 +1,26 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { and, eq, ne, or, sql, desc, isNull } from "drizzle-orm";
+import { and, eq, gte, ne, or, sql, desc, isNull } from "drizzle-orm";
 import {
   dispatchRdSdrTemplatePostCommit,
   type RdTemplateDispatchJob,
 } from "./sdr-template-dispatch";
+import {
+  acquireCwrContactLock,
+  ensureCwrDealOnContacting,
+} from "../triage/industrial-cwr-crm";
 
 import { db } from "../../db";
 import {
   contacts,
+  conversations,
   crmAccounts,
+  crmConversationDeals,
+  crmDealContacts,
+  crmDealEvents,
+  crmDeals,
   crmStages,
   crmPipelines,
+  messages,
   operators,
   rdMarketingFlows,
   rdMarketingReceipts,
@@ -536,44 +546,213 @@ export async function receiveLeads(flow: Flow, payload: unknown) {
           })
           .where(and(eq(crmAccounts.tenantId, tenantId), eq(crmAccounts.id, accountId)));
       }
-      const deal = await crmService.createDeal(
-        tenantId,
-        null,
-        {
-          title: String(mapped.deal.title),
-          marketingOrigin: true,
-          pipelineId: settings.pipelineId,
-          stageId: settings.stageId,
-          operatorId: settings.operatorId,
-          contactId: contact.id,
-          accountId,
-          account:
-            mapped.company.name && !accountId
-              ? {
-                  name: String(mapped.company.name),
-                  document: mapped.company.document ? String(mapped.company.document) : null,
-                  type: String(mapped.company.document || "").length === 11 ? "person" : "company",
-                  email: mapped.company.email ? String(mapped.company.email) : null,
-                  phone: mapped.company.phone ? String(mapped.company.phone) : null,
-                  customFields: mapped.company.customFields as CustomFieldValues,
-                }
-              : null,
-          source: dealSource,
-          campaign: mapped.deal.campaign ? String(mapped.deal.campaign) : undefined,
-          entryChannel: "rd_webhook",
-          utmSource: detailedUtm.utmSource,
-          utmMedium: detailedUtm.utmMedium,
-          utmCampaign: detailedUtm.utmCampaign,
-          utmContent: detailedUtm.utmContent,
-          utmTerm: detailedUtm.utmTerm,
-          clickId: detailedUtm.clickId,
-          landingPage: detailedUtm.landingPage,
-          value: mapped.deal.value ? String(mapped.deal.value) : null,
-          initialNote: mapped.deal.initialNote ? String(mapped.deal.initialNote) : null,
-          customFields: mapped.deal.customFields as CustomFieldValues,
-        },
-        tx,
-      );
+      // Serializa com ensureCwrDealOnContacting (Fagner SDR) para impedir card duplicado em condição de corrida
+      await acquireCwrContactLock(tx, tenantId, contact.id);
+
+      const recentThreshold = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const [existingSdrDealRow] = await tx
+        .select({ deal: crmDeals })
+        .from(crmDealContacts)
+        .innerJoin(
+          crmDeals,
+          and(eq(crmDeals.id, crmDealContacts.dealId), eq(crmDeals.tenantId, tenantId)),
+        )
+        .where(
+          and(
+            eq(crmDealContacts.tenantId, tenantId),
+            eq(crmDealContacts.contactId, contact.id),
+            eq(crmDeals.tenantId, tenantId),
+            eq(crmDeals.pipelineId, settings.pipelineId),
+            eq(crmDeals.status, "open"),
+            ne(crmDeals.entryChannel, "rd_webhook"),
+            gte(crmDeals.createdAt, recentThreshold),
+          ),
+        )
+        .orderBy(desc(crmDeals.createdAt))
+        .limit(1);
+
+      let deal: { id: string; accountId: string | null };
+      let dealActionMessage = "Contato vinculado e card criado no CRM.";
+
+      if (existingSdrDealRow?.deal) {
+        const existingDeal = existingSdrDealRow.deal;
+        let enrichedAccountId = existingDeal.accountId || accountId || null;
+        if (mapped.company.name && !enrichedAccountId) {
+          const newAccId = `acc-${Date.now()}-${randomUUID().slice(0, 6)}`;
+          await tx.insert(crmAccounts).values({
+            id: newAccId,
+            tenantId,
+            name: String(mapped.company.name),
+            document: mapped.company.document ? String(mapped.company.document) : null,
+            type: String(mapped.company.document || "").length === 11 ? "person" : "company",
+            email: mapped.company.email ? String(mapped.company.email) : null,
+            phone: mapped.company.phone ? normalizeCanonicalPhone(String(mapped.company.phone)) : null,
+            customFields: (mapped.company.customFields as CustomFieldValues) || {},
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          });
+          enrichedAccountId = newAccId;
+        }
+
+        const existingTitleClean = String(existingDeal.title || "").trim();
+        const isWeakTitle =
+          !existingTitleClean ||
+          existingTitleClean.length <= 2 ||
+          /^(cliente|contato|lead|whatsapp|lead whatsapp|contato whatsapp|\.+)$/i.test(
+            existingTitleClean,
+          ) ||
+          /^\+?\d{8,20}$/.test(existingTitleClean.replace(/[\s().-]/g, ""));
+        const incomingTitle = String(mapped.deal.title || "").trim();
+        const mergedCustomFields: Record<string, unknown> = {
+          ...((existingDeal.customFields as Record<string, unknown>) || {}),
+        };
+        for (const [cfKey, cfVal] of Object.entries(
+          (mapped.deal.customFields as Record<string, unknown>) || {},
+        )) {
+          if (
+            mergedCustomFields[cfKey] === undefined ||
+            mergedCustomFields[cfKey] === null ||
+            mergedCustomFields[cfKey] === ""
+          ) {
+            mergedCustomFields[cfKey] = cfVal;
+          }
+        }
+
+        const nowEnrich = new Date();
+        await tx
+          .update(crmDeals)
+          .set({
+            title: isWeakTitle && incomingTitle ? incomingTitle : existingDeal.title,
+            accountId: enrichedAccountId,
+            operatorId: existingDeal.operatorId || settings.operatorId,
+            entryChannel: "rd_webhook",
+            source: dealSource || existingDeal.source,
+            campaign: mapped.deal.campaign ? String(mapped.deal.campaign) : existingDeal.campaign,
+            utmSource: detailedUtm.utmSource || existingDeal.utmSource,
+            utmMedium: detailedUtm.utmMedium || existingDeal.utmMedium,
+            utmCampaign: detailedUtm.utmCampaign || existingDeal.utmCampaign,
+            utmContent: detailedUtm.utmContent || existingDeal.utmContent,
+            utmTerm: detailedUtm.utmTerm || existingDeal.utmTerm,
+            clickId: detailedUtm.clickId || existingDeal.clickId,
+            landingPage: detailedUtm.landingPage || existingDeal.landingPage,
+            value: existingDeal.value || (mapped.deal.value ? String(mapped.deal.value) : null),
+            customFields: mergedCustomFields,
+            version: sql`${crmDeals.version} + 1`,
+            lastActivityAt: nowEnrich,
+            updatedAt: nowEnrich,
+          })
+          .where(and(eq(crmDeals.tenantId, tenantId), eq(crmDeals.id, existingDeal.id)));
+
+        await tx.insert(crmDealEvents).values({
+          id: `ev-rd-merge-${Date.now()}-${randomUUID().slice(0, 6)}`,
+          tenantId,
+          dealId: existingDeal.id,
+          eventType: "note_added",
+          operatorId: settings.operatorId || null,
+          metadata: {
+            origin: "rd_webhook_dedup_sdr",
+            flowId: flow.id,
+            text:
+              (mapped.deal.initialNote ? `${String(mapped.deal.initialNote)}\n` : "") +
+              `Lead RD Marketing vinculado ao card já aberto pelo atendimento WhatsApp/SDR (evitada duplicação).`,
+          },
+          createdAt: nowEnrich,
+        });
+
+        deal = { id: existingDeal.id, accountId: enrichedAccountId };
+        dealActionMessage =
+          "Contato vinculado ao card já aberto no funil pelo WhatsApp/SDR (duplicação evitada e dados RD enriquecidos).";
+      } else {
+        deal = await crmService.createDeal(
+          tenantId,
+          null,
+          {
+            title: String(mapped.deal.title),
+            marketingOrigin: true,
+            pipelineId: settings.pipelineId,
+            stageId: settings.stageId,
+            operatorId: settings.operatorId,
+            contactId: contact.id,
+            accountId,
+            account:
+              mapped.company.name && !accountId
+                ? {
+                    name: String(mapped.company.name),
+                    document: mapped.company.document ? String(mapped.company.document) : null,
+                    type: String(mapped.company.document || "").length === 11 ? "person" : "company",
+                    email: mapped.company.email ? String(mapped.company.email) : null,
+                    phone: mapped.company.phone ? String(mapped.company.phone) : null,
+                    customFields: mapped.company.customFields as CustomFieldValues,
+                  }
+                : null,
+            source: dealSource,
+            campaign: mapped.deal.campaign ? String(mapped.deal.campaign) : undefined,
+            entryChannel: "rd_webhook",
+            utmSource: detailedUtm.utmSource,
+            utmMedium: detailedUtm.utmMedium,
+            utmCampaign: detailedUtm.utmCampaign,
+            utmContent: detailedUtm.utmContent,
+            utmTerm: detailedUtm.utmTerm,
+            clickId: detailedUtm.clickId,
+            landingPage: detailedUtm.landingPage,
+            value: mapped.deal.value ? String(mapped.deal.value) : null,
+            initialNote: mapped.deal.initialNote ? String(mapped.deal.initialNote) : null,
+            customFields: mapped.deal.customFields as CustomFieldValues,
+          },
+          tx,
+        );
+
+        // Se o contato já possui conversa ativa em automação onde o SDR já respondeu, vincula o card e avança para CONTATANDO
+        const [activeAutoConv] = await tx
+          .select({ id: conversations.id })
+          .from(conversations)
+          .where(
+            and(
+              eq(conversations.tenantId, tenantId),
+              eq(conversations.contactId, contact.id),
+              eq(conversations.queueState, "automacao"),
+            ),
+          )
+          .orderBy(desc(conversations.lastMessageTime), desc(conversations.createdAt))
+          .limit(1);
+
+        if (activeAutoConv) {
+          await tx
+            .insert(crmConversationDeals)
+            .values({
+              id: `cd-${Date.now()}-${randomUUID().slice(0, 8)}`,
+              tenantId,
+              conversationId: activeAutoConv.id,
+              dealId: deal.id,
+              origin: "crm",
+              createdByOperatorId: settings.operatorId || null,
+              isActive: true,
+              createdAt: new Date(),
+            })
+            .onConflictDoNothing();
+
+          const [botMsg] = await tx
+            .select({ id: messages.id })
+            .from(messages)
+            .where(
+              and(
+                eq(messages.tenantId, tenantId),
+                eq(messages.conversationId, activeAutoConv.id),
+                eq(messages.senderType, "bot"),
+              ),
+            )
+            .limit(1);
+
+          if (botMsg) {
+            await ensureCwrDealOnContacting(tx, {
+              tenantId,
+              conversationId: activeAutoConv.id,
+              contactId: contact.id,
+              dealIdHint: deal.id,
+            });
+          }
+        }
+      }
       if (deal.accountId && !contact.accountId)
         await tx
           .update(contacts)
@@ -591,7 +770,7 @@ export async function receiveLeads(flow: Flow, payload: unknown) {
         flowId: flow.id,
         status: "created",
         dealId: deal.id,
-        message: "Contato vinculado e card criado no CRM.",
+        message: dealActionMessage,
       });
       if (settings.whatsappTemplateId) {
         templateJobs.push({
