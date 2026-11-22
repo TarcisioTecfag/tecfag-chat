@@ -3,7 +3,7 @@
  * Monitora e recupera mensagens presas em 'sending' ou 'processing' após reinicialização/crash.
  */
 export default function recoveryPlugin(nitroApp: {
-  hooks: { hook: (name: string, handler: () => void) => void };
+  hooks: { hook: (name: string, handler: () => void | Promise<void>) => void };
 }) {
   // Commercial delivery must start even if WhatsApp/inbox initialization fails or is busy.
   void import("../../src/lib/rd-marketing/commercial-recovery.js")
@@ -43,11 +43,23 @@ export default function recoveryPlugin(nitroApp: {
       AuditService.getInstance().start();
       SupervisorEngine.getInstance().start();
       webhookDeliveryWorker.start(15_000);
-      nitroApp.hooks.hook("close", () => {
+      nitroApp.hooks.hook("close", async () => {
         SlaEngine.getInstance().stop();
         AuditService.getInstance().stop();
         SupervisorEngine.getInstance().stop();
         webhookDeliveryWorker.stop();
+        try {
+          const { SessionManager } = await import("../../src/lib/baileys/session-manager.js");
+          await Promise.race([
+            SessionManager.shutdownIfInitialized(),
+            new Promise<void>((resolve) => setTimeout(resolve, 4000)),
+          ]);
+        } catch (err: unknown) {
+          console.warn(
+            "[RecoveryPlugin] Aviso ao encerrar SessionManager no hook close:",
+            err instanceof Error ? err.message : String(err ?? ""),
+          );
+        }
       });
     } catch (err: unknown) {
       console.error(

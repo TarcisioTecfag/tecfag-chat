@@ -11,7 +11,7 @@ import {
 } from "../crm/contact-phones";
 import { createHash } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { runtimeSingleton } from "../runtime-singleton";
+import { runtimeSingleton, getRuntimeSingleton } from "../runtime-singleton";
 import makeWASocket, { 
   DisconnectReason, 
   WASocket, 
@@ -338,6 +338,8 @@ export class SessionManager {
   private reconnectAttempts = new Map<string, number>();
 
   private leaseToken: string | null = null;
+  private leaseTenantId: string | null = null;
+  private bootRetryTimers = new Set<ReturnType<typeof setTimeout>>();
   private notifications = new AsyncLocalStorage<{ tenantId: string; events: SessionEvent[]; active: boolean }>();
   private leaseTimer: ReturnType<typeof setInterval> | null = null;
   private leaseCheckRunning = false;
@@ -494,6 +496,7 @@ export class SessionManager {
     this.leaseTimer = null;
     const token = this.leaseToken;
     this.leaseToken = null;
+    this.leaseTenantId = null;
     if (this.connectionId && token) {
       try { await releaseConnectionLease(tenantId, this.connectionId, token, revokeAuth); }
       catch { console.error("[WhatsApp] Lease aguardando expiração após indisponibilidade do banco."); }
@@ -545,16 +548,32 @@ export class SessionManager {
     } finally { this.leaseCheckRunning = false; }
   }
 
+  public static async shutdownIfInitialized(): Promise<void> {
+    const sharedInstance =
+      SessionManager.instance ?? getRuntimeSingleton<SessionManager>("SessionManager");
+    if (sharedInstance) {
+      await sharedInstance.shutdown();
+      return;
+    }
+    if (SessionManager.extraManagers.size > 0) {
+      await Promise.allSettled([...SessionManager.extraManagers.values()].map((m) => m.shutdown()));
+    }
+  }
+
   public async shutdown(): Promise<void> {
     if (this.isShuttingDown) return;
     this.isShuttingDown = true;
     this.cancelLeaseRecovery();
-    if (!this.connectionId) await Promise.allSettled([...SessionManager.extraManagers.values()].map((m) => m.shutdown()));
-    console.log("[SessionManager] Recebido sinal de encerramento do processo (SIGTERM/SIGINT). Fechando sockets Baileys com segurança...");
+    for (const timer of this.bootRetryTimers) clearTimeout(timer);
+    this.bootRetryTimers.clear();
+    if (!this.connectionId) {
+      console.log("[SessionManager] Recebido sinal de encerramento do processo (SIGTERM/SIGINT). Fechando sockets Baileys com segurança...");
+      await Promise.allSettled([...SessionManager.extraManagers.values()].map((m) => m.shutdown()));
+    }
 
     for (const [tenantId, sock] of this.sessions.entries()) {
       try {
-        console.log(`[SessionManager] Encerrando socket para tenant ${tenantId}...`);
+        console.log(`[SessionManager] Encerrando socket para tenant ${tenantId}${this.connectionId ? ` (conexão ${this.connectionId})` : ""}...`);
         sock.end(undefined);
         if (this.connectionId) await this.stopLease(tenantId);
       } catch (err) {
@@ -562,7 +581,13 @@ export class SessionManager {
       }
     }
     this.sessions.clear();
-    console.log("[SessionManager] Sockets Baileys encerrados com segurança.");
+    // Garante liberação do lease mesmo se o encerramento ocorrer durante handshake/reconexão sem socket ativo em memória.
+    if (this.connectionId && this.leaseToken && this.leaseTenantId) {
+      await this.stopLease(this.leaseTenantId);
+    }
+    if (!this.connectionId) {
+      console.log("[SessionManager] Sockets Baileys encerrados com segurança.");
+    }
   }
 
   public static getInstance(): SessionManager {
@@ -577,14 +602,26 @@ export class SessionManager {
   }
 
   /** Retry takeover after the previous server releases/expires its lease during deployment. */
-  private bootAdditionalConnection(tenantId: string, connectionId: string) {
+  private bootAdditionalConnection(tenantId: string, connectionId: string, attempt = 1) {
     if (this.isShuttingDown || !multiConnectionEnabled(tenantId)) return;
     void readBaileysConfig(tenantId, connectionId).then(async (config) => {
       if (!config || !("authEncrypted" in config) || !config.authEncrypted) return;
       await SessionManager.forConnection(tenantId, connectionId).initSession(tenantId);
-    }).catch(() => {
+    }).catch((err: unknown) => {
       if (this.isShuttingDown) return;
-      const timer = setTimeout(() => this.bootAdditionalConnection(tenantId, connectionId), 30_000);
+      const retryDelaysMs = [5_000, 10_000, 15_000, 30_000];
+      const delayMs = retryDelaysMs[Math.min(attempt - 1, retryDelaysMs.length - 1)];
+      if (attempt === 1 || attempt % 3 === 0) {
+        const detail = err instanceof Error ? err.message : String(err ?? "");
+        console.log(
+          `[SessionManager] Conexão ${connectionId} (tenant '${tenantId}') aguardando liberação de lease (${detail || "em uso"}) — nova tentativa em ${Math.round(delayMs / 1000)}s.`,
+        );
+      }
+      const timer = setTimeout(() => {
+        this.bootRetryTimers.delete(timer);
+        this.bootAdditionalConnection(tenantId, connectionId, attempt + 1);
+      }, delayMs);
+      this.bootRetryTimers.add(timer);
       timer.unref();
     });
   }
@@ -749,7 +786,7 @@ export class SessionManager {
    * do banco e inicia uma nova sessão (vai gerar novo QR Code).
    */
   public async resetAndInitSession(tenantId: string): Promise<WASocket> {
-    console.log(`[SessionManager] Logout explícito detectado para tenant ${tenantId} — não reconectando.`);
+    console.log(`[SessionManager] Resetando sessão Baileys para tenant ${tenantId}${this.connectionId ? ` (conexão ${this.connectionId})` : ""}...`);
 
     // Aguarda a inicialização anterior para não deixar um socket antigo nascer após o reset.
     const pendingInit = this.initMutex.get(tenantId);
@@ -816,7 +853,7 @@ export class SessionManager {
       try { oldSock.end(undefined); } catch (_) {}
     }
 
-    console.log(`[SessionManager] Logout explícito detectado para tenant ${tenantId} — não reconectando.`);
+    console.log(`[SessionManager] Iniciando sessão Baileys para tenant ${tenantId}${this.connectionId ? ` (conexão ${this.connectionId})` : ""}...`);
 
     // Logger silencioso — logs do Baileys são muito verbosos e poluem o output
     const logger = pino({ level: "silent" });
@@ -824,8 +861,14 @@ export class SessionManager {
     // Carregar estado de autenticação do banco
     if (this.connectionId) {
       await readBaileysConfig(tenantId, this.connectionId);
-      if (this.leaseToken && !await renewConnectionLease(tenantId, this.connectionId, this.leaseToken)) this.leaseToken = null;
-      if (!this.leaseToken) this.leaseToken = await acquireConnectionLease(tenantId, this.connectionId);
+      if (this.leaseToken && !await renewConnectionLease(tenantId, this.connectionId, this.leaseToken)) {
+        this.leaseToken = null;
+        this.leaseTenantId = null;
+      }
+      if (!this.leaseToken) {
+        this.leaseToken = await acquireConnectionLease(tenantId, this.connectionId);
+      }
+      this.leaseTenantId = tenantId;
       if (!this.leaseTimer) {
         this.leaseTimer = setInterval(() => {
           void this.checkConnectionLease(tenantId).catch(() => console.error("[WhatsApp] Falha na recuperação de posse; sessão será reavaliada."));
@@ -834,7 +877,7 @@ export class SessionManager {
       }
     }
     const { state, saveCreds } = await useDrizzleAuthState(tenantId, this.connectionId, this.leaseToken);
-    console.log(`[SessionManager] Logout explícito detectado para tenant ${tenantId} — não reconectando.`);
+    console.log(`[SessionManager] Estado de autenticação pronto para tenant ${tenantId}${this.connectionId ? ` (conexão ${this.connectionId})` : ""}.`);
 
     // ── Versão do protocolo WhatsApp Web ────────────────────────────────────────
     // Estratégia em 3 camadas para evitar "Too Many Requests" do servidor WA:
@@ -906,7 +949,7 @@ export class SessionManager {
     });
 
     this.sessions.set(tenantId, sock);
-    console.log(`[SessionManager] Logout explícito detectado para tenant ${tenantId} — não reconectando.`);
+    console.log(`[SessionManager] Socket Baileys inicializado para tenant ${tenantId}${this.connectionId ? ` (conexão ${this.connectionId})` : ""}.`);
 
     // Persistir credenciais ao serem atualizadas pelo handshake
     sock.ev.on("creds.update", () => {
@@ -1401,6 +1444,12 @@ export class SessionManager {
     this.sessionStatuses.set(tenantId, "disconnected");
     this.sessionQrs.delete(tenantId);
     this.notify(tenantId, { type: "status", status: "disconnected" });
+
+    // Sem posse ativa (ownership-loss ou lease ainda não adquirido), não gravar no DB
+    // para não sobrescrever a instância proprietária nem disparar erro falso de posse.
+    if (reason === "ownership-loss" || (this.connectionId && !this.leaseToken)) {
+      return;
+    }
 
     try {
       await this.updateConfig(tenantId, {
@@ -2805,12 +2854,32 @@ export async function resolveRealJid(sock: any, phone: string, fallbackJid?: str
 }
 
 // Registrar desligamento gracioso para containers (Railway SIGTERM / SIGINT)
-if (typeof process !== "undefined" && typeof process.on === "function") {
-  const handleSignal = () => {
-    SessionManager.getInstance().shutdown().catch((err) => {
-      console.error("[SessionManager] Erro durante encerramento gracioso:", err);
+const SIGNAL_HANDLER_KEY = Symbol.for("valem-chat.session-manager.signal-handlers");
+if (
+  typeof process !== "undefined" &&
+  typeof process.on === "function" &&
+  !(globalThis as Record<symbol, boolean>)[SIGNAL_HANDLER_KEY]
+) {
+  (globalThis as Record<symbol, boolean>)[SIGNAL_HANDLER_KEY] = true;
+  let signalHandled = false;
+  const handleSignal = (signal: NodeJS.Signals) => {
+    if (signalHandled) return;
+    signalHandled = true;
+    const isTestRunner = Boolean(process.env.NODE_TEST_CONTEXT || process.env.VITEST);
+    void Promise.race([
+      SessionManager.shutdownIfInitialized().catch((err) => {
+        console.error(`[SessionManager] Erro durante encerramento gracioso (${signal}):`, err);
+      }),
+      new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, 4000);
+        timer.unref();
+      }),
+    ]).finally(() => {
+      if (!isTestRunner) {
+        process.exit(0);
+      }
     });
   };
-  process.once("SIGTERM", handleSignal);
-  process.once("SIGINT", handleSignal);
+  process.once("SIGTERM", () => handleSignal("SIGTERM"));
+  process.once("SIGINT", () => handleSignal("SIGINT"));
 }

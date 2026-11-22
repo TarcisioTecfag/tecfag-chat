@@ -6,3 +6,9 @@ export function runtimeSingleton<T>(name: string, create: () => T): T {
   if (!services.has(name)) services.set(name, create());
   return services.get(name) as T;
 }
+
+export function getRuntimeSingleton<T>(name: string): T | undefined {
+  const key = Symbol.for("valem-chat.runtime-services");
+  const runtime = globalThis as typeof globalThis & { [key: symbol]: Map<string, unknown> };
+  return runtime[key]?.get(name) as T | undefined;
+}
