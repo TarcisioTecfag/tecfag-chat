@@ -1994,9 +1994,12 @@ export function SdrTab({
 
                                 const lines = text.split(/\r?\n/);
                                 const mediaTag = lines[0].trim();
-                                const captionText = lines.slice(1).join("\n").trim();
+                                const hasMediaTag = mediaTag.startsWith("[MEDIA:");
+                                const captionText = hasMediaTag
+                                  ? lines.slice(1).join("\n").trim()
+                                  : "";
 
-                                if (mediaTag.startsWith("[MEDIA:")) {
+                                if (hasMediaTag) {
                                   const match = mediaTag.match(
                                     /^\[MEDIA:([a-zA-Z0-9]+)\]([^:]+)(?::(.+))?$/i,
                                   );
@@ -2160,7 +2163,7 @@ export function SdrTab({
 
                                 return (
                                   <span className="whitespace-pre-wrap break-words">
-                                    {captionText || text}
+                                    {hasMediaTag ? captionText || text : text}
                                   </span>
                                 );
                               })()}

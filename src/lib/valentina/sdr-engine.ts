@@ -4,7 +4,7 @@ import type { IndustrialBotItem } from "./industrial-outbound";
 
 import { db } from "../../db";
 import { agentConfigs, agentFlowStates, conversations, messages, internalMessages, contacts, crmAccounts, operators } from "../../db/schema";
-import { eq, asc, desc, and, gte, ne, sql, isNull, or, inArray } from "drizzle-orm";
+import { eq, asc, desc, and, gte, lt, ne, sql, isNull, or, inArray } from "drizzle-orm";
 import { buildAccountUpdatePayloadFromCnpjDetails } from "../crm/cnpj-account-mapper";
 import { vertexAi, MultimodalPart } from "../vertex-ai";
 import { SessionManager, resolveRealJid } from "../baileys/session-manager";
@@ -20,7 +20,11 @@ import {
 } from "./knowledge-service";
 import { autoCreateOrUpdateRdCrmDeal } from "./sdr-crm-auto";
 import { ensureLocalCrmDealBeforeTransfer } from "./sdr-crm-local";
-import { buildTecfagFagnerPrompt } from "./sdr-tecfag-prompt";
+import {
+  buildTecfagFagnerPrompt,
+  formatSdrDateTimeBrt,
+  formatSdrMessageTimestampTag,
+} from "./sdr-tecfag-prompt";
 import { resolveLegacySdrStageAndFunnel } from "./legacy-sdr-routing";
 import {
   INDUSTRIAL_POLICY_VERSION,
@@ -423,36 +427,97 @@ export class SdrEngine {
         .limit(80);
       const historyMsgs = selectRecentCycleMessages(rawHistoryMsgs, flowState?.startedAt || null, 80);
 
+      const promptNow = new Date();
       let hasPreviousEmoji = false;
       let hasPreviousAudio = false;
-      const conversationHistoryText = historyMsgs
-        .map((m: any) => {
-          if (m.senderType === "bot" && /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/u.test(m.content)) {
-            hasPreviousEmoji = true;
-          }
-          const sender =
-            m.senderType === "client"
-              ? "Cliente"
-              : m.senderType === "bot"
-                ? `${aiPersona.name} (SDR)`
-                : `Operador (${m.senderName || "Equipe"})`;
-          
-          let contentText = m.content || "";
-          if (typeof contentText === "string" && contentText.startsWith("[MEDIA:audio]")) {
-            if (m.senderType === "bot") hasPreviousAudio = true; // SDR já enviou áudio nessa conversa
-            contentText = m.mediaInterpretation
-              ? `🎤 [ÁUDIO DE VOZ (${sender.toUpperCase()})]: "${m.mediaInterpretation}"`
-              : "🎤 [ÁUDIO DE VOZ]";
-          }
+      const formatHistoryLine = (m: any, includeTimestamp: boolean, maxLen?: number): string => {
+        if (m.senderType === "bot" && /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/u.test(m.content)) {
+          hasPreviousEmoji = true;
+        }
+        const sender =
+          m.senderType === "client"
+            ? "Cliente"
+            : m.senderType === "bot"
+              ? `${aiPersona.name} (SDR)`
+              : `Operador (${m.senderName || "Equipe"})`;
 
-          // Se a mensagem do cliente tinha mídia e a IA já interpretou, exibe a interpretação
-          // para que a Valentina se lembre do que foi visto/ouvido sem reenviar o binário
-          const mediaCtx = (m.senderType === "client" && m.mediaInterpretation)
+        let contentText = m.content || "";
+        if (typeof contentText === "string" && contentText.startsWith("[MEDIA:audio]")) {
+          if (m.senderType === "bot") hasPreviousAudio = true;
+          contentText = m.mediaInterpretation
+            ? `🎤 [ÁUDIO DE VOZ (${sender.toUpperCase()})]: "${m.mediaInterpretation}"`
+            : "🎤 [ÁUDIO DE VOZ]";
+        }
+        if (maxLen && contentText.length > maxLen) {
+          contentText = `${contentText.slice(0, maxLen)}…`;
+        }
+
+        const mediaCtx =
+          m.senderType === "client" && m.mediaInterpretation
             ? ` [MÍDIA RECEBIDA DO CLIENTE — O QUE FOI VISTO/OUVIDO: "${m.mediaInterpretation}"]`
             : "";
-          return `[ID MENSAGEM: ${m.id}] [${sender}]${mediaCtx}: ${contentText}`;
-        })
+        const timeTag = includeTimestamp
+          ? `[${formatSdrMessageTimestampTag(m.sentAt, promptNow)}] `
+          : "";
+        return `${timeTag}[ID MENSAGEM: ${m.id}] [${sender}]${mediaCtx}: ${contentText}`;
+      };
+
+      const conversationHistoryText = historyMsgs
+        .map((m: any) => formatHistoryLine(m, industrialTriage))
         .join("\n");
+
+      // 3b. Memória histórica anterior ao ciclo atual (com carimbo de data/idade para noção temporal)
+      let priorConversationHistoryText = "";
+      if (industrialTriage && flowState?.startedAt) {
+        try {
+          const priorRaw = await db
+            .select()
+            .from(messages)
+            .where(
+              and(
+                eq(messages.tenantId, tenantId),
+                eq(messages.conversationId, conversationId),
+                eq(messages.isInternalNote, false),
+                ne(messages.senderType, "system"),
+                ne(messages.content, "!reset"),
+                lt(messages.sentAt, flowState.startedAt),
+              ),
+            )
+            .orderBy(desc(messages.sentAt), desc(messages.id))
+            .limit(25);
+
+          if (priorRaw.length > 0) {
+            priorConversationHistoryText = [...priorRaw]
+              .reverse()
+              .map((m: any) => {
+                const sender =
+                  m.senderType === "client"
+                    ? "Cliente"
+                    : m.senderType === "bot"
+                      ? `${aiPersona.name} (SDR)`
+                      : `Operador (${m.senderName || "Equipe"})`;
+                let contentText = String(m.content || "").trim();
+                if (contentText.startsWith("[MEDIA:audio]")) {
+                  contentText = m.mediaInterpretation
+                    ? `🎤 [ÁUDIO]: "${m.mediaInterpretation}"`
+                    : "🎤 [ÁUDIO]";
+                } else if (m.mediaInterpretation && contentText.startsWith("[MEDIA:")) {
+                  contentText = `${contentText.slice(0, 140)} [Mídia: "${String(m.mediaInterpretation).slice(0, 200)}"]`;
+                }
+                if (contentText.length > 400) {
+                  contentText = `${contentText.slice(0, 400)}…`;
+                }
+                return `[${formatSdrMessageTimestampTag(m.sentAt, promptNow)}] [${sender}]: ${contentText}`;
+              })
+              .join("\n");
+          }
+        } catch (priorErr: any) {
+          console.warn(
+            "[SdrEngine] Falha ao carregar histórico anterior para noção temporal:",
+            priorErr?.message || priorErr,
+          );
+        }
+      }
 
       // 4. Formatar o Lote Consolidado Atual de Mensagens com IDs
       // Descreve a mídia de forma natural para o Gemini entender o contexto
@@ -954,6 +1019,8 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
               aiPersona,
               knowledgeContext,
               conversationHistoryText,
+              priorConversationHistoryText,
+              currentDateTimeBrt: formatSdrDateTimeBrt(promptNow),
               batchSummary,
               currentDataSummary,
               cnpjDirective,

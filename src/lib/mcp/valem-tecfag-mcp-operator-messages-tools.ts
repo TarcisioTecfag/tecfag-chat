@@ -1204,11 +1204,16 @@ export async function executeOperatorMessagesMcpTool(
             continue;
           }
 
-          // Checagem ao vivo de mensagens (guarda onlyIfNeverRepliedByAgent + janela 24h Meta)
+          // Checagem ao vivo de mensagens (guarda onlyIfNeverRepliedByAgent + janela 24h Meta + 1ª msg recente sem resposta)
           const [msgStat] = await pgSql<any[]>`
             SELECT
               COUNT(*) FILTER (WHERE sender_type = 'agent' AND is_internal_note = false)::int AS agent_messages_count,
-              MAX(sent_at) FILTER (WHERE sender_type = 'client' AND is_internal_note = false) AS last_client_message_at
+              MAX(sent_at) FILTER (WHERE sender_type = 'client' AND is_internal_note = false) AS last_client_message_at,
+              MIN(sent_at) FILTER (
+                WHERE sender_type = 'client'
+                  AND is_internal_note = false
+                  AND sent_at >= NOW() - INTERVAL '14 days'
+              ) AS first_recent_client_message_at
             FROM messages
             WHERE tenant_id = ${tenantId}
               AND conversation_id = ${conversationId}
@@ -1216,6 +1221,7 @@ export async function executeOperatorMessagesMcpTool(
 
           const agentMessagesCount = Number(msgStat?.agent_messages_count || 0);
           const lastClientIso = safeIso(msgStat?.last_client_message_at);
+          const firstRecentClientIso = safeIso(msgStat?.first_recent_client_message_at);
           const withinMeta24hWindow =
             lastClientIso !== null &&
             now.getTime() - new Date(lastClientIso).getTime() <= TWENTY_FOUR_HOURS_MS;
@@ -1455,6 +1461,12 @@ export async function executeOperatorMessagesMcpTool(
           const greetingAlreadySent =
             plan.decision === "send_template" || plan.decision === "send_text";
           const actionNow = new Date();
+          // Preserva mensagens recentes sem resposta do cliente dentro do ciclo atual do Fagner
+          // (para que ele leia o pedido que o cliente já enviou antes do repasse)
+          const flowStartedAt =
+            agentMessagesCount === 0 && firstRecentClientIso
+              ? new Date(Math.min(actionNow.getTime(), new Date(firstRecentClientIso).getTime() - 1000))
+              : actionNow;
 
           const txResult = await db.transaction(async (tx) => {
             await setAttendanceActor(tx, tenantId, `${persona.name} (${actorName})`, null);
@@ -1532,6 +1544,7 @@ export async function executeOperatorMessagesMcpTool(
                   outcome: "in_progress",
                   currentStep: "Em Qualificação",
                   metadata: nextMeta,
+                  startedAt: flowStartedAt,
                   completedAt: null,
                   lastInteractionAt: actionNow,
                 })
@@ -1560,7 +1573,7 @@ export async function executeOperatorMessagesMcpTool(
                     targetFunnel: null,
                     ...nextMeta,
                   },
-                  startedAt: actionNow,
+                  startedAt: flowStartedAt,
                   lastInteractionAt: actionNow,
                   completedAt: null,
                   outcome: "in_progress",
