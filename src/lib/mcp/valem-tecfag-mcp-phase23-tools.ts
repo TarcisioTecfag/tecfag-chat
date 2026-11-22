@@ -39,6 +39,9 @@ import {
 } from "../webhooks/dispatcher";
 import type { McpToolDefinition, McpWriteActorContext } from "./valem-tecfag-mcp-write-tools";
 
+export const BATCH_UPSERT_MAX_ITEMS = 500;
+export const BATCH_UPSERT_CONCURRENCY = 6;
+
 const TENANT_ID_PROP = {
   type: "string",
   enum: ["tecfag", "valem"],
@@ -138,7 +141,7 @@ export const MCP_PHASE23_TOOLS: McpToolDefinition[] = [
     name: "batch_upsert_crm_deals",
     access: "write",
     description:
-      "[ESCRITA] Cria ou atualiza vários cards/contatos em uma única chamada (até 100 itens), com isolamento por item, retorno detalhado item a item e garantia real de idempotência (repetir a mesma chamada com a mesma idempotencyKey nunca duplica cards).",
+      "[ESCRITA] Cria ou atualiza vários cards/contatos em uma única chamada (até 500 itens), com concorrência controlada, isolamento por item, retorno detalhado item a item e garantia real de idempotência (repetir a mesma chamada com a mesma idempotencyKey nunca duplica cards).",
     inputSchema: {
       type: "object",
       required: ["items"],
@@ -155,8 +158,8 @@ export const MCP_PHASE23_TOOLS: McpToolDefinition[] = [
         items: {
           type: "array",
           minItems: 1,
-          maxItems: 100,
-          description: "Lista de até 100 itens para criar (sem dealId) ou atualizar (com dealId).",
+          maxItems: 500,
+          description: "Lista de até 500 itens para criar (sem dealId) ou atualizar (com dealId).",
           items: {
             type: "object",
             properties: {
@@ -670,8 +673,9 @@ function maskSecret(secret: string): string {
 async function resolveCustomFieldsInput(
   tenantId: string,
   rawCustomFields: Record<string, unknown>,
+  preloadedDefs?: Awaited<ReturnType<typeof listCustomFields>>,
 ): Promise<Record<string, unknown>> {
-  const defs = await listCustomFields(tenantId, "deal");
+  const defs = preloadedDefs ?? (await listCustomFields(tenantId, "deal"));
   const idSet = new Set(defs.map((d) => d.id));
   const idByLowerName = new Map(defs.map((d) => [d.name.trim().toLowerCase(), d.id]));
   const out: Record<string, unknown> = {};
@@ -1111,19 +1115,50 @@ export async function executePhase23McpTool(
     // ── 5. BATCH UPSERT CRM DEALS (WRITE — ITEM 8) ───────────────────────────
     case "batch_upsert_crm_deals": {
       if (!Array.isArray(args.items) || args.items.length === 0) {
-        throw new Error("Campo obrigatório 'items' deve ser um array não vazio (1 a 100 itens).");
+        throw new Error(
+          `Campo obrigatório 'items' deve ser um array não vazio (1 a ${BATCH_UPSERT_MAX_ITEMS} itens).`,
+        );
       }
-      if (args.items.length > 100) {
-        throw new Error("Limite máximo de 100 itens por chamada em 'batch_upsert_crm_deals'.");
+      if (args.items.length > BATCH_UPSERT_MAX_ITEMS) {
+        throw new Error(
+          `Limite máximo de ${BATCH_UPSERT_MAX_ITEMS} itens por chamada em 'batch_upsert_crm_deals'.`,
+        );
       }
 
       const batchKey = asTrimmedString(args.idempotencyKey);
-      const defaultActorOp = await assertOperatorInTenant(
-        tenantId,
-        asTrimmedString(args.actorOperatorId),
-      );
+      const [defaultActorOp, preloadedDealFieldDefs] = await Promise.all([
+        assertOperatorInTenant(tenantId, asTrimmedString(args.actorOperatorId)),
+        listCustomFields(tenantId, "deal"),
+      ]);
 
-      const results: Array<{
+      // Caches por chamada para eliminar queries repetitivas em lotes de até 500 itens
+      const operatorCache = new Map<string, ReturnType<typeof assertOperatorInTenant>>();
+      const getCachedOperator = (operatorId: string | undefined) => {
+        if (!operatorId) return Promise.resolve(null);
+        const existingPromise = operatorCache.get(operatorId);
+        if (existingPromise) return existingPromise;
+        const p = assertOperatorInTenant(tenantId, operatorId);
+        operatorCache.set(operatorId, p);
+        return p;
+      };
+
+      const pipelineStageCache = new Map<string, ReturnType<typeof resolvePipelineAndStage>>();
+      const getCachedPipelineAndStage = (opts: Parameters<typeof resolvePipelineAndStage>[1]) => {
+        const cacheKey = JSON.stringify([
+          opts.pipelineId ?? "",
+          opts.pipelineName ?? "",
+          opts.fallbackPipelineId ?? "",
+          opts.stageId ?? "",
+          opts.stageName ?? "",
+        ]);
+        const existingPromise = pipelineStageCache.get(cacheKey);
+        if (existingPromise) return existingPromise;
+        const p = resolvePipelineAndStage(tenantId, opts);
+        pipelineStageCache.set(cacheKey, p);
+        return p;
+      };
+
+      type BatchItemResult = {
         index: number;
         idempotencyKey: string | null;
         status: "created" | "updated" | "replayed" | "error";
@@ -1134,249 +1169,305 @@ export async function executePhase23McpTool(
         operatorId?: string | null;
         value?: string | number | null;
         error?: string;
-      }> = [];
+      };
 
-      let createdCount = 0;
-      let updatedCount = 0;
-      let replayedCount = 0;
-      let errorCount = 0;
+      const results: BatchItemResult[] = new Array(args.items.length);
 
-      for (let i = 0; i < args.items.length; i++) {
+      // Mutex por chave dentro do mesmo lote para serializar conflitos (mesmo dealId, idempotencyKey ou telefone)
+      const inBatchLocks = new Map<string, Promise<void>>();
+      const withLockKeys = async <T>(lockKeys: string[], fn: () => Promise<T>): Promise<T> => {
+        const uniqueKeys = Array.from(new Set(lockKeys)).sort();
+        if (uniqueKeys.length === 0) return fn();
+        const prevPromises = uniqueKeys.map((k) => inBatchLocks.get(k) ?? Promise.resolve());
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        for (const k of uniqueKeys) {
+          inBatchLocks.set(k, gate);
+        }
+        await Promise.all(prevPromises);
+        try {
+          return await fn();
+        } finally {
+          release();
+        }
+      };
+
+      const processBatchItem = async (i: number): Promise<void> => {
         const rawItem = args.items[i];
         if (!rawItem || typeof rawItem !== "object" || Array.isArray(rawItem)) {
-          errorCount++;
-          results.push({
+          results[i] = {
             index: i,
             idempotencyKey: null,
             status: "error",
             error: "Item inválido: esperado objeto JSON.",
-          });
-          continue;
+          };
+          return;
         }
 
         const item = rawItem as Record<string, unknown>;
         const itemKey =
           asTrimmedString(item.idempotencyKey) ||
           (batchKey ? `${batchKey}:item:${i}` : undefined);
+        const dealId = asTrimmedString(item.dealId);
+        const contactObj =
+          item.contact && typeof item.contact === "object" && !Array.isArray(item.contact)
+            ? (item.contact as { name?: string; phone?: string; email?: string })
+            : undefined;
+        const phoneDigits = contactObj?.phone
+          ? String(contactObj.phone).replace(/\D/g, "")
+          : "";
 
-        try {
-          // 1. Consulta idempotência persistida
-          if (itemKey) {
-            const cached = await lookupMcpIdempotency(tenantId, "batch_upsert_crm_deals", itemKey);
-            if (cached) {
-              replayedCount++;
-              results.push({
-                index: i,
-                idempotencyKey: itemKey,
-                status: "replayed",
-                dealId: cached.dealId as string | undefined,
-                title: cached.title as string | undefined,
-                pipelineId: cached.pipelineId as string | undefined,
-                stageId: cached.stageId as string | undefined,
-                operatorId: (cached.operatorId as string | null | undefined) ?? null,
-                value: (cached.value as string | number | null | undefined) ?? null,
-              });
-              continue;
-            }
-          }
+        const lockKeys: string[] = [];
+        if (itemKey) lockKeys.push(`idem:${itemKey}`);
+        if (dealId) lockKeys.push(`deal:${dealId}`);
+        if (phoneDigits) lockKeys.push(`phone:${phoneDigits}`);
 
-          const dealId = asTrimmedString(item.dealId);
-
-          if (dealId) {
-            // Modo UPDATE
-            const [existing] = await db
-              .select({ id: crmDeals.id, pipelineId: crmDeals.pipelineId })
-              .from(crmDeals)
-              .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)))
-              .limit(1);
-            if (!existing) {
-              throw new Error(`Negociação '${dealId}' não encontrada no tenant '${tenantId}'.`);
-            }
-
-            const patch: Parameters<typeof crmService.updateDeal>[3] = {};
-            if (item.title !== undefined) {
-              const t = asTrimmedString(item.title);
-              if (!t) throw new Error("'title' não pode ser vazio.");
-              patch.title = t;
-            }
-            if (item.value !== undefined) {
-              patch.value = item.value === null || item.value === "" ? null : Number(item.value);
-            }
-            if (item.source !== undefined) {
-              patch.source = item.source === null ? "" : String(item.source).trim();
-            }
-            if (item.campaign !== undefined) {
-              patch.campaign = item.campaign === null ? "" : String(item.campaign).trim();
-            }
-            if (item.accountId !== undefined) {
-              patch.accountId = item.accountId === null ? null : asTrimmedString(item.accountId) ?? null;
-            }
-            if (item.operatorId !== undefined) {
-              if (item.operatorId === null || item.operatorId === "") {
-                patch.operatorId = null;
-              } else {
-                const op = await assertOperatorInTenant(tenantId, asTrimmedString(item.operatorId));
-                patch.operatorId = op!.id;
+        await withLockKeys(lockKeys, async () => {
+          try {
+            // 1. Consulta idempotência persistida
+            if (itemKey) {
+              const cached = await lookupMcpIdempotency(tenantId, "batch_upsert_crm_deals", itemKey);
+              if (cached) {
+                results[i] = {
+                  index: i,
+                  idempotencyKey: itemKey,
+                  status: "replayed",
+                  dealId: cached.dealId as string | undefined,
+                  title: cached.title as string | undefined,
+                  pipelineId: cached.pipelineId as string | undefined,
+                  stageId: cached.stageId as string | undefined,
+                  operatorId: (cached.operatorId as string | null | undefined) ?? null,
+                  value: (cached.value as string | number | null | undefined) ?? null,
+                };
+                return;
               }
             }
-            if (item.expectedCloseDate !== undefined) {
-              patch.expectedCloseDate =
-                item.expectedCloseDate === null || item.expectedCloseDate === ""
-                  ? null
-                  : parseOptionalDate(item.expectedCloseDate, "expectedCloseDate") ?? null;
-            }
-            if (item.rating !== undefined) {
-              patch.rating = Number(item.rating);
-            }
-            if (
-              item.pipelineId !== undefined ||
-              item.pipelineName !== undefined ||
-              item.stageId !== undefined ||
-              item.stageName !== undefined
-            ) {
-              const target = await resolvePipelineAndStage(tenantId, {
-                pipelineId: asTrimmedString(item.pipelineId),
-                pipelineName: asTrimmedString(item.pipelineName),
-                fallbackPipelineId: existing.pipelineId,
-                stageId: asTrimmedString(item.stageId),
-                stageName: asTrimmedString(item.stageName),
-              });
-              patch.pipelineId = target.pipelineId;
-              patch.stageId = target.stageId;
-            }
-            if (item.customFields && typeof item.customFields === "object" && !Array.isArray(item.customFields)) {
-              patch.customFields = await resolveCustomFieldsInput(
+
+            if (dealId) {
+              // Modo UPDATE
+              const [existing] = await db
+                .select({ id: crmDeals.id, pipelineId: crmDeals.pipelineId })
+                .from(crmDeals)
+                .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)))
+                .limit(1);
+              if (!existing) {
+                throw new Error(`Negociação '${dealId}' não encontrada no tenant '${tenantId}'.`);
+              }
+
+              const patch: Parameters<typeof crmService.updateDeal>[3] = {};
+              if (item.title !== undefined) {
+                const t = asTrimmedString(item.title);
+                if (!t) throw new Error("'title' não pode ser vazio.");
+                patch.title = t;
+              }
+              if (item.value !== undefined) {
+                patch.value = item.value === null || item.value === "" ? null : Number(item.value);
+              }
+              if (item.source !== undefined) {
+                patch.source = item.source === null ? "" : String(item.source).trim();
+              }
+              if (item.campaign !== undefined) {
+                patch.campaign = item.campaign === null ? "" : String(item.campaign).trim();
+              }
+              if (item.accountId !== undefined) {
+                patch.accountId =
+                  item.accountId === null ? null : asTrimmedString(item.accountId) ?? null;
+              }
+              if (item.operatorId !== undefined) {
+                if (item.operatorId === null || item.operatorId === "") {
+                  patch.operatorId = null;
+                } else {
+                  const op = await getCachedOperator(asTrimmedString(item.operatorId));
+                  patch.operatorId = op!.id;
+                }
+              }
+              if (item.expectedCloseDate !== undefined) {
+                patch.expectedCloseDate =
+                  item.expectedCloseDate === null || item.expectedCloseDate === ""
+                    ? null
+                    : parseOptionalDate(item.expectedCloseDate, "expectedCloseDate") ?? null;
+              }
+              if (item.rating !== undefined) {
+                patch.rating = Number(item.rating);
+              }
+              if (
+                item.pipelineId !== undefined ||
+                item.pipelineName !== undefined ||
+                item.stageId !== undefined ||
+                item.stageName !== undefined
+              ) {
+                const target = await getCachedPipelineAndStage({
+                  pipelineId: asTrimmedString(item.pipelineId),
+                  pipelineName: asTrimmedString(item.pipelineName),
+                  fallbackPipelineId: existing.pipelineId,
+                  stageId: asTrimmedString(item.stageId),
+                  stageName: asTrimmedString(item.stageName),
+                });
+                patch.pipelineId = target.pipelineId;
+                patch.stageId = target.stageId;
+              }
+              if (
+                item.customFields &&
+                typeof item.customFields === "object" &&
+                !Array.isArray(item.customFields)
+              ) {
+                patch.customFields = await resolveCustomFieldsInput(
+                  tenantId,
+                  item.customFields as Record<string, unknown>,
+                  preloadedDealFieldDefs,
+                );
+              }
+
+              const updated = await crmService.updateDeal(
                 tenantId,
-                item.customFields as Record<string, unknown>,
+                dealId,
+                defaultActorOp?.id ?? null,
+                patch,
               );
-            }
 
-            const updated = await crmService.updateDeal(
-              tenantId,
-              dealId,
-              defaultActorOp?.id ?? null,
-              patch,
-            );
+              const itemResult = {
+                dealId: updated.id,
+                title: updated.title,
+                pipelineId: updated.pipelineId,
+                stageId: updated.stageId,
+                operatorId: updated.operatorId,
+                value: updated.value,
+              };
+              if (itemKey) {
+                await saveMcpIdempotency(
+                  tenantId,
+                  "batch_upsert_crm_deals",
+                  itemKey,
+                  itemResult,
+                  hashIdempotencyPayload(item),
+                );
+              }
+              results[i] = {
+                index: i,
+                idempotencyKey: itemKey ?? null,
+                status: "updated",
+                ...itemResult,
+              };
+            } else {
+              // Modo CREATE
+              const title = asTrimmedString(item.title);
+              if (!title) throw new Error("Campo obrigatório 'title' não informado para criação.");
 
-            const itemResult = {
-              dealId: updated.id,
-              title: updated.title,
-              pipelineId: updated.pipelineId,
-              stageId: updated.stageId,
-              operatorId: updated.operatorId,
-              value: updated.value,
-            };
-            if (itemKey) {
-              await saveMcpIdempotency(
-                tenantId,
-                "batch_upsert_crm_deals",
-                itemKey,
-                itemResult,
-                hashIdempotencyPayload(item),
-              );
-            }
-            updatedCount++;
-            results.push({
-              index: i,
-              idempotencyKey: itemKey ?? null,
-              status: "updated",
-              ...itemResult,
-            });
-          } else {
-            // Modo CREATE
-            const title = asTrimmedString(item.title);
-            if (!title) throw new Error("Campo obrigatório 'title' não informado para criação.");
+              const [ownerOp, target] = await Promise.all([
+                getCachedOperator(asTrimmedString(item.operatorId)),
+                getCachedPipelineAndStage({
+                  pipelineId: asTrimmedString(item.pipelineId),
+                  pipelineName: asTrimmedString(item.pipelineName),
+                  stageId: asTrimmedString(item.stageId),
+                  stageName: asTrimmedString(item.stageName),
+                }),
+              ]);
 
-            const ownerOp = await assertOperatorInTenant(
-              tenantId,
-              asTrimmedString(item.operatorId),
-            );
-            const target = await resolvePipelineAndStage(tenantId, {
-              pipelineId: asTrimmedString(item.pipelineId),
-              pipelineName: asTrimmedString(item.pipelineName),
-              stageId: asTrimmedString(item.stageId),
-              stageName: asTrimmedString(item.stageName),
-            });
-
-            const contactObj =
-              item.contact && typeof item.contact === "object" && !Array.isArray(item.contact)
-                ? (item.contact as { name?: string; phone?: string; email?: string })
-                : undefined;
-            const contactIds = Array.isArray(item.contactIds)
-              ? item.contactIds.filter((v): v is string => typeof v === "string" && v.trim().length > 0)
-              : undefined;
-
-            const resolvedCf =
-              item.customFields && typeof item.customFields === "object" && !Array.isArray(item.customFields)
-                ? await resolveCustomFieldsInput(
-                    tenantId,
-                    item.customFields as Record<string, unknown>,
+              const contactIds = Array.isArray(item.contactIds)
+                ? item.contactIds.filter(
+                    (v): v is string => typeof v === "string" && v.trim().length > 0,
                   )
                 : undefined;
 
-            const created = await crmService.createDeal(
-              tenantId,
-              defaultActorOp?.id ?? ownerOp?.id ?? null,
-              {
-                title,
-                pipelineId: target.pipelineId,
-                stageId: target.stageId,
-                accountId: asTrimmedString(item.accountId) ?? null,
-                value: item.value !== undefined && item.value !== null ? Number(item.value) : null,
-                expectedCloseDate:
-                  parseOptionalDate(item.expectedCloseDate, "expectedCloseDate") ?? null,
-                operatorId: ownerOp?.id ?? null,
-                contactId: asTrimmedString(item.contactId),
-                contactIds,
-                contact: contactObj?.name
-                  ? {
-                      name: String(contactObj.name).trim(),
-                      phone: contactObj.phone ? String(contactObj.phone).trim() : null,
-                      email: contactObj.email ? String(contactObj.email).trim() : null,
-                    }
-                  : null,
-                conversationId: asTrimmedString(item.conversationId),
-                source: asTrimmedString(item.source),
-                campaign: asTrimmedString(item.campaign),
-                initialNote: asTrimmedString(item.initialNote) ?? null,
-                ...(resolvedCf ? { customFields: resolvedCf } : {}),
-              },
-            );
+              const resolvedCf =
+                item.customFields &&
+                typeof item.customFields === "object" &&
+                !Array.isArray(item.customFields)
+                  ? await resolveCustomFieldsInput(
+                      tenantId,
+                      item.customFields as Record<string, unknown>,
+                      preloadedDealFieldDefs,
+                    )
+                  : undefined;
 
-            const itemResult = {
-              dealId: created.id,
-              title: created.title,
-              pipelineId: created.pipelineId,
-              stageId: created.stageId,
-              operatorId: created.operatorId,
-              value: created.value,
-            };
-            if (itemKey) {
-              await saveMcpIdempotency(
+              const created = await crmService.createDeal(
                 tenantId,
-                "batch_upsert_crm_deals",
-                itemKey,
-                itemResult,
-                hashIdempotencyPayload(item),
+                defaultActorOp?.id ?? ownerOp?.id ?? null,
+                {
+                  title,
+                  pipelineId: target.pipelineId,
+                  stageId: target.stageId,
+                  accountId: asTrimmedString(item.accountId) ?? null,
+                  value:
+                    item.value !== undefined && item.value !== null ? Number(item.value) : null,
+                  expectedCloseDate:
+                    parseOptionalDate(item.expectedCloseDate, "expectedCloseDate") ?? null,
+                  operatorId: ownerOp?.id ?? null,
+                  contactId: asTrimmedString(item.contactId),
+                  contactIds,
+                  contact: contactObj?.name
+                    ? {
+                        name: String(contactObj.name).trim(),
+                        phone: contactObj.phone ? String(contactObj.phone).trim() : null,
+                        email: contactObj.email ? String(contactObj.email).trim() : null,
+                      }
+                    : null,
+                  conversationId: asTrimmedString(item.conversationId),
+                  source: asTrimmedString(item.source),
+                  campaign: asTrimmedString(item.campaign),
+                  initialNote: asTrimmedString(item.initialNote) ?? null,
+                  ...(resolvedCf ? { customFields: resolvedCf } : {}),
+                },
               );
+
+              const itemResult = {
+                dealId: created.id,
+                title: created.title,
+                pipelineId: created.pipelineId,
+                stageId: created.stageId,
+                operatorId: created.operatorId,
+                value: created.value,
+              };
+              if (itemKey) {
+                await saveMcpIdempotency(
+                  tenantId,
+                  "batch_upsert_crm_deals",
+                  itemKey,
+                  itemResult,
+                  hashIdempotencyPayload(item),
+                );
+              }
+              results[i] = {
+                index: i,
+                idempotencyKey: itemKey ?? null,
+                status: "created",
+                ...itemResult,
+              };
             }
-            createdCount++;
-            results.push({
+          } catch (err: any) {
+            results[i] = {
               index: i,
               idempotencyKey: itemKey ?? null,
-              status: "created",
-              ...itemResult,
-            });
+              status: "error",
+              error: String(err?.message || err || "Erro ao processar item do lote."),
+            };
           }
-        } catch (err: any) {
-          errorCount++;
-          results.push({
-            index: i,
-            idempotencyKey: itemKey ?? null,
-            status: "error",
-            error: String(err?.message || err || "Erro ao processar item do lote."),
-          });
-        }
+        });
+      };
+
+      const concurrency = Math.min(BATCH_UPSERT_CONCURRENCY, args.items.length);
+      let nextIndex = 0;
+      await Promise.all(
+        Array.from({ length: concurrency }, async () => {
+          while (true) {
+            const current = nextIndex++;
+            if (current >= args.items.length) break;
+            await processBatchItem(current);
+          }
+        }),
+      );
+
+      let createdCount = 0;
+      let updatedCount = 0;
+      let replayedCount = 0;
+      let errorCount = 0;
+      for (const r of results) {
+        if (r.status === "created") createdCount++;
+        else if (r.status === "updated") updatedCount++;
+        else if (r.status === "replayed") replayedCount++;
+        else errorCount++;
       }
 
       return {
@@ -1384,6 +1475,7 @@ export async function executePhase23McpTool(
         partialSuccess: errorCount > 0 && createdCount + updatedCount + replayedCount > 0,
         tenantId,
         idempotencyKey: batchKey ?? null,
+        maxItemsPerCall: BATCH_UPSERT_MAX_ITEMS,
         totalItems: args.items.length,
         createdCount,
         updatedCount,

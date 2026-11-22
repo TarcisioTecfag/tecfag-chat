@@ -11,7 +11,7 @@
  *   - MCP_REMOTE_URL: URL completa do conector (ex: https://tecfagchat.up.railway.app/api/mcp?token=...)
  *   - MCP_TOKEN: token opcional caso MCP_REMOTE_URL não inclua ?token=
  *   - MCP_CLIENT_LABEL: rótulo amigável exibido na auditoria (ex: "Antigravity IDE")
- *   - MCP_TIMEOUT_MS: timeout por requisição em ms (padrão: 30000)
+ *   - MCP_TIMEOUT_MS: timeout por requisição em ms (padrão: 90000)
  */
 
 import crypto from "node:crypto";
@@ -27,7 +27,7 @@ const DEFAULT_REMOTE_MCP_URL =
 
 const REMOTE_MCP_URL = (process.env.MCP_REMOTE_URL || DEFAULT_REMOTE_MCP_URL).trim();
 const MCP_TOKEN = (process.env.MCP_TOKEN || "").trim();
-const REQUEST_TIMEOUT_MS = Math.max(5_000, Number(process.env.MCP_TIMEOUT_MS || 30_000) || 30_000);
+const REQUEST_TIMEOUT_MS = Math.max(5_000, Number(process.env.MCP_TIMEOUT_MS || 90_000) || 90_000);
 
 const bridgeSessionId = crypto.randomUUID();
 let useContentLengthFraming = false;

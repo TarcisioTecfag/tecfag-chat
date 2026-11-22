@@ -2025,11 +2025,11 @@ export function getApiLibraryCatalog(tenantId: string): ApiCatalogEntry[] {
       pathOrTool: "batch_upsert_crm_deals",
       mcpToolName: "batch_upsert_crm_deals",
       title: "MCP · batch_upsert_crm_deals [ESCRITA]",
-      shortSummary: "Cria ou atualiza até 100 cards/contatos em uma única chamada com retorno item a item e idempotência persistida em banco.",
-      detailedExplanation: "Executa cada item isoladamente (um erro não cancela os demais) e grava chaves em `mcp_idempotency_records`, garantindo que reexecuções após erro de rede ou `502` retornem `status='replayed'` sem duplicar cards.",
-      useCases: ["Distribuir lotes de 10, 50 ou 100 leads de planilhas ou campanhas em uma única operação segura"],
+      shortSummary: "Cria ou atualiza até 500 cards/contatos em uma única chamada com concorrência controlada, retorno item a item e idempotência persistida em banco.",
+      detailedExplanation: "Executa cada item isoladamente com pool controlado (um erro não cancela os demais), cache de metadados do lote e chaves gravadas em `mcp_idempotency_records`, garantindo que reexecuções após erro de rede ou `502` retornem `status='replayed'` sem duplicar cards.",
+      useCases: ["Distribuir lotes de 50, 200 ou 500 leads de planilhas ou campanhas em uma única operação segura"],
       params: [
-        { name: "items", location: "argument", type: "array", required: true, description: "Array de 1 a 100 itens (criar sem dealId ou atualizar com dealId)." },
+        { name: "items", location: "argument", type: "array", required: true, description: "Array de 1 a 500 itens (criar sem dealId ou atualizar com dealId)." },
         { name: "idempotencyKey", location: "argument", type: "string", description: "Chave de referência idempotente do lote." },
       ],
       responseFields: [

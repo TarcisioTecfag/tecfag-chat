@@ -145,6 +145,11 @@ describe("MCP Editável Real (/api/mcp + permissão read/read_write + ponte stdi
       { name: "reassign_conversation_contact", args: { conversationId: "c1" }, expectedError: "'newContactId'" },
       { name: "batch_upsert_crm_deals", args: { items: [] }, expectedError: "'items'" },
       {
+        name: "batch_upsert_crm_deals",
+        args: { items: Array.from({ length: 501 }, () => ({ title: "x" })) },
+        expectedError: "Limite máximo de 500 itens",
+      },
+      {
         name: "chat_send_media",
         args: { conversationId: "c1", mediaType: "image", mediaUrl: "http://127.0.0.1/x.png" },
         expectedError: "HTTPS",
