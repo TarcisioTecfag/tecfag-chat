@@ -24,6 +24,7 @@ import { autoCreateOrUpdateRdCrmDeal } from "./sdr-crm-auto";
 import { ensureLocalCrmDealBeforeTransfer } from "./sdr-crm-local";
 import {
   buildTecfagFagnerPrompt,
+  evaluateIndustrialMachineSuggestionGate,
   formatSdrDateTimeBrt,
   formatSdrMessageTimestampTag,
 } from "./sdr-tecfag-prompt";
@@ -733,7 +734,22 @@ INSTRUÇÕES OBRIGATÓRIAS:
         });
       }
 
-      const knowledgeContext = await getKnowledgeBaseContext(tenantId, `${batchSummary}\n${conversationHistoryText}`);
+      const industrialMachineSuggestionGate = industrialTriage
+        ? evaluateIndustrialMachineSuggestionGate({
+            currentDataSummary,
+            batchSummary,
+            conversationHistoryText,
+            subflow: metaState.subflow || null,
+          })
+        : null;
+
+      const knowledgeContext = await getKnowledgeBaseContext(
+        tenantId,
+        `${batchSummary}\n${conversationHistoryText}`,
+        industrialMachineSuggestionGate
+          ? { suppressIndustrialModelListing: industrialMachineSuggestionGate.suppressModelListing }
+          : undefined,
+      );
 
       const valemPromptText = `Você é ${aiPersona.name}, ${aiPersona.gender === "female" ? "a" : "o"} consultora(or) comercial pré-vendas (SDR) humana(o) ${companyPrep} ${aiPersona.company} (${aiPersona.segment}).
 ${knowledgeContext}
@@ -1087,6 +1103,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
               policyInstructions: typeof configData.industrialInstructions === "string" ? configData.industrialInstructions : undefined,
               siteContext,
               systemOperators,
+              subflow: metaState.subflow || null,
             })
           : valemPromptText;
 

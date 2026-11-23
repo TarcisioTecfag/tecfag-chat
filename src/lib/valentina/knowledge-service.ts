@@ -675,6 +675,7 @@ export function searchIndustrialCatalogEntries(
   catalogSource?: readonly CatalogEntry[],
   blockedFamilies: readonly BlockedFamilyEntry[] = [],
   maxItems = 10,
+  options?: { suppressModelListingUntilQualified?: boolean },
 ): string {
   const effectiveCatalog = Array.isArray(catalogSource)
     ? catalogSource
@@ -803,6 +804,16 @@ export function searchIndustrialCatalogEntries(
   if (top.length === 0) {
     sections.push(
       `⚠️ CATÁLOGO OFICIAL (${activeCatalog.length} máquinas ativas — ${semiCount} Semi-Industrial, ${personnaliteCount} Personnalité): NENHUMA máquina do catálogo oficial correspondeu aos termos específicos desta consulta (${queryTerms.slice(0, 8).join(", ") || compactQueryCodes.slice(0, 4).join(", ")}). NÃO invente modelo, NÃO deduza compatibilidade por memória externa e NÃO afirme que temos máquina para esta aplicação — informe com transparência que precisa validar a viabilidade técnica com o time especialista.`,
+    );
+    return sections.join("\n\n");
+  }
+
+  if (options?.suppressModelListingUntilQualified) {
+    sections.push(
+      `🏭 CATÁLOGO OFICIAL — LINHA CONFIRMADA SEM LISTAGEM DE MODELOS NESTE TURNO (${top.length} referência(s) compatível(is) encontrada(s) entre ${activeCatalog.length} ativas):\n` +
+        `• Trabalhamos com equipamentos nessa categoria/linha.\n` +
+        `• 🔒 TRAVA DE QUALIFICAÇÃO ATIVA: os modelos específicos foram intencionalmente ocultados neste turno porque o cliente ainda não informou o que exatamente vai produzir/embalar e/ou sua produtividade/volume aproximado.\n` +
+        `• NÃO ofereça, recomende nem cite nenhum modelo específico agora — confirme de forma breve que trabalhamos com a linha e colete primeiro a aplicação exata e a produtividade aproximada. Somente depois disso (e sempre como uma possível sugestão inicial sujeita à validação do especialista) um modelo poderá ser mencionado.`,
     );
     return sections.join("\n\n");
   }
@@ -998,12 +1009,18 @@ async function getOrLoadTenantKnowledgeCache(tenantId: string): Promise<CachedKn
  * Otimizado para suportar os 210 manuais técnicos (5,7 MB) sem estourar o limite de tokens,
  * priorizando o manual exato da máquina consultada (ex: [APF300-2B] APF - MANUAL.pdf).
  */
-export async function getKnowledgeBaseContext(tenantId: string, queryHint?: string): Promise<string> {
+export async function getKnowledgeBaseContext(
+  tenantId: string,
+  queryHint?: string,
+  options?: { suppressIndustrialModelListing?: boolean },
+): Promise<string> {
   if (!tenantId) {
     throw new Error("[knowledge-service] tenantId é obrigatório ao buscar contexto da base de conhecimento (AGENTS.md).");
   }
 
   const persona = getAiPersona(tenantId);
+  const isIndustrialPolicy = persona.triagePolicy === "industrial";
+  const suppressIndustrialModels = Boolean(isIndustrialPolicy && options?.suppressIndustrialModelListing);
   const corePolicies = tenantId === "valem" ? VALEM_CORE_COMMERCIAL_POLICIES : "";
 
   try {
@@ -1013,7 +1030,7 @@ export async function getKnowledgeBaseContext(tenantId: string, queryHint?: stri
     const MAX_FULL_INJECTION_CHARS = 45_000;
     let activeDocsText = "";
 
-    if (cached.indexedDocs.length > 0) {
+    if (cached.indexedDocs.length > 0 && !suppressIndustrialModels) {
       if (cached.totalActiveChars <= MAX_FULL_INJECTION_CHARS) {
         // Base enxuta (ex: Valem com 3 PDFs = 12 KB): injeta integralmente
         activeDocsText = cached.indexedDocs
@@ -1176,24 +1193,26 @@ export async function getKnowledgeBaseContext(tenantId: string, queryHint?: stri
 
     // ── 2. Catálogo Estruturado de Máquinas (Banco `industrial_triage` + famílias bloqueadas) ──
     const industrialCatalogSection =
-      persona.triagePolicy === "industrial" && queryHint
+      isIndustrialPolicy && queryHint
         ? searchIndustrialCatalogEntries(
             queryHint,
             cached.industrialCatalog,
             cached.industrialBlockedFamilies,
             10,
+            { suppressModelListingUntilQualified: suppressIndustrialModels },
           )
         : "";
 
     // ── 3. Seleção Contextual de Fotos Reais (Formato Real) ────────────────────
-    const isIndustrialPolicy = persona.triagePolicy === "industrial";
     const MAX_PROMPT_PHOTOS = isIndustrialPolicy ? 5 : 40;
-    const selectedPhotos = selectContextualPromptPhotos({
-      items: cached.realMediaItems,
-      queryHint,
-      isIndustrialPolicy,
-      maxPhotos: MAX_PROMPT_PHOTOS,
-    });
+    const selectedPhotos = suppressIndustrialModels
+      ? []
+      : selectContextualPromptPhotos({
+          items: cached.realMediaItems,
+          queryHint,
+          isIndustrialPolicy,
+          maxPhotos: MAX_PROMPT_PHOTOS,
+        });
 
     const realMediaLines = selectedPhotos.map(
       (item) =>
@@ -1223,7 +1242,7 @@ ${activeDocsText ? `\nDOCUMENTOS E MANUAIS TÉCNICOS DA BASE (RAG ATIVO):\n${act
 ${realMediaSection}
 
 DIRETRIZ CRÍTICA DE USO DA BASE DE CONHECIMENTO E SINCERIDADE TÉCNICA (ANTI-ALUCINAÇÃO):
-1. QUANDO A INFORMAÇÃO CONSTAR NOS MANUAIS OU NO CATÁLOGO ACIMA: Você tem autoridade total para usar as especificações técnicas, parâmetros de operação, faixas de dosagem/produção, requisitos pneumáticos/elétricos e regras dos MANUAIS TÉCNICOS e do CATÁLOGO OFICIAL acima para responder com precisão e segurança. NUNCA diga que um equipamento presente no Catálogo Oficial ou nos Manuais Técnicos acima "não foi encontrado".
+1. QUANDO A INFORMAÇÃO CONSTAR NOS MANUAIS OU NO CATÁLOGO ACIMA: Você tem autoridade total para usar as especificações técnicas, parâmetros de operação, faixas de dosagem/produção, requisitos pneumáticos/elétricos e regras dos MANUAIS TÉCNICOS e do CATÁLOGO OFICIAL acima para responder com precisão e segurança. NUNCA diga que um equipamento presente no Catálogo Oficial ou nos Manuais Técnicos acima "não foi encontrado".${isIndustrialPolicy ? " Porém, NUNCA ofereça/indique um modelo específico antes de coletar o que o cliente precisa (aplicação) e sua produtividade/volume aproximado; e quando sugerir algum modelo depois disso, deixe SEMPRE explícito que é apenas uma sugestão inicial de possível equipamento (nunca certeza), sujeita à validação do especialista." : ""}
 2. QUANDO A INFORMAÇÃO NÃO CONSTAR (PROIBIÇÃO ABSOLUTA DE ALUCINAR, DEDUZIR COMPATIBILIDADE OU INVENTAR): NUNCA cite, recomende ou confirme um modelo de máquina que NÃO esteja listado na seção "🏭 EQUIPAMENTOS ENCONTRADOS NO CATÁLOGO OFICIAL" ou nos "📖 MANUAIS TÉCNICOS" acima! Também NUNCA deduza por conta própria que uma máquina serve para uma aplicação diferente da que está descrita na ficha acima (por exemplo, não presuma que uma encapsuladora softgel farmacêutica fabrica bolinhas de paintball). Se o cliente perguntar sobre uma aplicação ou modelo que NÃO consta nos documentos/catálogo retornados acima, NUNCA chute nem afirme "sim, temos" — seja 100% sincero e transparente e informe que precisa validar a viabilidade técnica com o time especialista.
 3. SINCERIDADE OBRIGATÓRIA: Quando não souber ou o dado específico não constar no manual/catálogo da base, seja 100% sincero e transparente: passe apenas os dados reais que constam no documento (se houver) e diga claramente que aquela informação específica precisa ser confirmada com o especialista técnico para não induzir a erro.`;
   } catch (err: any) {

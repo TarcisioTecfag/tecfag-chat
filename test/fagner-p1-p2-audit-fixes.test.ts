@@ -19,8 +19,14 @@ import {
   INDUSTRIAL_HUMAN_REQUEST_APPROVAL_MESSAGE,
   industrialClientMessages,
 } from "../src/lib/triage/industrial-handoff";
-import { buildTecfagFagnerPrompt } from "../src/lib/valentina/sdr-tecfag-prompt";
-import { selectContextualPromptPhotos } from "../src/lib/valentina/knowledge-service";
+import {
+  buildTecfagFagnerPrompt,
+  evaluateIndustrialMachineSuggestionGate,
+} from "../src/lib/valentina/sdr-tecfag-prompt";
+import {
+  searchIndustrialCatalogEntries,
+  selectContextualPromptPhotos,
+} from "../src/lib/valentina/knowledge-service";
 import { getAiPersona } from "../src/lib/ai-persona";
 
 describe("Correções P1/P2 da Auditoria Fagner — Itens 2, 3, 4 e 5 (23/11/2026)", () => {
@@ -382,6 +388,145 @@ describe("Correções P1/P2 da Auditoria Fagner — Itens 2, 3, 4 e 5 (23/11/202
         hasPreviousAudio: false,
       });
       expect(prompt).toContain("NUNCA envie fotos aleatórias, genéricas ou repetidas durante a triagem");
+    });
+  });
+
+  describe("Trava de Pré-Requisito e Tom de Sugestão para Oferta de Máquinas no Fagner", () => {
+    it("bloqueia oferta/listagem de modelos específicos antes de coletar o que precisa (aplicação) E produtividade/volume", () => {
+      // 1. Apenas pedido genérico de família ("seladora a vácuo")
+      const genericTurn = evaluateIndustrialMachineSuggestionGate({
+        currentDataSummary: {},
+        batchSummary: "Olá, preciso de uma seladora a vácuo",
+      });
+      expect(genericTurn.mode).toBe("collect_before_suggesting");
+      expect(genericTurn.suppressModelListing).toBe(true);
+      expect(genericTurn.directive).toContain("TRAVA DE SUGESTÃO DE MÁQUINA ATIVA");
+      expect(genericTurn.directive).toContain("PROIBIDO oferecer, indicar, recomendar ou citar");
+
+      // 2. Tem produto/peso da embalagem (potes de 500g), MAS ainda NÃO tem produtividade/volume por hora/dia
+      const onlyProductTurn = evaluateIndustrialMachineSuggestionGate({
+        currentDataSummary: {
+          "MÁQUINA / PEÇA / INTERESSE": "Envasadora",
+          "RAMO / O QUE EMBALA": "Mel em potes de 500g",
+        },
+        batchSummary: "Quero uma envasadora para potes de 500g de mel",
+      });
+      expect(onlyProductTurn.mode).toBe("collect_before_suggesting");
+      expect(onlyProductTurn.suppressModelListing).toBe(true);
+      expect(onlyProductTurn.hasApplication).toBe(true);
+      expect(onlyProductTurn.hasVolume).toBe(false);
+
+      // 3. Já tem aplicação E produtividade -> libera SOMENTE como sugestão condicional (nunca certeza)
+      const qualifiedTurn = evaluateIndustrialMachineSuggestionGate({
+        currentDataSummary: {
+          "MÁQUINA / PEÇA / INTERESSE": "Envasadora",
+          "RAMO / O QUE EMBALA": "Mel em potes de 500g",
+          "VOLUME / PRODUÇÃO": "800 potes por dia",
+        },
+        batchSummary: "São cerca de 800 potes por dia",
+      });
+      expect(qualifiedTurn.mode).toBe("suggest_as_possibility_only");
+      expect(qualifiedTurn.suppressModelListing).toBe(false);
+      expect(qualifiedTurn.directive).toContain("MODO SUGESTÃO CONDICIONAL LIBERADO");
+      expect(qualifiedTurn.directive).toContain("sugestão inicial / possível opção");
+      expect(qualifiedTurn.directive).toContain("NUNCA como certeza");
+
+      // 4. Cliente informou aplicação + produtividade já na 1ª mensagem -> libera modo sugestão condicional
+      const oneShotQualified = evaluateIndustrialMachineSuggestionGate({
+        currentDataSummary: {},
+        batchSummary: "Preciso de uma seladora a vácuo para embalar queijo fatiado, cerca de 500 pacotes por dia",
+      });
+      expect(oneShotQualified.mode).toBe("suggest_as_possibility_only");
+      expect(oneShotQualified.suppressModelListing).toBe(false);
+
+      // 5. Cliente perguntou explicitamente sobre um modelo específico (DZ400) -> não oculta ficha técnica do modelo
+      const specificModelTurn = evaluateIndustrialMachineSuggestionGate({
+        currentDataSummary: {},
+        batchSummary: "Qual a capacidade da DZ400?",
+      });
+      expect(specificModelTurn.mode).toBe("client_asked_specific_model");
+      expect(specificModelTurn.suppressModelListing).toBe(false);
+      expect(specificModelTurn.directive).toContain("SEM empurrar outros modelos não solicitados");
+
+      // 6. Fluxo de assistência/manual não sofre supressão
+      const manualTurn = evaluateIndustrialMachineSuggestionGate({
+        currentDataSummary: {},
+        batchSummary: "Preciso do manual da minha seladora que deu defeito",
+        subflow: "3_AT",
+      });
+      expect(manualTurn.mode).toBe("non_machine_or_support_flow");
+      expect(manualTurn.suppressModelListing).toBe(false);
+    });
+
+    it("searchIndustrialCatalogEntries oculta nomes/códigos de modelos quando suppressModelListingUntilQualified=true mas preserva alerta de família não encontrada/bloqueada", () => {
+      const miniCatalog = [
+        {
+          id: "1",
+          name: "Seladora a Vácuo DZ400",
+          sku: "DZ400",
+          code: "PAMQSELA001",
+          line: "SEMI-INDUSTRIAL",
+          production: "2 a 3 ciclos/min",
+          description: "Seladora a vácuo de câmara para alimentos.",
+          active: true,
+        },
+      ];
+
+      const suppressed = searchIndustrialCatalogEntries(
+        "Preciso de uma seladora a vácuo",
+        miniCatalog,
+        [],
+        10,
+        { suppressModelListingUntilQualified: true },
+      );
+      expect(suppressed).toContain("LINHA CONFIRMADA SEM LISTAGEM DE MODELOS NESTE TURNO");
+      expect(suppressed).not.toContain("DZ400");
+      expect(suppressed).not.toContain("PAMQSELA001");
+
+      // Quando liberado (após coletar aplicação + produtividade), volta a exibir o modelo normalmente
+      const revealed = searchIndustrialCatalogEntries(
+        "Preciso de uma seladora a vácuo para carnes",
+        miniCatalog,
+        [],
+        10,
+        { suppressModelListingUntilQualified: false },
+      );
+      expect(revealed).toContain("DZ400");
+      expect(revealed).toContain("EQUIPAMENTOS ENCONTRADOS NO CATÁLOGO OFICIAL");
+
+      // Família não encontrada continua emitindo aviso anti-alucinação mesmo com supressão ativa
+      const notFound = searchIndustrialCatalogEntries(
+        "Vocês vendem máquina de bolinhas de paintball?",
+        miniCatalog,
+        [],
+        10,
+        { suppressModelListingUntilQualified: true },
+      );
+      expect(notFound).toContain("NENHUMA máquina do catálogo oficial correspondeu");
+    });
+
+    it("prompt do Fagner contém regra permanente de pré-requisitos e tom explícito de sugestão (e sdr-engine passa suppressIndustrialModelListing ao RAG)", () => {
+      const prompt = buildTecfagFagnerPrompt({
+        aiPersona: getAiPersona("tecfag"),
+        knowledgeContext: "",
+        conversationHistoryText: "",
+        batchSummary: "Quero uma envasadora",
+        currentDataSummary: {},
+        cnpjDirective: "",
+        firstMessageRule: "",
+        hasPreviousEmoji: false,
+        hasPreviousAudio: false,
+      });
+      expect(prompt).toContain("REGRA OBRIGATÓRIA DE SUGESTÃO DE MÁQUINAS");
+      expect(prompt).toContain("sugestão preliminar de possível máquina");
+      expect(prompt).toContain("TRAVA DE SUGESTÃO DE MÁQUINA ATIVA NESTE TURNO");
+
+      const sdrEngineSrc = fs.readFileSync(
+        path.resolve(process.cwd(), "src/lib/valentina/sdr-engine.ts"),
+        "utf8",
+      );
+      expect(sdrEngineSrc).toContain("evaluateIndustrialMachineSuggestionGate");
+      expect(sdrEngineSrc).toContain("suppressIndustrialModelListing");
     });
   });
 });
