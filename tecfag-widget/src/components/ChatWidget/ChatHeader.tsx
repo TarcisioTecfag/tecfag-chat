@@ -83,6 +83,13 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
     <div
       className="relative px-5 py-4 flex items-center gap-3 rounded-t-2xl"
       style={{
+        position: "relative",
+        padding: "16px 20px",
+        display: "flex",
+        alignItems: "center",
+        gap: 12,
+        borderRadius: "16px 16px 0 0",
+        flexShrink: 0,
         background: isBlackNovember
           ? "linear-gradient(135deg, #09090b 0%, #18181b 55%, #3f3f46 100%)"
           : "linear-gradient(135deg, #1a0000 0%, #2d0000 60%, #450a0a 100%)",

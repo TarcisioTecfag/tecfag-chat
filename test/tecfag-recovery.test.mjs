@@ -317,8 +317,10 @@ function widgetHarness(storage = memoryStorage()) {
     receive(payload) { this.onmessage?.({ data: JSON.stringify(payload) }); }
   }
   const noop = () => {}; const Input = () => null;
+  const motionProxy = new Proxy({}, { get: (_, tag) => String(tag) });
   const imports = {
-    react, "react/jsx-runtime": jsx, "lucide-react": { X: noop, ArrowRight: noop },
+    react, "react/jsx-runtime": jsx, "lucide-react": { X: noop, ArrowRight: noop, MessageCircle: noop },
+    "framer-motion": { motion: motionProxy, AnimatePresence: ({ children }) => children },
     "./ChatHeader": { ChatHeader: noop }, "./ChatBubble": { ChatBubble: noop },
     "./ChatInput": { ChatInput: Input }, "./TypingIndicator": { TypingIndicator: noop },
     "./notifications": { playNotificationSound: noop, requestNotificationPermission: noop, showBrowserNotification: noop },

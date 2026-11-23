@@ -7,9 +7,49 @@ import { copyFileSync, existsSync } from "fs";
 const bundle = (process.env.WIDGET_BUNDLE || "site-chat").replace(/[^a-z0-9-]/gi, "");
 const outDir = resolve(__dirname, "../public");
 
+/**
+ * Escopa todas as regras CSS geradas (Tailwind v4 + utilities) dentro de `#tecfag-chat-root`
+ * (equivalente ao `important: "#tecfag-chat-root"` do Tailwind v3 no widget legado).
+ * Evita que `.flex`, `.container`, `.hidden`, `.border` vazem para o VTEX IO e garante
+ * especificidade superior [1,1,0] contra os resets globais da loja.
+ */
+function scopeCssToWidgetRoot() {
+  return {
+    postcssPlugin: "scope-tecfag-widget-css",
+    Once(root: any) {
+      root.walkRules((rule: any) => {
+        if (!rule.selector) return;
+        const parentName = rule.parent?.type === "atrule" ? rule.parent.name : "";
+        if (parentName === "keyframes" || parentName === "-webkit-keyframes") return;
+
+        rule.selectors = rule.selectors.map((sel: string) => {
+          const trimmed = sel.trim();
+          if (!trimmed) return trimmed;
+          if (trimmed.includes("#tecfag-chat-root")) return trimmed;
+          if (trimmed === ":root" || trimmed === ":host" || trimmed === ":root,:host" || trimmed === "html" || trimmed === "body") {
+            return "#tecfag-chat-root";
+          }
+          if (trimmed.startsWith(":root") || trimmed.startsWith(":host")) {
+            return trimmed.replace(/^:(?:root|host)/, "#tecfag-chat-root");
+          }
+          if (trimmed === "*" || trimmed === ":before" || trimmed === "::before" || trimmed === ":after" || trimmed === "::after" || trimmed === "::backdrop") {
+            return `#tecfag-chat-root ${trimmed}`;
+          }
+          return `#tecfag-chat-root ${trimmed}`;
+        });
+      });
+    },
+  };
+}
+
 export default defineConfig({
   root: resolve(__dirname),
   publicDir: false,
+  css: {
+    postcss: {
+      plugins: [scopeCssToWidgetRoot()],
+    },
+  },
   plugins: [
     react(),
     tailwindcss(),

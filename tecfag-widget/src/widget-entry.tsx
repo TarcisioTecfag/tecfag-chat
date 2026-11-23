@@ -57,14 +57,22 @@ function mount() {
           opacity: 1 !important;
           pointer-events: auto !important;
         }
-        /* ── Janela de chat ── */
-        #tecfag-chat-root #tecfag-chat-window {
+        /* ── Posicionamento fixo da janela de chat (imune ao VTEX IO sem travar animação interna) ── */
+        #tecfag-chat-root #tecfag-chat-window-shell {
           position: fixed !important;
           z-index: 2147483646 !important;
+          transform: none !important;
+          display: block !important;
+          visibility: visible !important;
+          opacity: 1 !important;
+          pointer-events: auto !important;
+          box-sizing: border-box !important;
+        }
+        /* ── Janela de chat animada (Framer Motion anima opacity/scale/y sem !important) ── */
+        #tecfag-chat-root #tecfag-chat-window {
           display: flex !important;
           flex-direction: column !important;
           visibility: visible !important;
-          opacity: 1 !important;
           pointer-events: auto !important;
           overflow: hidden !important;
           box-sizing: border-box !important;

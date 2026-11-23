@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { X, ArrowRight } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { X, ArrowRight, MessageCircle } from "lucide-react";
 import { ChatHeader } from "./ChatHeader";
 import { ChatBubble, Message, Attachment } from "./ChatBubble";
 import { ChatInput } from "./ChatInput";
@@ -12,7 +13,7 @@ import {
 import { AVATAR_URL, BACKEND_URL, TENANT_ID, buildLiveChatWsUrl } from "../../config";
 import { WidgetMessageOutbox, type PendingWidgetMessage } from "../../lib/message-outbox";
 
-// ─── Campanha Sazonal: Black November 2026 ────────────────────────────────────
+// ─── Campanha Sazonal: Black November 2026 (expira automaticamente em 30/11/2026 23:59:59 BRT) ─
 const BLACK_NOVEMBER_END_MS = new Date("2026-11-30T23:59:59-03:00").getTime();
 const BLACK_NOVEMBER_STORAGE_KEY = "tecfag_black_november_enabled";
 
@@ -26,7 +27,7 @@ function getInitialBlackNovemberState(): boolean {
     const saved = localStorage.getItem(BLACK_NOVEMBER_STORAGE_KEY);
     if (saved === "false") return false;
   } catch {}
-  return false;
+  return true;
 }
 
 const COOKIE_KEY = "tecfag_visitor_id";
@@ -1193,33 +1194,62 @@ export const ChatWidget: React.FC = () => {
     );
   };
 
+  // ── Animation variants (idênticos ao widget legado chat-widget-pro) ──
+  const cardVariants = {
+    hidden: { opacity: 0, scale: 0.85, y: 20 },
+    visible: {
+      opacity: 1,
+      scale: 1,
+      y: 0,
+      transition: { type: "spring" as const, stiffness: 350, damping: 25, mass: 0.8 },
+    },
+    exit: {
+      opacity: 0,
+      scale: 0.85,
+      y: 20,
+      transition: { duration: 0.18 },
+    },
+  };
+
   return (
     <>
-      {/* ─── Janela de chat arrastável ─── */}
-      {isOpen && (
-        <div
-          ref={chatWindowRef}
-          id="tecfag-chat-window"
-          className="chat-window-enter"
-          style={{
-            position: "fixed",
-            left: chatPos.x,
-            top: chatPos.y,
-            width: CHAT_W,
-            height: CHAT_H,
-            display: "flex",
-            flexDirection: "column",
-            overflow: "hidden",
-            borderRadius: "16px",
-            boxShadow: isBlackNovember
-              ? "0 25px 60px -12px rgba(0, 0, 0, 0.55), 0 8px 24px -8px rgba(0, 0, 0, 0.25)"
-              : "0 25px 60px -12px rgba(139, 0, 0, 0.25), 0 8px 24px -8px rgba(0,0,0,0.15)",
-            border: isBlackNovember
-              ? "1px solid rgba(255, 255, 255, 0.22)"
-              : "1px solid hsl(0 10% 90%)",
-            background: "hsl(0 0% 100%)",
-          }}
-        >
+      {/* ─── Janela de chat arrastável com animação spring ─── */}
+      <AnimatePresence>
+        {isOpen && (
+          <div
+            ref={chatWindowRef}
+            id="tecfag-chat-window-shell"
+            style={{
+              position: "fixed",
+              left: chatPos.x,
+              top: chatPos.y,
+              width: CHAT_W,
+              height: CHAT_H,
+              zIndex: 2147483646,
+            }}
+          >
+            <motion.div
+              id="tecfag-chat-window"
+              variants={cardVariants}
+              initial="hidden"
+              animate="visible"
+              exit="exit"
+              style={{
+                width: "100%",
+                height: "100%",
+                display: "flex",
+                flexDirection: "column",
+                overflow: "hidden",
+                borderRadius: "16px",
+                boxShadow: isBlackNovember
+                  ? "0 25px 60px -12px rgba(0, 0, 0, 0.55), 0 8px 24px -8px rgba(0, 0, 0, 0.25)"
+                  : "0 25px 60px -12px rgba(139, 0, 0, 0.25), 0 8px 24px -8px rgba(0,0,0,0.15)",
+                border: isBlackNovember
+                  ? "1px solid rgba(255, 255, 255, 0.22)"
+                  : "1px solid hsl(0 10% 90%)",
+                background: "hsl(0 0% 100%)",
+              }}
+            >
           {preChatMode ? (
             <div
               className="flex flex-col h-full text-white rounded-2xl overflow-hidden shadow-2xl relative w-full flex-1"
@@ -1259,7 +1289,10 @@ export const ChatWidget: React.FC = () => {
                   textAlign: "center",
                 }}
               >
-                <div
+                <motion.div
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  transition={{ type: "spring", stiffness: 300, delay: 0.1 }}
                   className="w-20 h-20 bg-white/10 rounded-full flex items-center justify-center mb-6 shadow-xl backdrop-blur-sm border border-white/20 overflow-hidden"
                   style={{
                     width: 80,
@@ -1283,16 +1316,22 @@ export const ChatWidget: React.FC = () => {
                       borderRadius: "50%",
                     }}
                   />
-                </div>
+                </motion.div>
 
-                <h3
+                <motion.h3
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.2 }}
                   className="text-2xl font-bold mb-2 tracking-tight"
                   style={{ fontSize: 24, fontWeight: 700, margin: "0 0 8px", color: "#ffffff" }}
                 >
                   Bem-vindo à Tecfag!
-                </h3>
+                </motion.h3>
 
-                <p
+                <motion.p
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.3 }}
                   className="text-sm mb-8 leading-relaxed px-2 font-medium"
                   style={{
                     fontSize: 14,
@@ -1304,9 +1343,12 @@ export const ChatWidget: React.FC = () => {
                   }}
                 >
                   Fagner está pronto para te atender. Como podemos te chamar?
-                </p>
+                </motion.p>
 
-                <form
+                <motion.form
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.4 }}
                   className="w-full flex flex-col gap-4 relative z-10"
                   style={{ width: "100%", display: "flex", flexDirection: "column", gap: 16, position: "relative", zIndex: 10 }}
                   onSubmit={(e) => {
@@ -1371,8 +1413,35 @@ export const ChatWidget: React.FC = () => {
                   >
                     Iniciar Atendimento
                   </button>
-                </form>
+                </motion.form>
               </div>
+
+              <div
+                style={{
+                  position: "absolute",
+                  bottom: -96,
+                  left: -80,
+                  width: 256,
+                  height: 256,
+                  borderRadius: "50%",
+                  filter: "blur(64px)",
+                  pointerEvents: "none",
+                  background: isBlackNovember ? "rgba(255,255,255,0.16)" : "rgba(220,38,38,0.2)",
+                }}
+              />
+              <div
+                style={{
+                  position: "absolute",
+                  top: -96,
+                  right: -80,
+                  width: 256,
+                  height: 256,
+                  borderRadius: "50%",
+                  filter: "blur(64px)",
+                  pointerEvents: "none",
+                  background: isBlackNovember ? "rgba(255,255,255,0.12)" : "rgba(239,68,68,0.1)",
+                }}
+              />
             </div>
           ) : (
             <>
@@ -1439,18 +1508,31 @@ export const ChatWidget: React.FC = () => {
                   />
                 ))}
 
-                {isTyping && <TypingIndicator isBlackNovember={isBlackNovember} />}
+                <AnimatePresence>
+                  {isTyping && <TypingIndicator isBlackNovember={isBlackNovember} />}
+                </AnimatePresence>
 
                 {/* ── Banner de produto contextual VTEX (/slug/p) ── */}
+                <AnimatePresence mode="wait">
                 {currentProduct && !preChatMode && dismissedProductSlug !== currentProduct.slug && (
-                  <div
+                  <motion.div
                     key={currentProduct.slug}
+                    initial={{ opacity: 0, y: 10, scale: 0.97 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 6, scale: 0.97 }}
+                    transition={{ duration: 0.22, ease: "easeOut" }}
                     style={{ marginTop: 12, marginBottom: 4, paddingLeft: 2, paddingRight: 2 }}
                   >
                     <button
                       type="button"
                       onClick={() => handleProductInquiry(currentProduct)}
                       title={`Quero saber mais sobre ${currentProduct.displayName}`}
+                      onMouseEnter={(e) => {
+                        (e.currentTarget as HTMLButtonElement).style.transform = "scale(1.015)";
+                      }}
+                      onMouseLeave={(e) => {
+                        (e.currentTarget as HTMLButtonElement).style.transform = "scale(1)";
+                      }}
                       style={{
                         width: "100%",
                         display: "flex",
@@ -1533,8 +1615,9 @@ export const ChatWidget: React.FC = () => {
                         <ArrowRight size={14} />
                       </span>
                     </button>
-                  </div>
+                  </motion.div>
                 )}
+                </AnimatePresence>
               </div>
 
               <ChatInput
@@ -1544,8 +1627,14 @@ export const ChatWidget: React.FC = () => {
               />
 
               {/* ── Modal de confirmação de reinicialização ── */}
+              <AnimatePresence>
               {showRestartConfirm && (
-                <div
+                <motion.div
+                  key="restart-overlay"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.18 }}
                   style={{
                     position: "absolute",
                     inset: 0,
@@ -1560,7 +1649,11 @@ export const ChatWidget: React.FC = () => {
                     padding: "24px",
                   }}
                 >
-                  <div
+                  <motion.div
+                    initial={{ scale: 0.82, opacity: 0, y: 12 }}
+                    animate={{ scale: 1, opacity: 1, y: 0 }}
+                    exit={{ scale: 0.82, opacity: 0, y: 12 }}
+                    transition={{ type: "spring", stiffness: 340, damping: 24 }}
                     style={{
                       background: "#fff",
                       borderRadius: "20px",
@@ -1676,21 +1769,27 @@ export const ChatWidget: React.FC = () => {
                         Minimizar
                       </button>
                     </div>
-                  </div>
-                </div>
+                  </motion.div>
+                </motion.div>
               )}
+              </AnimatePresence>
             </>
           )}
-        </div>
-      )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
-      {/* ─── Botão flutuante original (alterna ícone <-> pílula a cada 3.2s) ─── */}
+      {/* ─── Botão flutuante original com mola Framer Motion (alterna ícone <-> pílula a cada 3.2s) ─── */}
       {!isOpen && (
         <div ref={buttonWrapperRef} id="tecfag-fab-button">
           <div style={{ position: "relative" }}>
-            <button
+            <motion.button
               type="button"
               onClick={handleOpen}
+              whileTap={{ scale: 0.92 }}
+              animate={{ width: bubblePhase === "icon" ? 56 : 220 }}
+              transition={{ type: "spring", stiffness: 350, damping: 30 }}
               style={{
                 position: "relative",
                 display: "flex",
@@ -1708,14 +1807,18 @@ export const ChatWidget: React.FC = () => {
                   : "0 8px 32px -4px rgba(139, 0, 0, 0.5)",
                 borderRadius: "9999px",
                 height: "56px",
-                width: bubblePhase === "icon" ? 56 : 220,
                 padding: 0,
-                transition: "width 0.32s cubic-bezier(0.22, 1, 0.36, 1)",
               }}
               aria-label="Abrir chat"
             >
+              <AnimatePresence mode="wait">
               {bubblePhase === "icon" ? (
-                <span
+                <motion.span
+                  key="icon"
+                  initial={{ opacity: 0, scale: 0.7 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.7 }}
+                  transition={{ duration: 0.22, ease: "easeOut" }}
                   style={{
                     position: "absolute",
                     inset: 0,
@@ -1724,22 +1827,15 @@ export const ChatWidget: React.FC = () => {
                     justifyContent: "center",
                   }}
                 >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="24"
-                    height="24"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" />
-                  </svg>
-                </span>
+                  <MessageCircle size={24} />
+                </motion.span>
               ) : (
-                <span
+                <motion.span
+                  key="pill"
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -10 }}
+                  transition={{ duration: 0.28, ease: "easeOut", delay: 0.05 }}
                   style={{
                     position: "absolute",
                     inset: 0,
@@ -1797,9 +1893,10 @@ export const ChatWidget: React.FC = () => {
                       Fagner • Online agora
                     </span>
                   </span>
-                </span>
+                </motion.span>
               )}
-            </button>
+              </AnimatePresence>
+            </motion.button>
 
             {unreadCount > 0 && (
               <span

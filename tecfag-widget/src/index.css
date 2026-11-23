@@ -110,12 +110,12 @@
 }
 
 /* ─── Reset mínimo dentro do widget ──────────────────────────────────────────
-   Sem @tailwind base, precisamos definir estas regras manualmente.
-   Todas escopadas em #tecfag-chat-root para não vazar para o VTEX IO. */
+   Envolto em :where(...) (especificidade 0) para nunca sobrescrever utilities
+   Tailwind escopadas em #tecfag-chat-root (ex.: .p-2, .px-5, .border). */
 
-#tecfag-chat-root *,
-#tecfag-chat-root *::before,
-#tecfag-chat-root *::after {
+:where(#tecfag-chat-root *),
+:where(#tecfag-chat-root *::before),
+:where(#tecfag-chat-root *::after) {
   box-sizing: border-box;
   border-width: 0;
   border-style: solid;
@@ -139,7 +139,7 @@
   --tw-shadow-colored: 0 0 #0000;
 }
 
-#tecfag-chat-root button {
+:where(#tecfag-chat-root button) {
   background: transparent;
   border-width: 0;
   border-style: solid;
@@ -154,8 +154,8 @@
   justify-content: center;
 }
 
-#tecfag-chat-root input,
-#tecfag-chat-root textarea {
+:where(#tecfag-chat-root input),
+:where(#tecfag-chat-root textarea) {
   background: transparent;
   border-width: 0;
   border-style: solid;
@@ -167,7 +167,7 @@
   color: inherit;
 }
 
-#tecfag-chat-root a {
+:where(#tecfag-chat-root a) {
   text-decoration: none;
 }
 
