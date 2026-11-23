@@ -45,7 +45,7 @@ export const DEFAULT_MCP_ADMIN_TOKEN = "mcp_admin_7d9e3b5c1a8f4e6d2b0c9a7e5f3d1b
 
 export const MCP_SERVER_INFO = {
   name: "valem-tecfag-mcp",
-  version: "3.5.0",
+  version: "3.6.0",
 };
 
 export type McpAccessLevel = "read" | "read_write";
@@ -454,7 +454,33 @@ export function summarizeMcpToolResult(toolName: string, data: any): string {
       }
       case "list_meta_templates": {
         const total = Number(data.total ?? data.templates?.length ?? 0);
-        return `${total} template(s) Meta listado(s)`;
+        const groupsCount = Number(data.totalGroups ?? data.groups?.length ?? 0);
+        return groupsCount > 0
+          ? `${total} template(s) Meta e ${groupsCount} categoria(s) listado(s)`
+          : `${total} template(s) Meta listado(s)`;
+      }
+      case "list_meta_template_groups": {
+        const totalGroups = Number(data.totalGroups ?? data.groups?.length ?? 0);
+        const classified = Number(data.classifiedCount ?? 0);
+        const unclassified = Number(data.unclassifiedCount ?? 0);
+        return `${totalGroups} categoria(s) de templates · ${classified} classificado(s) · ${unclassified} sem categoria`;
+      }
+      case "save_meta_template_group": {
+        const gName = data.group?.name || "";
+        const count = Number(data.templateCount ?? 0);
+        const action = data.created ? "criada" : data.renamedFrom ? `renomeada de "${data.renamedFrom}"` : "atualizada";
+        return `Categoria "${gName}" ${action} (${count} template(s) vinculado(s))`;
+      }
+      case "delete_meta_template_group": {
+        const gName = data.deletedGroup?.name || "";
+        const detached = Number(data.detachedTemplateCount ?? 0);
+        return `Categoria "${gName}" excluída (${detached} template(s) desvinculado(s))`;
+      }
+      case "set_meta_template_groups": {
+        const updated = Number(data.updatedCount ?? 0);
+        const totalReq = Number(data.totalRequested ?? 0);
+        const prefix = data.dryRun ? "[DRY-RUN] " : "";
+        return `${prefix}${updated}/${totalReq} template(s) atualizado(s) em categorias`;
       }
       case "create_crm_deal":
         return `Negociação "${data.title || data.dealId}" criada na etapa "${data.stageName || data.stageId}" (${data.dealId})`;

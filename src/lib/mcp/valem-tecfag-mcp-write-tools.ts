@@ -47,13 +47,16 @@ import {
   createMetaTemplate,
   deleteMetaTemplate,
   ensureMetaTemplateGroupsSchema,
+  listMetaTemplateGroups,
   loadDealCustomFieldsForTemplate,
+  normalizeCustomGroups,
   setMetaTemplateBindings,
   syncMetaTemplates,
 } from "../whatsapp/meta-templates";
 import {
   getDealFieldBindingKey,
   resolveMetaTemplateValues,
+  stripTemplateAccents,
 } from "../whatsapp/meta-template-common";
 import { SITE_CHANNEL } from "../livechat/site-channel-policy";
 import { sendSiteOperatorText } from "../livechat/site-delivery";
@@ -89,6 +92,12 @@ import {
   executeOperatorMessagesMcpTool,
   isOperatorMessagesMcpTool,
 } from "./valem-tecfag-mcp-operator-messages-tools";
+import {
+  MCP_TEMPLATE_GROUPS_TOOLS,
+  MCP_TEMPLATE_GROUPS_TOOL_LABELS_PT,
+  executeTemplateGroupsMcpTool,
+  isTemplateGroupsMcpTool,
+} from "./valem-tecfag-mcp-template-groups-tools";
 
 export type McpToolAccessKind = "read" | "write";
 
@@ -130,6 +139,11 @@ export const MCP_EXTENDED_TOOLS: McpToolDefinition[] = [
         search: {
           type: "string",
           description: "Filtrar por trecho do nome ou corpo do template.",
+        },
+        group: {
+          type: "string",
+          description:
+            "Filtrar por categoria/grupo interno (ex: 'COMERCIAL', 'Fagner', ou '__UNGROUPED__' para listar apenas templates sem categoria).",
         },
         syncFromMeta: {
           type: "boolean",
@@ -559,6 +573,12 @@ export const MCP_EXTENDED_TOOLS: McpToolDefinition[] = [
           type: "object",
           description:
             "Opcional: mapa de vínculos das variáveis {{1}}..{{N}} ('customer_name' | 'operator_name' | 'manual' | 'deal_field:<fieldId>'), ex: { '1': 'deal_field:black_maquina', '2': 'deal_field:black_preco', '3': 'deal_field:gap_t1' }.",
+        },
+        customGroups: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Opcional: substitui as categorias/grupos internos do template (ex: ['COMERCIAL', 'Fagner']). Omita para manter inalterado.",
         },
       },
     },
@@ -1036,6 +1056,7 @@ export const MCP_EXTENDED_TOOLS: McpToolDefinition[] = [
   ...MCP_WAVE1_TOOLS,
   ...MCP_TRIAGE_AUDIT_TOOLS,
   ...MCP_OPERATOR_MESSAGES_TOOLS,
+  ...MCP_TEMPLATE_GROUPS_TOOLS,
 ];
 
 export const MCP_EXTENDED_TOOL_LABELS_PT: Record<string, string> = {
@@ -1075,6 +1096,7 @@ export const MCP_EXTENDED_TOOL_LABELS_PT: Record<string, string> = {
   ...MCP_WAVE1_TOOL_LABELS_PT,
   ...MCP_TRIAGE_AUDIT_TOOL_LABELS_PT,
   ...MCP_OPERATOR_MESSAGES_TOOL_LABELS_PT,
+  ...MCP_TEMPLATE_GROUPS_TOOL_LABELS_PT,
 };
 
 const EXTENDED_TOOL_NAMES = new Set(MCP_EXTENDED_TOOLS.map((t) => t.name));
@@ -1335,19 +1357,52 @@ export async function executeExtendedMcpTool(
       }
       const statusFilter = asTrimmedString(args.status)?.toUpperCase();
       const searchFilter = asTrimmedString(args.search)?.toLowerCase();
+      const groupFilter = asTrimmedString(args.group);
+      const groupFilterKey = groupFilter ? stripTemplateAccents(groupFilter) : null;
+      const filterOnlyUngrouped =
+        groupFilterKey === "__ungrouped__" ||
+        groupFilterKey === "sem_grupo" ||
+        groupFilterKey === "sem grupo" ||
+        groupFilterKey === "sem_categoria" ||
+        groupFilterKey === "sem categoria";
 
-      const rows = await db
-        .select()
-        .from(metaMessageTemplates)
-        .where(eq(metaMessageTemplates.tenantId, tenantId))
-        .orderBy(asc(metaMessageTemplates.name));
+      const [rows, groupRows] = await Promise.all([
+        db
+          .select()
+          .from(metaMessageTemplates)
+          .where(eq(metaMessageTemplates.tenantId, tenantId))
+          .orderBy(asc(metaMessageTemplates.name)),
+        listMetaTemplateGroups(tenantId),
+      ]);
 
-      const filtered = rows.filter((row) => {
-        if (row.status === "DELETED") return false;
+      const activeRows = rows.filter((row) => row.status !== "DELETED");
+      const countByGroupKey = new Map<string, number>();
+      let unclassifiedCount = 0;
+      for (const row of activeRows) {
+        const groups = normalizeCustomGroups(row.customGroups);
+        if (groups.length === 0) {
+          unclassifiedCount++;
+        } else {
+          for (const gName of groups) {
+            const key = stripTemplateAccents(gName);
+            countByGroupKey.set(key, (countByGroupKey.get(key) ?? 0) + 1);
+          }
+        }
+      }
+
+      const filtered = activeRows.filter((row) => {
         if (statusFilter && row.status.toUpperCase() !== statusFilter) return false;
         if (searchFilter) {
           const hay = `${row.name} ${row.bodyText}`.toLowerCase();
           if (!hay.includes(searchFilter)) return false;
+        }
+        if (groupFilterKey) {
+          const groups = normalizeCustomGroups(row.customGroups);
+          if (filterOnlyUngrouped) {
+            if (groups.length > 0) return false;
+          } else if (!groups.some((g) => stripTemplateAccents(g) === groupFilterKey)) {
+            return false;
+          }
         }
         return true;
       });
@@ -1356,6 +1411,16 @@ export async function executeExtendedMcpTool(
         tenantId,
         syncedFromMeta: args.syncFromMeta === true,
         total: filtered.length,
+        totalGroups: groupRows.length,
+        unclassifiedCount,
+        groups: groupRows.map((g) => ({
+          id: g.id,
+          name: g.name,
+          templateCount: countByGroupKey.get(stripTemplateAccents(g.name)) ?? 0,
+          allPipelines: g.allPipelines !== false,
+          pipelineIds: Array.isArray(g.pipelineIds) ? g.pipelineIds : [],
+          stageIds: Array.isArray(g.stageIds) ? g.stageIds : [],
+        })),
         templates: filtered.map((t) => ({
           id: t.id,
           metaTemplateId: t.metaTemplateId,
@@ -1365,7 +1430,7 @@ export async function executeExtendedMcpTool(
           status: t.status,
           bodyText: t.bodyText,
           bindings: t.bindings,
-          customGroups: t.customGroups,
+          customGroups: normalizeCustomGroups(t.customGroups),
           allPipelines: t.allPipelines,
           pipelineIds: t.pipelineIds,
           stageIds: t.stageIds,
@@ -2417,12 +2482,13 @@ export async function executeExtendedMcpTool(
         args.bindings && typeof args.bindings === "object" && !Array.isArray(args.bindings)
           ? (args.bindings as Record<string, unknown>)
           : undefined;
+      const customGroupsInput = Array.isArray(args.customGroups) ? args.customGroups : undefined;
 
       await setMetaTemplateBindings(
         tenantId,
         tpl.metaTemplateId,
         bindingsInput,
-        undefined,
+        customGroupsInput,
         {
           allPipelines: args.allPipelines,
           pipelineIds,
@@ -2436,6 +2502,7 @@ export async function executeExtendedMcpTool(
           pipelineIds: metaMessageTemplates.pipelineIds,
           stageIds: metaMessageTemplates.stageIds,
           bindings: metaMessageTemplates.bindings,
+          customGroups: metaMessageTemplates.customGroups,
         })
         .from(metaMessageTemplates)
         .where(and(eq(metaMessageTemplates.id, tpl.id), eq(metaMessageTemplates.tenantId, tenantId)))
@@ -2451,6 +2518,7 @@ export async function executeExtendedMcpTool(
         pipelineIds: refreshedTpl?.pipelineIds ?? pipelineIds,
         stageIds: refreshedTpl?.stageIds ?? stageIds,
         bindings: refreshedTpl?.bindings ?? {},
+        customGroups: normalizeCustomGroups(refreshedTpl?.customGroups),
       };
     }
 
@@ -3826,6 +3894,9 @@ export async function executeExtendedMcpTool(
       }
       if (isOperatorMessagesMcpTool(name)) {
         return executeOperatorMessagesMcpTool(name, args, tenantId, actor);
+      }
+      if (isTemplateGroupsMcpTool(name)) {
+        return executeTemplateGroupsMcpTool(name, args, tenantId, actor);
       }
       throw new Error(`Ferramenta estendida desconhecida: '${name}'.`);
   }

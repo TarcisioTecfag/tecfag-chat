@@ -625,6 +625,17 @@ export async function saveMetaTemplateGroupWithLinks(
             : {}),
         })
         .where(and(eq(metaTemplateGroups.id, targetGroup.id), eq(metaTemplateGroups.tenantId, tenantId)));
+      targetGroup = {
+        ...targetGroup,
+        name: cleanName,
+        ...(hasScopePatch
+          ? {
+              allPipelines: resolvedScope.allPipelines,
+              pipelineIds: resolvedScope.pipelineIds,
+              stageIds: resolvedScope.stageIds,
+            }
+          : {}),
+      };
     }
   } else {
     const id = `mtg_${tenantId}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
