@@ -54,7 +54,7 @@ export const DEFAULT_MCP_ADMIN_TOKEN = "mcp_admin_7d9e3b5c1a8f4e6d2b0c9a7e5f3d1b
 
 export const MCP_SERVER_INFO = {
   name: "valem-tecfag-mcp",
-  version: "3.9.0",
+  version: "3.10.0",
 };
 
 export type McpAccessLevel = "read" | "read_write";
@@ -509,6 +509,14 @@ export function summarizeMcpToolResult(toolName: string, data: any): string {
           : `${data.assistantName || "IA"} retomado na conversa ${data.conversationId} (${data.currentStep || "Em Qualificação"})`;
       case "recover_fagner_stuck_turns":
         return `Recuperação de turnos travados concluída: ${Number(data.recoveredCount ?? 0)} conversa(s) reativada(s)`;
+      case "list_rd_marketing_flows":
+        return `${Number(data.returnedCount ?? 0)}/${Number(data.totalFlowsInTenant ?? 0)} fluxo(s) RD Marketing listado(s) (${Number(data.enabledCount ?? 0)} ativo(s), ${Number(data.pausedCount ?? 0)} pausado(s))`;
+      case "list_rd_marketing_events":
+        return `${Number(data.returnedCount ?? 0)} evento(s) webhook RD Marketing retornado(s)`;
+      case "list_rd_marketing_logs":
+        return `${Number(data.returnedCount ?? 0)} log(s) RD Marketing retornado(s)`;
+      case "search_rd_marketing_journey_notifications":
+        return `${Number(data.returnedCount ?? 0)} notificação(ões) de jornada RD Marketing encontrada(s)`;
       case "create_crm_deal":
         return `Negociação "${data.title || data.dealId}" criada na etapa "${data.stageName || data.stageId}" (${data.dealId})`;
       case "update_crm_deal_stage":
@@ -2921,7 +2929,7 @@ export async function executeMcpTool(
             (SELECT COUNT(*)::int FROM crm_deals d WHERE d.tenant_id = acc.tenant_id AND d.account_id = acc.id) AS deals_count
           FROM crm_accounts acc
           WHERE ${whereClause}
-          ORDER BY acc.updated_at DESC
+          ORDER BY acc.updated_at DESC, acc.id ASC
           LIMIT ${limit}
           OFFSET ${offset}
         `,

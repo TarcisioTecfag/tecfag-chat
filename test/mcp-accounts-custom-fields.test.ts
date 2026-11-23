@@ -64,7 +64,7 @@ async function callMcp(
 
 describe("MCP v3.8.0 — Empresas (crm_accounts), Campos Personalizados & Preenchimento", () => {
   it("expõe versão 3.8.0, registra list_crm_custom_fields como leitura e mantém 100% de paridade na Biblioteca de API", () => {
-    expect(MCP_SERVER_INFO.version).toBe("3.9.0");
+    expect(MCP_SERVER_INFO.version).toBe("3.10.0");
 
     const listTool = MCP_TOOLS.find((t) => t.name === "list_crm_custom_fields");
     expect(listTool).toBeDefined();

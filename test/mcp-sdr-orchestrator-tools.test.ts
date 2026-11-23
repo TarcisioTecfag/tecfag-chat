@@ -55,7 +55,7 @@ async function callMcp(
 
 describe("MCP v3.9.0 — Orquestrador SDR Industrial (Aprovação, Correção, Conclusão, Stop/Resume e Recovery)", () => {
   it("expõe versão 3.9.0, separa leitura/escrita corretamente e mantém 100% de paridade na Biblioteca de API", () => {
-    expect(MCP_SERVER_INFO.version).toBe("3.9.0");
+    expect(MCP_SERVER_INFO.version).toBe("3.10.0");
     expect(MCP_SDR_ORCHESTRATOR_TOOLS).toHaveLength(5);
 
     const readTools = getVisibleMcpTools(makeAccess("read"));
