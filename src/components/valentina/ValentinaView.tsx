@@ -3,7 +3,7 @@
 // Segue exatamente o padrão do MonitorView.tsx (shell, tabs, content)
 // ══════════════════════════════════════════════════════════════════════════════
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useTabNavigation } from "@/hooks/useTabNavigation";
 import {
   Bot,
@@ -61,7 +61,14 @@ export function ValentinaView() {
   const isAdmin = sessionRole === "admin";
   const persona = getAiPersona(tenant || "");
   const { canAccessValentinaTab } = usePermissions();
-  const allowedTabs = allTabs.filter((tab) => canAccessValentinaTab(tab.id));
+  const allowedTabIdsKey = allTabs
+    .filter((tab) => canAccessValentinaTab(tab.id))
+    .map((t) => t.id)
+    .join(",");
+  const allowedTabs = useMemo(() => {
+    const allowedSet = new Set(allowedTabIdsKey ? allowedTabIdsKey.split(",") : []);
+    return allTabs.filter((tab) => allowedSet.has(tab.id));
+  }, [allowedTabIdsKey]);
   const allowedTabIds = useMemo(() => allowedTabs.map((t) => t.id), [allowedTabs]);
 
   const [sdrTargetConversation, setSdrTargetConversation] = useState<SdrTargetLookup | null>(() =>
@@ -174,11 +181,50 @@ export function ValentinaView() {
     return () => window.removeEventListener("sdr_approval_open", handleApprovalOpen);
   }, [allowedTabs]);
 
-  const today = new Date().toLocaleDateString("pt-BR", {
-    weekday: "long",
-    day: "2-digit",
-    month: "long",
-  });
+  const handleSelectedConversationChange = useCallback(
+    (conversationId: string | undefined, contactName?: string) => {
+      setSdrSelectedInfo((prev) =>
+        prev.conversationId === conversationId && prev.contactName === contactName
+          ? prev
+          : { conversationId, contactName },
+      );
+    },
+    [],
+  );
+
+  const handleTargetConversationHandled = useCallback(() => {
+    setSdrTargetConversation(null);
+  }, []);
+
+  const handleRefreshSdr = useCallback(() => {
+    setSdrRefreshKey((k) => k + 1);
+  }, []);
+
+  const handleSelectConversationFromSweep = useCallback((conversationId: string) => {
+    setSdrTargetConversation({
+      conversationId,
+      ts: Date.now(),
+    });
+    setSdrViewMode("live");
+  }, []);
+
+  const handleOpenChatFromSweep = useCallback(
+    (conversationId: string) => {
+      setSelectedChatId(conversationId);
+      setActiveView("chat");
+    },
+    [setSelectedChatId, setActiveView],
+  );
+
+  const today = useMemo(
+    () =>
+      new Date().toLocaleDateString("pt-BR", {
+        weekday: "long",
+        day: "2-digit",
+        month: "long",
+      }),
+    [],
+  );
 
   const sdrToggleTooltip = !isAdmin
     ? "Apenas administradores podem ativar ou pausar o SDR globalmente"
@@ -277,24 +323,15 @@ export function ValentinaView() {
               onFilterChange={setSdrFilterState}
               viewMode={sdrViewMode}
               onViewModeChange={setSdrViewMode}
-              onRefresh={() => setSdrRefreshKey((k) => k + 1)}
+              onRefresh={handleRefreshSdr}
               isLoading={isSdrLoading}
               personaName={persona.name}
               showTriageHistory={persona.triagePolicy === "industrial"}
               tenantId={tenant || undefined}
               selectedConversationId={sdrSelectedInfo.conversationId}
               selectedConversationName={sdrSelectedInfo.contactName}
-              onSelectConversationFromSweep={(conversationId) => {
-                setSdrTargetConversation({
-                  conversationId,
-                  ts: Date.now(),
-                });
-                setSdrViewMode("live");
-              }}
-              onOpenChatFromSweep={(conversationId) => {
-                setSelectedChatId(conversationId);
-                setActiveView("chat");
-              }}
+              onSelectConversationFromSweep={handleSelectConversationFromSweep}
+              onOpenChatFromSweep={handleOpenChatFromSweep}
             />
           </div>
         )}
@@ -379,11 +416,9 @@ export function ValentinaView() {
                     onViewModeChange={setSdrViewMode}
                     refreshKey={sdrRefreshKey}
                     onLoadingChange={setIsSdrLoading}
-                    onSelectedConversationChange={(conversationId, contactName) =>
-                      setSdrSelectedInfo({ conversationId, contactName })
-                    }
+                    onSelectedConversationChange={handleSelectedConversationChange}
                     targetConversation={sdrTargetConversation}
-                    onTargetConversationHandled={() => setSdrTargetConversation(null)}
+                    onTargetConversationHandled={handleTargetConversationHandled}
                   />
                 )}
                 {activeTab === "rodizio" && (

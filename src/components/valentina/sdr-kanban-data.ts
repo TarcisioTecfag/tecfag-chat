@@ -234,75 +234,189 @@ export function filterSdrSessions(
     ? `${filterState.selectedDate.getFullYear()}-${String(filterState.selectedDate.getMonth() + 1).padStart(2, "0")}-${String(filterState.selectedDate.getDate()).padStart(2, "0")}`
     : null;
 
-  return sessions
-    .filter((session) => {
-      // 1. Canal (WhatsApp ou Site)
-      if (filterState.channelFilter !== "all") {
-        const rawChan = session.channel || "whatsapp";
-        const normalizedChan = rawChan === "livechat" || rawChan === "site" ? "site" : "whatsapp";
-        if (normalizedChan !== filterState.channelFilter) return false;
-      }
+  const filteredWithTs: Array<{ session: SdrTriageSession; activityTs: number }> = [];
 
-      // 2. Apenas não lidas
-      if (filterState.unreadOnly) {
-        if ((session.unreadCount || 0) <= 0) return false;
-      }
+  for (const session of sessions) {
+    // 1. Canal (WhatsApp ou Site)
+    if (filterState.channelFilter !== "all") {
+      const rawChan = session.channel || "whatsapp";
+      const normalizedChan = rawChan === "livechat" || rawChan === "site" ? "site" : "whatsapp";
+      if (normalizedChan !== filterState.channelFilter) continue;
+    }
 
-      // 3. Status explícito da triagem
-      if (filterState.statusFilter !== "all") {
-        if (session.status !== filterState.statusFilter) return false;
-      } else if (!filterState.showCompleted && (session.status === "completed" || session.status === "manual")) {
-        // Oculta concluídos / assumidos manualmente do Kanban ativo por padrão
-        return false;
-      }
+    // 2. Apenas não lidas
+    if (filterState.unreadOnly) {
+      if ((session.unreadCount || 0) <= 0) continue;
+    }
 
-      // 4. Data específica (calendário em Horário de Brasília)
-      const activityTs = getSessionActivityTimestamp(session);
-      const startedTs = session.startedAt ? Date.parse(session.startedAt) : NaN;
+    // 3. Status explícito da triagem
+    if (filterState.statusFilter !== "all") {
+      if (session.status !== filterState.statusFilter) continue;
+    } else if (!filterState.showCompleted && (session.status === "completed" || session.status === "manual")) {
+      // Oculta concluídos / assumidos manualmente do Kanban ativo por padrão
+      continue;
+    }
 
-      if (selectedBrt) {
-        const actKey = activityTs > 0 ? getBrtDateKey(activityTs) : null;
+    // 4. Data específica (calendário em Horário de Brasília)
+    const activityTs = getSessionActivityTimestamp(session);
+    const startedTs = session.startedAt ? Date.parse(session.startedAt) : NaN;
+
+    if (selectedBrt) {
+      const actKey = activityTs > 0 ? getBrtDateKey(activityTs) : null;
+      const startKey = !Number.isNaN(startedTs) ? getBrtDateKey(startedTs) : null;
+      if (actKey !== selectedBrt && startKey !== selectedBrt) continue;
+    } else if (filterState.periodFilter !== "todos") {
+      const refTs = activityTs > 0 ? activityTs : !Number.isNaN(startedTs) ? startedTs : 0;
+      if (refTs <= 0) continue;
+
+      if (filterState.periodFilter === "hoje") {
+        const refKey = getBrtDateKey(refTs);
         const startKey = !Number.isNaN(startedTs) ? getBrtDateKey(startedTs) : null;
-        if (actKey !== selectedBrt && startKey !== selectedBrt) return false;
-      } else if (filterState.periodFilter !== "todos") {
-        const refTs = activityTs > 0 ? activityTs : !Number.isNaN(startedTs) ? startedTs : 0;
-        if (refTs <= 0) return false;
-
-        if (filterState.periodFilter === "hoje") {
-          const refKey = getBrtDateKey(refTs);
-          const startKey = !Number.isNaN(startedTs) ? getBrtDateKey(startedTs) : null;
-          if (refKey !== todayBrt && startKey !== todayBrt) return false;
-        } else if (filterState.periodFilter === "7dias") {
-          const diffDays = (now.getTime() - refTs) / (1000 * 60 * 60 * 24);
-          if (diffDays > 7) return false;
-        } else if (filterState.periodFilter === "30dias") {
-          const diffDays = (now.getTime() - refTs) / (1000 * 60 * 60 * 24);
-          if (diffDays > 30) return false;
-        }
+        if (refKey !== todayBrt && startKey !== todayBrt) continue;
+      } else if (filterState.periodFilter === "7dias") {
+        const diffDays = (now.getTime() - refTs) / (1000 * 60 * 60 * 24);
+        if (diffDays > 7) continue;
+      } else if (filterState.periodFilter === "30dias") {
+        const diffDays = (now.getTime() - refTs) / (1000 * 60 * 60 * 24);
+        if (diffDays > 30) continue;
       }
+    }
 
-      // 5. Busca textual (nome, empresa, telefone, prévia ou mensagens carregadas)
-      if (q) {
-        const matchName = (session.contactName || "").toLowerCase().includes(q);
-        const matchCompany = (session.company || "").toLowerCase().includes(q);
-        const matchPhone = (session.phone || "").toLowerCase().includes(q);
-        const matchPreview = (session.lastMessagePreview || "").toLowerCase().includes(q);
-        const matchMessages = (session.messages || []).some((msg) =>
-          (msg.text || "").toLowerCase().includes(q),
-        );
-        if (!matchName && !matchCompany && !matchPhone && !matchPreview && !matchMessages) {
-          return false;
-        }
+    // 5. Busca textual (nome, empresa, telefone, prévia ou mensagens carregadas)
+    if (q) {
+      const matchName = (session.contactName || "").toLowerCase().includes(q);
+      const matchCompany = (session.company || "").toLowerCase().includes(q);
+      const matchPhone = (session.phone || "").toLowerCase().includes(q);
+      const matchPreview = (session.lastMessagePreview || "").toLowerCase().includes(q);
+      const matchMessages =
+        !matchName &&
+        !matchCompany &&
+        !matchPhone &&
+        !matchPreview &&
+        (session.messages || []).some((msg) => (msg.text || "").toLowerCase().includes(q));
+      if (!matchName && !matchCompany && !matchPhone && !matchPreview && !matchMessages) {
+        continue;
       }
+    }
 
-      return true;
-    })
-    .sort((a, b) => {
-      const aAwaiting = a.status === "awaiting_approval" ? 0 : 1;
-      const bAwaiting = b.status === "awaiting_approval" ? 0 : 1;
-      if (aAwaiting !== bAwaiting) return aAwaiting - bAwaiting;
-      return getSessionActivityTimestamp(b) - getSessionActivityTimestamp(a);
-    });
+    filteredWithTs.push({ session, activityTs });
+  }
+
+  filteredWithTs.sort((a, b) => {
+    const aAwaiting = a.session.status === "awaiting_approval" ? 0 : 1;
+    const bAwaiting = b.session.status === "awaiting_approval" ? 0 : 1;
+    if (aAwaiting !== bAwaiting) return aAwaiting - bAwaiting;
+    return b.activityTs - a.activityTs;
+  });
+
+  return filteredWithTs.map((entry) => entry.session);
+}
+
+/**
+ * Assinatura leve para structural sharing: se uma sessão não mudou nada entre polls,
+ * preserva a referência exata do objeto anterior para que React.memo pule o re-render do card/linha.
+ */
+function buildSessionContentSignature(s: SdrTriageSession): string {
+  const lastMsg = s.messages && s.messages.length > 0 ? s.messages[s.messages.length - 1] : null;
+  return [
+    s.id,
+    s.conversationId,
+    s.contactName,
+    s.contactAvatar || "",
+    s.company,
+    s.phone,
+    s.currentStep,
+    s.status,
+    s.outcome || "",
+    s.responsibleName || "",
+    s.unreadCount || 0,
+    s.channel || "",
+    s.subflow || "",
+    s.funnelStage || "",
+    s.targetFunnel || "",
+    s.lastClientMessageAt || "",
+    s.lastMessageAt || "",
+    s.lastMessagePreview || "",
+    s.triageProgress
+      ? `${s.triageProgress.filledCount}/${s.triageProgress.totalCount}/${s.triageProgress.percentage}`
+      : "",
+    s.pendingApproval
+      ? `${s.pendingApproval.suggestedSectorId || ""}|${s.pendingApproval.suggestedOperatorId || ""}|${s.pendingApproval.suggestedPipelineId || ""}|${s.pendingApproval.suggestedStageId || ""}|${s.pendingApproval.needsReview ? 1 : 0}`
+      : "",
+    s.monitoring ? `${s.monitoring.state}|${s.monitoring.label}|${s.monitoring.operatorId || ""}` : "",
+    s.linkedDeal ? `${s.linkedDeal.dealId}|${s.linkedDeal.dealTitle}` : "",
+    s.knownClient ? `${s.knownClient.companyName}|${s.knownClient.confirmed ? 1 : 0}` : "",
+    s.previousTriages?.length || 0,
+    s.messagesLoaded ? 1 : 0,
+    s.messages?.length || 0,
+    lastMsg ? `${lastMsg.id || ""}|${lastMsg.sentAt || ""}|${lastMsg.text?.length || 0}` : "",
+    JSON.stringify(s.collectedData || {}),
+  ].join("\x1f");
+}
+
+export function mergeSessionsPreservingRefs(
+  prev: SdrTriageSession[],
+  next: SdrTriageSession[],
+): SdrTriageSession[] {
+  if (prev.length === 0) return next;
+  const prevById = new Map<string, { session: SdrTriageSession; sig: string }>();
+  for (const s of prev) {
+    prevById.set(s.id, { session: s, sig: buildSessionContentSignature(s) });
+  }
+
+  let changed = prev.length !== next.length;
+  const merged = next.map((item, idx) => {
+    const existing = prevById.get(item.id);
+    if (existing && existing.sig === buildSessionContentSignature(item)) {
+      if (prev[idx] !== existing.session) changed = true;
+      return existing.session;
+    }
+    changed = true;
+    return item;
+  });
+
+  return changed ? merged : prev;
+}
+
+export interface AdaptivePollOptions {
+  viewMode: SdrViewMode;
+  effectiveType?: string | null;
+  saveData?: boolean;
+  lastRttMs?: number;
+  errorStreak?: number;
+}
+
+/**
+ * Calcula intervalo adaptativo de polling para funcionar com fluidez em internet lenta/instável,
+ * mantendo resposta imediata em rede boa e via eventos SSE.
+ */
+export function computeAdaptiveSdrPollDelayMs({
+  viewMode,
+  effectiveType,
+  saveData = false,
+  lastRttMs = 0,
+  errorStreak = 0,
+}: AdaptivePollOptions): number {
+  const isSlowNetwork =
+    saveData ||
+    effectiveType === "slow-2g" ||
+    effectiveType === "2g" ||
+    effectiveType === "3g" ||
+    lastRttMs >= 1500;
+
+  let baseMs = viewMode === "live" ? 7000 : 10000;
+  if (isSlowNetwork) {
+    baseMs = viewMode === "live" ? 14000 : 18000;
+  } else if (lastRttMs >= 800) {
+    baseMs = viewMode === "live" ? 10000 : 13000;
+  }
+
+  if (errorStreak > 0) {
+    const multiplier = Math.min(4, Math.pow(1.6, Math.min(errorStreak, 4)));
+    return Math.min(35000, Math.round(baseMs * multiplier));
+  }
+
+  return baseMs;
 }
 
 export function hasActiveSdrFilters(filterState: SdrFilterState): boolean {

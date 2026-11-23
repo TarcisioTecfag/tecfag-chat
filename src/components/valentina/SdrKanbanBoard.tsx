@@ -3,6 +3,7 @@
 // ══════════════════════════════════════════════════════════════════════════════
 
 import React, { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Clock,
   CheckCircle2,
@@ -27,10 +28,10 @@ import {
 } from "./sdr-kanban-data";
 import { getAiPersona } from "@/lib/ai-persona";
 import { computeIndustrialTriageProgress } from "@/lib/triage/industrial-policy";
-import { useChat } from "@/hooks/useChatState";
 import { SystemTooltip } from "@/components/ui/tooltip";
 
 export interface SdrKanbanBoardProps {
+  tenant?: string | null;
   sessions: SdrTriageSession[];
   selectedSessionId?: string | null;
   onSelectSession: (session: SdrTriageSession) => void;
@@ -55,22 +56,249 @@ function formatTimeAgoFromIso(isoDate?: string | null): string {
   return remHours > 0 ? `${days}d ${remHours}h` : `${days}d`;
 }
 
-export function SdrKanbanBoard({
+function isSameIndicator(
+  a: OffscreenIndicatorInfo | null,
+  b: OffscreenIndicatorInfo | null,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.targetColumnKey === b.targetColumnKey &&
+    a.targetCount === b.targetCount &&
+    a.totalHiddenCount === b.totalHiddenCount &&
+    a.hiddenColumnsWithCards.length === b.hiddenColumnsWithCards.length
+  );
+}
+
+interface SdrKanbanCardProps {
+  session: SdrTriageSession;
+  columnKey: KanbanColumnKey;
+  isSelected: boolean;
+  sdrEnabled: boolean;
+  personaName: string;
+  onSelectSession: (session: SdrTriageSession) => void;
+}
+
+const SdrKanbanCard = React.memo(function SdrKanbanCard({
+  session,
+  columnKey,
+  isSelected,
+  sdrEnabled,
+  personaName,
+  onSelectSession,
+}: SdrKanbanCardProps) {
+  const initials =
+    session.contactName
+      ?.split(" ")
+      .filter(Boolean)
+      .map((n) => n[0])
+      .slice(0, 2)
+      .join("")
+      .toUpperCase() || "C";
+
+  // Usa o progresso já calculado pelo servidor; só recorre ao fallback se ausente
+  const fallbackProgress = session.triageProgress
+    ? null
+    : computeIndustrialTriageProgress({
+        subflow: session.subflow || null,
+        funnelStage: session.funnelStage || columnKey || null,
+        targetFunnel: session.targetFunnel || null,
+        collectedData: session.collectedData || {},
+        company:
+          session.company && session.company !== "Empresa não informada"
+            ? session.company
+            : null,
+        isCompleted: session.status === "completed",
+      });
+
+  const filledCount = session.triageProgress?.filledCount ?? fallbackProgress?.filledCount ?? 0;
+  const totalCount = session.triageProgress?.totalCount ?? fallbackProgress?.totalCount ?? 0;
+  const progress = session.triageProgress?.percentage ?? fallbackProgress?.percentage ?? 0;
+
+  const botRunning = sdrEnabled && session.status === "active";
+  const isAwaitingApproval = session.status === "awaiting_approval";
+  const pendingApproval = session.pendingApproval || session.monitoring?.pendingApproval || null;
+  const timeAgo = formatTimeAgoFromIso(
+    session.lastClientMessageAt || session.lastMessageAt || session.startedAt,
+  );
+
+  return (
+    <div
+      onClick={() => onSelectSession(session)}
+      className={`sdr-card-enter group relative p-2.5 rounded-xl border bg-card text-left transition-[transform,box-shadow,border-color,background-color] duration-200 ease-out cursor-pointer shadow-xs hover:-translate-y-0.5 hover:shadow-md hover:border-primary/50 active:scale-[0.99] [contain:layout_style] ${
+        isSelected
+          ? "border-primary ring-2 ring-primary/20 bg-primary-soft/10"
+          : isAwaitingApproval
+            ? "border-amber-500/60 ring-1 ring-amber-500/20 bg-amber-500/[0.04] hover:border-amber-500"
+            : "border-border/80 hover:bg-card"
+      }`}
+    >
+      {/* Top row: Foto real (com fallback de iniciais) + Nome + Unread */}
+      <div className="flex items-start justify-between gap-1.5">
+        <div className="flex items-start gap-2 min-w-0">
+          {session.contactAvatar ? (
+            <img
+              src={session.contactAvatar}
+              alt={session.contactName}
+              loading="lazy"
+              decoding="async"
+              className="h-7 w-7 rounded-full object-cover border border-primary/25 shrink-0"
+              onError={(e) => {
+                const img = e.currentTarget;
+                img.style.display = "none";
+                const fallback = img.nextElementSibling as HTMLElement | null;
+                if (fallback) fallback.style.display = "flex";
+              }}
+            />
+          ) : null}
+          <div
+            style={{ display: session.contactAvatar ? "none" : "flex" }}
+            className="h-7 w-7 rounded-full bg-primary/10 border border-primary/20 items-center justify-center text-primary font-bold text-[10px] shrink-0"
+          >
+            {initials}
+          </div>
+
+          <div className="min-w-0">
+            <h5 className="text-[11px] font-bold text-foreground truncate group-hover:text-primary transition leading-tight">
+              {session.contactName}
+            </h5>
+            <p className="text-[9px] text-muted-foreground truncate leading-tight mt-0.5">
+              {session.company && session.company !== "Empresa não informada"
+                ? session.company
+                : session.phone || "Contato WhatsApp"}
+            </p>
+          </div>
+        </div>
+
+        {Boolean(session.unreadCount && session.unreadCount > 0) && (
+          <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded-full bg-primary text-primary-foreground shrink-0 tabular-nums">
+            {session.unreadCount}
+          </span>
+        )}
+      </div>
+
+      {/* Middle row: Progresso fiel a Campos X/Y */}
+      <div className="mt-2.5 space-y-1">
+        <div className="flex items-center justify-between text-[9px] text-muted-foreground">
+          <span>
+            Campos {filledCount}/{totalCount}
+          </span>
+          <span className="font-bold text-foreground tabular-nums">{Math.round(progress)}%</span>
+        </div>
+        <div className="h-1 w-full rounded-full bg-muted overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-[width,background-color] duration-500 ease-out ${
+              progress >= 100 ? "bg-emerald-500" : progress > 50 ? "bg-primary" : "bg-primary/65"
+            }`}
+            style={{ width: `${Math.min(100, Math.max(0, progress))}%` }}
+          />
+        </div>
+      </div>
+
+      {/* Status Pill Fiel & Tempo */}
+      <div className="mt-2 flex items-center justify-between gap-1 text-[10px]">
+        {isAwaitingApproval ? (
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-amber-500/18 text-amber-700 dark:text-amber-300 border border-amber-500/40">
+            <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+            Aguardando Aprovação
+          </span>
+        ) : session.status === "completed" ? (
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/12 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25">
+            <CheckCircle2 className="h-2.5 w-2.5" />
+            Transferido
+          </span>
+        ) : session.status === "abandoned" ? (
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/12 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+            <Clock className="h-2.5 w-2.5" />
+            Sem Resposta
+          </span>
+        ) : session.status === "stopped" ? (
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-500/12 text-rose-600 dark:text-rose-400 border border-rose-500/25">
+            <Square className="h-2.5 w-2.5" />
+            Interrompido
+          </span>
+        ) : session.status === "manual" ? (
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-sky-500/12 text-sky-600 dark:text-sky-400 border border-sky-500/25">
+            <UserCheck className="h-2.5 w-2.5" />
+            Manual
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-primary-soft text-primary border border-primary/25">
+            <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
+            Em Triagem
+          </span>
+        )}
+
+        <span className="text-[9px] text-muted-foreground font-mono shrink-0">{timeAgo}</span>
+      </div>
+
+      {isAwaitingApproval && pendingApproval && (
+        <div className="mt-1.5 px-2 py-1 rounded-lg bg-amber-500/10 border border-amber-500/25 text-[9px] text-amber-800 dark:text-amber-200 flex items-center gap-1 truncate">
+          <Sparkles className="h-2.5 w-2.5 text-amber-600 dark:text-amber-400 shrink-0" />
+          <span className="truncate font-semibold">
+            {pendingApproval.suggestedSectorName || pendingApproval.targetFunnel || "Setor"}
+            {pendingApproval.suggestedOperatorName ? ` → ${pendingApproval.suggestedOperatorName}` : ""}
+          </span>
+        </div>
+      )}
+
+      {/* Bottom Row: Estado real do Bot (respeitando toggle global) */}
+      <div className="mt-2 pt-1.5 border-t border-border/50 flex items-center justify-between text-[9px] text-muted-foreground">
+        <span className="flex items-center gap-1">
+          <span
+            className={`h-1.5 w-1.5 rounded-full ${
+              isAwaitingApproval ? "bg-amber-500" : botRunning ? "bg-emerald-500" : "bg-zinc-400"
+            }`}
+          />
+          <span className="font-semibold">
+            {personaName}:{" "}
+            {isAwaitingApproval
+              ? "pronto p/ aprovação"
+              : botRunning
+                ? "ativo"
+                : sdrEnabled
+                  ? "parado"
+                  : "pausado"}
+          </span>
+        </span>
+
+        <span
+          className={`text-[9px] sm:text-[8px] font-bold transition flex items-center gap-0.5 ${
+            isAwaitingApproval
+              ? "text-amber-700 dark:text-amber-300 opacity-100"
+              : "opacity-100 sm:opacity-0 sm:group-hover:opacity-100 text-primary"
+          }`}
+        >
+          {isAwaitingApproval ? (
+            <>
+              <CheckCircle2 className="h-2.5 w-2.5" /> Aprovar
+            </>
+          ) : (
+            <>
+              <MessageSquare className="h-2.5 w-2.5" /> Ver chat
+            </>
+          )}
+        </span>
+      </div>
+    </div>
+  );
+});
+
+export const SdrKanbanBoard = React.memo(function SdrKanbanBoard({
+  tenant,
   sessions,
   selectedSessionId,
   onSelectSession,
   filterState,
   sdrEnabled = true,
 }: SdrKanbanBoardProps) {
-  const { tenant } = useChat();
-  const persona = getAiPersona(tenant || "");
+  const persona = useMemo(() => getAiPersona(tenant || ""), [tenant]);
 
   const boardContainerRef = useRef<HTMLDivElement>(null);
   const columnRefs = useRef<Partial<Record<KanbanColumnKey, HTMLDivElement | null>>>({});
   const scrollRafRef = useRef<number | null>(null);
 
-  // ── ESTADO: PAN SCROLL HORIZONTAL (CLICAR E ARRASTAR A TELA COM O MOUSE) ──
-  const [isPanning, setIsPanning] = useState(false);
+  // ── PAN SCROLL HORIZONTAL SEM RE-RENDER REACT (atualiza cursor direto no DOM) ──
   const panStateRef = useRef<{
     startX: number;
     startY: number;
@@ -78,13 +306,11 @@ export function SdrKanbanBoard({
     hasMoved: boolean;
   } | null>(null);
 
-  const handleBoardPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+  const handleBoardPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     if (e.pointerType !== "mouse" || e.button !== 0) return;
     const target = e.target as HTMLElement;
 
-    if (
-      target.closest('button, a, input, select, textarea, [role="button"], [data-no-pan]')
-    ) {
+    if (target.closest('button, a, input, select, textarea, [role="button"], [data-no-pan]')) {
       return;
     }
 
@@ -105,7 +331,8 @@ export function SdrKanbanBoard({
 
       if (!panStateRef.current.hasMoved && Math.hypot(dx, dy) > 4) {
         panStateRef.current.hasMoved = true;
-        setIsPanning(true);
+        boardContainerRef.current.classList.remove("sm:cursor-grab");
+        boardContainerRef.current.classList.add("sm:cursor-grabbing");
         document.body.style.userSelect = "none";
       }
 
@@ -120,7 +347,10 @@ export function SdrKanbanBoard({
       window.removeEventListener("pointercancel", handlePointerUp);
 
       document.body.style.userSelect = "";
-      setIsPanning(false);
+      if (boardContainerRef.current) {
+        boardContainerRef.current.classList.remove("sm:cursor-grabbing");
+        boardContainerRef.current.classList.add("sm:cursor-grab");
+      }
 
       if (panStateRef.current?.hasMoved) {
         const suppressClick = (clickEv: MouseEvent) => {
@@ -136,9 +366,9 @@ export function SdrKanbanBoard({
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", handlePointerUp);
     window.addEventListener("pointercancel", handlePointerUp);
-  };
+  }, []);
 
-  const handleBoardWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+  const handleBoardWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement;
     const cardList = target.closest("[data-column-card-list]");
     if (cardList && cardList.scrollHeight > cardList.clientHeight) {
@@ -147,7 +377,7 @@ export function SdrKanbanBoard({
     if (Math.abs(e.deltaY) > Math.abs(e.deltaX) && boardContainerRef.current) {
       boardContainerRef.current.scrollLeft += e.deltaY;
     }
-  };
+  }, []);
 
   // Fonte única de filtragem compartilhada com SdrTab
   const filteredSessions = useMemo(
@@ -181,7 +411,7 @@ export function SdrKanbanBoard({
     return map;
   }, [filteredSessions]);
 
-  // ── INDICADORES DE AVISO PARA COLUNAS FORA DA ÁREA VISÍVEL ──
+  // ── INDICADORES DE AVISO PARA COLUNAS FORA DA ÁREA VISÍVEL (leitura única sem layout thrashing) ──
   const [offscreenIndicators, setOffscreenIndicators] = useState<{
     left: OffscreenIndicatorInfo | null;
     right: OffscreenIndicatorInfo | null;
@@ -189,104 +419,115 @@ export function SdrKanbanBoard({
   const [hasNewRightArrival, setHasNewRightArrival] = useState(false);
   const prevSessionIdsByColRef = useRef<Record<string, Set<string>> | null>(null);
 
-  const updateOffscreenIndicators = useCallback(() => {
-    const container = boardContainerRef.current;
-    if (!container) return;
-
-    const containerRect = container.getBoundingClientRect();
-    const containerWidth = container.clientWidth;
-
-    const metrics: OffscreenColumnMetric[] = [];
-    for (const col of KANBAN_COLUMNS) {
-      const el = columnRefs.current[col.key];
-      if (!el) continue;
-      const rect = el.getBoundingClientRect();
-      metrics.push({
-        key: col.key,
-        label: col.label,
-        accentColor: col.accentColor,
-        count: (sessionsByColumn[col.key] || []).length,
-        visibleLeft: rect.left - containerRect.left,
-        visibleRight: rect.right - containerRect.left,
-      });
-    }
-
-    const next = computeOffscreenKanbanIndicators(containerWidth, metrics);
-    setOffscreenIndicators(next);
-
-    if (!next.right) {
-      setHasNewRightArrival(false);
-    }
-  }, [sessionsByColumn]);
-
-  useEffect(() => {
-    const currentMap: Record<string, Set<string>> = {};
-    for (const col of KANBAN_COLUMNS) {
-      currentMap[col.key] = new Set((sessionsByColumn[col.key] || []).map((s) => s.id));
-    }
-
-    if (prevSessionIdsByColRef.current && boardContainerRef.current) {
+  const measureAndSyncOffscreen = useCallback(
+    (detectNewRightArrivals: boolean) => {
       const container = boardContainerRef.current;
-      const containerRect = container.getBoundingClientRect();
+      if (!container) return;
+
+      const scrollLeft = container.scrollLeft;
       const containerWidth = container.clientWidth;
 
+      const metrics: OffscreenColumnMetric[] = [];
       let detectedNewRight = false;
+      const prevMap = detectNewRightArrivals ? prevSessionIdsByColRef.current : null;
+      const currentMap: Record<string, Set<string>> | null = detectNewRightArrivals ? {} : null;
+
       for (const col of KANBAN_COLUMNS) {
         const el = columnRefs.current[col.key];
+        const colSessions = sessionsByColumn[col.key] || [];
+        if (currentMap) {
+          currentMap[col.key] = new Set(colSessions.map((s) => s.id));
+        }
         if (!el) continue;
-        const rect = el.getBoundingClientRect();
-        const visibleRight = rect.right - containerRect.left;
-        const isHiddenRight = visibleRight > containerWidth + 12;
 
-        if (isHiddenRight) {
-          const prevSet = prevSessionIdsByColRef.current[col.key] || new Set();
-          for (const id of currentMap[col.key]) {
-            if (!prevSet.has(id)) {
-              detectedNewRight = true;
-              break;
+        // Usa offsetLeft/offsetWidth relativos ao scroll container (muito mais leve que getBoundingClientRect em loop)
+        const visibleLeft = el.offsetLeft - scrollLeft;
+        const visibleRight = visibleLeft + el.offsetWidth;
+
+        metrics.push({
+          key: col.key,
+          label: col.label,
+          accentColor: col.accentColor,
+          count: colSessions.length,
+          visibleLeft,
+          visibleRight,
+        });
+
+        if (prevMap && currentMap && visibleRight > containerWidth + 12) {
+          const prevSet = prevMap[col.key];
+          if (prevSet) {
+            for (const id of currentMap[col.key]) {
+              if (!prevSet.has(id)) {
+                detectedNewRight = true;
+                break;
+              }
             }
           }
         }
       }
 
-      if (detectedNewRight) {
+      if (currentMap) {
+        prevSessionIdsByColRef.current = currentMap;
+      }
+
+      const next = computeOffscreenKanbanIndicators(containerWidth, metrics);
+      setOffscreenIndicators((prev) =>
+        isSameIndicator(prev.left, next.left) && isSameIndicator(prev.right, next.right)
+          ? prev
+          : next,
+      );
+
+      if (!next.right) {
+        setHasNewRightArrival((prev) => (prev ? false : prev));
+      } else if (detectedNewRight) {
         setHasNewRightArrival(true);
       }
-    }
+    },
+    [sessionsByColumn],
+  );
 
-    prevSessionIdsByColRef.current = currentMap;
-    updateOffscreenIndicators();
-  }, [sessionsByColumn, updateOffscreenIndicators]);
+  const scheduleMeasure = useCallback(
+    (detectNewRightArrivals: boolean) => {
+      if (scrollRafRef.current !== null) return;
+      scrollRafRef.current = requestAnimationFrame(() => {
+        scrollRafRef.current = null;
+        measureAndSyncOffscreen(detectNewRightArrivals);
+      });
+    },
+    [measureAndSyncOffscreen],
+  );
+
+  useEffect(() => {
+    const rafId = requestAnimationFrame(() => {
+      measureAndSyncOffscreen(true);
+    });
+    return () => cancelAnimationFrame(rafId);
+  }, [measureAndSyncOffscreen]);
 
   useEffect(() => {
     const container = boardContainerRef.current;
     if (!container) return;
 
-    updateOffscreenIndicators();
+    const handleResize = () => scheduleMeasure(false);
 
     const ro =
-      typeof ResizeObserver !== "undefined"
-        ? new ResizeObserver(() => updateOffscreenIndicators())
-        : null;
+      typeof ResizeObserver !== "undefined" ? new ResizeObserver(handleResize) : null;
     ro?.observe(container);
-    window.addEventListener("resize", updateOffscreenIndicators);
+    window.addEventListener("resize", handleResize);
 
     return () => {
       ro?.disconnect();
-      window.removeEventListener("resize", updateOffscreenIndicators);
+      window.removeEventListener("resize", handleResize);
       if (scrollRafRef.current !== null) {
         cancelAnimationFrame(scrollRafRef.current);
+        scrollRafRef.current = null;
       }
     };
-  }, [updateOffscreenIndicators]);
+  }, [scheduleMeasure]);
 
   const handleBoardScroll = useCallback(() => {
-    if (scrollRafRef.current !== null) return;
-    scrollRafRef.current = requestAnimationFrame(() => {
-      scrollRafRef.current = null;
-      updateOffscreenIndicators();
-    });
-  }, [updateOffscreenIndicators]);
+    scheduleMeasure(false);
+  }, [scheduleMeasure]);
 
   const handleScrollToColumn = useCallback(
     (direction: "left" | "right", targetKey: KanbanColumnKey) => {
@@ -319,10 +560,18 @@ export function SdrKanbanBoard({
   );
 
   return (
-    <div className="relative flex flex-col flex-1 h-full min-h-0 shrink-0">
+    <div className="relative flex flex-col flex-1 h-full min-h-0 shrink-0 sdr-enter">
       {/* ── INDICADOR DISCRETO ESQUERDO ── */}
+      <AnimatePresence>
       {offscreenIndicators.left && (
-        <div className="pointer-events-none absolute left-1.5 sm:left-2 top-11 sm:top-1/2 sm:-translate-y-1/2 z-20">
+        <motion.div
+          key="offscreen-left"
+          initial={{ opacity: 0, x: -10, scale: 0.94 }}
+          animate={{ opacity: 1, x: 0, scale: 1 }}
+          exit={{ opacity: 0, x: -10, scale: 0.94 }}
+          transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+          className="pointer-events-none absolute left-1.5 sm:left-2 top-11 sm:top-1/2 sm:-translate-y-1/2 z-20"
+        >
           <SystemTooltip
             content={`${offscreenIndicators.left.targetCount} atendimento(s) em ${offscreenIndicators.left.targetColumnLabel} — Clique para rolar`}
           >
@@ -333,7 +582,7 @@ export function SdrKanbanBoard({
                 offscreenIndicators.left &&
                 handleScrollToColumn("left", offscreenIndicators.left.targetColumnKey)
               }
-              className="pointer-events-auto group/nav flex items-center gap-1 sm:gap-1.5 h-8 px-2 sm:px-2.5 rounded-full bg-card/95 dark:bg-zinc-900/95 backdrop-blur-md border border-border/90 hover:border-primary/60 shadow-md hover:shadow-lg transition-all duration-200 cursor-pointer"
+              className="pointer-events-auto group/nav flex items-center gap-1 sm:gap-1.5 h-8 px-2 sm:px-2.5 rounded-full bg-card/95 dark:bg-zinc-900/95 backdrop-blur-md border border-border/90 hover:border-primary/60 shadow-md hover:shadow-lg active:scale-95 transition-all duration-200 cursor-pointer"
             >
               <ChevronLeft className="h-3.5 w-3.5 text-muted-foreground group-hover/nav:text-primary group-hover/nav:-translate-x-0.5 transition-all shrink-0" />
               <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-full bg-primary text-primary-foreground leading-none">
@@ -344,12 +593,21 @@ export function SdrKanbanBoard({
               </span>
             </button>
           </SystemTooltip>
-        </div>
+        </motion.div>
       )}
+      </AnimatePresence>
 
       {/* ── INDICADOR DISCRETO DIREITO ── */}
+      <AnimatePresence>
       {offscreenIndicators.right && (
-        <div className="pointer-events-none absolute right-1.5 sm:right-2 top-11 sm:top-1/2 sm:-translate-y-1/2 z-20">
+        <motion.div
+          key="offscreen-right"
+          initial={{ opacity: 0, x: 10, scale: 0.94 }}
+          animate={{ opacity: 1, x: 0, scale: 1 }}
+          exit={{ opacity: 0, x: 10, scale: 0.94 }}
+          transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+          className="pointer-events-none absolute right-1.5 sm:right-2 top-11 sm:top-1/2 sm:-translate-y-1/2 z-20"
+        >
           <SystemTooltip
             content={
               offscreenIndicators.right.hiddenColumnsWithCards.length > 1
@@ -364,7 +622,7 @@ export function SdrKanbanBoard({
                 offscreenIndicators.right &&
                 handleScrollToColumn("right", offscreenIndicators.right.targetColumnKey)
               }
-              className={`pointer-events-auto group/nav flex items-center gap-1 sm:gap-1.5 h-8 px-2 sm:px-2.5 rounded-full bg-card/95 dark:bg-zinc-900/95 backdrop-blur-md border shadow-md hover:shadow-lg transition-all duration-200 cursor-pointer ${
+              className={`pointer-events-auto group/nav flex items-center gap-1 sm:gap-1.5 h-8 px-2 sm:px-2.5 rounded-full bg-card/95 dark:bg-zinc-900/95 backdrop-blur-md border shadow-md hover:shadow-lg active:scale-95 transition-all duration-200 cursor-pointer ${
                 hasNewRightArrival
                   ? "border-primary ring-2 ring-primary/30"
                   : "border-border/90 hover:border-primary/60"
@@ -389,8 +647,9 @@ export function SdrKanbanBoard({
               <ChevronRight className="h-3.5 w-3.5 text-muted-foreground group-hover/nav:text-primary group-hover/nav:translate-x-0.5 transition-all shrink-0" />
             </button>
           </SystemTooltip>
-        </div>
+        </motion.div>
       )}
+      </AnimatePresence>
 
       {/* ── QUADRO KANBAN COM PAN SCROLL (9 COLUNAS) ── */}
       <div
@@ -398,9 +657,7 @@ export function SdrKanbanBoard({
         onScroll={handleBoardScroll}
         onPointerDown={handleBoardPointerDown}
         onWheel={handleBoardWheel}
-        className={`w-full flex-1 min-h-0 flex flex-col overflow-x-auto overflow-y-hidden touch-pan-x snap-x snap-mandatory sm:snap-none pb-2 pt-0.5 select-none transition-colors ${
-          isPanning ? "sm:cursor-grabbing" : "sm:cursor-grab"
-        } [&::-webkit-scrollbar]:h-2.5 [&::-webkit-scrollbar-track]:bg-muted/40 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/35 [&::-webkit-scrollbar-thumb:hover]:bg-primary [&::-webkit-scrollbar-thumb]:rounded-full`}
+        className="relative w-full flex-1 min-h-0 flex flex-col overflow-x-auto overflow-y-hidden touch-pan-x snap-x snap-mandatory sm:snap-none pb-2 pt-0.5 select-none transition-colors sm:cursor-grab [&::-webkit-scrollbar]:h-2.5 [&::-webkit-scrollbar-track]:bg-muted/40 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/35 [&::-webkit-scrollbar-thumb:hover]:bg-primary [&::-webkit-scrollbar-thumb]:rounded-full"
       >
         <div className="flex items-stretch gap-2.5 sm:gap-3 min-w-max flex-1 min-h-0 h-full">
           {KANBAN_COLUMNS.map((column) => {
@@ -466,218 +723,17 @@ export function SdrKanbanBoard({
                       </p>
                     </div>
                   ) : (
-                    columnSessions.map((session) => {
-                      const isSelected = selectedSessionId === session.id;
-                      const initials =
-                        session.contactName
-                          ?.split(" ")
-                          .filter(Boolean)
-                          .map((n) => n[0])
-                          .slice(0, 2)
-                          .join("")
-                          .toUpperCase() || "C";
-
-                      const adaptiveProgress = computeIndustrialTriageProgress({
-                        subflow: session.subflow || null,
-                        funnelStage: session.funnelStage || column.key || null,
-                        targetFunnel: session.targetFunnel || null,
-                        collectedData: session.collectedData || {},
-                        company:
-                          session.company && session.company !== "Empresa não informada"
-                            ? session.company
-                            : null,
-                        isCompleted: session.status === "completed",
-                      });
-
-                      const filledCount =
-                        session.triageProgress?.filledCount ?? adaptiveProgress.filledCount;
-                      const totalCount =
-                        session.triageProgress?.totalCount ?? adaptiveProgress.totalCount;
-                      const progress =
-                        session.triageProgress?.percentage ?? adaptiveProgress.percentage;
-
-                      const botRunning = sdrEnabled && session.status === "active";
-                      const isAwaitingApproval = session.status === "awaiting_approval";
-                      const pendingApproval =
-                        session.pendingApproval || session.monitoring?.pendingApproval || null;
-                      const timeAgo = formatTimeAgoFromIso(
-                        session.lastClientMessageAt || session.lastMessageAt || session.startedAt,
-                      );
-
-                      return (
-                        <div
-                          key={session.id}
-                          onClick={() => onSelectSession(session)}
-                          className={`group relative p-2.5 rounded-xl border bg-card text-left transition-all duration-150 cursor-pointer shadow-xs hover:shadow-md hover:border-primary/50 ${
-                            isSelected
-                              ? "border-primary ring-2 ring-primary/20 bg-primary-soft/10"
-                              : isAwaitingApproval
-                                ? "border-amber-500/60 ring-1 ring-amber-500/20 bg-amber-500/[0.04] hover:border-amber-500"
-                                : "border-border/80 hover:bg-card"
-                          }`}
-                        >
-                          {/* Top row: Foto real (com fallback de iniciais) + Nome + Unread */}
-                          <div className="flex items-start justify-between gap-1.5">
-                            <div className="flex items-start gap-2 min-w-0">
-                              {session.contactAvatar ? (
-                                <img
-                                  src={session.contactAvatar}
-                                  alt={session.contactName}
-                                  className="h-7 w-7 rounded-full object-cover border border-primary/25 shrink-0"
-                                  onError={(e) => {
-                                    const img = e.currentTarget;
-                                    img.style.display = "none";
-                                    const fallback = img.nextElementSibling as HTMLElement | null;
-                                    if (fallback) fallback.style.display = "flex";
-                                  }}
-                                />
-                              ) : null}
-                              <div
-                                style={{ display: session.contactAvatar ? "none" : "flex" }}
-                                className="h-7 w-7 rounded-full bg-primary/10 border border-primary/20 items-center justify-center text-primary font-bold text-[10px] shrink-0"
-                              >
-                                {initials}
-                              </div>
-
-                              <div className="min-w-0">
-                                <h5 className="text-[11px] font-bold text-foreground truncate group-hover:text-primary transition leading-tight">
-                                  {session.contactName}
-                                </h5>
-                                <p className="text-[9px] text-muted-foreground truncate leading-tight mt-0.5">
-                                  {session.company && session.company !== "Empresa não informada"
-                                    ? session.company
-                                    : session.phone || "Contato WhatsApp"}
-                                </p>
-                              </div>
-                            </div>
-
-                            {Boolean(session.unreadCount && session.unreadCount > 0) && (
-                              <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded-full bg-primary text-primary-foreground shrink-0 tabular-nums">
-                                {session.unreadCount}
-                              </span>
-                            )}
-                          </div>
-
-                          {/* Middle row: Progresso fiel a Campos X/Y */}
-                          <div className="mt-2.5 space-y-1">
-                            <div className="flex items-center justify-between text-[9px] text-muted-foreground">
-                              <span>
-                                Campos {filledCount}/{totalCount}
-                              </span>
-                              <span className="font-bold text-foreground tabular-nums">
-                                {Math.round(progress)}%
-                              </span>
-                            </div>
-                            <div className="h-1 w-full rounded-full bg-muted overflow-hidden">
-                              <div
-                                className={`h-full rounded-full transition-all duration-300 ${
-                                  progress >= 100
-                                    ? "bg-emerald-500"
-                                    : progress > 50
-                                      ? "bg-primary"
-                                      : "bg-primary/65"
-                                }`}
-                                style={{ width: `${Math.min(100, Math.max(0, progress))}%` }}
-                              />
-                            </div>
-                          </div>
-
-                          {/* Status Pill Fiel & Tempo */}
-                          <div className="mt-2 flex items-center justify-between gap-1 text-[10px]">
-                            {isAwaitingApproval ? (
-                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-amber-500/18 text-amber-700 dark:text-amber-300 border border-amber-500/40">
-                                <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
-                                Aguardando Aprovação
-                              </span>
-                            ) : session.status === "completed" ? (
-                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/12 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25">
-                                <CheckCircle2 className="h-2.5 w-2.5" />
-                                Transferido
-                              </span>
-                            ) : session.status === "abandoned" ? (
-                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/12 text-amber-700 dark:text-amber-300 border border-amber-500/30">
-                                <Clock className="h-2.5 w-2.5" />
-                                Sem Resposta
-                              </span>
-                            ) : session.status === "stopped" ? (
-                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-500/12 text-rose-600 dark:text-rose-400 border border-rose-500/25">
-                                <Square className="h-2.5 w-2.5" />
-                                Interrompido
-                              </span>
-                            ) : session.status === "manual" ? (
-                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-sky-500/12 text-sky-600 dark:text-sky-400 border border-sky-500/25">
-                                <UserCheck className="h-2.5 w-2.5" />
-                                Manual
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-primary-soft text-primary border border-primary/25">
-                                <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
-                                Em Triagem
-                              </span>
-                            )}
-
-                            <span className="text-[9px] text-muted-foreground font-mono shrink-0">
-                              {timeAgo}
-                            </span>
-                          </div>
-
-                          {isAwaitingApproval && pendingApproval && (
-                            <div className="mt-1.5 px-2 py-1 rounded-lg bg-amber-500/10 border border-amber-500/25 text-[9px] text-amber-800 dark:text-amber-200 flex items-center gap-1 truncate">
-                              <Sparkles className="h-2.5 w-2.5 text-amber-600 dark:text-amber-400 shrink-0" />
-                              <span className="truncate font-semibold">
-                                {pendingApproval.suggestedSectorName || pendingApproval.targetFunnel || "Setor"}
-                                {pendingApproval.suggestedOperatorName
-                                  ? ` → ${pendingApproval.suggestedOperatorName}`
-                                  : ""}
-                              </span>
-                            </div>
-                          )}
-
-                          {/* Bottom Row: Estado real do Bot (respeitando toggle global) */}
-                          <div className="mt-2 pt-1.5 border-t border-border/50 flex items-center justify-between text-[9px] text-muted-foreground">
-                            <span className="flex items-center gap-1">
-                              <span
-                                className={`h-1.5 w-1.5 rounded-full ${
-                                  isAwaitingApproval
-                                    ? "bg-amber-500"
-                                    : botRunning
-                                      ? "bg-emerald-500"
-                                      : "bg-zinc-400"
-                                }`}
-                              />
-                              <span className="font-semibold">
-                                {persona.name}:{" "}
-                                {isAwaitingApproval
-                                  ? "pronto p/ aprovação"
-                                  : botRunning
-                                    ? "ativo"
-                                    : sdrEnabled
-                                      ? "parado"
-                                      : "pausado"}
-                              </span>
-                            </span>
-
-                            <span
-                              className={`text-[9px] sm:text-[8px] font-bold transition flex items-center gap-0.5 ${
-                                isAwaitingApproval
-                                  ? "text-amber-700 dark:text-amber-300 opacity-100"
-                                  : "opacity-100 sm:opacity-0 sm:group-hover:opacity-100 text-primary"
-                              }`}
-                            >
-                              {isAwaitingApproval ? (
-                                <>
-                                  <CheckCircle2 className="h-2.5 w-2.5" /> Aprovar
-                                </>
-                              ) : (
-                                <>
-                                  <MessageSquare className="h-2.5 w-2.5" /> Ver chat
-                                </>
-                              )}
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })
+                    columnSessions.map((session) => (
+                      <SdrKanbanCard
+                        key={session.id}
+                        session={session}
+                        columnKey={column.key}
+                        isSelected={selectedSessionId === session.id}
+                        sdrEnabled={sdrEnabled}
+                        personaName={persona.name}
+                        onSelectSession={onSelectSession}
+                      />
+                    ))
                   )}
                 </div>
               </div>
@@ -687,4 +743,4 @@ export function SdrKanbanBoard({
       </div>
     </div>
   );
-}
+});

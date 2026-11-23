@@ -21,8 +21,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { motion, AnimatePresence } from "framer-motion";
 import { SystemTooltip } from "@/components/ui/tooltip";
 import type { SdrTriageSession } from "./SdrTab";
+import { SdrApprovalOptionsSkeleton } from "./SdrSkeletons";
 
 export interface ApprovalOptionsPayload {
   sectors: Array<{ id: string; name: string; operatorIds: string[] }>;
@@ -55,7 +57,7 @@ export interface ApprovalOptionsPayload {
 }
 
 const optionsCacheByTenant = new Map<string, { data: ApprovalOptionsPayload; fetchedAt: number }>();
-const OPTIONS_CACHE_TTL_MS = 60_000;
+const OPTIONS_CACHE_TTL_MS = 180_000;
 
 export interface IndustrialApprovalPanelProps {
   tenantId: string;
@@ -65,7 +67,7 @@ export interface IndustrialApprovalPanelProps {
   className?: string;
 }
 
-export function IndustrialApprovalPanel({
+export const IndustrialApprovalPanel = React.memo(function IndustrialApprovalPanel({
   tenantId,
   personaName,
   session,
@@ -128,8 +130,13 @@ export function IndustrialApprovalPanel({
     }
 
     let cancelled = false;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15_000);
     setLoadingOptions(true);
-    fetch("/api/valentina/triage-approval", { credentials: "include" })
+    fetch("/api/valentina/triage-approval", {
+      credentials: "include",
+      signal: controller.signal,
+    })
       .then((res) => (res.ok ? res.json() : null))
       .then((data: ApprovalOptionsPayload | null) => {
         if (cancelled || !data) return;
@@ -138,11 +145,14 @@ export function IndustrialApprovalPanel({
       })
       .catch(() => {})
       .finally(() => {
+        clearTimeout(timeoutId);
         if (!cancelled) setLoadingOptions(false);
       });
 
     return () => {
       cancelled = true;
+      clearTimeout(timeoutId);
+      controller.abort();
     };
   }, [tenantId, expanded, isAwaitingApproval, isAlreadyDone]);
 
@@ -357,7 +367,16 @@ export function IndustrialApprovalPanel({
         )}
       </div>
 
+      <AnimatePresence initial={false}>
       {expanded && (
+        <motion.div
+          key="approval-controls"
+          initial={{ opacity: 0, height: 0 }}
+          animate={{ opacity: 1, height: "auto" }}
+          exit={{ opacity: 0, height: 0 }}
+          transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+          className="overflow-hidden"
+        >
         <div className="space-y-3 pt-1">
           {pending?.needsReview && (
             <div className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-2 text-[11px] text-amber-800 dark:text-amber-200">
@@ -370,10 +389,7 @@ export function IndustrialApprovalPanel({
           )}
 
           {loadingOptions && !options ? (
-            <div className="flex items-center justify-center py-4 text-xs text-muted-foreground gap-2">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              Carregando setores, operadores e funis...
-            </div>
+            <SdrApprovalOptionsSkeleton />
           ) : (
             <>
               {/* Seletores editáveis pré-preenchidos com a sugestão do Fagner */}
@@ -604,7 +620,9 @@ export function IndustrialApprovalPanel({
             </>
           )}
         </div>
+        </motion.div>
       )}
+      </AnimatePresence>
     </section>
   );
-}
+});

@@ -5298,6 +5298,19 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               console.warn("Falha ao hidratar conversa criada via SSE:", error)
             );
           }
+          if (
+            typeof window !== "undefined" &&
+            message.conversationId &&
+            (message.queue === "automacao" ||
+              message.sender === "bot" ||
+              existingConv?.queue === "automacao")
+          ) {
+            window.dispatchEvent(
+              new CustomEvent("sdr_live_activity", {
+                detail: { conversationId: message.conversationId, source: "new_message" },
+              }),
+            );
+          }
         } else if (data.type === "message_reaction") {
           const { conversationId, messageId, reactions } = data;
           setConversations((prev) =>
@@ -5375,6 +5388,13 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (queueState === "meus" && newOperatorId === currentOperatorIdRef.current) {
             void refreshAssignedChatRef.current(conversationId).catch((error) =>
               console.warn("Falha ao carregar atendimento recebido:", error)
+            );
+          }
+          if (typeof window !== "undefined" && conversationId && queueState === "automacao") {
+            window.dispatchEvent(
+              new CustomEvent("sdr_live_activity", {
+                detail: { conversationId, source: "queue_update" },
+              }),
             );
           }
 

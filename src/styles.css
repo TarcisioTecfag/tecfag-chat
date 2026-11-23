@@ -979,3 +979,119 @@ select:-webkit-autofill {
 }
 
 
+
+/* ── 11. SDR Shimmer Skeleton & Transições Harmoniosas (GPU-only) ── */
+@keyframes sdr-shimmer-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes sdr-sync-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(350%);
+  }
+}
+
+@keyframes sdr-enter {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes sdr-card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.992);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.sdr-skeleton {
+  position: relative;
+  overflow: hidden;
+  background-color: color-mix(in srgb, var(--muted) 88%, var(--foreground) 12%);
+}
+
+.dark .sdr-skeleton,
+html.dark .sdr-skeleton {
+  background-color: color-mix(in srgb, var(--muted) 82%, var(--foreground) 18%);
+}
+
+.sdr-skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--card) 58%, transparent) 48%,
+    transparent 100%
+  );
+  animation: sdr-shimmer-sweep 1.55s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  will-change: transform;
+}
+
+.dark .sdr-skeleton::after,
+html.dark .sdr-skeleton::after {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.08) 48%,
+    transparent 100%
+  );
+}
+
+.sdr-sync-bar {
+  position: relative;
+  overflow: hidden;
+}
+
+.sdr-sync-bar::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  left: 0;
+  width: 34%;
+  border-radius: 9999px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--primary) 50%,
+    transparent 100%
+  );
+  animation: sdr-sync-slide 1.25s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  will-change: transform;
+}
+
+.sdr-enter {
+  animation: sdr-enter 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.sdr-card-enter {
+  animation: sdr-card-enter 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sdr-skeleton::after,
+  .sdr-sync-bar::after,
+  .sdr-enter,
+  .sdr-card-enter {
+    animation: none !important;
+  }
+}

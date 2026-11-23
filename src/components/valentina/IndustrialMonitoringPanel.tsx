@@ -1,3 +1,4 @@
+import React from "react";
 import type { IndustrialMonitoring } from "@/lib/triage/industrial-monitor";
 import { SiteContextPanel } from "./SiteContextPanel";
 import { VtexEvidencePanel } from "./VtexEvidencePanel";
@@ -29,7 +30,7 @@ const fields: Record<string, string> = {
   application: "Aplicação",
   production: "Produção",
 };
-export function IndustrialMonitoringPanel({
+export const IndustrialMonitoringPanel = React.memo(function IndustrialMonitoringPanel({
   monitoring: m,
   className,
 }: {
@@ -95,4 +96,4 @@ export function IndustrialMonitoringPanel({
       )}
     </section>
   );
-}
+});

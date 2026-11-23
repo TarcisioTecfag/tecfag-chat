@@ -1,3 +1,5 @@
+import crypto from "node:crypto";
+import zlib from "node:zlib";
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../db";
 import {
@@ -25,14 +27,89 @@ import {
   applyKnownClientConfirmationToData,
   isValidKnownCompanyName,
 } from "../../../lib/triage/known-client-lookup";
-import { lookupKnownClientByPhoneOrContact } from "../../../lib/triage/known-client-db";
+import {
+  batchLookupKnownClientsByPhoneOrContact,
+  lookupKnownClientByPhoneOrContact,
+} from "../../../lib/triage/known-client-db";
 import { syncContactDataFromTriage } from "../../../lib/valentina/sdr-engine";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Headers": "Content-Type, If-None-Match",
+  "Access-Control-Expose-Headers": "ETag",
 };
+
+/**
+ * Gera ETag fraco estável para o payload do SDR (ignorando campos voláteis como `generatedAt`),
+ * permitindo respostas `304 Not Modified` (0 bytes) em internet lenta quando nada mudou.
+ */
+export function computeStableSdrEtag(jsonForHash: string): string {
+  const digest = crypto.createHash("sha1").update(jsonForHash).digest("hex").slice(0, 20);
+  return `W/"sdr-${digest}"`;
+}
+
+function etagMatchesHeader(ifNoneMatch: string | null, currentEtag: string): boolean {
+  if (!ifNoneMatch) return false;
+  const normalize = (v: string) => v.trim().replace(/^W\//i, "");
+  const target = normalize(currentEtag);
+  return ifNoneMatch
+    .split(",")
+    .some((part) => {
+      const clean = part.trim();
+      return clean === "*" || normalize(clean) === target;
+    });
+}
+
+export function buildSdrJsonResponse(
+  request: Request,
+  payload: unknown,
+  etagPayload?: unknown,
+): Response {
+  const bodyJson = JSON.stringify(payload);
+  const hashJson = etagPayload !== undefined ? JSON.stringify(etagPayload) : bodyJson;
+  const etag = computeStableSdrEtag(hashJson);
+
+  if (etagMatchesHeader(request.headers.get("if-none-match"), etag)) {
+    return new Response(null, {
+      status: 304,
+      headers: {
+        ...corsHeaders,
+        ETag: etag,
+        "Cache-Control": "private, no-cache",
+        Vary: "Accept-Encoding",
+      },
+    });
+  }
+
+  const acceptEncoding = (request.headers.get("accept-encoding") || "").toLowerCase();
+  const rawBuffer = Buffer.from(bodyJson, "utf8");
+  if (acceptEncoding.includes("gzip") && rawBuffer.byteLength > 1024) {
+    const gzipped = zlib.gzipSync(rawBuffer, { level: 6 });
+    return new Response(gzipped, {
+      status: 200,
+      headers: {
+        ...corsHeaders,
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Encoding": "gzip",
+        ETag: etag,
+        "Cache-Control": "private, no-cache",
+        Vary: "Accept-Encoding",
+      },
+    });
+  }
+
+  return new Response(rawBuffer, {
+    status: 200,
+    headers: {
+      ...corsHeaders,
+      "Content-Type": "application/json; charset=utf-8",
+      ETag: etag,
+      "Cache-Control": "private, no-cache",
+      Vary: "Accept-Encoding",
+    },
+  });
+}
 
 function canAccessSdrApi(session: {
   operator: { role: string };
@@ -202,29 +279,33 @@ export const Route = createFileRoute("/api/valentina/sdr")({
         const url = new URL(request.url);
         const onDemandConversationId = (url.searchParams.get("conversationId") || "").trim();
         const selectedConversationId = (url.searchParams.get("selectedConversationId") || "").trim();
+        const includeMessagesParam = (url.searchParams.get("includeMessages") || "").trim().toLowerCase();
+        const includeMessages = includeMessagesParam !== "0" && includeMessagesParam !== "false";
 
-        // Mapa de operadores do tenant para identificar nome e foto nas mensagens de operador
+        // Mapa de operadores do tenant (populado em paralelo com as queries principais)
         const operatorsById = new Map<string, { id: string; name: string; avatar: string | null }>();
         const operatorsByName = new Map<string, { id: string; name: string; avatar: string | null }>();
-        try {
-          const tenantOps = await db
-            .select({
-              id: operators.id,
-              name: operators.name,
-              avatar: operators.avatar,
-            })
-            .from(operators)
-            .where(eq(operators.tenantId, tenantId));
-
+        const populateOperators = (tenantOps: Array<{ id: string; name: string; avatar: string | null }>) => {
           for (const op of tenantOps) {
             operatorsById.set(op.id, op);
             if (op.name) {
               operatorsByName.set(op.name.trim().toLowerCase(), op);
             }
           }
-        } catch (err) {
-          console.warn("[api/valentina/sdr] Erro ao carregar operadores do tenant:", err);
-        }
+        };
+        const fetchTenantOperators = () =>
+          db
+            .select({
+              id: operators.id,
+              name: operators.name,
+              avatar: operators.avatar,
+            })
+            .from(operators)
+            .where(eq(operators.tenantId, tenantId))
+            .catch((err) => {
+              console.warn("[api/valentina/sdr] Erro ao carregar operadores do tenant:", err);
+              return [] as Array<{ id: string; name: string; avatar: string | null }>;
+            });
 
         const resolveConversationOperator = (
           convOperatorId?: string | null,
@@ -340,34 +421,40 @@ export const Route = createFileRoute("/api/valentina/sdr")({
           });
         };
 
+        const messageSelectColumns = {
+          id: messages.id,
+          senderType: messages.senderType,
+          senderName: messages.senderName,
+          content: messages.content,
+          sentAt: messages.sentAt,
+          isInternalNote: messages.isInternalNote,
+          mediaUrl: messages.mediaUrl,
+          mediaType: messages.mediaType,
+          fileName: messages.fileName,
+          metaDetails: messages.metaDetails,
+        };
+
         // ── MODO SOB DEMANDA: Mensagens completas de 1 conversa específica ──────
         if (onDemandConversationId) {
           try {
-            const [conv] = await db
-              .select()
-              .from(conversations)
-              .where(
-                and(
-                  eq(conversations.id, onDemandConversationId),
-                  eq(conversations.tenantId, tenantId),
-                ),
-              )
-              .limit(1);
-
-            if (!conv) {
-              return new Response(
-                JSON.stringify({ error: "Conversa não encontrada.", code: "NOT_FOUND" }),
-                { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-              );
-            }
-
-            const [contact, recentMsgsDesc] = await Promise.all([
-              db.query.contacts.findFirst({
-                where: (t, { eq: dEq, and: dAnd }) =>
-                  dAnd(dEq(t.id, conv.contactId), dEq(t.tenantId, tenantId)),
-              }),
+            const [convRows, tenantOps, recentMsgsDesc] = await Promise.all([
               db
-                .select()
+                .select({
+                  id: conversations.id,
+                  contactId: conversations.contactId,
+                  operatorId: conversations.operatorId,
+                })
+                .from(conversations)
+                .where(
+                  and(
+                    eq(conversations.id, onDemandConversationId),
+                    eq(conversations.tenantId, tenantId),
+                  ),
+                )
+                .limit(1),
+              fetchTenantOperators(),
+              db
+                .select(messageSelectColumns)
                 .from(messages)
                 .where(
                   and(
@@ -380,24 +467,36 @@ export const Route = createFileRoute("/api/valentina/sdr")({
                 .limit(200),
             ]);
 
+            const conv = convRows[0];
+            if (!conv) {
+              return new Response(
+                JSON.stringify({ error: "Conversa não encontrada.", code: "NOT_FOUND" }),
+                { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+              );
+            }
+
+            populateOperators(tenantOps);
+
+            const [contactRow] = conv.contactId
+              ? await db
+                  .select({ name: contacts.name })
+                  .from(contacts)
+                  .where(and(eq(contacts.id, conv.contactId), eq(contacts.tenantId, tenantId)))
+                  .limit(1)
+              : [];
+
             const realMsgs = recentMsgsDesc.reverse();
             const defaultOp = conv.operatorId ? operatorsById.get(conv.operatorId) || null : null;
             const formattedMessages = formatConversationMessages(
               realMsgs,
               defaultOp,
-              contact?.name || "Contato WhatsApp",
+              contactRow?.name || "Contato WhatsApp",
             );
 
-            return new Response(
-              JSON.stringify({
-                conversationId: onDemandConversationId,
-                messages: formattedMessages,
-              }),
-              {
-                status: 200,
-                headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-store" },
-              },
-            );
+            return buildSdrJsonResponse(request, {
+              conversationId: onDemandConversationId,
+              messages: formattedMessages,
+            });
           } catch (err) {
             console.error("[api/valentina/sdr] Erro ao carregar mensagens sob demanda:", err);
             return new Response(
@@ -407,10 +506,11 @@ export const Route = createFileRoute("/api/valentina/sdr")({
           }
         }
 
-        // ── MODO LISTAGEM OTIMIZADO (Batch Queries — Zero N+1) ──────────────────
+        // ── MODO LISTAGEM OTIMIZADO (Batch Queries — Zero N+1 + ETag + Gzip) ────
         let config = { enabled: false };
 
-        const [dbConfig, flowStates, automacaoConvs, monitoringSummary] = await Promise.all([
+        const [tenantOps, dbConfig, flowStates, automacaoConvs, monitoringSummary] = await Promise.all([
+          fetchTenantOperators(),
           db.query.agentConfigs
             .findFirst({
               where: (table, { eq: dEq, and: dAnd }) =>
@@ -433,20 +533,38 @@ export const Route = createFileRoute("/api/valentina/sdr")({
             return [] as (typeof agentFlowStates.$inferSelect)[];
           }),
           db
-            .select()
+            .select({
+              id: conversations.id,
+              contactId: conversations.contactId,
+              operatorId: conversations.operatorId,
+              queueState: conversations.queueState,
+              unreadCount: conversations.unreadCount,
+              lastMessageTime: conversations.lastMessageTime,
+              createdAt: conversations.createdAt,
+            })
             .from(conversations)
             .where(and(eq(conversations.tenantId, tenantId), eq(conversations.queueState, "automacao")))
             .orderBy(desc(conversations.lastMessageTime))
             .limit(30)
             .catch((err) => {
               console.warn("[api/valentina/sdr] Erro ao buscar conversations automacao:", err);
-              return [] as (typeof conversations.$inferSelect)[];
+              return [] as Array<{
+                id: string;
+                contactId: string;
+                operatorId: string | null;
+                queueState: string;
+                unreadCount: number;
+                lastMessageTime: Date | null;
+                createdAt: Date;
+              }>;
             }),
           readAgentMonitoringSummary(db, tenantId).catch((error) => {
             console.error("[api/valentina/sdr] Métricas indisponíveis:", error);
             return { available: false as const, reason: "Métricas temporariamente indisponíveis." };
           }),
         ]);
+
+        populateOperators(tenantOps);
 
         if (dbConfig) {
           config = { enabled: dbConfig.enabled === 1 };
@@ -503,8 +621,30 @@ export const Route = createFileRoute("/api/valentina/sdr")({
         ];
 
         // Batch fetch conversations, contacts, linked deals e última msg (any + client)
-        const convById = new Map<string, typeof conversations.$inferSelect>();
-        const contactById = new Map<string, typeof contacts.$inferSelect>();
+        type SlimConvRow = {
+          id: string;
+          contactId: string;
+          operatorId: string | null;
+          queueState: string;
+          unreadCount: number;
+          lastMessageTime: Date | null;
+          createdAt: Date;
+        };
+        type SlimContactRow = {
+          id: string;
+          name: string;
+          phone: string | null;
+          avatar: string | null;
+          mainChannel: string | null;
+          walletOperatorId: string | null;
+          accountId: string | null;
+          cnpj: string | null;
+          cpf: string | null;
+          cnpjDetails: unknown;
+          customFields: unknown;
+        };
+        const convById = new Map<string, SlimConvRow>();
+        const contactById = new Map<string, SlimContactRow>();
         const dealByConvId = new Map<
           string,
           { dealId: string; dealTitle: string; createdAt?: string; operatorId?: string | null; action?: string }
@@ -519,7 +659,15 @@ export const Route = createFileRoute("/api/valentina/sdr")({
         if (allConvIds.length > 0) {
           const [convRows, convDealRows, lastAnyRows, lastClientRows] = await Promise.all([
             db
-              .select()
+              .select({
+                id: conversations.id,
+                contactId: conversations.contactId,
+                operatorId: conversations.operatorId,
+                queueState: conversations.queueState,
+                unreadCount: conversations.unreadCount,
+                lastMessageTime: conversations.lastMessageTime,
+                createdAt: conversations.createdAt,
+              })
               .from(conversations)
               .where(and(eq(conversations.tenantId, tenantId), inArray(conversations.id, allConvIds))),
             db
@@ -607,7 +755,19 @@ export const Route = createFileRoute("/api/valentina/sdr")({
             const contactIdArr = [...contactIds];
             const [contactRows, contactDealRows] = await Promise.all([
               db
-                .select()
+                .select({
+                  id: contacts.id,
+                  name: contacts.name,
+                  phone: contacts.phone,
+                  avatar: contacts.avatar,
+                  mainChannel: contacts.mainChannel,
+                  walletOperatorId: contacts.walletOperatorId,
+                  accountId: contacts.accountId,
+                  cnpj: contacts.cnpj,
+                  cpf: contacts.cpf,
+                  cnpjDetails: contacts.cnpjDetails,
+                  customFields: contacts.customFields,
+                })
                 .from(contacts)
                 .where(and(eq(contacts.tenantId, tenantId), inArray(contacts.id, contactIdArr))),
               !isIndustrial
@@ -652,6 +812,52 @@ export const Route = createFileRoute("/api/valentina/sdr")({
             }
           }
         }
+
+        // Batch lookup de clientes recorrentes (Zero N+1 — substitui até ~500 queries sequenciais por 1–3 queries em lote)
+        const knownClientsBatchInput: Array<{
+          key: string;
+          contactId?: string | null;
+          phone?: string | null;
+          conversationId?: string | null;
+          previousTriages?: Array<Record<string, any>> | null;
+        }> = [];
+        if (isIndustrial) {
+          for (const fs of primaryFlows) {
+            const meta = (fs.metadata as Record<string, any>) || {};
+            if (meta.knownClient) continue;
+            const conv = convById.get(fs.conversationId) || null;
+            const contact = conv ? contactById.get(conv.contactId) || null : null;
+            const previousTriages = [
+              ...(Array.isArray(meta.previousTriages) ? meta.previousTriages : []),
+              ...(previousTriagesByConv.get(fs.conversationId) || []),
+            ];
+            knownClientsBatchInput.push({
+              key: `flow:${fs.id}`,
+              contactId: conv?.contactId || null,
+              phone: contact?.phone || null,
+              conversationId: fs.conversationId,
+              previousTriages,
+            });
+          }
+          for (const c of orphanAutoConvs) {
+            const contact = contactById.get(c.contactId) || null;
+            knownClientsBatchInput.push({
+              key: `orphan:${c.id}`,
+              contactId: c.contactId,
+              phone: contact?.phone || null,
+              conversationId: c.id,
+            });
+          }
+        }
+
+        const batchKnownClientsByKey =
+          isIndustrial && knownClientsBatchInput.length > 0
+            ? await batchLookupKnownClientsByPhoneOrContact(
+                tenantId,
+                knownClientsBatchInput,
+                contactById,
+              )
+            : new Map();
 
         // Pré-ordenar e determinar qual conversa única terá as 200 mensagens completas carregadas agora
         const sessions: any[] = [];
@@ -734,13 +940,7 @@ export const Route = createFileRoute("/api/valentina/sdr")({
             ];
 
             const knownClient = isIndustrial
-              ? meta.knownClient ||
-                (await lookupKnownClientByPhoneOrContact(tenantId, {
-                  contactId: conv?.contactId || null,
-                  phone: contact?.phone || null,
-                  conversationId: fs.conversationId,
-                  previousTriages,
-                }))
+              ? meta.knownClient || batchKnownClientsByKey.get(`flow:${fs.id}`) || null
               : null;
 
             const companyVal =
@@ -888,11 +1088,7 @@ export const Route = createFileRoute("/api/valentina/sdr")({
               : lastMessageAtIso;
 
             const knownClient = isIndustrial
-              ? await lookupKnownClientByPhoneOrContact(tenantId, {
-                  contactId: c.contactId,
-                  phone: contact?.phone || null,
-                  conversationId: c.id,
-                })
+              ? batchKnownClientsByKey.get(`orphan:${c.id}`) || null
               : null;
 
             const rawChannel = contact?.mainChannel || "whatsapp";
@@ -950,16 +1146,17 @@ export const Route = createFileRoute("/api/valentina/sdr")({
           return tsB - tsA;
         });
 
-        // Carregar mensagens completas APENAS da conversa selecionada (ou 1ª da lista)
-        const targetMsgSession =
-          (selectedConversationId
-            ? sessions.find((s) => s.conversationId === selectedConversationId)
-            : null) || sessions[0];
+        // Carregar mensagens completas APENAS quando solicitado (modo Ao Vivo) e apenas da conversa selecionada
+        const targetMsgSession = includeMessages
+          ? (selectedConversationId
+              ? sessions.find((s) => s.conversationId === selectedConversationId)
+              : null) || sessions[0]
+          : null;
 
         if (targetMsgSession) {
           try {
             const recentMsgsDesc = await db
-              .select()
+              .select(messageSelectColumns)
               .from(messages)
               .where(
                 and(
@@ -987,10 +1184,17 @@ export const Route = createFileRoute("/api/valentina/sdr")({
           delete s._defaultOperator;
         }
 
-        return new Response(JSON.stringify({ config, sessions, monitoringSummary }), {
-          status: 200,
-          headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-store" },
-        });
+        // Excluir `generatedAt` do hash ETag para que polls sem alterações retornem `304 Not Modified` (0 bytes)
+        const stableMonitoringForEtag =
+          monitoringSummary && "generatedAt" in monitoringSummary
+            ? { ...monitoringSummary, generatedAt: "" }
+            : monitoringSummary;
+
+        return buildSdrJsonResponse(
+          request,
+          { config, sessions, monitoringSummary },
+          { config, sessions, monitoringSummary: stableMonitoringForEtag },
+        );
       },
 
       // ── POST: Salvar configurações do SDR, Vincular Cliente Recorrente ou Interromper IA ──

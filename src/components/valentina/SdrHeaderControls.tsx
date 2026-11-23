@@ -65,7 +65,7 @@ const PERIOD_OPTIONS: Array<{ id: SdrPeriodFilter; label: string }> = [
   { id: "30dias", label: "30 dias" },
 ];
 
-export function SdrHeaderControls({
+export const SdrHeaderControls = React.memo(function SdrHeaderControls({
   filterState,
   onFilterChange,
   viewMode,
@@ -151,34 +151,48 @@ export function SdrHeaderControls({
   return (
     <div className="flex flex-col sm:flex-row sm:items-center gap-2 flex-wrap w-full sm:w-auto">
       <div className="flex items-center justify-between gap-1.5 w-full sm:w-auto sm:contents">
-        {/* ── ALTERNADOR DE VISÃO: KANBAN | AO VIVO ── */}
+        {/* ── ALTERNADOR DE VISÃO: KANBAN | AO VIVO (com pill deslizante suave) ── */}
         <div className="inline-flex items-center rounded-lg border border-border bg-muted/40 p-0.5 shadow-2xs shrink-0">
           <SystemTooltip content="Visualizar quadro Kanban de funis em tela cheia">
             <button
               type="button"
               onClick={() => onViewModeChange("kanban")}
-              className={`px-2.5 py-1.5 sm:py-1 rounded-md text-[11px] font-bold transition flex items-center gap-1.5 cursor-pointer ${
+              className={`relative px-2.5 py-1.5 sm:py-1 rounded-md text-[11px] font-bold transition-colors duration-200 flex items-center gap-1.5 cursor-pointer active:scale-[0.97] ${
                 viewMode === "kanban"
-                  ? "bg-primary text-primary-foreground shadow-2xs"
+                  ? "text-primary-foreground"
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              <Kanban className="h-3.5 w-3.5" />
-              <span>Kanban</span>
+              {viewMode === "kanban" && (
+                <motion.span
+                  layoutId="sdr-view-mode-pill"
+                  transition={{ type: "spring", stiffness: 460, damping: 34 }}
+                  className="absolute inset-0 rounded-md bg-primary shadow-2xs"
+                />
+              )}
+              <Kanban className="relative z-10 h-3.5 w-3.5" />
+              <span className="relative z-10">Kanban</span>
             </button>
           </SystemTooltip>
           <SystemTooltip content="Visualizar Triagens Ao Vivo e chat compilado em tela cheia">
             <button
               type="button"
               onClick={() => onViewModeChange("live")}
-              className={`px-2.5 py-1.5 sm:py-1 rounded-md text-[11px] font-bold transition flex items-center gap-1.5 cursor-pointer ${
+              className={`relative px-2.5 py-1.5 sm:py-1 rounded-md text-[11px] font-bold transition-colors duration-200 flex items-center gap-1.5 cursor-pointer active:scale-[0.97] ${
                 viewMode === "live"
-                  ? "bg-primary text-primary-foreground shadow-2xs"
+                  ? "text-primary-foreground"
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              <MessageSquare className="h-3.5 w-3.5" />
-              <span>Ao Vivo</span>
+              {viewMode === "live" && (
+                <motion.span
+                  layoutId="sdr-view-mode-pill"
+                  transition={{ type: "spring", stiffness: 460, damping: 34 }}
+                  className="absolute inset-0 rounded-md bg-primary shadow-2xs"
+                />
+              )}
+              <MessageSquare className="relative z-10 h-3.5 w-3.5" />
+              <span className="relative z-10">Ao Vivo</span>
             </button>
           </SystemTooltip>
         </div>
@@ -542,4 +556,4 @@ export function SdrHeaderControls({
       </div>
     </div>
   );
-}
+});

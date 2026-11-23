@@ -2,7 +2,14 @@
 // 📋 SDR TAB — Monitoramento em Tempo Real do Agente SDR Fagner / Valentina
 // ══════════════════════════════════════════════════════════════════════════════
 
-import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useMemo,
+  useDeferredValue,
+} from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -52,11 +59,19 @@ import {
   filterSdrSessions,
   getSessionActivityTimestamp,
   hasActiveSdrFilters,
+  mergeSessionsPreservingRefs,
+  computeAdaptiveSdrPollDelayMs,
 } from "./sdr-kanban-data";
 import type { IndustrialMonitoring } from "@/lib/triage/industrial-monitor";
 import type { AgentMonitoringSummary } from "@/lib/triage/agent-monitor-store";
 import { IndustrialMonitoringPanel } from "./IndustrialMonitoringPanel";
 import { IndustrialApprovalPanel } from "./IndustrialApprovalPanel";
+import {
+  SdrKanbanSkeleton,
+  SdrLiveListSkeleton,
+  SdrChatMessagesSkeleton,
+  SdrRightPanelSkeleton,
+} from "./SdrSkeletons";
 import { getAdaptiveIndustrialCollectedData } from "@/lib/triage/industrial-policy";
 import {
   useAudioPlaybackRate,
@@ -433,7 +448,13 @@ export function buildSdrTimelineItems(
   return items;
 }
 
-function AudioPlayerBubble({ src, isBot }: { src: string; isBot: boolean }) {
+const AudioPlayerBubble = React.memo(function AudioPlayerBubble({
+  src,
+  isBot,
+}: {
+  src: string;
+  isBot: boolean;
+}) {
   const audioRef = React.useRef<HTMLAudioElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [duration, setDuration] = useState<number>(0);
@@ -465,6 +486,7 @@ function AudioPlayerBubble({ src, isBot }: { src: string; isBot: boolean }) {
       <audio
         ref={audioRef}
         src={src}
+        preload="metadata"
         onPlay={() => syncAudioElement()}
         onLoadedMetadata={() => {
           applyAudioPlaybackRate(audioRef.current, playbackRate);
@@ -545,7 +567,7 @@ function AudioPlayerBubble({ src, isBot }: { src: string; isBot: boolean }) {
       </div>
     </div>
   );
-}
+});
 
 const VALEM_SDR_FIELDS = [
   "NOME COMPLETO",
@@ -707,7 +729,7 @@ function getMergedCollectedData(
   return merged;
 }
 
-function StatusBadge({ status }: { status: SdrSessionStatus }) {
+const StatusBadge = React.memo(function StatusBadge({ status }: { status: SdrSessionStatus }) {
   const styles: Record<SdrSessionStatus, string> = {
     active: "bg-primary-soft text-primary border-primary/25",
     awaiting_approval:
@@ -740,7 +762,535 @@ function StatusBadge({ status }: { status: SdrSessionStatus }) {
       {labels[status]}
     </span>
   );
+});
+
+// ── Cache Stale-While-Revalidate em sessionStorage (isolado por tenant) ───────
+const SDR_CACHE_TTL_MS = 10 * 60 * 1000;
+
+interface SdrCachedSnapshot {
+  savedAt: number;
+  sdrEnabled?: boolean;
+  monitoringSummary: AgentMonitoringSummary | null;
+  sessions: SdrTriageSession[];
 }
+
+function getSdrCacheKey(tenantId: string): string {
+  return `sdr_swr_cache_v1:${tenantId}`;
+}
+
+function readSdrCachedSnapshot(tenantId: string | null | undefined): SdrCachedSnapshot | null {
+  if (!tenantId || typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(getSdrCacheKey(tenantId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as SdrCachedSnapshot;
+    if (!parsed || typeof parsed.savedAt !== "number" || !Array.isArray(parsed.sessions)) {
+      return null;
+    }
+    if (Date.now() - parsed.savedAt > SDR_CACHE_TTL_MS) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeSdrCachedSnapshot(
+  tenantId: string | null | undefined,
+  snapshot: SdrCachedSnapshot,
+): void {
+  if (!tenantId || typeof window === "undefined") return;
+  try {
+    // Salva snapshot enxuto (sem as 200 mensagens completas para caber em poucos KB no sessionStorage)
+    const compactSessions = snapshot.sessions.slice(0, 100).map((s) => ({
+      ...s,
+      messagesLoaded: false,
+      messages: [],
+    }));
+    window.sessionStorage.setItem(
+      getSdrCacheKey(tenantId),
+      JSON.stringify({
+        savedAt: snapshot.savedAt,
+        sdrEnabled: snapshot.sdrEnabled,
+        monitoringSummary: snapshot.monitoringSummary,
+        sessions: compactSessions,
+      }),
+    );
+  } catch {
+    // Ignora erros de quota/modo privado sem impactar a UI
+  }
+}
+
+function getNetworkHints(): { effectiveType: string | null; saveData: boolean } {
+  if (typeof navigator === "undefined") return { effectiveType: null, saveData: false };
+  const conn = (navigator as any).connection || (navigator as any).mozConnection || (navigator as any).webkitConnection;
+  if (!conn) return { effectiveType: null, saveData: false };
+  return {
+    effectiveType: typeof conn.effectiveType === "string" ? conn.effectiveType : null,
+    saveData: Boolean(conn.saveData),
+  };
+}
+
+interface SdrLiveSessionItemProps {
+  session: SdrTriageSession;
+  isSelected: boolean;
+  isCompactViewport: boolean;
+  isIndustrial: boolean;
+  onSelect: (session: SdrTriageSession) => void;
+}
+
+const SdrLiveSessionItem = React.memo(function SdrLiveSessionItem({
+  session,
+  isSelected,
+  isCompactViewport,
+  isIndustrial,
+  onSelect,
+}: SdrLiveSessionItemProps) {
+  let completedCount: number;
+  let totalCount: number;
+  let progressPct: number;
+
+  if (session.triageProgress) {
+    completedCount = session.triageProgress.filledCount;
+    totalCount = session.triageProgress.totalCount;
+    progressPct = Math.round(session.triageProgress.percentage);
+  } else {
+    const mergedData = getMergedCollectedData(session.collectedData, isIndustrial, session);
+    completedCount = Object.values(mergedData).filter((d) => d.status === "filled").length;
+    totalCount = Object.keys(mergedData).length;
+    progressPct = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+  }
+
+  const hasPreviousCycles =
+    (session.previousTriages?.length || 0) > 0 || Boolean(session.knownClient?.companyName);
+
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(session)}
+      className={`w-full text-left px-4 py-3 border-b border-line transition-[background-color,border-color,transform] duration-200 ease-out active:scale-[0.995] cursor-pointer [contain:layout_style] ${
+        isSelected && !isCompactViewport
+          ? "bg-primary-soft border-l-2 border-l-primary"
+          : session.status === "awaiting_approval"
+            ? "bg-amber-500/[0.06] border-l-2 border-l-amber-500 hover:bg-amber-500/10"
+            : "hover:bg-muted/50"
+      }`}
+    >
+      <div className="flex items-center justify-between mb-1 gap-1.5">
+        <span className="text-xs font-bold text-foreground truncate">{session.contactName}</span>
+        <div className="flex items-center gap-1 shrink-0">
+          {hasPreviousCycles && (
+            <span className="px-1.5 py-0.5 rounded-md bg-muted border border-border text-[9px] font-bold text-muted-foreground">
+              Recorrente
+            </span>
+          )}
+          <StatusBadge status={session.status} />
+        </div>
+      </div>
+      <p className="text-[10px] text-muted-foreground truncate">
+        {session.company} {session.phone ? `· ${session.phone}` : ""}
+      </p>
+      <div className="mt-2">
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-[10px] text-muted-foreground">
+            Campos {completedCount}/{totalCount}
+          </span>
+          <span className="text-[10px] font-semibold text-primary tabular-nums">
+            {progressPct}%
+          </span>
+        </div>
+        <div className="w-full h-1 rounded-full bg-muted overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-[width,background-color] duration-500 ease-out ${
+              progressPct >= 100 ? "bg-emerald-500" : "bg-primary"
+            }`}
+            style={{ width: `${progressPct}%` }}
+          />
+        </div>
+      </div>
+    </button>
+  );
+});
+
+interface SdrTimelineRowProps {
+  item: SdrTimelineItem;
+  tenant: string | null | undefined;
+  personaName: string;
+  personaGender: "female" | "male";
+  personaCompany: string;
+  personaAvatarUrl: string;
+  personaAvatarLightUrl?: string;
+  personaAvatarDarkUrl?: string;
+  contactName: string;
+  contactAvatar?: string | null;
+  agentName: string | null;
+  agentAvatar: string | null;
+  onPreviewMedia: (media: { url: string; title: string }) => void;
+}
+
+const SdrTimelineRow = React.memo(function SdrTimelineRow({
+  item,
+  tenant,
+  personaName,
+  personaGender,
+  personaCompany,
+  personaAvatarUrl,
+  personaAvatarLightUrl,
+  personaAvatarDarkUrl,
+  contactName,
+  contactAvatar,
+  agentName,
+  agentAvatar,
+  onPreviewMedia,
+}: SdrTimelineRowProps) {
+  if (item.type === "date-divider") {
+    return (
+      <div className="flex items-center gap-3 my-3 select-none">
+        <div className="h-px flex-1 bg-border/70" />
+        <span className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-muted/80 border border-border text-[10px] font-bold text-muted-foreground tracking-wide shadow-2xs">
+          <Calendar className="h-2.5 w-2.5 text-primary/80" />
+          {item.label}
+        </span>
+        <div className="h-px flex-1 bg-border/70" />
+      </div>
+    );
+  }
+
+  if (item.type === "system-event") {
+    return (
+      <div className="flex justify-center my-2 select-none">
+        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-muted/60 border border-border/80 text-[10px] font-semibold text-muted-foreground max-w-[85%] text-center">
+          <Info className="h-3 w-3 text-muted-foreground/80 shrink-0" />
+          <span className="break-words">{item.text}</span>
+          <span className="text-[9px] opacity-70 shrink-0 font-mono">{item.time}</span>
+        </span>
+      </div>
+    );
+  }
+
+  if (item.type === "cycle-divider") {
+    const isPrev = item.variant === "previous-triage";
+    const isHandoff = item.variant === "operator-handoff";
+
+    return (
+      <div className="flex items-center gap-3 my-3.5 select-none">
+        <div className="h-px flex-1 bg-border" />
+        <div
+          className={`flex flex-col items-center text-center px-3.5 py-1.5 rounded-xl border shadow-2xs ${
+            isPrev
+              ? "bg-muted/70 border-border text-muted-foreground"
+              : isHandoff
+                ? "bg-primary-soft/60 border-primary/25 text-foreground"
+                : "bg-primary-soft border-primary/30 text-primary"
+          }`}
+        >
+          <div className="flex items-center gap-1.5 text-[10px] font-extrabold tracking-wide">
+            {isPrev && <Clock className="h-3 w-3 text-muted-foreground shrink-0" />}
+            {isHandoff && <UserCheck className="h-3 w-3 text-primary shrink-0" />}
+            {!isPrev && !isHandoff && <Bot className="h-3 w-3 text-primary shrink-0" />}
+            <span>{item.title}</span>
+          </div>
+          {item.subtitle && (
+            <span className="text-[9px] text-muted-foreground font-medium mt-0.5">
+              {item.subtitle}
+            </span>
+          )}
+        </div>
+        <div className="h-px flex-1 bg-border" />
+      </div>
+    );
+  }
+
+  const { msg } = item;
+  const isOutbound = msg.sender === "bot" || msg.sender === "agent";
+  const isAgent = msg.sender === "agent";
+  const isBot = msg.sender === "bot";
+
+  const text = msg.text || "";
+  let mediaUrl = msg.mediaUrl || null;
+  let mediaType = msg.mediaType || null;
+  let fileName = msg.fileName || null;
+
+  const lines = text.split(/\r?\n/);
+  const mediaTag = lines[0].trim();
+  const hasMediaTag = mediaTag.startsWith("[MEDIA:");
+  const captionText = hasMediaTag ? lines.slice(1).join("\n").trim() : "";
+
+  if (hasMediaTag) {
+    const match = mediaTag.match(/^\[MEDIA:([a-zA-Z0-9]+)\]([^:]+)(?::(.+))?$/i);
+    if (match) {
+      const type = match[1].toLowerCase();
+      const mediaId = match[2].trim();
+      const fn = match[3] ? match[3].trim() : null;
+
+      mediaType = type === "sticker" ? "image" : type;
+      mediaUrl = `/api/baileys/media?messageId=${mediaId}`;
+      if (fn && !fileName) fileName = fn;
+    }
+  }
+
+  if (mediaUrl && mediaUrl.includes("/api/media/")) {
+    const mediaId = mediaUrl.split("/api/media/")[1]?.trim();
+    if (mediaId) {
+      mediaUrl = `/api/baileys/media?messageId=${mediaId}`;
+    }
+  }
+
+  const isImage =
+    mediaType === "image" || (mediaUrl && /\.(jpeg|jpg|gif|png|webp)/i.test(mediaUrl));
+  const isVideo =
+    mediaType === "video" || (mediaUrl && /\.(mp4|webm|mov|avi|mkv)/i.test(mediaUrl));
+  const isAudio =
+    mediaType === "audio" || (mediaUrl && /\.(ogg|mp3|wav|m4a|opus)/i.test(mediaUrl));
+  const isDoc =
+    mediaType === "document" ||
+    (mediaUrl && /\.(pdf|doc|docx|xls|xlsx|json|rar|zip)/i.test(mediaUrl)) ||
+    /\.(pdf|doc|docx|xls|xlsx|json|rar|zip)/i.test(text);
+
+  return (
+    <div className={`flex [contain:layout_style] ${isOutbound ? "justify-end" : "justify-start"}`}>
+      {msg.sender === "client" &&
+        (contactAvatar ? (
+          <SystemTooltip content="Ver foto do cliente em tela cheia">
+            <button
+              type="button"
+              onClick={() =>
+                onPreviewMedia({
+                  url: contactAvatar,
+                  title: contactName,
+                })
+              }
+              className="shrink-0 mr-2 self-end group cursor-pointer focus:outline-none"
+            >
+              <img
+                src={contactAvatar}
+                alt={contactName}
+                loading="lazy"
+                decoding="async"
+                className="h-7 w-7 rounded-full object-cover border-2 border-primary/20 shadow-soft group-hover:scale-110 group-hover:border-primary transition duration-200"
+                onError={(e) => {
+                  (e.target as HTMLElement).style.display = "none";
+                }}
+              />
+            </button>
+          </SystemTooltip>
+        ) : (
+          <div className="grid h-7 w-7 place-items-center rounded-full bg-primary/15 text-primary shrink-0 mr-2 self-end font-bold text-[10px] shadow-soft border border-primary/20">
+            {contactName[0]?.toUpperCase() || "C"}
+          </div>
+        ))}
+
+      <div
+        className={`max-w-[85%] sm:max-w-[75%] rounded-2xl px-3 py-2 text-[11px] leading-relaxed shadow-soft transition-colors ${
+          isBot
+            ? "bg-primary text-primary-foreground rounded-br-[5px]"
+            : isAgent
+              ? "bg-primary-soft/75 border border-primary/25 text-foreground rounded-br-[5px]"
+              : "bg-muted border border-border text-foreground rounded-bl-[5px]"
+        }`}
+      >
+        {isAgent && agentName && (
+          <div className="flex items-center justify-between gap-2 mb-1 pb-1 border-b border-primary/15">
+            <span className="text-[10px] font-extrabold text-primary truncate">
+              {agentName}
+            </span>
+            {msg.isInternalNote && (
+              <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded bg-primary/15 text-primary shrink-0">
+                Nota Interna
+              </span>
+            )}
+          </div>
+        )}
+
+        {isBot && (
+          <div className="flex items-center justify-between gap-2 mb-0.5">
+            <span className="text-[9px] font-extrabold text-primary-foreground/85 tracking-wide">
+              {personaName} · IA
+            </span>
+          </div>
+        )}
+
+        {isImage && mediaUrl ? (
+          <div className="space-y-1 my-1">
+            <button
+              type="button"
+              onClick={() =>
+                onPreviewMedia({
+                  url: mediaUrl!,
+                  title: "Imagem enviada no WhatsApp",
+                })
+              }
+              className="overflow-hidden rounded-2xl border border-white/20 cursor-pointer block max-w-xs hover:opacity-95 transition shadow-soft group"
+            >
+              <img
+                src={mediaUrl}
+                alt="Imagem enviada"
+                loading="lazy"
+                decoding="async"
+                className="w-full max-h-56 object-cover rounded-2xl group-hover:scale-[1.02] transition duration-300"
+              />
+            </button>
+            {captionText && (
+              <p className="text-[11px] whitespace-pre-wrap font-medium">{captionText}</p>
+            )}
+            {!captionText && text && !text.startsWith("[MEDIA:") && (
+              <p className="text-[11px] whitespace-pre-wrap">{text}</p>
+            )}
+          </div>
+        ) : isVideo && mediaUrl ? (
+          <div className="space-y-1 my-1">
+            <div
+              className="relative group max-w-xs rounded-2xl overflow-hidden border border-white/20 bg-black/10 cursor-pointer flex items-center justify-center shadow-soft"
+              onClick={() =>
+                onPreviewMedia({
+                  url: mediaUrl!,
+                  title: "Vídeo enviado no WhatsApp",
+                })
+              }
+            >
+              <video
+                src={mediaUrl}
+                preload="metadata"
+                className="max-h-56 w-full object-contain rounded-2xl pointer-events-none"
+              />
+              <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/35 transition rounded-2xl">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/90 text-slate-800 shadow-md backdrop-blur-xs transition group-hover:scale-110">
+                  <Play className="h-5 w-5 fill-slate-800 ml-0.5" />
+                </div>
+              </div>
+            </div>
+            {captionText && (
+              <p className="text-[11px] whitespace-pre-wrap font-medium">{captionText}</p>
+            )}
+            {!captionText && text && !text.startsWith("[MEDIA:") && (
+              <p className="text-[11px] whitespace-pre-wrap">{text}</p>
+            )}
+          </div>
+        ) : isAudio && mediaUrl ? (
+          <div className="space-y-1 py-0.5">
+            <AudioPlayerBubble src={mediaUrl} isBot={isBot} />
+            {captionText && (
+              <p className="text-[11px] whitespace-pre-wrap font-medium">{captionText}</p>
+            )}
+            {!captionText && text && !text.startsWith("[MEDIA:") && (
+              <p className="text-[11px] whitespace-pre-wrap">{text}</p>
+            )}
+          </div>
+        ) : isDoc && mediaUrl ? (
+          <div className="space-y-1 my-1">
+            <a
+              href={mediaUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`flex items-center gap-3 p-2.5 rounded-2xl border transition decoration-none text-current ${
+                isBot
+                  ? "bg-white/10 border-white/20 hover:bg-white/20"
+                  : "bg-black/5 border-black/10 hover:bg-black/10"
+              }`}
+            >
+              <div
+                className={`h-10 w-10 rounded-xl grid place-items-center shrink-0 ${
+                  isBot ? "bg-white/20 text-white" : "bg-primary/20 text-primary"
+                }`}
+              >
+                <FileText className="h-5 w-5" />
+              </div>
+              <div className="truncate flex-1">
+                <p className="font-bold text-[11px] truncate">{fileName || "Documento.pdf"}</p>
+                <p className="text-[9px] opacity-80 flex items-center gap-1 mt-0.5">
+                  <Download className="h-3 w-3 inline" /> Clique para abrir / baixar
+                </p>
+              </div>
+            </a>
+            {captionText && (
+              <p className="text-[11px] whitespace-pre-wrap font-medium">{captionText}</p>
+            )}
+            {!captionText && text && !text.startsWith("[MEDIA:") && (
+              <p className="text-[11px] whitespace-pre-wrap">{text}</p>
+            )}
+          </div>
+        ) : (
+          <span className="whitespace-pre-wrap break-words">
+            {hasMediaTag ? captionText || text : text}
+          </span>
+        )}
+
+        <span
+          className={`block mt-1 text-[9px] ${
+            isBot ? "text-white/60" : "text-muted-foreground"
+          }`}
+        >
+          {msg.time}
+        </span>
+      </div>
+
+      {isBot && (
+        <SystemTooltip
+          content={`Ver foto ${personaGender === "female" ? "da" : "do"} ${personaName} em tela cheia`}
+        >
+          <button
+            type="button"
+            onClick={() =>
+              onPreviewMedia({
+                url:
+                  (document.documentElement.classList.contains("dark")
+                    ? personaAvatarDarkUrl
+                    : personaAvatarLightUrl) || personaAvatarUrl,
+                title: `${personaName} IA — ${personaCompany}`,
+              })
+            }
+            className="shrink-0 ml-2 self-end group cursor-pointer focus:outline-none"
+          >
+            <AiAvatar
+              tenantId={tenant}
+              className="h-7 w-7 rounded-full border-2 border-primary/30 shadow-soft group-hover:scale-110 group-hover:border-primary transition duration-200"
+            />
+          </button>
+        </SystemTooltip>
+      )}
+
+      {isAgent && agentName && (
+        <SystemTooltip content={agentName}>
+          {agentAvatar ? (
+            <button
+              type="button"
+              onClick={() =>
+                onPreviewMedia({
+                  url: agentAvatar,
+                  title: agentName,
+                })
+              }
+              className="shrink-0 ml-2 self-end group cursor-pointer focus:outline-none"
+            >
+              <img
+                src={agentAvatar}
+                alt={agentName}
+                loading="lazy"
+                decoding="async"
+                className="h-7 w-7 rounded-full object-cover border-2 border-primary/40 shadow-soft group-hover:scale-110 group-hover:border-primary transition duration-200"
+                onError={(e) => {
+                  const target = e.currentTarget;
+                  target.style.display = "none";
+                  const fallback = target.nextElementSibling as HTMLElement | null;
+                  if (fallback) fallback.style.display = "grid";
+                }}
+              />
+              <div
+                style={{ display: "none" }}
+                className="h-7 w-7 place-items-center rounded-full bg-primary-soft text-primary border-2 border-primary/30 font-extrabold text-[10px] shadow-soft"
+              >
+                {getOperatorInitials(agentName)}
+              </div>
+            </button>
+          ) : (
+            <div className="grid h-7 w-7 place-items-center rounded-full bg-primary-soft text-primary shrink-0 ml-2 self-end font-extrabold text-[10px] shadow-soft border-2 border-primary/30 select-none">
+              {getOperatorInitials(agentName)}
+            </div>
+          )}
+        </SystemTooltip>
+      )}
+    </div>
+  );
+});
 
 export interface SdrTabProps {
   sdrEnabled?: boolean;
@@ -821,12 +1371,34 @@ export function SdrTab({
     null,
   );
 
-  // SESSÕES DE TRIAGEM (100% reais do banco)
-  const [sessions, setSessions] = useState<SdrTriageSession[]>([]);
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  // SESSÕES DE TRIAGEM (100% reais do banco + hidratação imediata SWR por tenant)
+  const [sessions, setSessions] = useState<SdrTriageSession[]>(() => {
+    const cached = readSdrCachedSnapshot(tenant);
+    return cached?.sessions || [];
+  });
+  const [hasLoadedOnce, setHasLoadedOnce] = useState<boolean>(() => {
+    const cached = readSdrCachedSnapshot(tenant);
+    return Boolean(cached && cached.sessions.length > 0);
+  });
+  const sessionsCountRef = useRef<number>(sessions.length);
+  sessionsCountRef.current = sessions.length;
+
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(() => {
+    const cached = readSdrCachedSnapshot(tenant);
+    return cached?.sessions?.[0]?.id || null;
+  });
   const selectedConversationIdRef = useRef<string | null>(null);
+  const viewModeRef = useRef<SdrViewMode>(viewMode);
+  viewModeRef.current = viewMode;
   const messagesCacheRef = useRef<Map<string, SdrTriageMessage[]>>(new Map());
-  const [monitoringSummary, setMonitoringSummary] = useState<AgentMonitoringSummary | null>(null);
+  const sdrEtagRef = useRef<{ queryKey: string; etag: string } | null>(null);
+  const msgEtagMapRef = useRef<Map<string, string>>(new Map());
+  const lastRttMsRef = useRef<number>(0);
+  const errorStreakRef = useRef<number>(0);
+  const [monitoringSummary, setMonitoringSummary] = useState<AgentMonitoringSummary | null>(() => {
+    const cached = readSdrCachedSnapshot(tenant);
+    return cached?.monitoringSummary || null;
+  });
   const [monitoringError, setMonitoringError] = useState<string | null>(null);
   const monitorFetchRef = useRef<AbortController | null>(null);
   const msgFetchRef = useRef<AbortController | null>(null);
@@ -834,24 +1406,34 @@ export function SdrTab({
   const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
   useEffect(() => {
-    setSessions([]);
-    setSelectedSessionId(null);
-    selectedConversationIdRef.current = null;
+    const cached = readSdrCachedSnapshot(tenant);
+    setSessions(cached?.sessions || []);
+    setHasLoadedOnce(Boolean(cached && cached.sessions.length > 0));
+    setSelectedSessionId(cached?.sessions?.[0]?.id || null);
+    selectedConversationIdRef.current = cached?.sessions?.[0]?.conversationId || null;
     messagesCacheRef.current.clear();
-    setMonitoringSummary(null);
+    sdrEtagRef.current = null;
+    msgEtagMapRef.current.clear();
+    lastRttMsRef.current = 0;
+    errorStreakRef.current = 0;
+    setMonitoringSummary(cached?.monitoringSummary || null);
     setMonitoringError(null);
+    if (cached && typeof cached.sdrEnabled === "boolean") {
+      onSdrConfigChange?.(cached.sdrEnabled);
+    }
     return () => {
       monitorFetchRef.current?.abort();
       monitorFetchRef.current = null;
       msgFetchRef.current?.abort();
       msgFetchRef.current = null;
     };
-  }, [tenant]);
+  }, [tenant, onSdrConfigChange]);
 
   const effectiveFilterState = filterState || DEFAULT_SDR_FILTER_STATE;
+  const deferredFilterState = useDeferredValue(effectiveFilterState);
   const filteredSessions = useMemo(
-    () => filterSdrSessions(sessions, effectiveFilterState),
-    [sessions, effectiveFilterState],
+    () => filterSdrSessions(sessions, deferredFilterState),
+    [sessions, deferredFilterState],
   );
 
   const selectedSession = useMemo(
@@ -868,20 +1450,52 @@ export function SdrTab({
     onSelectedConversationChange?.(selectedSession?.conversationId, selectedSession?.contactName);
   }, [selectedSession?.conversationId, selectedSession?.contactName, onSelectedConversationChange]);
 
-  // Carregamento sob demanda de mensagens ao trocar de conversa
+  // Carregamento sob demanda de mensagens ao trocar de conversa (com ETag + timeout seguro)
   const loadSessionMessages = useCallback(
-    async (conversationId: string) => {
+    async (conversationId: string, options?: { silent?: boolean }) => {
       if (!tenant || !conversationId) return;
+      if (typeof navigator !== "undefined" && navigator.onLine === false) return;
       msgFetchRef.current?.abort();
       const controller = new AbortController();
       msgFetchRef.current = controller;
-      setIsLoadingMessages(true);
+      const net = getNetworkHints();
+      const timeoutMs =
+        net.saveData || net.effectiveType === "slow-2g" || net.effectiveType === "2g"
+          ? 22_000
+          : 15_000;
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      if (!options?.silent) {
+        setIsLoadingMessages(true);
+      }
       try {
+        const headers: Record<string, string> = {};
+        const prevEtag = msgEtagMapRef.current.get(conversationId);
+        if (prevEtag && messagesCacheRef.current.has(conversationId)) {
+          headers["If-None-Match"] = prevEtag;
+        }
         const res = await fetch(
           `${BACKEND_URL}/api/valentina/sdr?conversationId=${encodeURIComponent(conversationId)}`,
-          { signal: controller.signal },
+          { signal: controller.signal, headers },
         );
-        if (!res.ok || controller.signal.aborted) return;
+        if (controller.signal.aborted) return;
+        if (res.status === 304) {
+          const cachedMsgs = messagesCacheRef.current.get(conversationId);
+          if (cachedMsgs) {
+            setSessions((prev) =>
+              prev.map((s) =>
+                s.conversationId === conversationId && !s.messagesLoaded
+                  ? { ...s, messages: cachedMsgs, messagesLoaded: true }
+                  : s,
+              ),
+            );
+          }
+          return;
+        }
+        if (!res.ok) return;
+        const nextEtag = res.headers.get("etag");
+        if (nextEtag) {
+          msgEtagMapRef.current.set(conversationId, nextEtag);
+        }
         const payload = await res.json();
         if (controller.signal.aborted || !Array.isArray(payload.messages)) return;
         messagesCacheRef.current.set(conversationId, payload.messages);
@@ -897,6 +1511,7 @@ export function SdrTab({
           console.warn("[SdrTab] Erro ao carregar mensagens sob demanda:", err);
         }
       } finally {
+        clearTimeout(timeoutId);
         if (msgFetchRef.current === controller) {
           msgFetchRef.current = null;
           setIsLoadingMessages(false);
@@ -995,6 +1610,19 @@ export function SdrTab({
     };
   }, [isOpenActionPopupOpen]);
 
+  // Índice O(1) de operadores por nome em minúsculas para evitar `.find()` a cada mensagem
+  const operatorsByLowerName = useMemo(() => {
+    const map = new Map<string, { name: string; avatar?: string | null }>();
+    if (Array.isArray(operators)) {
+      for (const op of operators) {
+        if (op?.name) {
+          map.set(op.name.trim().toLowerCase(), op);
+        }
+      }
+    }
+    return map;
+  }, [operators]);
+
   // Resolve nome e foto real do operador (NUNCA atribui ao usuário logado que só observa)
   const resolveAgentSenderInfo = useCallback(
     (msg: SdrTriageMessage, session: SdrTriageSession) => {
@@ -1015,10 +1643,8 @@ export function SdrTab({
 
       const candidateName = rawMsgName || rawSessionResp;
 
-      if (candidateName && Array.isArray(operators) && operators.length > 0) {
-        const matchedOp = operators.find(
-          (op) => op.name?.trim().toLowerCase() === candidateName.toLowerCase(),
-        );
+      if (candidateName && operatorsByLowerName.size > 0) {
+        const matchedOp = operatorsByLowerName.get(candidateName.toLowerCase());
         if (matchedOp) {
           return {
             name: matchedOp.name,
@@ -1039,7 +1665,7 @@ export function SdrTab({
         avatar: msg.senderAvatar || null,
       };
     },
-    [operators],
+    [operatorsByLowerName],
   );
 
   const handleOpenChatFromPopup = useCallback(
@@ -1077,139 +1703,291 @@ export function SdrTab({
     [setSelectedChatId, onViewModeChange],
   );
 
-  // Carregar dados reais do SDR via API (Batch no servidor + mensagens apenas da selecionada)
-  const fetchSdrData = useCallback(async () => {
-    if (!tenant || monitorFetchRef.current) return;
-    if (typeof document !== "undefined" && document.hidden) return;
-    const controller = new AbortController();
-    monitorFetchRef.current = controller;
-    setIsLoading(true);
-    try {
-      const selConv = selectedConversationIdRef.current;
-      const query = selConv ? `?selectedConversationId=${encodeURIComponent(selConv)}` : "";
-      const res = await fetch(`${BACKEND_URL}/api/valentina/sdr${query}`, {
-        signal: controller.signal,
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (controller.signal.aborted) return;
-        setMonitoringSummary(
-          data.monitoringSummary?.available === true ? data.monitoringSummary : null,
-        );
-        setMonitoringError(
-          data.monitoringSummary?.available === true
-            ? null
-            : "Métricas temporariamente indisponíveis.",
-        );
-        if (data.config) {
-          onSdrConfigChange?.(Boolean(data.config.enabled));
-        }
-        if (Array.isArray(data.sessions)) {
-          const formattedLiveSessions: SdrTriageSession[] = data.sessions
-            .map((s: any) => {
-              const incomingLoaded = Boolean(s.messagesLoaded && Array.isArray(s.messages));
-              if (incomingLoaded) {
-                messagesCacheRef.current.set(s.conversationId, s.messages);
-              }
-              const cachedMsgs = messagesCacheRef.current.get(s.conversationId);
-              const messagesLoaded = incomingLoaded || Boolean(cachedMsgs);
-              return {
-                id: s.id,
-                conversationId: s.conversationId,
-                contactName: s.contactName || "Cliente WhatsApp",
-                contactAvatar: s.contactAvatar || null,
-                company: s.company || "Empresa não informada",
-                phone: s.phone || "",
-                currentStep: s.currentStep || "Qualificação",
-                collectedData: s.collectedData || {},
-                startedAt: s.startedAt,
-                completedAt: s.completedAt || null,
-                lastClientMessageAt: s.lastClientMessageAt || null,
-                lastMessageAt: s.lastMessageAt || null,
-                lastMessagePreview: s.lastMessagePreview || undefined,
-                status: s.status as SdrSessionStatus,
-                outcome: s.outcome,
-                responsibleName: s.responsibleName,
-                unreadCount: s.unreadCount || 0,
-                channel: s.channel === "livechat" || s.channel === "site" ? "site" : "whatsapp",
-                monitoring: s.monitoring,
-                ...(s.pendingApproval ? { pendingApproval: s.pendingApproval } : {}),
-                previousTriages: Array.isArray(s.previousTriages) ? s.previousTriages : [],
-                messagesLoaded,
-                messages: incomingLoaded ? s.messages : cachedMsgs || [],
-                ...(s.subflow ? { subflow: s.subflow } : {}),
-                ...(s.funnelStage ? { funnelStage: s.funnelStage } : {}),
-                ...(getCleanTargetFunnel(s.targetFunnel)
-                  ? { targetFunnel: getCleanTargetFunnel(s.targetFunnel) }
-                  : {}),
-                ...(s.triageProgress ? { triageProgress: s.triageProgress } : {}),
-                ...(s.knownClient ? { knownClient: s.knownClient } : {}),
-                ...(s.linkedDeal ? { linkedDeal: s.linkedDeal } : {}),
-              };
-            })
-            .sort(
-              (a: SdrTriageSession, b: SdrTriageSession) =>
-                getSessionActivityTimestamp(b) - getSessionActivityTimestamp(a),
-            );
+  const handleSelectLiveSession = useCallback(
+    (session: SdrTriageSession) => {
+      setSelectedSessionId(session.id);
+      if (isCompactViewport) {
+        setMobileStage("detail");
+        setMobileDetailTab(session.status === "awaiting_approval" ? "approval" : "chat");
+      }
+    },
+    [isCompactViewport],
+  );
 
-          setSessions(formattedLiveSessions);
-          setSelectedSessionId((prev) => {
-            if (!prev) return formattedLiveSessions[0]?.id || null;
-            const match = formattedLiveSessions.find(
-              (s) => s.id === prev || s.conversationId === prev,
-            );
-            return match ? match.id : formattedLiveSessions[0]?.id || null;
-          });
-        }
-      } else {
-        setMonitoringSummary(null);
+  // Carregar dados reais do SDR via API (Batch Zero N+1 + ETag 304 + Gzip + Timeout + includeMessages=0 no Kanban)
+  const fetchSdrData = useCallback(
+    async (options?: { force?: boolean }) => {
+      if (!tenant) return;
+      if (typeof document !== "undefined" && document.hidden && !options?.force) return;
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
         setMonitoringError(
-          "Não foi possível atualizar o monitor. Os atendimentos exibidos podem estar desatualizados.",
+          "Sem conexão com a internet. Exibindo últimos dados carregados.",
         );
+        return;
       }
-    } catch (e) {
-      if (controller.signal.aborted) return;
-      setMonitoringSummary(null);
-      setMonitoringError(
-        "Sem conexão com o monitor. Os atendimentos exibidos podem estar desatualizados.",
-      );
-      console.warn("[SdrTab] Erro ao carregar dados reais do SDR:", e);
-    } finally {
-      if (monitorFetchRef.current === controller) {
-        monitorFetchRef.current = null;
-        setIsLoading(false);
+
+      if (monitorFetchRef.current) {
+        if (options?.force) {
+          monitorFetchRef.current.abort();
+          monitorFetchRef.current = null;
+        } else {
+          return;
+        }
       }
-    }
-  }, [tenant, BACKEND_URL, onSdrConfigChange]);
+
+      const controller = new AbortController();
+      monitorFetchRef.current = controller;
+      const showSpinner = Boolean(options?.force) || sessionsCountRef.current === 0;
+      if (showSpinner) {
+        setIsLoading(true);
+      }
+
+      const net = getNetworkHints();
+      const timeoutMs =
+        net.saveData || net.effectiveType === "slow-2g" || net.effectiveType === "2g"
+          ? 22_000
+          : 15_000;
+      let timedOut = false;
+      const timeoutId = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, timeoutMs);
+
+      const startedMs = performance.now();
+
+      try {
+        const isKanbanMode = viewModeRef.current === "kanban";
+        const selConv = isKanbanMode ? null : selectedConversationIdRef.current;
+        const params = new URLSearchParams();
+        if (isKanbanMode) {
+          params.set("includeMessages", "0");
+        } else if (selConv) {
+          params.set("selectedConversationId", selConv);
+        }
+        const queryString = params.toString();
+        const queryKey = `${tenant}:${queryString}`;
+
+        const headers: Record<string, string> = {};
+        if (
+          !options?.force &&
+          sdrEtagRef.current &&
+          sdrEtagRef.current.queryKey === queryKey &&
+          sessionsCountRef.current > 0
+        ) {
+          headers["If-None-Match"] = sdrEtagRef.current.etag;
+        }
+
+        const res = await fetch(
+          `${BACKEND_URL}/api/valentina/sdr${queryString ? `?${queryString}` : ""}`,
+          {
+            signal: controller.signal,
+            headers,
+          },
+        );
+
+        lastRttMsRef.current = Math.round(performance.now() - startedMs);
+
+        if (controller.signal.aborted) return;
+
+        if (res.status === 304) {
+          errorStreakRef.current = 0;
+          setMonitoringError((prev) => (prev ? null : prev));
+          return;
+        }
+
+        if (res.ok) {
+          const nextEtag = res.headers.get("etag");
+          if (nextEtag) {
+            sdrEtagRef.current = { queryKey, etag: nextEtag };
+          }
+          const data = await res.json();
+          if (controller.signal.aborted) return;
+
+          errorStreakRef.current = 0;
+
+          const nextSummary =
+            data.monitoringSummary?.available === true ? data.monitoringSummary : null;
+          setMonitoringSummary(nextSummary);
+          setMonitoringError(
+            nextSummary ? null : "Métricas temporariamente indisponíveis.",
+          );
+          if (data.config) {
+            onSdrConfigChange?.(Boolean(data.config.enabled));
+          }
+          if (Array.isArray(data.sessions)) {
+            const formattedLiveSessions: SdrTriageSession[] = data.sessions
+              .map((s: any) => {
+                const incomingLoaded = Boolean(s.messagesLoaded && Array.isArray(s.messages));
+                if (incomingLoaded) {
+                  messagesCacheRef.current.set(s.conversationId, s.messages);
+                }
+                const cachedMsgs = messagesCacheRef.current.get(s.conversationId);
+                const messagesLoaded = incomingLoaded || Boolean(cachedMsgs);
+                return {
+                  id: s.id,
+                  conversationId: s.conversationId,
+                  contactName: s.contactName || "Cliente WhatsApp",
+                  contactAvatar: s.contactAvatar || null,
+                  company: s.company || "Empresa não informada",
+                  phone: s.phone || "",
+                  currentStep: s.currentStep || "Qualificação",
+                  collectedData: s.collectedData || {},
+                  startedAt: s.startedAt,
+                  completedAt: s.completedAt || null,
+                  lastClientMessageAt: s.lastClientMessageAt || null,
+                  lastMessageAt: s.lastMessageAt || null,
+                  lastMessagePreview: s.lastMessagePreview || undefined,
+                  status: s.status as SdrSessionStatus,
+                  outcome: s.outcome,
+                  responsibleName: s.responsibleName,
+                  unreadCount: s.unreadCount || 0,
+                  channel: s.channel === "livechat" || s.channel === "site" ? "site" : "whatsapp",
+                  monitoring: s.monitoring,
+                  ...(s.pendingApproval ? { pendingApproval: s.pendingApproval } : {}),
+                  previousTriages: Array.isArray(s.previousTriages) ? s.previousTriages : [],
+                  messagesLoaded,
+                  messages: incomingLoaded ? s.messages : cachedMsgs || [],
+                  ...(s.subflow ? { subflow: s.subflow } : {}),
+                  ...(s.funnelStage ? { funnelStage: s.funnelStage } : {}),
+                  ...(getCleanTargetFunnel(s.targetFunnel)
+                    ? { targetFunnel: getCleanTargetFunnel(s.targetFunnel) }
+                    : {}),
+                  ...(s.triageProgress ? { triageProgress: s.triageProgress } : {}),
+                  ...(s.knownClient ? { knownClient: s.knownClient } : {}),
+                  ...(s.linkedDeal ? { linkedDeal: s.linkedDeal } : {}),
+                };
+              })
+              .sort(
+                (a: SdrTriageSession, b: SdrTriageSession) =>
+                  getSessionActivityTimestamp(b) - getSessionActivityTimestamp(a),
+              );
+
+            setSessions((prev) => mergeSessionsPreservingRefs(prev, formattedLiveSessions));
+            setSelectedSessionId((prev) => {
+              if (!prev) return formattedLiveSessions[0]?.id || null;
+              const match = formattedLiveSessions.find(
+                (s) => s.id === prev || s.conversationId === prev,
+              );
+              return match ? match.id : formattedLiveSessions[0]?.id || null;
+            });
+
+            writeSdrCachedSnapshot(tenant, {
+              savedAt: Date.now(),
+              sdrEnabled: data.config ? Boolean(data.config.enabled) : undefined,
+              monitoringSummary: nextSummary,
+              sessions: formattedLiveSessions,
+            });
+          }
+        } else {
+          errorStreakRef.current = Math.min(errorStreakRef.current + 1, 6);
+          setMonitoringError(
+            "Não foi possível atualizar o monitor. Os atendimentos exibidos podem estar desatualizados.",
+          );
+        }
+      } catch (e) {
+        if (controller.signal.aborted && !timedOut) return;
+        errorStreakRef.current = Math.min(errorStreakRef.current + 1, 6);
+        lastRttMsRef.current = timedOut ? timeoutMs : Math.max(lastRttMsRef.current, 2500);
+        setMonitoringError(
+          timedOut
+            ? "Conexão lenta detectada. Tentando sincronizar novamente em segundo plano..."
+            : "Sem conexão com o monitor. Os atendimentos exibidos podem estar desatualizados.",
+        );
+        console.warn("[SdrTab] Erro ao carregar dados reais do SDR:", e);
+      } finally {
+        clearTimeout(timeoutId);
+        if (monitorFetchRef.current === controller) {
+          monitorFetchRef.current = null;
+          setIsLoading(false);
+          setHasLoadedOnce(true);
+        }
+      }
+    },
+    [tenant, BACKEND_URL, onSdrConfigChange],
+  );
 
   // Atualização forçada vinda do botão Atualizar do header
   useEffect(() => {
     if (refreshKey !== undefined && refreshKey > 0) {
-      void fetchSdrData();
+      void fetchSdrData({ force: true });
     }
   }, [refreshKey, fetchSdrData]);
 
-  // Polling leve (5s) pausando automaticamente quando a aba do navegador está oculta
+  // Polling adaptativo (setTimeout recursivo com backoff + ETag 304) + atualização imediata via SSE
   useEffect(() => {
-    void fetchSdrData();
-    const interval = setInterval(() => {
-      if (typeof document !== "undefined" && document.hidden) return;
-      void fetchSdrData();
-    }, 5000);
+    let disposed = false;
+    let pollTimer: ReturnType<typeof setTimeout> | null = null;
+    let sseDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const scheduleNextPoll = () => {
+      if (disposed) return;
+      if (pollTimer) clearTimeout(pollTimer);
+      const net = getNetworkHints();
+      const delayMs = computeAdaptiveSdrPollDelayMs({
+        viewMode: viewModeRef.current,
+        effectiveType: net.effectiveType,
+        saveData: net.saveData,
+        lastRttMs: lastRttMsRef.current,
+        errorStreak: errorStreakRef.current,
+      });
+      pollTimer = setTimeout(async () => {
+        if (disposed) return;
+        if (
+          typeof document === "undefined" ||
+          (!document.hidden && (typeof navigator === "undefined" || navigator.onLine !== false))
+        ) {
+          await fetchSdrData();
+        }
+        scheduleNextPoll();
+      }, delayMs);
+    };
+
+    void fetchSdrData().finally(() => {
+      scheduleNextPoll();
+    });
+
+    const triggerDebouncedSseRefresh = (delayMs = 450) => {
+      if (disposed) return;
+      if (sseDebounceTimer) clearTimeout(sseDebounceTimer);
+      sseDebounceTimer = setTimeout(() => {
+        sseDebounceTimer = null;
+        if (!disposed) {
+          void fetchSdrData().finally(() => scheduleNextPoll());
+        }
+      }, delayMs);
+    };
 
     const handleVisibility = () => {
       if (!document.hidden) {
-        void fetchSdrData();
+        errorStreakRef.current = 0;
+        void fetchSdrData().finally(() => scheduleNextPoll());
       }
     };
-    document.addEventListener("visibilitychange", handleVisibility);
-
+    const handleOnline = () => {
+      errorStreakRef.current = 0;
+      setMonitoringError(null);
+      void fetchSdrData().finally(() => scheduleNextPoll());
+    };
+    const handleOffline = () => {
+      setMonitoringError("Sem conexão com a internet. Exibindo últimos dados carregados.");
+    };
     const handleApprovalPending = () => {
-      void fetchSdrData();
+      triggerDebouncedSseRefresh(250);
+    };
+    const handleLiveActivity = (ev: Event) => {
+      const detail = (ev as CustomEvent)?.detail;
+      triggerDebouncedSseRefresh(450);
+      if (
+        viewModeRef.current === "live" &&
+        detail?.conversationId &&
+        detail.conversationId === selectedConversationIdRef.current
+      ) {
+        void loadSessionMessages(String(detail.conversationId), { silent: true });
+      }
     };
     const handleApprovalOpen = (ev: Event) => {
       const detail = (ev as CustomEvent)?.detail;
-      void fetchSdrData();
+      void fetchSdrData({ force: true }).finally(() => scheduleNextPoll());
       if (detail?.conversationId) {
         onFilterChange?.(DEFAULT_SDR_FILTER_STATE);
         setSelectedSessionId(String(detail.conversationId));
@@ -1219,16 +1997,26 @@ export function SdrTab({
         onViewModeChange?.("live");
       }
     };
+
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
     window.addEventListener("sdr_approval_pending", handleApprovalPending);
     window.addEventListener("sdr_approval_open", handleApprovalOpen);
+    window.addEventListener("sdr_live_activity", handleLiveActivity);
 
     return () => {
-      clearInterval(interval);
+      disposed = true;
+      if (pollTimer) clearTimeout(pollTimer);
+      if (sseDebounceTimer) clearTimeout(sseDebounceTimer);
       document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
       window.removeEventListener("sdr_approval_pending", handleApprovalPending);
       window.removeEventListener("sdr_approval_open", handleApprovalOpen);
+      window.removeEventListener("sdr_live_activity", handleLiveActivity);
     };
-  }, [fetchSdrData, onFilterChange, onViewModeChange, setSelectedChatId]);
+  }, [fetchSdrData, loadSessionMessages, onFilterChange, onViewModeChange, setSelectedChatId]);
 
   // Deep-link vindo do Rodízio ou da Varredura
   useEffect(() => {
@@ -1407,16 +2195,60 @@ export function SdrTab({
     [sessions],
   );
 
+  const handleApprovalActionCompleted = useCallback(
+    (kind: "approved" | "dismissed" | "assumed", completedConvId: string) => {
+      setSessions((prev) =>
+        prev.map((s) => {
+          if (s.conversationId !== completedConvId) return s;
+          const nextStatus: SdrSessionStatus = kind === "assumed" ? "manual" : "completed";
+          return {
+            ...s,
+            status: nextStatus,
+            pendingApproval: null,
+          };
+        }),
+      );
+      if (!effectiveFilterState.showCompleted) {
+        setSelectedSessionId((prev) =>
+          prev === selectedSession?.id || prev === completedConvId ? null : prev,
+        );
+        if (isCompactViewport) {
+          setMobileStage("list");
+        }
+      }
+      sdrEtagRef.current = null;
+      void fetchSdrData({ force: true });
+    },
+    [effectiveFilterState.showCompleted, selectedSession?.id, isCompactViewport, fetchSdrData],
+  );
+
   const showListPanel = !isCompactViewport || mobileStage === "list";
   const showChatPanel = !isCompactViewport || (mobileStage === "detail" && mobileDetailTab === "chat");
   const showRightPanel = isCompactViewport
     ? mobileStage === "detail" && mobileDetailTab === "approval"
     : isInfoPanelOpen;
+  const isInitialLoading = !hasLoadedOnce && sessions.length === 0;
 
   return (
     <div className="relative flex-1 h-full overflow-hidden flex flex-col">
+      {/* Barra ultra-discreta de sincronização no topo quando atualiza sobre dados já visíveis */}
+      <div
+        aria-hidden="true"
+        className={`pointer-events-none absolute inset-x-0 top-0 z-30 h-[2px] transition-opacity duration-200 ${
+          isLoading && sessions.length > 0 ? "opacity-90 sdr-sync-bar" : "opacity-0"
+        }`}
+      />
+
+      <AnimatePresence initial={false}>
       {isIndustrial && awaitingApprovalSessions.length > 0 && (
-        <div className="mb-2 shrink-0 flex flex-wrap items-center justify-between gap-2 px-3 py-2 sm:py-1.5 rounded-xl border border-amber-500/40 bg-amber-500/10">
+        <motion.div
+          key="sdr-approval-banner"
+          initial={{ opacity: 0, y: -6 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -6 }}
+          transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+          className="mb-2 shrink-0 flex flex-wrap items-center justify-between gap-2 px-3 py-2 sm:py-1.5 rounded-xl border border-amber-500/40 bg-amber-500/10"
+        >
           <div className="flex items-center gap-2 min-w-0 flex-1">
             <span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse shrink-0" />
             <span className="text-[11px] font-extrabold text-amber-800 dark:text-amber-200 leading-tight sm:truncate">
@@ -1433,7 +2265,7 @@ export function SdrTab({
                   onFilterChange((prev) => ({ ...prev, statusFilter: "awaiting_approval" }));
                   if (isCompactViewport) setMobileStage("list");
                 }}
-                className="px-2.5 py-1.5 sm:px-2 sm:py-1 rounded-lg text-[10px] font-bold border border-amber-500/40 bg-card hover:bg-amber-500/15 text-amber-800 dark:text-amber-200 transition cursor-pointer"
+                className="px-2.5 py-1.5 sm:px-2 sm:py-1 rounded-lg text-[10px] font-bold border border-amber-500/40 bg-card hover:bg-amber-500/15 text-amber-800 dark:text-amber-200 transition active:scale-[0.97] cursor-pointer"
               >
                 Filtrar pendentes
               </button>
@@ -1441,26 +2273,45 @@ export function SdrTab({
             <button
               type="button"
               onClick={() => handleSelectSessionFromKanban(awaitingApprovalSessions[0])}
-              className="px-3 py-1.5 sm:px-2.5 sm:py-1 rounded-lg text-[10px] font-extrabold bg-amber-600 hover:bg-amber-700 text-white transition cursor-pointer shadow-2xs"
+              className="px-3 py-1.5 sm:px-2.5 sm:py-1 rounded-lg text-[10px] font-extrabold bg-amber-600 hover:bg-amber-700 text-white transition active:scale-[0.97] cursor-pointer shadow-2xs"
             >
               Revisar agora
             </button>
           </div>
-        </div>
+        </motion.div>
       )}
+      </AnimatePresence>
 
+      <AnimatePresence mode="wait" initial={false}>
       {viewMode === "kanban" ? (
-        <div className="flex-1 h-full min-h-0 flex flex-col">
-          <SdrKanbanBoard
-            sessions={sessions}
-            selectedSessionId={selectedSession?.id}
-            onSelectSession={handleSelectSessionFromKanban}
-            filterState={effectiveFilterState}
-            sdrEnabled={sdrEnabled}
-          />
-        </div>
+        <motion.div
+          key="sdr-view-kanban"
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -4 }}
+          transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+          className="flex-1 h-full min-h-0 flex flex-col"
+        >
+          {isInitialLoading ? (
+            <SdrKanbanSkeleton />
+          ) : (
+            <SdrKanbanBoard
+              tenant={tenant}
+              sessions={sessions}
+              selectedSessionId={selectedSession?.id}
+              onSelectSession={handleSelectSessionFromKanban}
+              filterState={deferredFilterState}
+              sdrEnabled={sdrEnabled}
+            />
+          )}
+        </motion.div>
       ) : (
-        <div
+        <motion.div
+          key="sdr-view-live"
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -4 }}
+          transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
           className={`flex flex-1 h-full min-h-0 overflow-hidden ${
             isCompactViewport ? "flex-col gap-2" : "gap-3.5"
           }`}
@@ -1486,6 +2337,8 @@ export function SdrTab({
                         <img
                           src={selectedSession.contactAvatar}
                           alt={selectedSession.contactName}
+                          loading="lazy"
+                          decoding="async"
                           className="h-7 w-7 rounded-full object-cover border border-primary/25 shrink-0"
                         />
                       ) : (
@@ -1587,7 +2440,7 @@ export function SdrTab({
                 <SystemTooltip content="Atualizar sessões ao vivo">
                   <button
                     type="button"
-                    onClick={() => void fetchSdrData()}
+                    onClick={() => void fetchSdrData({ force: true })}
                     className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer shrink-0"
                   >
                     <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} />
@@ -1613,7 +2466,9 @@ export function SdrTab({
             </div>
 
             <div className="flex-1 overflow-y-auto scrollbar-thin">
-              {filteredSessions.length === 0 ? (
+              {isInitialLoading ? (
+                <SdrLiveListSkeleton />
+              ) : filteredSessions.length === 0 ? (
                 <div className="flex flex-col items-center justify-center p-6 text-center h-full gap-3">
                   <div className="h-12 w-12 rounded-2xl bg-primary-soft/50 grid place-items-center text-primary">
                     <Bot className="h-6 w-6" />
@@ -1641,81 +2496,16 @@ export function SdrTab({
                   </div>
                 </div>
               ) : (
-                filteredSessions.map((session) => {
-                  const isSelected = selectedSession?.id === session.id;
-                  const mergedData = getMergedCollectedData(
-                    session.collectedData,
-                    isIndustrial,
-                    session,
-                  );
-                  const completedCount = Object.values(mergedData).filter(
-                    (d) => d.status === "filled",
-                  ).length;
-                  const totalCount = Object.keys(mergedData).length;
-                  const progressPct =
-                    totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
-                  const hasPreviousCycles =
-                    (session.previousTriages?.length || 0) > 0 ||
-                    Boolean(session.knownClient?.companyName);
-
-                  return (
-                    <button
-                      key={session.id}
-                      type="button"
-                      onClick={() => {
-                        setSelectedSessionId(session.id);
-                        if (isCompactViewport) {
-                          setMobileStage("detail");
-                          setMobileDetailTab(
-                            session.status === "awaiting_approval" ? "approval" : "chat",
-                          );
-                        }
-                      }}
-                      className={`w-full text-left px-4 py-3 border-b border-line transition cursor-pointer ${
-                        isSelected && !isCompactViewport
-                          ? "bg-primary-soft border-l-2 border-l-primary"
-                          : session.status === "awaiting_approval"
-                            ? "bg-amber-500/[0.06] border-l-2 border-l-amber-500 hover:bg-amber-500/10"
-                            : "hover:bg-muted/50"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between mb-1 gap-1.5">
-                        <span className="text-xs font-bold text-foreground truncate">
-                          {session.contactName}
-                        </span>
-                        <div className="flex items-center gap-1 shrink-0">
-                          {hasPreviousCycles && (
-                            <span className="px-1.5 py-0.5 rounded-md bg-muted border border-border text-[9px] font-bold text-muted-foreground">
-                              Recorrente
-                            </span>
-                          )}
-                          <StatusBadge status={session.status} />
-                        </div>
-                      </div>
-                      <p className="text-[10px] text-muted-foreground truncate">
-                        {session.company} {session.phone ? `· ${session.phone}` : ""}
-                      </p>
-                      <div className="mt-2">
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-[10px] text-muted-foreground">
-                            Campos {completedCount}/{totalCount}
-                          </span>
-                          <span className="text-[10px] font-semibold text-primary tabular-nums">
-                            {progressPct}%
-                          </span>
-                        </div>
-                        <div className="w-full h-1 rounded-full bg-muted overflow-hidden">
-                          <div
-                            className={`h-full rounded-full transition-all duration-300 ${
-                              progressPct >= 100 ? "bg-emerald-500" : "bg-primary"
-                            }`}
-                            style={{ width: `${progressPct}%` }}
-                          />
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })
+                filteredSessions.map((session) => (
+                  <SdrLiveSessionItem
+                    key={session.id}
+                    session={session}
+                    isSelected={selectedSession?.id === session.id}
+                    isCompactViewport={isCompactViewport}
+                    isIndustrial={isIndustrial}
+                    onSelect={handleSelectLiveSession}
+                  />
+                ))
               )}
             </div>
           </div>
@@ -1745,6 +2535,8 @@ export function SdrTab({
                             <img
                               src={selectedSession.contactAvatar}
                               alt={selectedSession.contactName}
+                              loading="lazy"
+                              decoding="async"
                               className="h-8 w-8 rounded-full object-cover border-2 border-primary/20 shadow-soft group-hover:scale-105 group-hover:border-primary transition duration-200"
                             />
                           </button>
@@ -1818,432 +2610,38 @@ export function SdrTab({
                   className="flex-1 overflow-y-auto px-3 sm:px-4 py-3 space-y-2.5 scrollbar-thin"
                 >
                   {isLoadingMessages && !selectedSession.messagesLoaded ? (
-                    <div className="flex items-center justify-center h-full gap-2 text-xs text-muted-foreground">
-                      <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                      <span>Carregando histórico da conversa...</span>
-                    </div>
+                    <SdrChatMessagesSkeleton />
                   ) : (
-                    <AnimatePresence initial={false}>
+                    <div key={selectedSession.id} className="space-y-2.5 sdr-enter">
                       {timelineItems.map((item) => {
-                        if (item.type === "date-divider") {
-                          return (
-                            <motion.div
-                              key={item.id}
-                              initial={{ opacity: 0, y: 4 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              exit={{ opacity: 0, y: -4 }}
-                              transition={{ duration: 0.18 }}
-                              className="flex items-center gap-3 my-3 select-none"
-                            >
-                              <div className="h-px flex-1 bg-border/70" />
-                              <span className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-muted/80 border border-border text-[10px] font-bold text-muted-foreground tracking-wide shadow-2xs">
-                                <Calendar className="h-2.5 w-2.5 text-primary/80" />
-                                {item.label}
-                              </span>
-                              <div className="h-px flex-1 bg-border/70" />
-                            </motion.div>
-                          );
-                        }
-
-                        if (item.type === "system-event") {
-                          return (
-                            <motion.div
-                              key={item.id}
-                              initial={{ opacity: 0, y: 4 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              transition={{ duration: 0.16 }}
-                              className="flex justify-center my-2 select-none"
-                            >
-                              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-muted/60 border border-border/80 text-[10px] font-semibold text-muted-foreground max-w-[85%] text-center">
-                                <Info className="h-3 w-3 text-muted-foreground/80 shrink-0" />
-                                <span className="break-words">{item.text}</span>
-                                <span className="text-[9px] opacity-70 shrink-0 font-mono">
-                                  {item.time}
-                                </span>
-                              </span>
-                            </motion.div>
-                          );
-                        }
-
-                        if (item.type === "cycle-divider") {
-                          const isPrev = item.variant === "previous-triage";
-                          const isHandoff = item.variant === "operator-handoff";
-
-                          return (
-                            <motion.div
-                              key={item.id}
-                              initial={{ opacity: 0, scale: 0.98, y: 4 }}
-                              animate={{ opacity: 1, scale: 1, y: 0 }}
-                              exit={{ opacity: 0, scale: 0.98 }}
-                              transition={{ duration: 0.2 }}
-                              className="flex items-center gap-3 my-3.5 select-none"
-                            >
-                              <div className="h-px flex-1 bg-border" />
-                              <div
-                                className={`flex flex-col items-center text-center px-3.5 py-1.5 rounded-xl border shadow-2xs ${
-                                  isPrev
-                                    ? "bg-muted/70 border-border text-muted-foreground"
-                                    : isHandoff
-                                      ? "bg-primary-soft/60 border-primary/25 text-foreground"
-                                      : "bg-primary-soft border-primary/30 text-primary"
-                                }`}
-                              >
-                                <div className="flex items-center gap-1.5 text-[10px] font-extrabold tracking-wide">
-                                  {isPrev && (
-                                    <Clock className="h-3 w-3 text-muted-foreground shrink-0" />
-                                  )}
-                                  {isHandoff && (
-                                    <UserCheck className="h-3 w-3 text-primary shrink-0" />
-                                  )}
-                                  {!isPrev && !isHandoff && (
-                                    <Bot className="h-3 w-3 text-primary shrink-0" />
-                                  )}
-                                  <span>{item.title}</span>
-                                </div>
-                                {item.subtitle && (
-                                  <span className="text-[9px] text-muted-foreground font-medium mt-0.5">
-                                    {item.subtitle}
-                                  </span>
-                                )}
-                              </div>
-                              <div className="h-px flex-1 bg-border" />
-                            </motion.div>
-                          );
-                        }
-
-                        const { msg, index: idx } = item;
-                        const isOutbound = msg.sender === "bot" || msg.sender === "agent";
-                        const isAgent = msg.sender === "agent";
-                        const isBot = msg.sender === "bot";
-                        const agentInfo = isAgent
-                          ? resolveAgentSenderInfo(msg, selectedSession)
-                          : null;
-
+                        const agentInfo =
+                          item.type === "message" && item.msg.sender === "agent"
+                            ? resolveAgentSenderInfo(item.msg, selectedSession)
+                            : null;
                         return (
-                          <motion.div
-                            key={`${selectedSession.id}-${item.id}`}
-                            initial={{ opacity: 0, y: 6 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ duration: 0.16, delay: Math.min(idx * 0.01, 0.15) }}
-                            className={`flex ${isOutbound ? "justify-end" : "justify-start"}`}
-                          >
-                            {msg.sender === "client" &&
-                              (selectedSession.contactAvatar ? (
-                                <SystemTooltip content="Ver foto do cliente em tela cheia">
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setPreviewModalImage({
-                                        url: selectedSession.contactAvatar!,
-                                        title: selectedSession.contactName,
-                                      })
-                                    }
-                                    className="shrink-0 mr-2 self-end group cursor-pointer focus:outline-none"
-                                  >
-                                    <img
-                                      src={selectedSession.contactAvatar}
-                                      alt={selectedSession.contactName}
-                                      className="h-7 w-7 rounded-full object-cover border-2 border-primary/20 shadow-soft group-hover:scale-110 group-hover:border-primary transition duration-200"
-                                      onError={(e) => {
-                                        (e.target as HTMLElement).style.display = "none";
-                                      }}
-                                    />
-                                  </button>
-                                </SystemTooltip>
-                              ) : (
-                                <div className="grid h-7 w-7 place-items-center rounded-full bg-primary/15 text-primary shrink-0 mr-2 self-end font-bold text-[10px] shadow-soft border border-primary/20">
-                                  {selectedSession.contactName[0]?.toUpperCase() || "C"}
-                                </div>
-                              ))}
-
-                            <div
-                              className={`max-w-[85%] sm:max-w-[75%] rounded-2xl px-3 py-2 text-[11px] leading-relaxed shadow-soft transition-colors ${
-                                isBot
-                                  ? "bg-primary text-primary-foreground rounded-br-[5px]"
-                                  : isAgent
-                                    ? "bg-primary-soft/75 border border-primary/25 text-foreground rounded-br-[5px]"
-                                    : "bg-muted border border-border text-foreground rounded-bl-[5px]"
-                              }`}
-                            >
-                              {isAgent && agentInfo && (
-                                <div className="flex items-center justify-between gap-2 mb-1 pb-1 border-b border-primary/15">
-                                  <span className="text-[10px] font-extrabold text-primary truncate">
-                                    {agentInfo.name}
-                                  </span>
-                                  {msg.isInternalNote && (
-                                    <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded bg-primary/15 text-primary shrink-0">
-                                      Nota Interna
-                                    </span>
-                                  )}
-                                </div>
-                              )}
-
-                              {isBot && (
-                                <div className="flex items-center justify-between gap-2 mb-0.5">
-                                  <span className="text-[9px] font-extrabold text-primary-foreground/85 tracking-wide">
-                                    {persona.name} · IA
-                                  </span>
-                                </div>
-                              )}
-
-                              {(() => {
-                                const text = msg.text || "";
-                                let mediaUrl = msg.mediaUrl || null;
-                                let mediaType = msg.mediaType || null;
-                                let fileName = msg.fileName || null;
-
-                                const lines = text.split(/\r?\n/);
-                                const mediaTag = lines[0].trim();
-                                const hasMediaTag = mediaTag.startsWith("[MEDIA:");
-                                const captionText = hasMediaTag
-                                  ? lines.slice(1).join("\n").trim()
-                                  : "";
-
-                                if (hasMediaTag) {
-                                  const match = mediaTag.match(
-                                    /^\[MEDIA:([a-zA-Z0-9]+)\]([^:]+)(?::(.+))?$/i,
-                                  );
-                                  if (match) {
-                                    const type = match[1].toLowerCase();
-                                    const mediaId = match[2].trim();
-                                    const fn = match[3] ? match[3].trim() : null;
-
-                                    mediaType = type === "sticker" ? "image" : type;
-                                    mediaUrl = `/api/baileys/media?messageId=${mediaId}`;
-                                    if (fn && !fileName) fileName = fn;
-                                  }
-                                }
-
-                                if (mediaUrl && mediaUrl.includes("/api/media/")) {
-                                  const mediaId = mediaUrl.split("/api/media/")[1]?.trim();
-                                  if (mediaId) {
-                                    mediaUrl = `/api/baileys/media?messageId=${mediaId}`;
-                                  }
-                                }
-
-                                const isImage =
-                                  mediaType === "image" ||
-                                  (mediaUrl && mediaUrl.match(/\.(jpeg|jpg|gif|png|webp)/i));
-                                const isVideo =
-                                  mediaType === "video" ||
-                                  (mediaUrl && mediaUrl.match(/\.(mp4|webm|mov|avi|mkv)/i));
-                                const isAudio =
-                                  mediaType === "audio" ||
-                                  (mediaUrl && mediaUrl.match(/\.(ogg|mp3|wav|m4a|opus)/i));
-                                const isDoc =
-                                  mediaType === "document" ||
-                                  (mediaUrl &&
-                                    mediaUrl.match(/\.(pdf|doc|docx|xls|xlsx|json|rar|zip)/i)) ||
-                                  text.match(/\.(pdf|doc|docx|xls|xlsx|json|rar|zip)/i);
-
-                                if (isImage && mediaUrl) {
-                                  return (
-                                    <div className="space-y-1 my-1">
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          setPreviewModalImage({
-                                            url: mediaUrl!,
-                                            title: "Imagem enviada no WhatsApp",
-                                          })
-                                        }
-                                        className="overflow-hidden rounded-2xl border border-white/20 cursor-pointer block max-w-xs hover:opacity-95 transition shadow-soft group"
-                                      >
-                                        <img
-                                          src={mediaUrl}
-                                          alt="Imagem enviada"
-                                          className="w-full max-h-56 object-cover rounded-2xl group-hover:scale-[1.02] transition duration-300"
-                                        />
-                                      </button>
-                                      {captionText && (
-                                        <p className="text-[11px] whitespace-pre-wrap font-medium">
-                                          {captionText}
-                                        </p>
-                                      )}
-                                      {!captionText && text && !text.startsWith("[MEDIA:") && (
-                                        <p className="text-[11px] whitespace-pre-wrap">{text}</p>
-                                      )}
-                                    </div>
-                                  );
-                                }
-
-                                if (isVideo && mediaUrl) {
-                                  return (
-                                    <div className="space-y-1 my-1">
-                                      <div
-                                        className="relative group max-w-xs rounded-2xl overflow-hidden border border-white/20 bg-black/10 cursor-pointer flex items-center justify-center shadow-soft"
-                                        onClick={() =>
-                                          setPreviewModalImage({
-                                            url: mediaUrl!,
-                                            title: "Vídeo enviado no WhatsApp",
-                                          })
-                                        }
-                                      >
-                                        <video
-                                          src={mediaUrl}
-                                          className="max-h-56 w-full object-contain rounded-2xl pointer-events-none"
-                                        />
-                                        <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/35 transition rounded-2xl">
-                                          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/90 text-slate-800 shadow-md backdrop-blur-xs transition group-hover:scale-110">
-                                            <Play className="h-5 w-5 fill-slate-800 ml-0.5" />
-                                          </div>
-                                        </div>
-                                      </div>
-                                      {captionText && (
-                                        <p className="text-[11px] whitespace-pre-wrap font-medium">
-                                          {captionText}
-                                        </p>
-                                      )}
-                                      {!captionText && text && !text.startsWith("[MEDIA:") && (
-                                        <p className="text-[11px] whitespace-pre-wrap">{text}</p>
-                                      )}
-                                    </div>
-                                  );
-                                }
-
-                                if (isAudio && mediaUrl) {
-                                  return (
-                                    <div className="space-y-1 py-0.5">
-                                      <AudioPlayerBubble src={mediaUrl} isBot={isBot} />
-                                      {captionText && (
-                                        <p className="text-[11px] whitespace-pre-wrap font-medium">
-                                          {captionText}
-                                        </p>
-                                      )}
-                                      {!captionText && text && !text.startsWith("[MEDIA:") && (
-                                        <p className="text-[11px] whitespace-pre-wrap">{text}</p>
-                                      )}
-                                    </div>
-                                  );
-                                }
-
-                                if (isDoc && mediaUrl) {
-                                  return (
-                                    <div className="space-y-1 my-1">
-                                      <a
-                                        href={mediaUrl}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className={`flex items-center gap-3 p-2.5 rounded-2xl border transition decoration-none text-current ${
-                                          isBot
-                                            ? "bg-white/10 border-white/20 hover:bg-white/20"
-                                            : "bg-black/5 border-black/10 hover:bg-black/10"
-                                        }`}
-                                      >
-                                        <div
-                                          className={`h-10 w-10 rounded-xl grid place-items-center shrink-0 ${
-                                            isBot
-                                              ? "bg-white/20 text-white"
-                                              : "bg-primary/20 text-primary"
-                                          }`}
-                                        >
-                                          <FileText className="h-5 w-5" />
-                                        </div>
-                                        <div className="truncate flex-1">
-                                          <p className="font-bold text-[11px] truncate">
-                                            {fileName || "Documento.pdf"}
-                                          </p>
-                                          <p className="text-[9px] opacity-80 flex items-center gap-1 mt-0.5">
-                                            <Download className="h-3 w-3 inline" /> Clique para abrir /
-                                            baixar
-                                          </p>
-                                        </div>
-                                      </a>
-                                      {captionText && (
-                                        <p className="text-[11px] whitespace-pre-wrap font-medium">
-                                          {captionText}
-                                        </p>
-                                      )}
-                                      {!captionText && text && !text.startsWith("[MEDIA:") && (
-                                        <p className="text-[11px] whitespace-pre-wrap">{text}</p>
-                                      )}
-                                    </div>
-                                  );
-                                }
-
-                                return (
-                                  <span className="whitespace-pre-wrap break-words">
-                                    {hasMediaTag ? captionText || text : text}
-                                  </span>
-                                );
-                              })()}
-                              <span
-                                className={`block mt-1 text-[9px] ${
-                                  isBot ? "text-white/60" : "text-muted-foreground"
-                                }`}
-                              >
-                                {msg.time}
-                              </span>
-                            </div>
-
-                            {isBot && (
-                              <SystemTooltip
-                                content={`Ver foto ${persona.gender === "female" ? "da" : "do"} ${persona.name} em tela cheia`}
-                              >
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setPreviewModalImage({
-                                      url:
-                                        (document.documentElement.classList.contains("dark")
-                                          ? persona.avatarDarkUrl
-                                          : persona.avatarLightUrl) || persona.avatarUrl,
-                                      title: `${persona.name} IA — ${persona.company}`,
-                                    })
-                                  }
-                                  className="shrink-0 ml-2 self-end group cursor-pointer focus:outline-none"
-                                >
-                                  <AiAvatar
-                                    tenantId={tenant}
-                                    className="h-7 w-7 rounded-full border-2 border-primary/30 shadow-soft group-hover:scale-110 group-hover:border-primary transition duration-200"
-                                  />
-                                </button>
-                              </SystemTooltip>
-                            )}
-
-                            {isAgent && agentInfo && (
-                              <SystemTooltip content={agentInfo.name}>
-                                {agentInfo.avatar ? (
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setPreviewModalImage({
-                                        url: agentInfo.avatar!,
-                                        title: agentInfo.name,
-                                      })
-                                    }
-                                    className="shrink-0 ml-2 self-end group cursor-pointer focus:outline-none"
-                                  >
-                                    <img
-                                      src={agentInfo.avatar}
-                                      alt={agentInfo.name}
-                                      className="h-7 w-7 rounded-full object-cover border-2 border-primary/40 shadow-soft group-hover:scale-110 group-hover:border-primary transition duration-200"
-                                      onError={(e) => {
-                                        const target = e.currentTarget;
-                                        target.style.display = "none";
-                                        const fallback =
-                                          target.nextElementSibling as HTMLElement | null;
-                                        if (fallback) fallback.style.display = "grid";
-                                      }}
-                                    />
-                                    <div
-                                      style={{ display: "none" }}
-                                      className="h-7 w-7 place-items-center rounded-full bg-primary-soft text-primary border-2 border-primary/30 font-extrabold text-[10px] shadow-soft"
-                                    >
-                                      {getOperatorInitials(agentInfo.name)}
-                                    </div>
-                                  </button>
-                                ) : (
-                                  <div className="grid h-7 w-7 place-items-center rounded-full bg-primary-soft text-primary shrink-0 ml-2 self-end font-extrabold text-[10px] shadow-soft border-2 border-primary/30 select-none">
-                                    {getOperatorInitials(agentInfo.name)}
-                                  </div>
-                                )}
-                              </SystemTooltip>
-                            )}
-                          </motion.div>
+                          <SdrTimelineRow
+                            key={
+                              item.type === "message"
+                                ? `${selectedSession.id}-${item.id}`
+                                : item.id
+                            }
+                            item={item}
+                            tenant={tenant}
+                            personaName={persona.name}
+                            personaGender={persona.gender}
+                            personaCompany={persona.company}
+                            personaAvatarUrl={persona.avatarUrl}
+                            personaAvatarLightUrl={persona.avatarLightUrl}
+                            personaAvatarDarkUrl={persona.avatarDarkUrl}
+                            contactName={selectedSession.contactName}
+                            contactAvatar={selectedSession.contactAvatar}
+                            agentName={agentInfo?.name ?? null}
+                            agentAvatar={agentInfo?.avatar ?? null}
+                            onPreviewMedia={setPreviewModalImage}
+                          />
                         );
                       })}
-                    </AnimatePresence>
+                    </div>
                   )}
 
                   {selectedSession.outcome && selectedSession.outcome !== "in_progress" && (
@@ -2268,6 +2666,10 @@ export function SdrTab({
                   )}
                 </div>
               </>
+            ) : isInitialLoading ? (
+              <div className="flex-1 overflow-hidden px-3 sm:px-4 py-3">
+                <SdrChatMessagesSkeleton />
+              </div>
             ) : (
               <div className="flex flex-col items-center justify-center h-full p-6 text-center">
                 <MessageSquare className="h-10 w-10 text-muted-foreground/30 mb-2" />
@@ -2494,37 +2896,16 @@ export function SdrTab({
                           </div>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto px-3 sm:px-4 py-3 space-y-2.5 scrollbar-thin">
+                        <div
+                          key={selectedSession.id}
+                          className="flex-1 overflow-y-auto px-3 sm:px-4 py-3 space-y-2.5 scrollbar-thin sdr-enter"
+                        >
                           {isIndustrial && selectedSession && (
                             <IndustrialApprovalPanel
                               tenantId={tenant || ""}
                               personaName={persona.name}
                               session={selectedSession}
-                              onActionCompleted={(kind, completedConvId) => {
-                                setSessions((prev) =>
-                                  prev.map((s) => {
-                                    if (s.conversationId !== completedConvId) return s;
-                                    const nextStatus: SdrSessionStatus =
-                                      kind === "assumed" ? "manual" : "completed";
-                                    return {
-                                      ...s,
-                                      status: nextStatus,
-                                      pendingApproval: null,
-                                    };
-                                  }),
-                                );
-                                if (!effectiveFilterState.showCompleted) {
-                                  setSelectedSessionId((prev) =>
-                                    prev === selectedSession.id || prev === completedConvId
-                                      ? null
-                                      : prev,
-                                  );
-                                  if (isCompactViewport) {
-                                    setMobileStage("list");
-                                  }
-                                }
-                                void fetchSdrData();
-                              }}
+                              onActionCompleted={handleApprovalActionCompleted}
                             />
                           )}
 
@@ -2756,6 +3137,8 @@ export function SdrTab({
                       </>
                     );
                   })()
+                ) : isInitialLoading ? (
+                  <SdrRightPanelSkeleton />
                 ) : (
                   <div className="flex flex-col items-center justify-center h-full p-6 text-center">
                     <div className="flex items-center justify-between w-full px-4 py-2 border-b border-line mb-4">
@@ -2775,8 +3158,9 @@ export function SdrTab({
               </motion.div>
             )}
           </AnimatePresence>
-        </div>
+        </motion.div>
       )}
+      </AnimatePresence>
 
       {/* ── MODAL DE VISUALIZAÇÃO EM TELA CHEIA DA FOTO / MÍDIA ────────── */}
       <AnimatePresence>
