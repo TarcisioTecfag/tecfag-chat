@@ -630,12 +630,16 @@ export class SdrEngine {
       const metaState = (flowState?.metadata as Record<string, any>) || {};
       const siteContext = industrialTriage ? siteContextFromMessages(historyMsgs, metaState.siteContext) : null;
       const greetingAlreadyDone = metaState.greetingDone === true;
-      const hasBotRespondedBefore = greetingAlreadyDone || historyMsgs.some((m) => m.senderType === "bot");
+      // No widget do site (tecfag-widget), o Fagner já exibe sua apresentação local
+      // antes da primeira mensagem do visitante — evitar saudação duplicada no backend.
+      const siteWidgetAlreadyGreeted = industrialTriage && isSiteConversationId(conversationId);
+      const hasBotRespondedBefore =
+        greetingAlreadyDone || siteWidgetAlreadyGreeted || historyMsgs.some((m) => m.senderType === "bot");
       const isFirstMessage = !hasBotRespondedBefore;
 
-      // Se for primeira mensagem, marca o flag imediatamente antes de processar
-      // (evita que lotes paralelos também passem pela lógica de saudação)
-      if (isFirstMessage && flowState) {
+      // Se for primeira mensagem (ou primeira interação do widget que já saudou localmente),
+      // marca o flag imediatamente antes de processar (evita race condition e saudação dupla)
+      if ((isFirstMessage || siteWidgetAlreadyGreeted) && !greetingAlreadyDone && flowState) {
         await db.update(agentFlowStates)
           .set({ metadata: industrialTriage ? sql`${agentFlowStates.metadata} || '{"greetingDone":true}'::jsonb` : { ...metaState, greetingDone: true } })
           .where(and(eq(agentFlowStates.id, flowState.id), eq(agentFlowStates.tenantId, tenantId),
@@ -2152,7 +2156,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
             )
           )
           .limit(1);
-        const botAlreadyResponded = existingBotMsg.length > 0;
+        const botAlreadyResponded = existingBotMsg.length > 0 || siteWidgetAlreadyGreeted;
 
         // Como o código injeta a saudação oficial em isFirstMessage (logo abaixo), ou se o bot já respondeu antes,
         // qualquer saudação/apresentação retornada pelo Gemini em messagesToSend deve ser removida para não duplicar.
@@ -2171,7 +2175,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
               `[SdrEngine] ⚠️ DEDUPLICAÇÃO: removidas ${before - aiResult.messagesToSend.length} mensagem(ns) de saudação do array do Gemini (${isFirstMessage ? "saudação oficial será enviada pelo sistema" : "bot já havia respondido na sessão"}).`
             );
           }
-          if (isFirstMessage && aiResult.messagesToSend.length === 0) {
+          if ((isFirstMessage || siteWidgetAlreadyGreeted) && aiResult.messagesToSend.length === 0) {
             aiResult.messagesToSend = ["Como posso te ajudar?"];
           }
         }

@@ -707,10 +707,19 @@ export const ChatWidget: React.FC = () => {
         } catch {}
       };
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         if (wsRef.current !== ws || !mountedRef.current) return;
         setIsConnected(false);
         if (heartbeatIntervalRef.current) clearInterval(heartbeatIntervalRef.current);
+        // Código 1008 = recusa definitiva do servidor (canal desativado, origem ou tenant não autorizado).
+        // Não entrar em loop infinito de reconexão para não sobrecarregar o servidor.
+        if (event?.code === 1008) {
+          console.warn(
+            "[TecfagChat] Conexão encerrada definitivamente pelo servidor (1008):",
+            event.reason || "canal indisponível",
+          );
+          return;
+        }
         reconnectTimeoutRef.current = setTimeout(() => {
           connectWebSocket();
         }, 4000);

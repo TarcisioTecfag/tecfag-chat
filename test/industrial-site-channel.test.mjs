@@ -304,3 +304,29 @@ describe("continuidade site → WhatsApp (E4)", () => {
     assert.match(widget, /\^https:\\\/\\\/wa\\\.me\\\/\\d\{10,15\}\\\?text=/);
   });
 });
+
+describe("virada do widget Fagner no site (itens 2, 3 e 4)", () => {
+  const sdrEngine = read("src/lib/valentina/sdr-engine.ts");
+  const tecfagWidget = read("tecfag-widget/src/components/ChatWidget/ChatWidget.tsx");
+  const liveChatTab = read("src/components/chat/LiveChatSettingsTab.tsx");
+  const testPageTecfag = read("public/test-chat-tecfag.html");
+
+  it("evita saudação dupla do SdrEngine em conversas vindas do widget industrial", () => {
+    assert.match(sdrEngine, /const siteWidgetAlreadyGreeted = industrialTriage && isSiteConversationId\(conversationId\);/);
+    assert.match(sdrEngine, /greetingAlreadyDone \|\| siteWidgetAlreadyGreeted \|\| historyMsgs\.some/);
+    assert.match(sdrEngine, /const botAlreadyResponded = existingBotMsg\.length > 0 \|\| siteWidgetAlreadyGreeted;/);
+  });
+
+  it("interrompe o loop de reconexão quando o servidor encerra o WebSocket com código 1008", () => {
+    assert.match(tecfagWidget, /ws\.onclose = \(event\) =>/);
+    assert.match(tecfagWidget, /if \(event\?\.code === 1008\)/);
+  });
+
+  it("snippet de instalação sempre usa origem absoluta e aponta página de teste do Fagner sem alterar Valem", () => {
+    assert.match(liveChatTab, /window\.location\.origin/);
+    assert.match(liveChatTab, /data-backend="\$\{PUBLIC_WIDGET_ORIGIN\}"/);
+    assert.match(liveChatTab, /persona\.triagePolicy === "industrial" \? "\/test-chat-tecfag\.html" : "\/test-chat\.html"/);
+    assert.match(testPageTecfag, /src="\/site-chat\.iife\.js"/);
+    assert.match(testPageTecfag, /data-tenant="tecfag"/);
+  });
+});

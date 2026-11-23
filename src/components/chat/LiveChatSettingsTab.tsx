@@ -87,12 +87,19 @@ export function LiveChatSettingsTab() {
     }
   };
 
+  const PUBLIC_WIDGET_ORIGIN = (
+    BACKEND_URL ||
+    (typeof window !== "undefined" ? window.location.origin : "")
+  ).replace(/\/+$/, "");
+  const wsOrigin = PUBLIC_WIDGET_ORIGIN.replace(/^https:\/\//i, "wss://").replace(/^http:\/\//i, "ws://");
   const widgetBundle = persona.triagePolicy === "industrial" ? "site-chat" : "valem-chat";
+  const testPageHref = persona.triagePolicy === "industrial" ? "/test-chat-tecfag.html" : "/test-chat.html";
   const widgetScript = `<!-- ${persona.company} — Chat do Site (${persona.name}) -->
-<link rel="stylesheet" href="${BACKEND_URL}/${widgetBundle}.css">
-<script src="${BACKEND_URL}/${widgetBundle}.iife.js"
+<link rel="stylesheet" href="${PUBLIC_WIDGET_ORIGIN}/${widgetBundle}.css">
+<script src="${PUBLIC_WIDGET_ORIGIN}/${widgetBundle}.iife.js"
   data-tenant="${tenant}"
-  data-ws="${BACKEND_URL?.replace("https://", "wss://")?.replace("http://", "ws://")}/ws/livechat"
+  data-backend="${PUBLIC_WIDGET_ORIGIN}"
+  data-ws="${wsOrigin}/ws/livechat"
   defer>
 </script>`;
 
@@ -300,7 +307,7 @@ export function LiveChatSettingsTab() {
           </p>
           <SystemTooltip content="Abre o simulador do widget em uma nova aba para testar a experiência do visitante da loja.">
             <a
-              href="/test-chat.html"
+              href={testPageHref}
               target="_blank"
               rel="noreferrer"
               className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-muted text-foreground border border-border hover:bg-muted/80 transition cursor-pointer"
