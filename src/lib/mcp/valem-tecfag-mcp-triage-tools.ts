@@ -13,7 +13,10 @@ import {
 } from "../../db/schema";
 import { getAiPersona } from "../ai-persona";
 import { projectIndustrialMonitoring } from "../triage/industrial-monitor";
-import { computeIndustrialTriageProgress } from "../triage/industrial-policy";
+import {
+  computeIndustrialTriageProgress,
+  normalizeIndustrialFunnel,
+} from "../triage/industrial-policy";
 import {
   getBrtDateKeyFromDate,
   resolveSweepDateRange,
@@ -268,15 +271,16 @@ function cleanTargetFunnel(
     meta?.pendingApproval && typeof meta.pendingApproval === "object"
       ? asTrimmedString((meta.pendingApproval as Record<string, unknown>).targetFunnel)
       : null;
-  if (pendingFunnel && !/^aguardando/i.test(pendingFunnel)) return pendingFunnel;
+  if (pendingFunnel && !/^aguardando/i.test(pendingFunnel))
+    return normalizeIndustrialFunnel(pendingFunnel);
 
   const rawMeta = asTrimmedString(meta?.targetFunnel);
-  if (rawMeta && !/^aguardando/i.test(rawMeta)) return rawMeta;
+  if (rawMeta && !/^aguardando/i.test(rawMeta)) return normalizeIndustrialFunnel(rawMeta);
 
   const entry = collectedData?.["SETOR / FUNIL DE DESTINO"];
   if (entry && entry.status === "filled" && typeof entry.value === "string") {
     const val = entry.value.trim();
-    if (val && !/^aguardando/i.test(val)) return val;
+    if (val && !/^aguardando/i.test(val)) return normalizeIndustrialFunnel(val);
   }
   return null;
 }

@@ -45,10 +45,10 @@ export interface IndustrialSilenceConfig {
 export const DEFAULT_INDUSTRIAL_SILENCE_CONFIG: IndustrialSilenceConfig = {
   enabled: true,
   followUpEnabled: true,
-  followUp1Minutes: 25,
-  followUp2Minutes: 20,
-  noResponseAfterFollowUp2Minutes: 30,
-  noResponseMinutesAfterFollowUp2: 30,
+  followUp1Minutes: 60,
+  followUp2Minutes: 120,
+  noResponseAfterFollowUp2Minutes: 180,
+  noResponseMinutesAfterFollowUp2: 180,
   endOfDayHour: 20,
   endOfDayHourBrt: 20,
   sitePartialRescueMinutes: 10,
@@ -147,13 +147,13 @@ export function parseIndustrialSilenceConfig(
     source.followUp1Minutes,
     DEFAULT_INDUSTRIAL_SILENCE_CONFIG.followUp1Minutes,
     5,
-    240,
+    480,
   );
   const followUp2Minutes = clampInt(
     source.followUp2Minutes,
     DEFAULT_INDUSTRIAL_SILENCE_CONFIG.followUp2Minutes,
     5,
-    240,
+    480,
   );
   const noResponseAfterFollowUp2Minutes = clampInt(
     source.noResponseAfterFollowUp2Minutes ?? source.noResponseMinutesAfterFollowUp2,
@@ -437,6 +437,35 @@ export interface IndustrialSilenceEvalDecision {
   rescuePartialLead: boolean;
 }
 
+const CLIENT_RESCHEDULE_PATTERN =
+  /\b(?:amanha|na\s+segunda|segunda[\s-]?feira|terca[\s-]?feira|quarta[\s-]?feira|quinta[\s-]?feira|sexta[\s-]?feira|semana\s+que\s+vem|mais\s+tarde|depois\s+(?:eu\s+|te\s+)?(?:mando|envio|passo|falo|conversamos|retorno)|em\s+horario\s+comercial|no\s+proximo\s+dia\s+util|vou\s+(?:precisar\s+)?pegar\s+.*amanha|a\s+gente\s+conversa\s+(?:amanha|segunda|depois))\b/i;
+
+/**
+ * Detecta se o cliente pediu explicitamente para continuar em outro momento/dia útil
+ * (ex.: "na segunda-feira a gente conversa", "vou pegar o CNPJ amanhã").
+ */
+export function findLatestClientRescheduleMs(
+  cycleMsgs: ReadonlyArray<{ senderType: string; sentAt: Date | string; content?: string | null }>,
+): number | null {
+  for (let i = cycleMsgs.length - 1; i >= 0; i--) {
+    const msg = cycleMsgs[i];
+    if (msg.senderType !== "client") continue;
+    const rawContent = String(msg.content || "").trim();
+    if (!rawContent) continue;
+    const normalizedContent = rawContent
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase();
+    if (CLIENT_RESCHEDULE_PATTERN.test(normalizedContent)) {
+      const ms = msg.sentAt instanceof Date ? msg.sentAt.getTime() : Date.parse(String(msg.sentAt));
+      return Number.isFinite(ms) ? ms : null;
+    }
+    // Se houve outra mensagem substantiva posterior sem reagendamento, para de olhar atrás
+    if (rawContent.length >= 25) break;
+  }
+  return null;
+}
+
 export function evaluateIndustrialSilence(
   input: IndustrialSilenceEvalInput,
 ): IndustrialSilenceEvalDecision {
@@ -446,7 +475,13 @@ export function evaluateIndustrialSilence(
   }
 
   const conv = input.conversation;
-  if (!conv || conv.queueState === "finalizados" || conv.queueState === "meus" || Boolean(conv.operatorId)) {
+  if (
+    !conv ||
+    conv.queueState === "finalizados" ||
+    conv.queueState === "meus" ||
+    conv.queueState === "fila" ||
+    Boolean(conv.operatorId)
+  ) {
     return { action: "cancel_by_human", reason: "operator_or_queue_changed", rescuePartialLead: false };
   }
 
@@ -501,6 +536,24 @@ export function evaluateIndustrialSilence(
     isSite && hasPartial && !alreadyRescued && silenceMinutes >= cfg.sitePartialRescueMinutes;
 
   const zonedNow = getZonedDateParts(input.now, DEFAULT_INDUSTRIAL_SCHEDULE.timezone);
+  const rescheduleMs = findLatestClientRescheduleMs(cycleMsgs);
+  if (rescheduleMs !== null) {
+    const hoursSinceReschedule = (input.now.getTime() - rescheduleMs) / 3_600_000;
+    // Se o cliente pediu explicitamente para retomar depois/amanhã/segunda:
+    // - Não marca Sem Resposta nas primeiras 24h;
+    // - Não dispara FU1 antes das 11h BRT (nem antes de 4h desde o pedido);
+    // - Não dispara FU2 nas primeiras 24h.
+    if (hoursSinceReschedule < 24) {
+      if (stage >= 1 || zonedNow.hour < 11 || hoursSinceReschedule < 4) {
+        return {
+          action: "none",
+          reason: "client_rescheduled_grace_period",
+          rescuePartialLead,
+        };
+      }
+    }
+  }
+
   const isEndOfDay = zonedNow.hour >= cfg.endOfDayHour;
   const canCloseWithoutFollowUp = !cfg.pauseOutsideSchedule || input.withinSchedule;
   if (

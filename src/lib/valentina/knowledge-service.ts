@@ -1186,53 +1186,14 @@ export async function getKnowledgeBaseContext(tenantId: string, queryHint?: stri
         : "";
 
     // ── 3. Seleção Contextual de Fotos Reais (Formato Real) ────────────────────
-    const MAX_PROMPT_PHOTOS = 40;
     const isIndustrialPolicy = persona.triagePolicy === "industrial";
-    let selectedPhotos = cached.realMediaItems;
-    if (selectedPhotos.length > MAX_PROMPT_PHOTOS || (isIndustrialPolicy && queryHint && queryHint.trim().length >= 2)) {
-      if (queryHint && queryHint.trim().length >= 2) {
-        const expandedHint = expandInternalCatalogCodesInText(queryHint);
-        const normHint = normalizeSearchText(expandedHint);
-        const compactHint = normHint.replace(/[^a-z0-9]/g, "");
-        const terms = normHint
-          .split(/[^a-z0-9]+/)
-          .filter(
-            (t) =>
-              t.length >= 2 &&
-              !RAG_STOPWORDS.has(t) &&
-              (!isIndustrialPolicy || !CATALOG_GENERIC_STOPWORDS.has(t)),
-          );
-        if (terms.length > 0 || compactHint.length >= 3) {
-          const scored = selectedPhotos
-            .map((item) => {
-              const target = normalizeSearchText(`${item.name} ${item.category} ${item.sku}`);
-              const compactTarget = target.replace(/[^a-z0-9]/g, "");
-              let score = 0;
-              if (item.compactModel && item.compactModel.length >= 3 && compactHint.includes(item.compactModel)) {
-                score += 100;
-              }
-              for (const term of terms) {
-                if (target.includes(term) || compactTarget.includes(term)) {
-                  score += /\d/.test(term) ? 5 : 1;
-                }
-              }
-              return { item, score };
-            })
-            .filter((entry) => entry.score > 0)
-            .sort((a, b) => b.score - a.score);
-          selectedPhotos =
-            scored.length > 0
-              ? scored.slice(0, MAX_PROMPT_PHOTOS).map((s) => s.item)
-              : isIndustrialPolicy
-                ? []
-                : selectedPhotos.slice(0, MAX_PROMPT_PHOTOS);
-        } else {
-          selectedPhotos = isIndustrialPolicy ? [] : selectedPhotos.slice(0, MAX_PROMPT_PHOTOS);
-        }
-      } else {
-        selectedPhotos = selectedPhotos.slice(0, MAX_PROMPT_PHOTOS);
-      }
-    }
+    const MAX_PROMPT_PHOTOS = isIndustrialPolicy ? 5 : 40;
+    const selectedPhotos = selectContextualPromptPhotos({
+      items: cached.realMediaItems,
+      queryHint,
+      isIndustrialPolicy,
+      maxPhotos: MAX_PROMPT_PHOTOS,
+    });
 
     const realMediaLines = selectedPhotos.map(
       (item) =>
@@ -1241,7 +1202,12 @@ export async function getKnowledgeBaseContext(tenantId: string, queryHint?: stri
 
     const realMediaSection =
       realMediaLines.length > 0
-        ? `\n\n📸 FOTOS REAIS DISPONÍVEIS PARA ENVIO (Formato Real — exibindo ${realMediaLines.length} de ${cached.realMediaItems.length} itens):
+        ? isIndustrialPolicy
+          ? `\n\n📸 FOTOS REAIS DISPONÍVEIS PARA ENVIO (Formato Real — exibindo ${realMediaLines.length} de ${cached.realMediaItems.length} itens):
+REGRA ESTRITA DE FOTOS: Use [SEND_IMAGE:URL] SOMENTE quando o cliente pedir foto explicitamente OU citar/confirmar um modelo específico exato listado abaixo (máximo 1 foto por turno). NUNCA envie fotos aleatórias, genéricas ou de vários modelos durante a triagem.
+Lista de fotos cadastradas:
+${realMediaLines.join("\n")}`
+          : `\n\n📸 FOTOS REAIS DISPONÍVEIS PARA ENVIO (Formato Real — exibindo ${realMediaLines.length} de ${cached.realMediaItems.length} itens):
 Você pode enviar essas fotos ao cliente durante o atendimento usando a tag [SEND_IMAGE:URL].
 Exemplos de uso:
   - Cliente pede fotos do produto → identifique o produto na lista abaixo e emita [SEND_IMAGE:URL] antes da mensagem de confirmação.
@@ -1994,6 +1960,85 @@ export function isPhotoGroundedInContext(
     if (normDisplay.length >= 6 && normEvidence.includes(normDisplay)) return true;
   }
   return false;
+}
+
+/**
+ * Seleciona quais fotos do catálogo entram na seção de contexto do prompt.
+ *
+ * No modo industrial (`isIndustrialPolicy = true`, Fagner):
+ * - Nunca despeja lista aleatória de fotos quando `queryHint` está vazio/curto ou genérico
+ *   (ex.: "oi", "preciso de uma seladora", "quero uma máquina").
+ * - Sem pedido explícito de foto, só inclui fotos com correspondência específica de modelo/código
+ *   (`score >= 5`, como `compactModel` ou token alfanumérico tipo `DZ400`, `VSF30S`, `SYF200`).
+ * - Limita o bloco do prompt a no máximo `maxPhotos` (padrão 5 no industrial).
+ *
+ * No modo não-industrial (`valem` / Valentina), preserva o comportamento legado.
+ */
+export function selectContextualPromptPhotos<
+  T extends {
+    name: string;
+    category: string;
+    sku: string;
+    compactModel?: string;
+  },
+>(params: {
+  items: T[];
+  queryHint?: string;
+  isIndustrialPolicy: boolean;
+  maxPhotos?: number;
+}): T[] {
+  const { items, queryHint, isIndustrialPolicy } = params;
+  const maxPhotos = params.maxPhotos ?? (isIndustrialPolicy ? 5 : 40);
+  if (!Array.isArray(items) || items.length === 0 || maxPhotos <= 0) return [];
+
+  if (!queryHint || queryHint.trim().length < 2) {
+    return isIndustrialPolicy ? [] : items.slice(0, maxPhotos);
+  }
+
+  if (!isIndustrialPolicy && items.length <= maxPhotos) {
+    return items;
+  }
+
+  const expandedHint = expandInternalCatalogCodesInText(queryHint);
+  const normHint = normalizeSearchText(expandedHint);
+  const compactHint = normHint.replace(/[^a-z0-9]/g, "");
+  const isExplicitPhotoHint = isExplicitMachinePhotoRequest(queryHint);
+  const terms = normHint
+    .split(/[^a-z0-9]+/)
+    .filter(
+      (t) =>
+        t.length >= 2 &&
+        !RAG_STOPWORDS.has(t) &&
+        (!isIndustrialPolicy || !CATALOG_GENERIC_STOPWORDS.has(t)),
+    );
+
+  if (terms.length === 0 && compactHint.length < 3) {
+    return isIndustrialPolicy ? [] : items.slice(0, maxPhotos);
+  }
+
+  const minScore = isIndustrialPolicy && !isExplicitPhotoHint ? 5 : 1;
+  const scored = items
+    .map((item) => {
+      const target = normalizeSearchText(`${item.name} ${item.category} ${item.sku}`);
+      const compactTarget = target.replace(/[^a-z0-9]/g, "");
+      let score = 0;
+      if (item.compactModel && item.compactModel.length >= 3 && compactHint.includes(item.compactModel)) {
+        score += 100;
+      }
+      for (const term of terms) {
+        if (target.includes(term) || compactTarget.includes(term)) {
+          score += /\d/.test(term) ? 5 : 1;
+        }
+      }
+      return { item, score };
+    })
+    .filter((entry) => entry.score >= minScore)
+    .sort((a, b) => b.score - a.score);
+
+  if (scored.length > 0) {
+    return scored.slice(0, maxPhotos).map((s) => s.item);
+  }
+  return isIndustrialPolicy ? [] : items.slice(0, maxPhotos);
 }
 
 /**

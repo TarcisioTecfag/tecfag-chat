@@ -28,6 +28,7 @@ import {
   evaluateIndustrialSdrOwnershipGuard,
   fetchLatestPublicOutboundMessage,
 } from "../triage/industrial-ownership-guard";
+import { isAutomatedBotOrUraMessage } from "../triage/industrial-policy";
 import { normalizeCanonicalPhone, buildPhoneSearchTerms } from "../utils";
 import { sendPushToOperator } from "../push-notifications";
 import { checkAndSendOperatorStatusAutoReply } from "./status-auto-reply";
@@ -483,6 +484,10 @@ export class InboundProcessor {
     const currentFlowMeta = (currentFlow?.metadata as Record<string, any>) || {};
     const isIndustrial = getAiPersona(tenantId).triagePolicy === "industrial";
     if (isIndustrial) {
+      if (isAutomatedBotOrUraMessage({ phone: fromPhone, text: cleanText })) {
+        console.log(`[Meta/SDR] 🤖 URA/Bot externo ou número 0800 detectado (${fromPhone}) na conversa ${convId}. ${getAiPersona(tenantId).name} silenciado.`);
+        return;
+      }
       const latestOutbound = await fetchLatestPublicOutboundMessage(db, tenantId, convId);
       const guard = evaluateIndustrialSdrOwnershipGuard({
         queueState: conv.queueState,
@@ -527,14 +532,18 @@ export class InboundProcessor {
     let mimeType: string | undefined;
 
     if (media && media.dataBuffer) {
-      mimeType = media.mimeType;
-      mediaBase64 = media.dataBuffer.toString("base64");
       if (media.mediaType === "image" || media.mediaType === "sticker") {
         mediaType = "image";
+        mimeType = media.mimeType || "image/jpeg";
+        mediaBase64 = media.dataBuffer.toString("base64");
       } else if (media.mediaType === "audio") {
         mediaType = "audio";
+        mimeType = media.mimeType || "audio/ogg";
+        mediaBase64 = media.dataBuffer.toString("base64");
       } else if (media.mediaType === "document") {
         mediaType = "document";
+        mimeType = media.mimeType || "application/pdf";
+        mediaBase64 = media.dataBuffer.toString("base64");
       }
     }
 

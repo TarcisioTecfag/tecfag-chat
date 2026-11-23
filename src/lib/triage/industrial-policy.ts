@@ -125,6 +125,10 @@ const LEGACY_INDUSTRIAL_FUNNELS: Record<string, string> = {
   "Pós-Venda Rastreio": "Pós-Venda",
   "Pós-Venda - NF do Pedido": "Pós-Venda",
   "Pós-Venda Geral": "Pós-Venda",
+  "Pós venda": "Pós-Venda",
+  "Pos venda": "Pós-Venda",
+  "Suporte Técnico": "Assistência Técnica",
+  "Suporte Tecnico": "Assistência Técnica",
   "Atendimento Geral": INDUSTRIAL_REVIEW_FUNNEL,
 };
 export function normalizeIndustrialFunnel(value: string): string {
@@ -944,6 +948,116 @@ export function canFinishIndustrialTriage(params: {
   )
     return true;
   return ready.ready && params.isCompleted === true && !params.hasPendingQuestion;
+}
+
+const INVALID_PERSON_NAME_EXACT = new Set([
+  "em reuniao",
+  "ocupado",
+  "ausente",
+  "disponivel",
+  "online",
+  "offline",
+  "nome privado",
+  "privado",
+  "cliente",
+  "cliente whatsapp",
+  "contato",
+  "visitante",
+  "usuario",
+  "lead",
+  "whatsapp",
+  "sem nome",
+  "nao informado",
+  "nao informada",
+  "comercial",
+  "financeiro",
+  "vendas",
+  "compras",
+  "atendimento",
+  "suporte",
+  "sac",
+  "adm",
+  "admin",
+  "administrativo",
+  "rh",
+  "ti",
+  "marketing",
+  "recepcao",
+  "escritorio",
+  "empresa",
+]);
+
+/**
+ * Valida se um valor representa um nome humano plausível (impedindo que apelidos/status
+ * de perfil do WhatsApp como "Em Reuniao", ".", e-mails ou telefones virem NOME COMPLETO).
+ */
+export function isValidIndustrialPersonName(raw?: string | null): boolean {
+  const clean = String(raw || "").trim();
+  if (!clean) return false;
+  if (clean.includes("@")) return false;
+  const digitsOnly = clean.replace(/[\s().+-]/g, "");
+  if (/^\d{6,20}$/.test(digitsOnly)) return false;
+  const normalized = normalizeTriageText(clean);
+  if (!normalized || normalized.length < 2) return false;
+  if (INVALID_PERSON_NAME_EXACT.has(normalized)) return false;
+  // Rejeita apenas pontuação/símbolos/emojis sem ao menos 2 letras reais
+  const lettersOnly = clean.replace(/[^\p{L}]/gu, "");
+  if (lettersOnly.length < 2) return false;
+  return true;
+}
+
+/**
+ * Detecta desistência/recusa educada explícita do cliente (ex.: "Não, agradeço", "Não tenho interesse")
+ * sem nova demanda comercial/suporte na mesma mensagem.
+ */
+export function isClientDecliningTriage(raw: string): boolean {
+  const text = normalizeTriageText(raw);
+  if (!text || text.length > 140) return false;
+  const hasNewDemand =
+    /\b(?:maquina|seladora|envasadora|dosadora|empacotadora|rotuladora|datador|peca|pecas|teflon|resistencia|correia|boleto|nota fiscal|nf|rastreio|entrega|pedido|defeito|manutencao|assistencia|orcamento|cotacao|preco|valor|quero comprar|preciso de)\b/.test(
+      text,
+    );
+  if (hasNewDemand) return false;
+  return (
+    /^(?:nao|n)\s*,?\s*(?:muito\s+)?(?:obrigad[oa]|agradeco|valeu|bgd|obg)[!.]*$/.test(text) ||
+    /^(?:obrigad[oa]|agradeco)\s*,?\s*(?:mas\s+)?nao(?:\s+(?:preciso|quero|tenho interesse))?[!.]*$/.test(
+      text,
+    ) ||
+    /\b(?:nao tenho interesse|nao preciso mais|nao quero mais|ja resolvi|ja comprei em outro|pode encerrar|desisti|nao precisa mais|por enquanto nao(?:,\s*(?:obrigad[oa]|agradeco))?)\b/.test(
+      text,
+    )
+  );
+}
+
+/**
+ * Detecta mensagens vindas de URAs/bots automáticos externos ou números 0800
+ * (ex.: Grupo Caçola 558007222652) para evitar loop bot-a-bot e card falso no FUNIL CWR.
+ */
+export function isAutomatedBotOrUraMessage(params: {
+  phone?: string | null;
+  text?: string | null;
+}): boolean {
+  const digits = String(params.phone || "").replace(/\D/g, "");
+  if (/^550?800\d{6,8}$/.test(digits) || /^0?800\d{6,8}$/.test(digits)) {
+    return true;
+  }
+  const raw = String(params.text || "");
+  const text = normalizeTriageText(raw);
+  if (!text) return false;
+
+  if (
+    /\b(?:finalizar autoatendimento|nao entendi,\s*poderia repetir|como nao entendi sua resposta,\s*estarei te direcionando|seja bem vindo ao atendimento automatico|atendimento eletronico)\b/.test(
+      text,
+    )
+  ) {
+    return true;
+  }
+
+  const hasUraPrompt = /\b(?:digite a opcao desejada|escolha uma das opcoes abaixo|selecione a opcao desejada)\b/.test(
+    text,
+  );
+  const numberedOptionsCount = (raw.match(/(?:^|\n)\s*\*?\d{1,2}\*?\s*[-–.)]/g) || []).length;
+  return hasUraPrompt && numberedOptionsCount >= 3;
 }
 
 export function hasPendingTriageQuestion(messages: string[]): boolean {

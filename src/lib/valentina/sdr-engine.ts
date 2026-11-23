@@ -16,6 +16,7 @@ import {
   KNOWLEDGE_MEDIA_DIR,
   extractPhotoModelMetadata,
   isExplicitMachinePhotoRequest,
+  isMultiOrFamilyMachinePhotoRequest,
   resolveMatchingCatalogPhotos,
 } from "./knowledge-service";
 import { autoCreateOrUpdateRdCrmDeal } from "./sdr-crm-auto";
@@ -36,8 +37,12 @@ import {
   requestsHuman,
   requestsGenericHuman,
   resolveDirectOperatorRequest,
+  normalizeIndustrialFunnel,
   normalizeIndustrialFunnels,
   computeIndustrialTriageProgress,
+  isValidIndustrialPersonName,
+  isClientDecliningTriage,
+  isAutomatedBotOrUraMessage,
   type SystemOperatorCandidate,
   type DirectOperatorAiDecision,
   type ResolvedDirectOperator,
@@ -152,6 +157,7 @@ export async function syncContactDataFromTriage(
       typeof nameVal === "string" &&
       nameVal.trim() !== "" &&
       !nameVal.includes("Aguardando") &&
+      isValidIndustrialPersonName(nameVal) &&
       nameVal.trim() !== contact.name
     ) {
       updates.name = nameVal.trim();
@@ -607,6 +613,30 @@ export class SdrEngine {
    - Responda DIRETO ao que o cliente disse de forma fluida e conversacional!`;
 
       const combinedBatchText = batchItems.map((i) => i.text).join(" ");
+
+      // 🛑 FILTRO ANTI-BOT / URA 0800 (perfil industrial): nunca responde a URAs externas (ex.: 0800) nem cria card CWR
+      if (
+        industrialTriage &&
+        isAutomatedBotOrUraMessage({ phone: contactPhone, text: combinedBatchText })
+      ) {
+        console.log(
+          `[SdrEngine] 🤖 URA/Bot externo ou 0800 detectado (${contactPhone}) na conversa ${conversationId}. Encerrando fluxo sem resposta nem card CRM.`,
+        );
+        if (flowState) {
+          await db
+            .update(agentFlowStates)
+            .set({
+              currentStep: "Ignorado (URA/Bot externo)",
+              outcome: "stopped",
+              completedAt: new Date(),
+              lastInteractionAt: new Date(),
+              metadata: sql`${agentFlowStates.metadata} || '{"ignoredReason":"external_bot_or_ura"}'::jsonb`,
+            })
+            .where(and(eq(agentFlowStates.id, flowState.id), eq(agentFlowStates.tenantId, tenantId)));
+        }
+        return false;
+      }
+
       let knownClient: KnownClientProfile | null = null;
       let knownClientConfirmation: "confirmed" | "rejected" | "pending" = "pending";
 
@@ -1061,9 +1091,14 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
       const multimodalParts: MultimodalPart[] = [{ text: promptText }];
 
-      // Anexar buffers de imagem e áudio recebidos no lote
+      // Anexar buffers de imagem, áudio e PDF recebidos no lote com rótulo explícito para leitura direta (NF, etiquetas, comprovantes)
+      let attachmentIndex = 0;
       for (const item of batchItems) {
         if (item.mediaBase64 && item.mimeType) {
+          attachmentIndex += 1;
+          multimodalParts.push({
+            text: `[Anexo ${attachmentIndex} enviado pelo cliente — tipo: ${item.mediaType} (${item.mimeType}). Leia/analise diretamente este conteúdo visual/textual/auditivo.]`,
+          });
           multimodalParts.push({
             inlineData: {
               mimeType: item.mimeType,
@@ -1076,16 +1111,38 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       if (signal?.aborted) return false;
 
       // 6. Consultar o Gemini 2.5 Pro via Vertex AI
-      const storeTurn = industrialTriage ? await runVtexStoreTurn(db, tenantId, {
-        text: combinedBatchText, siteContext, previous: readVtexEvidence(metaState.vtexLookup) || undefined,
-        channel: isSiteConversationId(conversationId) ? "livechat" : "whatsapp", signal,
-      }).catch(() => null) : null;
+      const hasMediaInBatch = batchItems.some(
+        (i) => i.mediaType === "image" || i.mediaType === "audio" || i.mediaType === "document",
+      );
+      const isClientDeclinedTurn =
+        industrialTriage &&
+        !hasMediaInBatch &&
+        isClientDecliningTriage(combinedBatchText);
+      const storeTurn =
+        industrialTriage && !isClientDeclinedTurn
+          ? await runVtexStoreTurn(db, tenantId, {
+              text: combinedBatchText,
+              siteContext,
+              previous: readVtexEvidence(metaState.vtexLookup) || undefined,
+              channel: isSiteConversationId(conversationId) ? "livechat" : "whatsapp",
+              signal,
+            }).catch(() => null)
+          : null;
       if (signal?.aborted) return false;
       let aiResult: SdrAiResult | null = null;
       const shouldShortCircuitGenericHuman =
         industrialTriage &&
+        !isClientDeclinedTurn &&
         (vertexAi.isReady() ? requestsGenericHuman(combinedBatchText) : requestsHuman(combinedBatchText));
-      if (shouldShortCircuitGenericHuman) {
+      if (isClientDeclinedTurn) {
+        aiResult = {
+          subflow: null,
+          messagesToSend: [
+            "Entendido! Agradeço o retorno. Caso precise de alguma solução ou equipamento no futuro, continuamos à disposição.",
+          ],
+          isCompleted: true,
+        };
+      } else if (shouldShortCircuitGenericHuman) {
         aiResult = { subflow: "5A_CLIENTE", messagesToSend: ["Vou acionar a equipe responsável pelo seu atendimento."], isCompleted: true };
       } else if (storeTurn) {
         // Consulta factual não conclui coleta, cria card ou depende de uma resposta generativa.
@@ -1166,12 +1223,14 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       if (isFirstMessage) {
         const combinedText = batchItems.map((i) => i.text).join(" ").toLowerCase();
 
-        // Checar se o cliente apenas deu oi/saudação ou se já explicou o que precisa
+        // Checar se o cliente apenas deu oi/saudação ou se já trouxe mídia (PDF/imagem/áudio) ou explicou o que precisa
         const isGenericGreetingOnly =
           !storeTurn &&
+          !hasMediaInBatch &&
+          !isClientDeclinedTurn &&
           (!resolvedDirectOperator || resolvedDirectOperator.status === "none") &&
           combinedText.replace(/[^a-z0-9]/g, "").length < 25 &&
-          !/(embalag|valv|válv|spray|frasc|pote|selad|catal|catál|prec|preç|cota|cotá|orç|orc|sab|comp|prod|inform|duvid|dúvid|maquin|máquin|envas|empacot|datador|peca|peça|assist|boleto|nota|nf|rastreio|pedido|manuten|personalit|falar|atendent|vendedor|consultor)/.test(combinedText);
+          !/(embalag|valv|válv|spray|frasc|pote|selad|catal|catál|prec|preç|cota|cotá|orç|orc|sab|comp|prod|inform|duvid|dúvid|maquin|máquin|envas|empacot|datador|peca|peça|assist|boleto|nota|nf|rastreio|pedido|manuten|personalit|falar|atendent|vendedor|consultor|comprovante|pagamento|curriculo|currículo)/.test(combinedText);
 
         const article = aiPersona.gender === "female" ? "a" : "o";
         const presentationLine = industrialTriage
@@ -1261,6 +1320,11 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           if (lowerV === "n/a" || lowerV === "-" || lowerV === "nenhum" || lowerV === "nenhuma") continue;
           if (lowerV.includes("não informado") || lowerV.includes("nao informado")) continue;
 
+          // Impedir que apelidos/status de perfil do WhatsApp ("Em Reuniao", ".", números, e-mails) virem NOME COMPLETO
+          if (industrialTriage && k === "NOME COMPLETO" && !isValidIndustrialPersonName(v)) {
+            console.log(`[SdrEngine] 🛡️ Ignorado NOME COMPLETO inválido/apelido de perfil: "${v}"`);
+            continue;
+          }
           // Evitar que booleans ou respostas de confirmação ("sim"/"true") sobrescrevam o nome real da empresa ou CNPJ
           if (k === "EMPRESA" && ["true", "false", "sim", "nao", "não"].includes(lowerV)) {
             console.log(`[SdrEngine] 🛡️ Ignorada tentativa da IA de preencher EMPRESA com resposta booleana: "${v}"`);
@@ -1500,7 +1564,9 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       // ║  A IA jamais pode encerrar a triagem sem dados vitais coletados.   ║
       // ╚══════════════════════════════════════════════════════════════════════╝
       let isCompleted = false;
-      if (industrialRoute) {
+      if (isClientDeclinedTurn) {
+        isCompleted = true;
+      } else if (industrialRoute) {
         const hasPendingQuestion = hasPendingTriageQuestion(aiResult.messagesToSend);
         const implicitReadyHandoff =
           Boolean(industrialReadiness?.ready) &&
@@ -1549,54 +1615,67 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
           if (industrialTriage && industrialRoute) {
             if (!flowState) return false;
-            // ── MODO HUMAN-IN-THE-LOOP (TECFAG / FAGNER) ────────────────────────
-            // O Fagner conclui a triagem, sugere destino + próximo operador do rodízio
-            // (sem consumir slot nem transferir), garante card no FUNIL CWR em CONTATANDO,
-            // envia mensagem neutra ao cliente e aguarda aprovação do SDR humano.
-            const { prepareIndustrialApproval, notifySdrTeamApprovalPending } = await import(
-              "../triage/industrial-approval-store"
-            );
-            const key = {
-              tenantId,
-              conversationId,
-              flowId: flowState.id,
-              cycle: flowState.startedAt.toISOString(),
-            };
-            const approvalPrep = await prepareIndustrialApproval(db, key, {
-              route: industrialRoute,
-              data: updatedCollectedData,
-              clientName,
-              companyName: company,
-              contactId: convCheck?.contactId || null,
-              machineDecision,
-              siteContext,
-            });
-            if (!approvalPrep.prepared || !approvalPrep.suggestion) return false;
+            // Desfechos informativos/não-comerciais (Currículos 5B_CURRICULO, Fornecedores 5C_COMPRAS)
+            // e desistência explícita ("Não, agradeço") concluem de forma limpa:
+            // SEM fila de aprovação SDR, SEM "Perfeito, já coletei tudo!" e SEM card comercial no FUNIL CWR.
+            if (isClientDeclinedTurn || industrialReadiness?.action === "inform") {
+              industrialHandoff = {
+                status: "resolved",
+                operator: null,
+                deal: null,
+              };
+              allocatedOp = null;
+              localCrmResult = null;
+            } else {
+              // ── MODO HUMAN-IN-THE-LOOP (TECFAG / FAGNER) ────────────────────────
+              // O Fagner conclui a triagem, sugere destino + próximo operador do rodízio
+              // (sem consumir slot nem transferir), garante card no FUNIL CWR em CONTATANDO,
+              // envia mensagem neutra ao cliente e aguarda aprovação do SDR humano.
+              const { prepareIndustrialApproval, notifySdrTeamApprovalPending } = await import(
+                "../triage/industrial-approval-store"
+              );
+              const key = {
+                tenantId,
+                conversationId,
+                flowId: flowState.id,
+                cycle: flowState.startedAt.toISOString(),
+              };
+              const approvalPrep = await prepareIndustrialApproval(db, key, {
+                route: industrialRoute,
+                data: updatedCollectedData,
+                clientName,
+                companyName: company,
+                contactId: convCheck?.contactId || null,
+                machineDecision,
+                siteContext,
+              });
+              if (!approvalPrep.prepared || !approvalPrep.suggestion) return false;
 
-            industrialHandoff = {
-              status: "awaiting_approval",
-              operator: null,
-              deal: approvalPrep.suggestion.dealId
-                ? {
-                    dealId: approvalPrep.suggestion.dealId,
-                    dealTitle: clientName,
-                    action: "reused_within_3h",
-                    funnelId: approvalPrep.suggestion.suggestedPipelineId || "",
-                    stageId: approvalPrep.suggestion.suggestedStageId || "",
-                  }
-                : null,
-            };
-            industrialHandoffPersisted = true;
-            allocatedOp = null;
-            localCrmResult = industrialHandoff.deal;
+              industrialHandoff = {
+                status: "awaiting_approval",
+                operator: null,
+                deal: approvalPrep.suggestion.dealId
+                  ? {
+                      dealId: approvalPrep.suggestion.dealId,
+                      dealTitle: clientName,
+                      action: "reused_within_3h",
+                      funnelId: approvalPrep.suggestion.suggestedPipelineId || "",
+                      stageId: approvalPrep.suggestion.suggestedStageId || "",
+                    }
+                  : null,
+              };
+              industrialHandoffPersisted = true;
+              allocatedOp = null;
+              localCrmResult = industrialHandoff.deal;
 
-            void notifySdrTeamApprovalPending(db, {
-              tenantId,
-              conversationId,
-              suggestion: approvalPrep.suggestion,
-            }).catch((err: any) =>
-              console.warn("[SdrEngine] Aviso ao notificar setor SDR sobre aprovação pendente:", err?.message),
-            );
+              void notifySdrTeamApprovalPending(db, {
+                tenantId,
+                conversationId,
+                suggestion: approvalPrep.suggestion,
+              }).catch((err: any) =>
+                console.warn("[SdrEngine] Aviso ao notificar setor SDR sobre aprovação pendente:", err?.message),
+              );
+            }
           } else {
             // ══════════════════════════════════════════════════════════════════
             // 🏢 FLUXO VALENTINA SDR (VALEM) — INALTERADO
@@ -1801,9 +1880,19 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
               .update(agentFlowStates)
               .set({
                 currentStep: industrialTriage
-                  ? industrialHandoff.status === "waiting_for_team" ? "Aguardando equipe"
-                    : industrialHandoff.status === "handoff_failed" ? "Encaminhamento pendente"
-                    : flowIsFinished ? "Concluído" : industrialRoute?.needsReview ? "Aguardando análise" : "Em Qualificação"
+                  ? isClientDeclinedTurn
+                    ? "Encerrado (Sem interesse)"
+                    : industrialReadiness?.action === "inform"
+                      ? "Concluído (Informativo)"
+                      : industrialHandoff.status === "waiting_for_team"
+                        ? "Aguardando equipe"
+                        : industrialHandoff.status === "handoff_failed"
+                          ? "Encaminhamento pendente"
+                          : flowIsFinished
+                            ? "Concluído"
+                            : industrialRoute?.needsReview
+                              ? "Aguardando análise"
+                              : "Em Qualificação"
                   : isCompleted ? "Concluído" : "Em Qualificação",
                 collectedData: updatedCollectedData,
                 metadata: industrialTriage ? sql`${agentFlowStates.metadata} || ${JSON.stringify(updatedMetadata)}::jsonb` : updatedMetadata,
@@ -1995,6 +2084,48 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           seen.add(key);
           return true;
         });
+
+        // Trava anti-duplicação inter-turnos (caso Fabio 19:26/19:27): se o bot acabou de enviar
+        // exatamente as mesmas mensagens nos últimos 2 minutos sem nenhuma nova mensagem do cliente depois,
+        // evita reenvio duplicado ao WhatsApp.
+        if (industrialTriage && aiResult.messagesToSend.length > 0) {
+          const twoMinAgo = new Date(Date.now() - 120_000);
+          const recentConvMsgs = await db
+            .select({
+              senderType: messages.senderType,
+              content: messages.content,
+              sentAt: messages.sentAt,
+            })
+            .from(messages)
+            .where(
+              and(
+                eq(messages.tenantId, tenantId),
+                eq(messages.conversationId, conversationId),
+                eq(messages.isInternalNote, false),
+                gte(messages.sentAt, twoMinAgo),
+              ),
+            )
+            .orderBy(desc(messages.sentAt))
+            .limit(8);
+
+          const latestMsgIn2m = recentConvMsgs[0];
+          if (latestMsgIn2m && latestMsgIn2m.senderType === "bot") {
+            const recentBotSet = new Set(
+              recentConvMsgs
+                .filter((m) => m.senderType === "bot")
+                .map((m) => String(m.content || "").trim().toLowerCase()),
+            );
+            const allAlreadySentRecently = aiResult.messagesToSend.every((m) =>
+              recentBotSet.has(m.trim().toLowerCase()),
+            );
+            if (allAlreadySentRecently) {
+              console.log(
+                `[SdrEngine] 🛑 DEDUPLICAÇÃO INTER-TURNOS: resposta idêntica já enviada nos últimos 2 min na conversa ${conversationId}. Abortando reenvio duplicado.`,
+              );
+              return true;
+            }
+          }
+        }
       }
 
       const dynamicAudioFinal = dynamicAudio;
@@ -2060,10 +2191,12 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         ).getTime();
         const active24hWindowStartMs = Math.max(todayStartMs, nowMs - 24 * 60 * 60 * 1000);
         const alreadySentUrlsAndKeysIn24h = new Set<string>();
+        let botImagesSentIn24hCount = 0;
         for (const hm of historyMsgs) {
           if (hm.senderType !== "bot" || hm.type !== "image") continue;
           const hmTimeMs = hm.createdAt ? new Date(hm.createdAt).getTime() : 0;
           if (hmTimeMs < active24hWindowStartMs) continue;
+          botImagesSentIn24hCount += 1;
           const mUrl = String(hm.mediaUrl || "").trim();
           if (mUrl) {
             alreadySentUrlsAndKeysIn24h.add(mUrl.toLowerCase());
@@ -2075,11 +2208,32 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           }
         }
 
-        let imageUrlsToSend = rawImageUrlsToSend.filter((imgUrl) => {
+        const isIndustrialClosingOrHandoffTurn =
+          industrialTriage &&
+          (aiResult.isCompleted ||
+            aiResult.shouldTransfer ||
+            industrialHandoff?.status === "awaiting_approval" ||
+            industrialHandoff?.status === "resolved" ||
+            industrialHandoff?.status === "transferred");
+
+        const clientMentionedSpecificMachineModel =
+          /\b(?:[a-z]{2,6}[- ]?\d{2,4}[a-z0-9-]*|pamq[a-z0-9]+|pratic\s*seal|softech\s*\d+|vsf[- ]?\d*|dz[- ]?\d+|syf[- ]?\d+|dgf[- ]?\d+)\b/i.test(
+            combinedBatchText
+          );
+
+        let imageUrlsToSend = Array.from(new Set(rawImageUrlsToSend)).filter((imgUrl) => {
           // No modo industrial (Fagner), bloqueia [SEND_IMAGE:URL] inventado ou não presente no contexto deste turno
           // quando o cliente não pediu foto explicitamente.
           if (industrialTriage && !isExplicitClientPhotoReq && !knowledgeContext.includes(imgUrl)) {
             return false;
+          }
+          // Anti-spam industrial: não envia foto não solicitada em turno de fechamento/aprovação,
+          // nem depois que o Fagner já enviou 1 foto proativa na janela de 24h, nem quando o cliente
+          // falou apenas termos genéricos sem citar modelo específico.
+          if (industrialTriage && !isExplicitClientPhotoReq) {
+            if (isIndustrialClosingOrHandoffTurn) return false;
+            if (botImagesSentIn24hCount >= 1) return false;
+            if (!clientMentionedSpecificMachineModel) return false;
           }
           if (isExplicitClientPhotoReq) return true;
           const lowerUrl = imgUrl.toLowerCase();
@@ -2092,14 +2246,23 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           return true;
         });
 
+        if (industrialTriage) {
+          const maxIndustrialImagesPerTurn = isExplicitClientPhotoReq ? 3 : 1;
+          imageUrlsToSend = imageUrlsToSend.slice(0, maxIndustrialImagesPerTurn);
+        }
+
         if (imageUrlsToSend.length === 0) {
           const combinedTurnText = `${combinedBatchText}\n${aiResult.messagesToSend.join("\n")}`;
-          const isMachineMentioned =
-            isExplicitClientPhotoReq ||
-            /\b(?:envasadora|seladora|datador|empacotadora|fechadora|tampadora|rotuladora|encapsuladora|c[aá]psula|dosadora|alimentador|esteira|t[uú]nel|m[aá]quina|equipamento)\b/i.test(
-              combinedTurnText
-            );
-          if (isMachineMentioned) {
+          const allowProactivePhotoFallback = industrialTriage
+            ? isExplicitClientPhotoReq ||
+              (!isIndustrialClosingOrHandoffTurn &&
+                botImagesSentIn24hCount === 0 &&
+                clientMentionedSpecificMachineModel)
+            : isExplicitClientPhotoReq ||
+              /\b(?:envasadora|seladora|datador|empacotadora|fechadora|tampadora|rotuladora|encapsuladora|c[aá]psula|dosadora|alimentador|esteira|t[uú]nel|m[aá]quina|equipamento)\b/i.test(
+                combinedTurnText
+              );
+          if (allowProactivePhotoFallback) {
             try {
               const pairedPhotos = await resolveMatchingCatalogPhotos(tenantId, {
                 userText: combinedBatchText,
@@ -2111,7 +2274,10 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
                   .map((m: any) => String(m.content || "")),
                 alreadySentPhotoKeysInWindow: alreadySentUrlsAndKeysIn24h,
                 isExplicitRequest: isExplicitClientPhotoReq,
-                maxPhotos: 1,
+                maxPhotos:
+                  industrialTriage && isExplicitClientPhotoReq && isMultiOrFamilyMachinePhotoRequest(combinedBatchText)
+                    ? 3
+                    : 1,
               });
               for (const p of pairedPhotos) {
                 if (p.mediaUrl) imageUrlsToSend.push(p.mediaUrl);
@@ -2234,16 +2400,22 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
             deliveryTurnContext ? { ...deliveryTurnContext, scope: "reply", images: industrialImageItems, greetingCount: industrialGreetingMessages.length } : undefined
           );
 
-          // Ciclo de vida FUNIL CWR: assim que o Fagner responde ao cliente no WhatsApp,
+          // Ciclo de vida FUNIL CWR: assim que o Fagner responde ao cliente comercial no WhatsApp,
           // garante o card no FUNIL CWR e move de CONTATAR -> CONTATANDO automaticamente.
-          if (industrialTriage && !industrialHandoffPersisted) {
+          // Não cria card comercial para desfechos não-comerciais (currículos, fornecedores, desistências).
+          const isNonCommercialOutcome =
+            isClientDeclinedTurn ||
+            industrialReadiness?.action === "inform" ||
+            industrialRoute?.subflow === "5B_CURRICULO" ||
+            industrialRoute?.subflow === "5C_COMPRAS";
+          if (industrialTriage && !industrialHandoffPersisted && !isNonCommercialOutcome) {
             void import("../triage/industrial-cwr-crm")
               .then(({ ensureCwrDealOnContacting }) =>
                 ensureCwrDealOnContacting(db, {
                   tenantId,
                   conversationId,
                   contactId: convCheck?.contactId || null,
-                  clientName: nameVal || undefined,
+                  clientName: isValidIndustrialPersonName(nameVal) ? nameVal : undefined,
                   companyName: companyVal || undefined,
                   actorName: aiPersona.name,
                 }),

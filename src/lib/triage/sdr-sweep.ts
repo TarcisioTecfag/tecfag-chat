@@ -3,6 +3,7 @@ import { agentFlowStates, contacts, conversations, messages, operators } from ".
 import type { IndustrialDatabase } from "./industrial-rodizio-store";
 import { getAiPersona } from "../ai-persona";
 import { projectIndustrialMonitoring } from "./industrial-monitor";
+import { normalizeIndustrialFunnel } from "./industrial-policy";
 
 export type SdrSweepPeriod = "today" | "range" | "all";
 
@@ -124,12 +125,12 @@ function cleanTargetFunnel(
   collectedData: Record<string, any>,
 ): string | null {
   const rawMeta = typeof meta?.targetFunnel === "string" ? meta.targetFunnel.trim() : "";
-  if (rawMeta && !/^aguardando/i.test(rawMeta)) return rawMeta;
+  if (rawMeta && !/^aguardando/i.test(rawMeta)) return normalizeIndustrialFunnel(rawMeta);
 
   const entry = collectedData?.["SETOR / FUNIL DE DESTINO"];
   if (entry && entry.status === "filled" && typeof entry.value === "string") {
     const val = entry.value.trim();
-    if (val && !/^aguardando/i.test(val)) return val;
+    if (val && !/^aguardando/i.test(val)) return normalizeIndustrialFunnel(val);
   }
   return null;
 }

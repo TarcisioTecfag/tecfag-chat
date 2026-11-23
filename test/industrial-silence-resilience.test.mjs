@@ -43,11 +43,11 @@ test("E5 Schedule: horario de expediente comercial (8h-18h seg-sex BRT) e aviso 
   assert.match(closingNotice, /na segunda-feira a partir das 8h/);
 });
 
-test("E5 Silence & Follow-up: 25min FU1, +20min FU2, +30min Sem Resposta e bloqueio fora do expediente", () => {
+test("E5 Silence & Follow-up: 60min FU1, +120min FU2, +180min Sem Resposta e bloqueio fora do expediente", () => {
   const cfg = parseIndustrialSilenceConfig({});
-  assert.equal(cfg.followUp1Minutes, 25);
-  assert.equal(cfg.followUp2Minutes, 20);
-  assert.equal(cfg.noResponseAfterFollowUp2Minutes, 30);
+  assert.equal(cfg.followUp1Minutes, 60);
+  assert.equal(cfg.followUp2Minutes, 120);
+  assert.equal(cfg.noResponseAfterFollowUp2Minutes, 180);
   assert.equal(cfg.endOfDayHour, 20);
 
   const cycleStart = new Date("2026-10-20T13:00:00.000Z"); // 10:00 BRT
@@ -85,21 +85,21 @@ test("E5 Silence & Follow-up: 25min FU1, +20min FU2, +30min Sem Resposta e bloqu
     { id: "m2", senderType: "bot", sentAt: botMsgTime, content: "Certo, qual máquina você procura?" },
   ];
 
-  // 1) Aos 20 min de silêncio (< 25 min): nenhuma ação
-  const at20m = new Date(botMsgTime.getTime() + 20 * 60_000);
-  const dec20m = evaluateIndustrialSilence({
-    now: at20m,
+  // 1) Aos 45 min de silêncio (< 60 min): nenhuma ação
+  const at45m = new Date(botMsgTime.getTime() + 45 * 60_000);
+  const dec45m = evaluateIndustrialSilence({
+    now: at45m,
     withinSchedule: true,
     flow: baseFlow,
     conversation: baseConv,
     recentMessages,
     config: cfg,
   });
-  assert.equal(dec20m.action, "none");
+  assert.equal(dec45m.action, "none");
 
-  // 2) Aos 26 min de silêncio mas FORA do expediente: bloqueia envio de follow-up
+  // 2) Aos 61 min de silêncio mas FORA do expediente: bloqueia envio de follow-up
   const decOffHours = evaluateIndustrialSilence({
-    now: new Date(botMsgTime.getTime() + 26 * 60_000),
+    now: new Date(botMsgTime.getTime() + 61 * 60_000),
     withinSchedule: false,
     flow: baseFlow,
     conversation: baseConv,
@@ -109,10 +109,10 @@ test("E5 Silence & Follow-up: 25min FU1, +20min FU2, +30min Sem Resposta e bloqu
   assert.equal(decOffHours.action, "none");
   assert.equal(decOffHours.reason, "outside_business_schedule");
 
-  // 3) Aos 26 min de silêncio dentro do expediente: envia Follow-up 1
-  const at26m = new Date(botMsgTime.getTime() + 26 * 60_000);
+  // 3) Aos 61 min de silêncio dentro do expediente: envia Follow-up 1
+  const at61m = new Date(botMsgTime.getTime() + 61 * 60_000);
   const decFu1 = evaluateIndustrialSilence({
-    now: at26m,
+    now: at61m,
     withinSchedule: true,
     flow: baseFlow,
     conversation: baseConv,
@@ -124,7 +124,7 @@ test("E5 Silence & Follow-up: 25min FU1, +20min FU2, +30min Sem Resposta e bloqu
 
   // Deduplicação determinística por (flowId, cycle, stage)
   const decFu1Dup = evaluateIndustrialSilence({
-    now: at26m,
+    now: at61m,
     withinSchedule: true,
     flow: {
       ...baseFlow,
@@ -142,8 +142,8 @@ test("E5 Silence & Follow-up: 25min FU1, +20min FU2, +30min Sem Resposta e bloqu
   assert.equal(decFu1Dup.action, "none");
   assert.equal(decFu1Dup.reason, "followup_1_already_sent_in_cycle");
 
-  // 4) Após FU1 enviado (stage=1), +21 min -> Follow-up 2
-  const fu1SentAt = at26m;
+  // 4) Após FU1 enviado (stage=1), +121 min -> Follow-up 2
+  const fu1SentAt = at61m;
   const flowStage1 = {
     ...baseFlow,
     followUpStage: 1,
@@ -159,7 +159,7 @@ test("E5 Silence & Follow-up: 25min FU1, +20min FU2, +30min Sem Resposta e bloqu
     ...recentMessages,
     { id: "m3", senderType: "bot", sentAt: fu1SentAt, content: "Roberto, conseguiu ver?" },
   ];
-  const atFu2 = new Date(fu1SentAt.getTime() + 21 * 60_000);
+  const atFu2 = new Date(fu1SentAt.getTime() + 121 * 60_000);
   const decFu2 = evaluateIndustrialSilence({
     now: atFu2,
     withinSchedule: true,
@@ -171,7 +171,7 @@ test("E5 Silence & Follow-up: 25min FU1, +20min FU2, +30min Sem Resposta e bloqu
   assert.equal(decFu2.action, "send_followup");
   assert.equal(decFu2.nextStage, 2);
 
-  // 5) Após FU2 enviado (stage=2), +31 min -> Sem Resposta (mark_no_response)
+  // 5) Após FU2 enviado (stage=2), +181 min -> Sem Resposta (mark_no_response)
   const fu2SentAt = atFu2;
   const flowStage2 = {
     ...baseFlow,
@@ -188,7 +188,7 @@ test("E5 Silence & Follow-up: 25min FU1, +20min FU2, +30min Sem Resposta e bloqu
     ...msgsAfterFu1,
     { id: "m4", senderType: "bot", sentAt: fu2SentAt, content: "Vou deixar em aberto por aqui." },
   ];
-  const atNoResp = new Date(fu2SentAt.getTime() + 31 * 60_000);
+  const atNoResp = new Date(fu2SentAt.getTime() + 181 * 60_000);
   const decNoResp = evaluateIndustrialSilence({
     now: atNoResp,
     withinSchedule: true,

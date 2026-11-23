@@ -69,7 +69,11 @@ export async function resolveCwrPipelineAndStages(
 function isPlaceholderName(raw?: string | null): boolean {
   const clean = (raw || "").trim();
   if (!clean) return true;
-  if (/^(cliente|contato|visitante|lead|whatsapp|sem nome|cliente whatsapp)$/i.test(clean)) {
+  if (
+    /^(cliente|contato|visitante|lead|whatsapp|sem nome|cliente whatsapp|em reuni[aã]o|ocupado|ausente|nome privado|privado|\.+|-+)$/i.test(
+      clean,
+    )
+  ) {
     return true;
   }
   return /^\+?\d{8,20}$/.test(clean.replace(/[\s().-]/g, ""));

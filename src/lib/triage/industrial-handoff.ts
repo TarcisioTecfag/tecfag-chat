@@ -29,12 +29,23 @@ export type IndustrialHandoffStatus =
 export const INDUSTRIAL_AWAITING_APPROVAL_CLIENT_MESSAGE =
   "Perfeito, já coletei tudo! Estou validando e já te encaminho para o responsável.";
 
+export const INDUSTRIAL_HUMAN_REQUEST_APPROVAL_MESSAGE =
+  "Certo! Já estou validando seu atendimento para encaminhar ao responsável.";
+
+/**
+ * Detecta balões genéricos de despedida/agradecimento redundantes gerados pelo LLM no turno
+ * final de `awaiting_approval`, preservando apenas respostas informativas reais ao cliente
+ * (ex.: cidade/sede, origem/importação, garantia, condições técnicas).
+ */
+export const INDUSTRIAL_GENERIC_CLOSING_PATTERN =
+  /^(?:(?:perfeito|certo|entendido|obrigad[oa]|combinado|confirmado|recebido|otimo|ótimo|disponha|imagina)(?:[\s,!.]+\p{L}+){0,3}[\s,!.]*)?(?:(?:muito\s+)?obrigad[oa]|agrade[cç]o|agradecemos|todas as informa[cç][oõ]es foram registradas|dados confirmados|cadastro atualizado|j[aá] registrei|tenha um [oó]timo dia|tenha uma [oó]tima (?:tarde|noite)|estamos [aà] disposi[cç][aã]o|permane[cç]o [aà] disposi[cç][aã]o|continuamos [aà] disposi[cç][aã]o|por favor,\s*aguarde um momento)/iu;
+
 /**
  * Detecta promessas/anúncios de encaminhamento, transferência ou acionamento de equipe
  * que o modelo NÃO pode emitir enquanto a triagem ainda estiver em coleta (`collecting`).
  */
 export const INDUSTRIAL_CLAIMS_EFFECT_PATTERN =
-  /(?:j[aá] (?:criei|vinculei|transferi|encaminhei|direcionei|redirecionei|acionei|passei|enviei)|(?:card|negocia[cç][aã]o|atendimento|solicita[cç][aã]o|contato|pedido|caso|demanda).{0,45}(?:criad[oa]|vinculad[oa]|transferid[oa]|encaminhad[oa]|direcionad[oa]|redirecionad[oa]|j[aá] est[aá] com|foi direcionad[oa]|foi encaminhad[oa]|foi transferid[oa]|foi enviad[oa])|(?:estou|te|vou) (?:te )?(?:transferindo|transferir|encaminhando|encaminhar|direcionando|direcionar|redirecionando|redirecionar|acionando|acionar|passando|passar)|(?:equipe|especialista|consultor(?:a|es)?|setor|time|p[oó]s[\s-]?venda|financeiro|suporte|pe[cç]as).{0,55}(?:j[aá] (?:foi acionad[oa]|recebeu|est[aá] com|dar[aá] andamento)|entrar[aá] em contato|retornar[aá](?: o contato)?|assumir[aá]|dar[aá] continuidade|dar[aá] prioridade|vai entrar em contato)|j[aá] coletei tudo|estou validando)/i;
+  /(?:j[aá] (?:criei|vinculei|transferi|encaminhei|direcionei|redirecionei|acionei|passei|enviei)|(?:card|negocia[cç][aã]o|atendimento|solicita[cç][aã]o|contato|pedido|caso|demanda).{0,45}(?:criad[oa]|vinculad[oa]|transferid[oa]|encaminhad[oa]|direcionad[oa]|redirecionad[oa]|j[aá] est[aá] com|foi direcionad[oa]|foi encaminhad[oa]|foi transferid[oa]|foi enviad[oa])|(?:estou|te|vou) (?:te )?(?:transferindo|transferir|encaminhando|encaminhar|direcionando|direcionar|redirecionando|redirecionar|acionando|acionar|passando|passar)|(?:equipe|especialista|consultor(?:a|es)?|setor|time|p[oó]s[\s-]?venda|financeiro|suporte|pe[cç]as).{0,55}(?:j[aá] (?:foi acionad[oa]|recebeu|est[aá] com|dar[aá] andamento)|(?:ir[aá]|vai)\s+(?:assumir|entrar em contato|retornar|dar andamento|dar continuidade|atender)|entrar[aá] em contato|retornar[aá](?: o contato)?|assumir[aá]|dar[aá] continuidade|dar[aá] prioridade)|j[aá] coletei tudo|estou validando)/i;
 
 export function claimsIndustrialHandoffEffect(messages: readonly string[]): boolean {
   return messages.some((text) => INDUSTRIAL_CLAIMS_EFFECT_PATTERN.test(String(text || "")));
@@ -103,10 +114,12 @@ export function industrialHandoffOutcome(
 export function industrialHandoffMessage(
   status: IndustrialHandoffStatus,
   operatorName?: string,
-  options?: { isOperatorAbsent?: boolean; offHoursNotice?: string | null },
+  options?: { isOperatorAbsent?: boolean; offHoursNotice?: string | null; isHumanRequestOnly?: boolean },
 ): string | null {
   if (status === "awaiting_approval") {
-    return INDUSTRIAL_AWAITING_APPROVAL_CLIENT_MESSAGE;
+    return options?.isHumanRequestOnly
+      ? INDUSTRIAL_HUMAN_REQUEST_APPROVAL_MESSAGE
+      : INDUSTRIAL_AWAITING_APPROVAL_CLIENT_MESSAGE;
   }
   if (status === "transferred" && operatorName) {
     const base = options?.isOperatorAbsent
@@ -132,19 +145,33 @@ export function industrialClientMessages(params: {
   const isOperatorAbsent = Boolean(
     params.result.operator?.isAbsent || params.route.targetOperator?.isAbsent,
   );
+  const isHumanRequestOnly =
+    params.route.reason === "human_requested" ||
+    params.route.reason === "direct_operator_requested";
   const confirmation = industrialHandoffMessage(
     params.result.status,
     params.result.operator?.name,
-    { isOperatorAbsent },
+    { isOperatorAbsent, isHumanRequestOnly },
   );
   const claimsEffectPattern = INDUSTRIAL_CLAIMS_EFFECT_PATTERN;
+  if (params.result.status === "resolved") {
+    const cleaned = params.messages.map((m) => String(m || "").trim()).filter(Boolean);
+    return cleaned.length > 0 ? cleaned : params.messages;
+  }
   if (confirmation) {
     if (params.result.status === "awaiting_approval" || params.result.status === "transferred") {
       // Preserva balões informativos gerados pelo modelo para responder perguntas finais do cliente
-      // (ex.: cidade da empresa, origem da máquina, garantia), descartando promessas falsas de transferência ou novas perguntas de coleta.
+      // (ex.: cidade da empresa, origem da máquina, garantia), descartando promessas falsas de transferência,
+      // agradecimentos/despedidas redundantes (fim da despedida dupla) ou novas perguntas de coleta.
       const informativeReplies = params.messages
         .map((m) => String(m || "").trim())
-        .filter((m) => Boolean(m) && !m.includes("?") && !claimsEffectPattern.test(m))
+        .filter(
+          (m) =>
+            Boolean(m) &&
+            !m.includes("?") &&
+            !claimsEffectPattern.test(m) &&
+            !INDUSTRIAL_GENERIC_CLOSING_PATTERN.test(m),
+        )
         .slice(0, 3);
       if (informativeReplies.length > 0) {
         return [...informativeReplies, confirmation];

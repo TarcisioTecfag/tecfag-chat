@@ -857,12 +857,13 @@ export async function approveIndustrialTriage(
       { value?: string; status?: string }
     >;
 
-    const targetFunnel =
+    const rawTargetFunnel =
       input.targetFunnel?.trim() ||
       pending?.targetFunnel ||
       resolvedSectorName ||
       flowMeta.targetFunnel ||
       INDUSTRIAL_REVIEW_FUNNEL;
+    const targetFunnel = normalizeIndustrialFunnel(rawTargetFunnel);
 
     const clientName =
       collectedData["NOME COMPLETO"]?.value?.trim() ||
