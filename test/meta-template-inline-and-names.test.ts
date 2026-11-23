@@ -103,4 +103,37 @@ describe("Meta Template Inline Composer & First-Name Formatting (No @)", () => {
     expect(chatPanelSource).toContain("if (!activeChat || !isMetaWhatsappChat) return;");
     expect(metaStateSource).toContain('if (conversationId === "valentina")');
   });
+
+  it("polling de janela 24h (meta-state 15s) em ChatPanel e CrmChatWidget não fecha o painel de Templates Meta enquanto o usuário navega", () => {
+    const chatPanelSource = readFileSync(
+      resolve(process.cwd(), "src/components/chat/ChatPanel.tsx"),
+      "utf-8",
+    );
+    const widgetSource = readFileSync(
+      resolve(process.cwd(), "src/components/crm/CrmChatWidget.tsx"),
+      "utf-8",
+    );
+    const selectModalSource = readFileSync(
+      resolve(process.cwd(), "src/components/chat/MetaTemplateSelectModal.tsx"),
+      "utf-8",
+    );
+
+    const chatPollStart = chatPanelSource.indexOf("const refresh = () =>");
+    const chatPollEnd = chatPanelSource.indexOf("const timer = window.setInterval(refresh, 15000);", chatPollStart);
+    expect(chatPollStart).toBeGreaterThan(-1);
+    expect(chatPollEnd).toBeGreaterThan(chatPollStart);
+    const chatPollBlock = chatPanelSource.slice(chatPollStart, chatPollEnd);
+    expect(chatPollBlock).not.toContain("setShowMetaTemplateModal(false)");
+
+    const widgetWithin24hStart = widgetSource.indexOf("const isWithin24h =");
+    const widgetPollEnd = widgetSource.indexOf("const timer = window.setInterval(refresh, 15000);", widgetWithin24hStart);
+    expect(widgetWithin24hStart).toBeGreaterThan(-1);
+    expect(widgetPollEnd).toBeGreaterThan(widgetWithin24hStart);
+    const widgetMetaBlock = widgetSource.slice(widgetWithin24hStart, widgetPollEnd);
+    expect(widgetMetaBlock).not.toContain("setShowMetaTemplateModal(false)");
+
+    expect(selectModalSource).toContain("overscroll-contain");
+    expect(selectModalSource).not.toContain('title="Voltar à lista"');
+    expect(widgetSource).toContain("overscroll-contain");
+  });
 });

@@ -1069,7 +1069,7 @@ function MiniChatTemplateSelector({
           </div>
 
           {/* Lista compacta de Templates para o Mini Chat */}
-          <div className="min-h-0 flex-1 overflow-y-auto p-2.5 space-y-2 scrollbar-thin">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2.5 space-y-2 scrollbar-thin">
             {filteredTemplates.length === 0 ? (
               <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border p-6 text-center my-4">
                 <LayoutTemplate className="h-6 w-6 text-muted-foreground/50 mb-1.5" />
@@ -2207,7 +2207,6 @@ export function CrmChatWidget() {
     const isWithin24h = !isNaN(sentTime) && Date.now() - sentTime < 24 * 60 * 60 * 1000;
     if (isWithin24h) {
       setMetaWindowOpen(true);
-      setShowMetaTemplateModal(false);
     }
   }, [open, activeProvider, selected?.id, selected?.channel, lastInboundMessage?.id, lastInboundMessage?.sentAtISO]);
 
@@ -2241,9 +2240,6 @@ export function CrmChatWidget() {
           const isOpen =
             data?.activeProvider === "meta" ? data.window?.open === true : response.ok;
           setMetaWindowOpen(isOpen);
-          if (isOpen) {
-            setShowMetaTemplateModal(false);
-          }
         }
       } catch {
         if (!cancelled) setMetaWindowOpen(false);

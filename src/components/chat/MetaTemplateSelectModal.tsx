@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { SystemTooltip } from "@/components/ui/tooltip";
 import { useTrainingSurface } from "@/hooks/useTrainingSurface";
 import {
   Search,
@@ -173,14 +174,15 @@ export function MetaTemplateSelectModal({
       <div className="px-4 py-2.5 border-b border-border flex items-center justify-between bg-muted/25 shrink-0">
         <div className="flex items-center gap-2.5 min-w-0">
           {selectedTemplate ? (
-            <button
-              type="button"
-              onClick={handleBack}
-              className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0"
-              title="Voltar à lista"
-            >
-              <ArrowLeft className="h-4 w-4" />
-            </button>
+            <SystemTooltip content="Voltar à lista">
+              <button
+                type="button"
+                onClick={handleBack}
+                className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0"
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </button>
+            </SystemTooltip>
           ) : (
             <div className="h-7 w-7 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
               <LayoutTemplate className="h-4 w-4" />
@@ -313,7 +315,7 @@ export function MetaTemplateSelectModal({
           )}
 
           {/* Lista de Cards de Templates */}
-          <div className="flex-1 min-h-0 overflow-y-auto space-y-2.5 pr-1">
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain space-y-2.5 pr-1">
             {filteredTemplates.length === 0 ? (
               <div className="p-6 text-center border border-dashed border-border rounded-xl">
                 <p className="text-xs text-muted-foreground">
@@ -392,7 +394,7 @@ export function MetaTemplateSelectModal({
       ) : (
         /* ── CONFIGURAÇÃO E CONFIRMAÇÃO DO TEMPLATE SELECIONADO ── */
         <div data-tour="meta.template-preview mini.templates" className="flex flex-col flex-1 min-h-0 overflow-hidden p-4 space-y-3.5">
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-4 flex-1 min-h-0 overflow-y-auto pr-1">
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-4 flex-1 min-h-0 overflow-y-auto overscroll-contain pr-1">
             {/* Coluna Esquerda: Variáveis a preencher */}
             <div className="md:col-span-6 space-y-3">
               <div className="flex items-center justify-between">

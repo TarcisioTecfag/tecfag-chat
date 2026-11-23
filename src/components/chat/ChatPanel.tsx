@@ -1444,9 +1444,6 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
           if (!cancelled && data?.window) {
             metaWindowCacheRef.current.set(chatId, data.window);
             setMetaWindowState({ chatId, window: data.window });
-            if (data.window.open && !["chat.meta-search", "chat.meta-preview", "chat.meta-send"].includes(trainingStepIdRef.current || "")) {
-              setShowMetaTemplateModal(false);
-            }
           }
         })
         .catch(() => {});
