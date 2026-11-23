@@ -260,6 +260,17 @@ export const MCP_OPERATOR_MESSAGES_TOOLS: McpToolDefinition[] = [
           description:
             "Prefixo opcional para gerar idempotencyKey determinístico por conversa (evita reenvio duplicado em retentativas de lote).",
         },
+        assumePriorGreeting: {
+          type: "boolean",
+          default: false,
+          description:
+            "Quando true, marca greetingDone=true mesmo em 'trigger_ai' ou 'queue_only' (evita reapresentação quando a abordagem inicial já foi enviada antes como Fagner) e posiciona startedAt entre a última saída anterior e as respostas pendentes do cliente.",
+        },
+        dealId: {
+          type: "string",
+          description:
+            "ID opcional de negociação (crm_deals.id) para resolução de variáveis deal_field:* no template quando a conversa acabou de ser criada.",
+        },
       },
     },
   },
@@ -1104,6 +1115,8 @@ export async function executeOperatorMessagesMcpTool(
       const expectedOperatorId = asTrimmedString(args.expectedOperatorId);
       const clearWallet = args.clearWallet !== false;
       const reopenIfClosed = args.reopenIfClosed !== false;
+      const assumePriorGreeting = args.assumePriorGreeting === true;
+      const preferredDealId = asTrimmedString(args.dealId);
 
       const rawInside = asTrimmedString(args.insideWindowAction)?.toLowerCase() || "trigger_ai";
       const insideWindowAction: ProactiveInsideWindowAction =
@@ -1210,11 +1223,28 @@ export async function executeOperatorMessagesMcpTool(
             SELECT
               COUNT(*) FILTER (WHERE sender_type = 'agent' AND is_internal_note = false)::int AS agent_messages_count,
               MAX(sent_at) FILTER (WHERE sender_type = 'client' AND is_internal_note = false) AS last_client_message_at,
+              MAX(sent_at) FILTER (WHERE sender_type IN ('agent', 'bot') AND is_internal_note = false) AS last_outbound_message_at,
               MIN(sent_at) FILTER (
                 WHERE sender_type = 'client'
                   AND is_internal_note = false
                   AND sent_at >= NOW() - INTERVAL '14 days'
-              ) AS first_recent_client_message_at
+              ) AS first_recent_client_message_at,
+              MIN(sent_at) FILTER (
+                WHERE sender_type = 'client'
+                  AND is_internal_note = false
+                  AND sent_at >= NOW() - INTERVAL '14 days'
+                  AND sent_at > COALESCE(
+                    (
+                      SELECT MAX(m2.sent_at)
+                      FROM messages m2
+                      WHERE m2.tenant_id = ${tenantId}
+                        AND m2.conversation_id = ${conversationId}
+                        AND m2.sender_type IN ('agent', 'bot')
+                        AND m2.is_internal_note = false
+                    ),
+                    '1970-01-01'::timestamptz
+                  )
+              ) AS first_unanswered_client_message_at
             FROM messages
             WHERE tenant_id = ${tenantId}
               AND conversation_id = ${conversationId}
@@ -1222,7 +1252,9 @@ export async function executeOperatorMessagesMcpTool(
 
           const agentMessagesCount = Number(msgStat?.agent_messages_count || 0);
           const lastClientIso = safeIso(msgStat?.last_client_message_at);
+          const lastOutboundIso = safeIso(msgStat?.last_outbound_message_at);
           const firstRecentClientIso = safeIso(msgStat?.first_recent_client_message_at);
+          const firstUnansweredClientIso = safeIso(msgStat?.first_unanswered_client_message_at);
           const withinMeta24hWindow =
             lastClientIso !== null &&
             now.getTime() - new Date(lastClientIso).getTime() <= TWENTY_FOUR_HOURS_MS;
@@ -1296,9 +1328,10 @@ export async function executeOperatorMessagesMcpTool(
             const hasDealBindings = Object.values(approvedTemplate.bindings || {}).some((b) =>
               Boolean(getDealFieldBindingKey(b)),
             );
-            const dealFieldContext = hasDealBindings
-              ? await loadDealCustomFieldsForTemplate(tenantId, conversationId)
-              : null;
+            const dealFieldContext =
+              hasDealBindings || preferredDealId
+                ? await loadDealCustomFieldsForTemplate(tenantId, conversationId, preferredDealId)
+                : null;
             const values = resolveMetaTemplateValues(
               approvedTemplate.variableCount,
               approvedTemplate.bindings,
@@ -1460,14 +1493,38 @@ export async function executeOperatorMessagesMcpTool(
 
           // 2) Transação atômica: tira do SDR, limpa carteira (se clearWallet=true) e prepara agent_flow_states
           const greetingAlreadySent =
-            plan.decision === "send_template" || plan.decision === "send_text";
+            assumePriorGreeting ||
+            plan.decision === "send_template" ||
+            plan.decision === "send_text";
           const actionNow = new Date();
           // Preserva mensagens recentes sem resposta do cliente dentro do ciclo atual do Fagner
-          // (para que ele leia o pedido que o cliente já enviou antes do repasse)
-          const flowStartedAt =
-            agentMessagesCount === 0 && firstRecentClientIso
-              ? new Date(Math.min(actionNow.getTime(), new Date(firstRecentClientIso).getTime() - 1000))
-              : actionNow;
+          // (para que ele leia o pedido que o cliente já enviou antes do repasse, sempre APÓS a última saída anterior
+          // para que o guard de posse P0.1 não bloqueie e o template/falas anteriores fiquem no histórico anterior)
+          let flowStartedAt = actionNow;
+          if (plan.decision === "trigger_ai" || (plan.decision === "queue_only" && assumePriorGreeting)) {
+            if (agentMessagesCount === 0 && firstRecentClientIso) {
+              flowStartedAt = new Date(
+                Math.min(actionNow.getTime(), new Date(firstRecentClientIso).getTime() - 1000),
+              );
+            } else if (assumePriorGreeting && firstUnansweredClientIso) {
+              const firstUnansweredMs = new Date(firstUnansweredClientIso).getTime();
+              const lastOutboundMs = lastOutboundIso ? new Date(lastOutboundIso).getTime() : 0;
+              if (lastOutboundMs > 0 && firstUnansweredMs > lastOutboundMs) {
+                const gapMs = firstUnansweredMs - lastOutboundMs;
+                const candidateMs =
+                  gapMs > 200
+                    ? firstUnansweredMs - 100
+                    : lastOutboundMs + Math.max(1, Math.floor(gapMs / 2));
+                flowStartedAt = new Date(Math.min(actionNow.getTime(), candidateMs));
+              } else if (lastOutboundMs === 0) {
+                flowStartedAt = new Date(Math.min(actionNow.getTime(), firstUnansweredMs - 1000));
+              }
+            }
+          } else if (agentMessagesCount === 0 && firstRecentClientIso) {
+            flowStartedAt = new Date(
+              Math.min(actionNow.getTime(), new Date(firstRecentClientIso).getTime() - 1000),
+            );
+          }
 
           const txResult = await db.transaction(async (tx) => {
             await setAttendanceActor(tx, tenantId, `${persona.name} (${actorName})`, null);
@@ -1600,6 +1657,7 @@ export async function executeOperatorMessagesMcpTool(
                 .select({
                   id: messages.id,
                   content: messages.content,
+                  mediaInterpretation: messages.mediaInterpretation,
                   sentAt: messages.sentAt,
                 })
                 .from(messages)
@@ -1615,13 +1673,18 @@ export async function executeOperatorMessagesMcpTool(
                 .limit(1);
 
               if (lastClientMsg && effectivePhone) {
+                const effectiveText =
+                  (lastClientMsg.mediaInterpretation &&
+                    String(lastClientMsg.mediaInterpretation).trim()) ||
+                  lastClientMsg.content ||
+                  "Olá";
                 SdrDebouncer.getInstance().pushIncomingMessage(
                   tenantId,
                   conversationId,
                   effectivePhone,
                   {
                     messageId: lastClientMsg.id,
-                    text: lastClientMsg.content || "Olá",
+                    text: effectiveText,
                     mediaType: "text",
                     receivedAt: actionNow,
                   },
