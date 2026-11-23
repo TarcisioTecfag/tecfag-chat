@@ -166,6 +166,11 @@ export function IndustrialApprovalPanel({
     });
   }, [options, sectorId, pending?.suggestedOperatorId]);
 
+  const selectedSectorOps = useMemo(() => {
+    const sec = options?.sectors.find((s) => s.id === sectorId);
+    return new Set(sec?.operatorIds || []);
+  }, [options, sectorId]);
+
   if (isAlreadyDone) return null;
 
   const handleSectorChange = (nextSectorId: string) => {
@@ -305,11 +310,6 @@ export function IndustrialApprovalPanel({
       setSubmittingAction(null);
     }
   };
-
-  const selectedSectorOps = useMemo(() => {
-    const sec = options?.sectors.find((s) => s.id === sectorId);
-    return new Set(sec?.operatorIds || []);
-  }, [options, sectorId]);
 
   return (
     <section
