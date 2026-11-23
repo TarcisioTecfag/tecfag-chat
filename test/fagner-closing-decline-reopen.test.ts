@@ -19,10 +19,29 @@ import {
 } from "../src/lib/triage/industrial-ownership-guard";
 
 describe("Auditoria Fagner 23/11 — Item 2 (Despedida dupla & bolha fixa) + Item 3 (Desistência, Bot NPS & Reabertura pós-encerramento)", () => {
-  describe("Item 2 — Eliminação de despedida dupla e bolha fixa em encerramentos sem transferência", () => {
-    it("remove balões redundantes reais de 23/11 (Manoel, Maria Eduarda, Luiz Lopes, José Carlos, Marcelo Macool, Anatiele, Gerson, Lucas Goettems, Kassia) deixando apenas 1 bolha oficial", () => {
+  describe("Item 2 — Eliminação definitiva da bolha genérica 'Perfeito, já coletei tudo!' e preservação da conclusão natural do Fagner", () => {
+    it("caso real Silveira (túnel BSD1535P / Pós-Venda): preserva exatamente as respostas naturais do Fagner SEM injetar 'Perfeito, já coletei tudo!'", () => {
+      const route = resolveIndustrialRoute({
+        text: "Pode nos indicar as temperaturas pra trabalhar sleve de latas cerveja BSD1535P",
+        collectedData: {},
+      });
+      const silveiraMessages = [
+        "A regulagem de temperatura e velocidade para o túnel de encolhimento modelo BSD1535P é um ajuste técnico que depende diretamente do material do seu rótulo sleeve e da embalagem.",
+        "Para garantir a aplicação correta em suas latas de cerveja e evitar danos, a recomendação exata precisa ser confirmada por um de nossos especialistas de Pós-Venda.",
+      ];
+      const result = industrialClientMessages({
+        result: { status: "awaiting_approval", operator: null, deal: null },
+        route,
+        data: {},
+        messages: silveiraMessages,
+      });
+      expect(result).toEqual(silveiraMessages);
+      expect(result.join("\n")).not.toMatch(/j[aá] coletei tudo|estou validando/i);
+    });
+
+    it("preserva conclusões naturais e contextualizadas do Fagner em awaiting_approval SEM anexar bolha genérica extra (fim da despedida dupla)", () => {
       const route = resolveIndustrialRoute({ text: "seladora industrial", collectedData: {} });
-      const realDoubleFarewells: string[][] = [
+      const naturalClosings: string[][] = [
         [
           "Um especialista de nossa equipe comercial já irá verificar as melhores condições para você, incluindo os detalhes de pagamento.",
         ],
@@ -33,57 +52,57 @@ describe("Auditoria Fagner 23/11 — Item 2 (Despedida dupla & bolha fixa) + Ite
           "Com base nas dimensões de 900mm que você precisa, nossa equipe técnica avaliará a melhor configuração de seladora.",
         ],
         [
-          "Já tenho as informações necessárias. Nosso especialista comercial analisará a viabilidade técnica para sua demanda.",
-        ],
-        [
-          "Não ter uma estimativa de produção agora não é um problema, é comum em projetos novos. As informações que você passou sobre a necessidade de empacotamento e datação completa já são o ponto de partida.",
-        ],
-        [
-          "Entendido, Anatiele.",
-          "Não se preocupe. Mesmo sem a estimativa de produção, nosso especialista pode apresentar as soluções técnicas para as duas faixas de dosagem.",
-          "Ele poderá detalhar as características de cada equipamento e alinhar a melhor configuração para o projeto da Secretaria.",
-        ],
-        [
           "Entendido, Gerson. Vou solicitar a localização do seu pedido para a nossa equipe.",
         ],
         [
           "Sua solicitação sobre o status da compra da seladora será verificada pela nossa equipe de Pós-Venda. Por favor, aguarde.",
         ],
-        ["Obrigado, Kassia."],
-        ["Recebido, Ricardo.", "Certo, um momento por favor."],
       ];
 
-      for (const messages of realDoubleFarewells) {
+      for (const messages of naturalClosings) {
         const result = industrialClientMessages({
           result: { status: "awaiting_approval", operator: null, deal: null },
           route,
           data: {},
           messages,
         });
-        expect(result).toEqual([INDUSTRIAL_AWAITING_APPROVAL_CLIENT_MESSAGE]);
+        expect(result).toEqual(messages);
+        expect(result.length).toBe(1);
+        expect(result[0]).not.toMatch(/j[aá] coletei tudo|estou validando/i);
       }
     });
 
-    it("preserva respostas informativas reais (ex.: vídeo no Ricardo Couto e cidade Bauru) removendo apenas o cumprimento redundante", () => {
+    it("bloqueia a antiga frase robótica se o LLM a repetir e só recorre ao fallback limpo quando não sobra nenhuma mensagem aproveitável", () => {
       const route = resolveIndustrialRoute({ text: "seladora contínua", collectedData: {} });
-      const ricardo = industrialClientMessages({
+      const filteredLegacy = industrialClientMessages({
         result: { status: "awaiting_approval", operator: null, deal: null },
         route,
         data: {},
         messages: [
-          "Recebido, Ricardo.",
           "Eu, como assistente virtual, não consigo enviar vídeos por aqui, mas nossos especialistas têm acesso a esses materiais.",
+          "Perfeito, já coletei tudo! Estou validando e já te encaminho para o responsável.",
         ],
       });
-      expect(ricardo).toEqual([
+      expect(filteredLegacy).toEqual([
         "Eu, como assistente virtual, não consigo enviar vídeos por aqui, mas nossos especialistas têm acesso a esses materiais.",
-        INDUSTRIAL_AWAITING_APPROVAL_CLIENT_MESSAGE,
       ]);
+
+      const fallbackOnly = industrialClientMessages({
+        result: { status: "awaiting_approval", operator: null, deal: null },
+        route,
+        data: {},
+        messages: [
+          "Perfeito, já coletei tudo! Estou validando e já te encaminho para o responsável.",
+          "Qual seu CNPJ?",
+        ],
+      });
+      expect(fallbackOnly).toEqual([INDUSTRIAL_AWAITING_APPROVAL_CLIENT_MESSAGE]);
+      expect(fallbackOnly[0]).not.toMatch(/j[aá] coletei tudo|estou validando/i);
 
       expect(isRedundantIndustrialClosingMessage("Nossa matriz fica em Bauru/SP com atendimento para todo o Brasil.")).toBe(false);
     });
 
-    it("em status 'resolved' (sem transferência), NUNCA vaza a bolha fixa nem promessas de encaminhamento", () => {
+    it("em status 'resolved' (sem transferência), NUNCA vaza bolha de encaminhamento nem promessas de transferência", () => {
       const route = resolveIndustrialRoute({ text: "Segue meu currículo", collectedData: {} });
       const result = industrialClientMessages({
         result: { status: "resolved", operator: null, deal: null },
@@ -92,6 +111,7 @@ describe("Auditoria Fagner 23/11 — Item 2 (Despedida dupla & bolha fixa) + Ite
         messages: [
           "Certo. Agradecemos o seu contato. Tenha um ótimo dia!",
           INDUSTRIAL_AWAITING_APPROVAL_CLIENT_MESSAGE,
+          "Perfeito, já coletei tudo! Estou validando e já te encaminho para o responsável.",
           "Nossa equipe entrará em contato em breve.",
         ],
       });

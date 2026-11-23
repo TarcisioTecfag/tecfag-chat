@@ -147,7 +147,7 @@ describe("Correções P1/P2 da Auditoria Fagner — Itens 2, 3, 4 e 5 (23/11/202
   });
 
   describe("Item 3 — Fim da despedida dupla, desistência, currículos e anti-bot 0800", () => {
-    it("remove despedida/agradecimento redundante em awaiting_approval e preserva respostas informativas reais", () => {
+    it("preserva conclusão natural do Fagner em awaiting_approval sem injetar bolha genérica extra", () => {
       const route = resolveIndustrialRoute({ text: "seladora a vácuo", collectedData: {} });
       const msgs = industrialClientMessages({
         result: { status: "awaiting_approval", operator: null, deal: null },
@@ -158,9 +158,13 @@ describe("Correções P1/P2 da Auditoria Fagner — Itens 2, 3, 4 e 5 (23/11/202
           "Um de nossos especialistas em equipamentos industriais entrará em contato em breve com uma proposta detalhada.",
         ],
       });
-      expect(msgs).toEqual([INDUSTRIAL_AWAITING_APPROVAL_CLIENT_MESSAGE]);
+      expect(msgs).toEqual([
+        "Obrigado, Josiane. Todas as informações foram registradas.",
+        "Um de nossos especialistas em equipamentos industriais entrará em contato em breve com uma proposta detalhada.",
+      ]);
+      expect(msgs.join("\n")).not.toMatch(/j[aá] coletei tudo|estou validando/i);
 
-      // Quando há pergunta objetiva real (ex.: Black Friday / Bauru), preserva apenas o informativo
+      // Quando há pergunta objetiva real (ex.: Bauru), preserva sem anexar bolha genérica fixa
       const withInfo = industrialClientMessages({
         result: { status: "awaiting_approval", operator: null, deal: null },
         route,
@@ -171,12 +175,12 @@ describe("Correções P1/P2 da Auditoria Fagner — Itens 2, 3, 4 e 5 (23/11/202
         ],
       });
       expect(withInfo).toEqual([
+        "Certo, José. Agradeço pelas informações.",
         "Nossa matriz fica em Bauru/SP com atendimento para todo o Brasil.",
-        INDUSTRIAL_AWAITING_APPROVAL_CLIENT_MESSAGE,
       ]);
     });
 
-    it("usa mensagem neutra adequada quando cliente pediu humano sem coleta completa (Fabio, Alceu, Amiê)", () => {
+    it("em pedido de humano preserva resposta natural do Fagner ou usa fallback limpo sem 'já coletei tudo'", () => {
       const route = resolveIndustrialRoute({ text: "Quero falar com humano", collectedData: {} });
       const msgs = industrialClientMessages({
         result: { status: "awaiting_approval", operator: null, deal: null },
@@ -184,8 +188,17 @@ describe("Correções P1/P2 da Auditoria Fagner — Itens 2, 3, 4 e 5 (23/11/202
         data: {},
         messages: ["Compreendido. Um de nossos especialistas irá assumir o atendimento."],
       });
-      expect(msgs).toEqual([INDUSTRIAL_HUMAN_REQUEST_APPROVAL_MESSAGE]);
-      expect(msgs[0]).not.toContain("já coletei tudo");
+      expect(msgs).toEqual(["Compreendido. Um de nossos especialistas irá assumir o atendimento."]);
+      expect(msgs[0]).not.toMatch(/j[aá] coletei tudo|estou validando/i);
+
+      const fallbackMsgs = industrialClientMessages({
+        result: { status: "awaiting_approval", operator: null, deal: null },
+        route,
+        data: {},
+        messages: [],
+      });
+      expect(fallbackMsgs).toEqual([INDUSTRIAL_HUMAN_REQUEST_APPROVAL_MESSAGE]);
+      expect(fallbackMsgs[0]).not.toMatch(/j[aá] coletei tudo|estou validando/i);
     });
 
     it("para status 'resolved' (currículo 5B_CURRICULO ou recusa), NÃO injeta 'Perfeito, já coletei tudo!'", () => {

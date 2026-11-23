@@ -69,10 +69,9 @@ describe("Fagner SDR Go-Live — Human-in-the-Loop, Funil CWR e Template RD Mark
     expect(noVariables.renderedText).toBe("Olá! Recebemos sua solicitação na Tecfag.");
   });
 
-  test("industrialHandoffMessage suporta awaiting_approval neutro e aviso fora de horário na transferência", () => {
+  test("industrialHandoffMessage não injeta bolha fixa em awaiting_approval e suporta aviso fora de horário na transferência", () => {
     const awaitingMsg = industrialHandoffMessage("awaiting_approval", "Consultor X");
-    expect(awaitingMsg).toBe(INDUSTRIAL_AWAITING_APPROVAL_CLIENT_MESSAGE);
-    expect(awaitingMsg).not.toContain("Consultor X");
+    expect(awaitingMsg).toBeNull();
     expect(industrialHandoffOutcome("awaiting_approval")).toBe("in_progress");
 
     const transferredWithOffHours = industrialHandoffMessage("transferred", "Mariana", {

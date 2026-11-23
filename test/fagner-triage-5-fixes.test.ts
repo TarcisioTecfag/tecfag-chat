@@ -74,8 +74,8 @@ describe("Correção dos 5 problemas das triagens do Fagner (22/11/2026)", () =>
     expect(prompt).toContain('"RAMO / O QUE EMBALA"');
     expect(prompt).toContain('"VOLUME / PRODUÇÃO"');
 
-    // industrialClientMessages preserva respostas objetivas ANTES da mensagem neutra de awaiting_approval,
-    // mas bloqueia promessas falsas de transferência ou novas perguntas de coleta
+    // industrialClientMessages preserva respostas objetivas em awaiting_approval SEM anexar
+    // bolha genérica fixa ("Perfeito, já coletei tudo!"), bloqueando transferência nominal prematura e perguntas de coleta
     const msgs = industrialClientMessages({
       result: { status: "awaiting_approval", operator: null, deal: null },
       route: resolveIndustrialRoute({ text: "seladora a vácuo", collectedData: {} }),
@@ -83,7 +83,7 @@ describe("Correção dos 5 problemas das triagens do Fagner (22/11/2026)", () =>
       messages: [
         "Nossa matriz e centro de distribuição ficam em Bauru/SP, atendendo todo o Brasil.",
         "Sim, nossos equipamentos são importados e nacionalizados pela Tecfag com estoque e suporte próprio no Brasil.",
-        "Estou te transferindo agora para Denise!", // deve ser filtrada
+        "Estou te transferindo agora para Denise!", // deve ser filtrada (nominal antes da aprovação)
         "Qual seu CNPJ?", // pergunta deve ser filtrada
       ],
     });
@@ -91,7 +91,6 @@ describe("Correção dos 5 problemas das triagens do Fagner (22/11/2026)", () =>
     expect(msgs).toEqual([
       "Nossa matriz e centro de distribuição ficam em Bauru/SP, atendendo todo o Brasil.",
       "Sim, nossos equipamentos são importados e nacionalizados pela Tecfag com estoque e suporte próprio no Brasil.",
-      INDUSTRIAL_AWAITING_APPROVAL_CLIENT_MESSAGE,
     ]);
   });
 

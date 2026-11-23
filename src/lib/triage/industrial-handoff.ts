@@ -26,11 +26,24 @@ export type IndustrialHandoffStatus =
   | "handoff_failed"
   | "transferred";
 
+/**
+ * Fallbacks de último recurso caso o LLM não produza nenhuma mensagem aproveitável ao entrar
+ * em `awaiting_approval` (ex.: retornou apenas pergunta de coleta ou array vazio).
+ * NUNCA são anexados quando o próprio Fagner já respondeu ao cliente de forma contextualizada.
+ */
 export const INDUSTRIAL_AWAITING_APPROVAL_CLIENT_MESSAGE =
-  "Perfeito, já coletei tudo! Estou validando e já te encaminho para o responsável.";
+  "Obrigado pelas informações! Já vou direcionar seu atendimento para a equipe responsável dar continuidade por aqui.";
 
 export const INDUSTRIAL_HUMAN_REQUEST_APPROVAL_MESSAGE =
-  "Certo! Já estou validando seu atendimento para encaminhar ao responsável.";
+  "Entendido! Já vou direcionar seu atendimento para a nossa equipe dar continuidade por aqui.";
+
+/**
+ * Detecta apenas falsas alegações de efeitos internos do servidor (card/negociação já criado,
+ * transferência já efetivada ou nominal antes da aprovação SDR) e a antiga frase robótica banida
+ * ("já coletei tudo" / "estou validando"), preservando respostas naturais e contextualizadas do Fagner.
+ */
+export const INDUSTRIAL_FALSE_SYSTEM_CLAIM_PATTERN =
+  /(?:j[aá]\s+(?:criei|vinculei|transferi)\b|(?:card|negocia[cç][aã]o)\s+(?:j[aá]\s+)?(?:criad[oa]|vinculad[oa]|foi\s+criad[oa]|foi\s+vinculad[oa])|(?:estou|te)\s+(?:te\s+)?transferindo(?:\s+agora)?\s+para\s+(?!(?:a|o|um|uma|noss[oa]|equipe|setor|time|especialista|atendimento|comercial|suporte|financeiro|p[oó]s[\s-]?venda|pe[cç]as|consultor)\b)[a-zà-ú]{2,}|j[aá]\s+coletei\s+tudo|estou\s+validando)/i;
 
 /**
  * Detecta balões genéricos de despedida/agradecimento/confirmação curta redundantes gerados
@@ -137,9 +150,9 @@ export function industrialHandoffMessage(
   options?: { isOperatorAbsent?: boolean; offHoursNotice?: string | null; isHumanRequestOnly?: boolean },
 ): string | null {
   if (status === "awaiting_approval") {
-    return options?.isHumanRequestOnly
-      ? INDUSTRIAL_HUMAN_REQUEST_APPROVAL_MESSAGE
-      : INDUSTRIAL_AWAITING_APPROVAL_CLIENT_MESSAGE;
+    // Em awaiting_approval não há bolha fixa do servidor; o próprio Fagner entrega
+    // a conclusão contextualizada (e o fallback só entra se o LLM não devolver nada aproveitável).
+    return null;
   }
   if (status === "transferred" && operatorName) {
     const base = options?.isOperatorAbsent
@@ -188,8 +201,31 @@ export function industrialClientMessages(params: {
       ? cleaned
       : ["Entendido! Agradeço o retorno. Caso precise de algo no futuro, continuamos à disposição."];
   }
+  if (params.result.status === "awaiting_approval") {
+    // Preserva integralmente as mensagens naturais e contextualizadas do Fagner (ex.: explicação
+    // técnica + aviso natural de encaminhamento ao setor), SEM anexar nenhuma bolha genérica fixa.
+    // Remove apenas perguntas pendentes (que deixariam o cliente no vácuo na pausa de aprovação)
+    // e falsas alegações de efeitos internos/transferência nominal ou a antiga frase banida.
+    const cleanedReplies = params.messages
+      .map((m) => String(m || "").trim())
+      .filter(
+        (m) =>
+          Boolean(m) &&
+          !m.includes("?") &&
+          !INDUSTRIAL_FALSE_SYSTEM_CLAIM_PATTERN.test(m),
+      )
+      .slice(0, 4);
+    if (cleanedReplies.length > 0) {
+      return cleanedReplies;
+    }
+    return [
+      isHumanRequestOnly
+        ? INDUSTRIAL_HUMAN_REQUEST_APPROVAL_MESSAGE
+        : INDUSTRIAL_AWAITING_APPROVAL_CLIENT_MESSAGE,
+    ];
+  }
   if (confirmation) {
-    if (params.result.status === "awaiting_approval" || params.result.status === "transferred") {
+    if (params.result.status === "transferred") {
       // Preserva balões informativos gerados pelo modelo para responder perguntas finais do cliente
       // (ex.: cidade da empresa, origem da máquina, garantia), descartando promessas falsas de transferência,
       // agradecimentos/despedidas redundantes (fim da despedida dupla) ou novas perguntas de coleta.
