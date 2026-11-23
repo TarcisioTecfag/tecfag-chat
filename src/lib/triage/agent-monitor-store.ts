@@ -1,8 +1,25 @@
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, like, not, sql } from "drizzle-orm";
 import { agentFlowStates, conversations } from "../../db/schema";
 import type { IndustrialDatabase } from "./industrial-rodizio-store";
 
-function latestFlows(database: IndustrialDatabase, tenantId: string, agentType?: string) {
+export type SdrChannelScope = "whatsapp" | "site";
+
+function buildChannelFlowCondition(channelScope?: SdrChannelScope) {
+  if (channelScope === "site") {
+    return like(agentFlowStates.conversationId, "conv-lc-%");
+  }
+  if (channelScope === "whatsapp") {
+    return not(like(agentFlowStates.conversationId, "conv-lc-%"));
+  }
+  return undefined;
+}
+
+function latestFlows(
+  database: IndustrialDatabase,
+  tenantId: string,
+  agentType?: string,
+  channelScope?: SdrChannelScope,
+) {
   return database
     .selectDistinctOn([agentFlowStates.conversationId, agentFlowStates.agentType])
     .from(agentFlowStates)
@@ -10,6 +27,7 @@ function latestFlows(database: IndustrialDatabase, tenantId: string, agentType?:
       and(
         eq(agentFlowStates.tenantId, tenantId),
         agentType ? eq(agentFlowStates.agentType, agentType) : undefined,
+        buildChannelFlowCondition(channelScope),
       ),
     )
     .orderBy(
@@ -58,9 +76,10 @@ export async function readLatestSdrFlows(
   database: IndustrialDatabase,
   tenantId: string,
   limit = 50,
+  channelScope?: SdrChannelScope,
 ) {
-  const latestRecent = latestFlows(database, tenantId, "sdr");
-  const latestPriority = latestFlows(database, tenantId, "sdr");
+  const latestRecent = latestFlows(database, tenantId, "sdr", channelScope);
+  const latestPriority = latestFlows(database, tenantId, "sdr", channelScope);
 
   const [recentRows, priorityRows] = await Promise.all([
     database
@@ -117,8 +136,9 @@ export async function readAgentMonitoringSummary(
   database: IndustrialDatabase,
   tenantId: string,
   now = new Date(),
+  channelScope?: SdrChannelScope,
 ) {
-  const latest = latestFlows(database, tenantId);
+  const latest = latestFlows(database, tenantId, undefined, channelScope);
   const rows = await database
     .select({
       agentType: latest.agentType,

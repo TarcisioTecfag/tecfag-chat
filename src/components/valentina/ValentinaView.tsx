@@ -9,6 +9,7 @@ import {
   Bot,
   MessageCircle,
   UserPlus,
+  Globe,
   Eye,
   ShoppingBag,
   Database,
@@ -42,12 +43,14 @@ import { ValentinaFeed } from "@/components/mobile/ValentinaFeed";
 import { toast } from "sonner";
 import { getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
 import { parseSdrTargetFromSearch, type SdrTargetLookup } from "@/lib/rodizio-external-links";
+import { isSiteConversationId } from "@/lib/livechat/site-channel-policy";
 
 // ── Definição das tabs ──────────────────────────────────────────────────────
 
 const allTabs: { id: ValentinaTab; label: string; icon: React.ElementType }[] = [
   { id: "chat", label: "Chat", icon: MessageCircle },
   { id: "sdr", label: "SDR", icon: UserPlus },
+  { id: "site", label: "Site", icon: Globe },
   { id: "rodizio", label: "Rodízio", icon: Shuffle },
   { id: "fluxos", label: "Fluxos", icon: Workflow },
   { id: "supervisor", label: "Supervisor", icon: Eye },
@@ -61,9 +64,13 @@ export function ValentinaView() {
   const { tenant, sessionRole, setActiveView, setSelectedChatId } = useChat();
   const isAdmin = sessionRole === "admin";
   const persona = getAiPersona(tenant || "");
+  const isIndustrial = persona.triagePolicy === "industrial";
   const { canAccessValentinaTab } = usePermissions();
   const allowedTabIdsKey = allTabs
-    .filter((tab) => canAccessValentinaTab(tab.id))
+    .filter((tab) => {
+      if (tab.id === "site" && !isIndustrial) return false;
+      return canAccessValentinaTab(tab.id);
+    })
     .map((t) => t.id)
     .join(",");
   const allowedTabs = useMemo(() => {
@@ -72,14 +79,24 @@ export function ValentinaView() {
   }, [allowedTabIdsKey]);
   const allowedTabIds = useMemo(() => allowedTabs.map((t) => t.id), [allowedTabs]);
 
+  const initialSearchTarget =
+    typeof window !== "undefined" ? parseSdrTargetFromSearch(window.location.search) : null;
+  const initialTargetIsSite = Boolean(
+    initialSearchTarget &&
+      isSiteConversationId(initialSearchTarget.conversationId) &&
+      allowedTabIds.includes("site"),
+  );
+
   const [sdrTargetConversation, setSdrTargetConversation] = useState<SdrTargetLookup | null>(() =>
-    typeof window !== "undefined" ? parseSdrTargetFromSearch(window.location.search) : null,
+    initialSearchTarget && !initialTargetIsSite ? initialSearchTarget : null,
+  );
+  const [siteTargetConversation, setSiteTargetConversation] = useState<SdrTargetLookup | null>(() =>
+    initialSearchTarget && initialTargetIsSite ? initialSearchTarget : null,
   );
   const [activeTab, setActiveTab] = useState<ValentinaTab>(() => {
-    const fromSearch =
-      typeof window !== "undefined" ? parseSdrTargetFromSearch(window.location.search) : null;
-    if (fromSearch && allowedTabIds.includes("sdr")) {
-      return "sdr";
+    if (initialSearchTarget) {
+      if (initialTargetIsSite) return "site";
+      if (allowedTabIds.includes("sdr")) return "sdr";
     }
     return getInitialTabFromUrl("valentina", allowedTabs[0]?.id || "chat", allowedTabIds);
   });
@@ -91,13 +108,30 @@ export function ValentinaView() {
   const [showDisableSdrConfirm, setShowDisableSdrConfirm] = useState(false);
   const [sdrFilterState, setSdrFilterState] = useState<SdrFilterState>(DEFAULT_SDR_FILTER_STATE);
   const [sdrViewMode, setSdrViewMode] = useState<SdrViewMode>(() =>
-    typeof window !== "undefined" && parseSdrTargetFromSearch(window.location.search)
-      ? "live"
-      : "kanban",
+    initialSearchTarget && !initialTargetIsSite ? "live" : "kanban",
   );
   const [sdrRefreshKey, setSdrRefreshKey] = useState(0);
   const [isSdrLoading, setIsSdrLoading] = useState(false);
   const [sdrSelectedInfo, setSdrSelectedInfo] = useState<{
+    conversationId?: string;
+    contactName?: string;
+  }>({});
+
+  // Estado e Controle independente da aba Site (apenas clientes do site `conv-lc-*`)
+  const [siteChannelEnabled, setSiteChannelEnabled] = useState<boolean | null>(null);
+  const [siteChannelMeta, setSiteChannelMeta] = useState<{
+    allowedOrigins: string[];
+    whatsappNumber: string;
+  } | null>(null);
+  const [isSavingSiteChannel, setIsSavingSiteChannel] = useState(false);
+  const [showDisableSiteConfirm, setShowDisableSiteConfirm] = useState(false);
+  const [siteFilterState, setSiteFilterState] = useState<SdrFilterState>(DEFAULT_SDR_FILTER_STATE);
+  const [siteViewMode, setSiteViewMode] = useState<SdrViewMode>(() =>
+    initialTargetIsSite ? "live" : "kanban",
+  );
+  const [siteRefreshKey, setSiteRefreshKey] = useState(0);
+  const [isSiteLoading, setIsSiteLoading] = useState(false);
+  const [siteSelectedInfo, setSiteSelectedInfo] = useState<{
     conversationId?: string;
     contactName?: string;
   }>({});
@@ -106,7 +140,96 @@ export function ValentinaView() {
   useEffect(() => {
     setSdrEnabled(null);
     setSdrSelectedInfo({});
+    setSiteChannelEnabled(null);
+    setSiteChannelMeta(null);
+    setSiteSelectedInfo({});
   }, [tenant]);
+
+  // Carrega metadados do canal do Site (origens e WhatsApp de continuidade) para permitir toggle seguro pelo admin
+  useEffect(() => {
+    if (!tenant || !isIndustrial || !isAdmin) return;
+    let cancelled = false;
+    fetch(`${BACKEND_URL}/api/valentina/site-channel`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (cancelled || !data) return;
+        setSiteChannelEnabled(Boolean(data.siteChannelEnabled));
+        setSiteChannelMeta({
+          allowedOrigins: Array.isArray(data.siteAllowedOrigins) ? data.siteAllowedOrigins : [],
+          whatsappNumber: typeof data.siteWhatsappNumber === "string" ? data.siteWhatsappNumber : "",
+        });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [tenant, isIndustrial, isAdmin, BACKEND_URL]);
+
+  const executeToggleSiteChannel = async (nextState: boolean) => {
+    if (!isAdmin || !isIndustrial || siteChannelEnabled === null || isSavingSiteChannel) return;
+    setSiteChannelEnabled(nextState);
+    setIsSavingSiteChannel(true);
+    try {
+      let meta = siteChannelMeta;
+      if (!meta) {
+        const metaRes = await fetch(`${BACKEND_URL}/api/valentina/site-channel`);
+        if (metaRes.ok) {
+          const metaData = await metaRes.json();
+          meta = {
+            allowedOrigins: Array.isArray(metaData.siteAllowedOrigins)
+              ? metaData.siteAllowedOrigins
+              : [],
+            whatsappNumber:
+              typeof metaData.siteWhatsappNumber === "string" ? metaData.siteWhatsappNumber : "",
+          };
+          setSiteChannelMeta(meta);
+        }
+      }
+      if (!meta) {
+        setSiteChannelEnabled(!nextState);
+        toast.error("Não foi possível carregar as origens autorizadas do Site.");
+        return;
+      }
+
+      const res = await fetch(`${BACKEND_URL}/api/valentina/site-channel`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          siteChannelEnabled: nextState,
+          siteAllowedOrigins: meta.allowedOrigins,
+          siteWhatsappNumber: meta.whatsappNumber,
+        }),
+      });
+
+      if (res.ok) {
+        toast.success(
+          nextState
+            ? `Atendimento do ${persona.name} no Site ativado!`
+            : `Atendimento do ${persona.name} no Site pausado com sucesso!`,
+        );
+        setSiteRefreshKey((prev) => prev + 1);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setSiteChannelEnabled(!nextState);
+        toast.error(err.error || "Erro ao alternar status do canal Site.");
+      }
+    } catch (e) {
+      console.error("Erro ao alternar status do canal Site:", e);
+      setSiteChannelEnabled(!nextState);
+      toast.error("Erro de comunicação com o servidor.");
+    } finally {
+      setIsSavingSiteChannel(false);
+    }
+  };
+
+  const handleToggleSiteChannel = () => {
+    if (!isAdmin || !isIndustrial || siteChannelEnabled === null || isSavingSiteChannel) return;
+    if (siteChannelEnabled === true) {
+      setShowDisableSiteConfirm(true);
+      return;
+    }
+    void executeToggleSiteChannel(true);
+  };
 
   const executeToggleSdr = async (nextState: boolean) => {
     if (!isAdmin || sdrEnabled === null || isSavingSdrConfig) return;
@@ -179,16 +302,31 @@ export function ValentinaView() {
     if (typeof window === "undefined") return;
     const handleApprovalOpen = (ev: Event) => {
       const detail = (ev as CustomEvent)?.detail;
-      if (!allowedTabs.some((t) => t.id === "sdr")) return;
+      const targetConvId = detail?.conversationId ? String(detail.conversationId) : "";
+      const routeToSite =
+        Boolean(targetConvId) &&
+        isSiteConversationId(targetConvId) &&
+        allowedTabs.some((t) => t.id === "site");
+      if (!routeToSite && !allowedTabs.some((t) => t.id === "sdr")) return;
       setShowMobileFeed(false);
-      setActiveTab("sdr");
-      setSdrViewMode("live");
-      if (detail?.conversationId) {
-        setSdrTargetConversation({
-          conversationId: String(detail.conversationId),
+      if (routeToSite) {
+        setActiveTab("site");
+        setSiteViewMode("live");
+        setSiteTargetConversation({
+          conversationId: targetConvId,
           leadName: detail.clientName ? String(detail.clientName) : undefined,
           ts: Date.now(),
         });
+      } else {
+        setActiveTab("sdr");
+        setSdrViewMode("live");
+        if (targetConvId) {
+          setSdrTargetConversation({
+            conversationId: targetConvId,
+            leadName: detail.clientName ? String(detail.clientName) : undefined,
+            ts: Date.now(),
+          });
+        }
       }
     };
     window.addEventListener("sdr_approval_open", handleApprovalOpen);
@@ -206,12 +344,31 @@ export function ValentinaView() {
     [],
   );
 
+  const handleSiteSelectedConversationChange = useCallback(
+    (conversationId: string | undefined, contactName?: string) => {
+      setSiteSelectedInfo((prev) =>
+        prev.conversationId === conversationId && prev.contactName === contactName
+          ? prev
+          : { conversationId, contactName },
+      );
+    },
+    [],
+  );
+
   const handleTargetConversationHandled = useCallback(() => {
     setSdrTargetConversation(null);
   }, []);
 
+  const handleSiteTargetConversationHandled = useCallback(() => {
+    setSiteTargetConversation(null);
+  }, []);
+
   const handleRefreshSdr = useCallback(() => {
     setSdrRefreshKey((k) => k + 1);
+  }, []);
+
+  const handleRefreshSite = useCallback(() => {
+    setSiteRefreshKey((k) => k + 1);
   }, []);
 
   const handleSelectConversationFromSweep = useCallback((conversationId: string) => {
@@ -220,6 +377,14 @@ export function ValentinaView() {
       ts: Date.now(),
     });
     setSdrViewMode("live");
+  }, []);
+
+  const handleSelectSiteConversationFromSweep = useCallback((conversationId: string) => {
+    setSiteTargetConversation({
+      conversationId,
+      ts: Date.now(),
+    });
+    setSiteViewMode("live");
   }, []);
 
   const handleOpenChatFromSweep = useCallback(
@@ -247,6 +412,14 @@ export function ValentinaView() {
       : sdrEnabled
         ? `Clique para pausar ${persona.gender === "female" ? "a" : "o"} ${persona.name} globalmente`
         : `Clique para ativar ${persona.gender === "female" ? "a" : "o"} ${persona.name} globalmente`;
+
+  const siteToggleTooltip = !isAdmin
+    ? "Apenas administradores podem ativar ou pausar o atendimento do Site"
+    : siteChannelEnabled === null
+      ? "Carregando estado atual do canal Site..."
+      : siteChannelEnabled
+        ? `Clique para pausar o atendimento do ${persona.name} no Site (não afeta o WhatsApp)`
+        : `Clique para ativar o atendimento do ${persona.name} no Site`;
 
   return (
     <div className="flex flex-col h-full bg-card rounded-2xl md:rounded-3xl border border-border shadow-soft overflow-hidden">
@@ -296,6 +469,40 @@ export function ValentinaView() {
               </SystemTooltip>
             </div>
           )}
+
+          {activeTab === "site" && (
+            <div className="md:hidden shrink-0">
+              <SystemTooltip content={siteToggleTooltip}>
+                <button
+                  type="button"
+                  onClick={handleToggleSiteChannel}
+                  disabled={!isAdmin || siteChannelEnabled === null || isSavingSiteChannel}
+                  className={`px-2.5 py-1.5 rounded-lg text-[10px] font-extrabold transition flex items-center gap-1.5 shadow-soft border ${
+                    siteChannelEnabled === true
+                      ? "bg-primary text-primary-foreground border-primary hover:bg-primary-hover"
+                      : "bg-muted text-muted-foreground border-border hover:bg-muted/80"
+                  } ${
+                    !isAdmin || siteChannelEnabled === null || isSavingSiteChannel
+                      ? "opacity-70 cursor-not-allowed"
+                      : "cursor-pointer"
+                  }`}
+                >
+                  {siteChannelEnabled === null || isSavingSiteChannel ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Globe className="h-3 w-3" />
+                  )}
+                  <span>
+                    {siteChannelEnabled === null
+                      ? "Carregando..."
+                      : siteChannelEnabled
+                        ? "Site Ativo"
+                        : "Site Inativo"}
+                  </span>
+                </button>
+              </SystemTooltip>
+            </div>
+          )}
         </div>
 
         {activeTab === "sdr" && (
@@ -340,11 +547,65 @@ export function ValentinaView() {
               onRefresh={handleRefreshSdr}
               isLoading={isSdrLoading}
               personaName={persona.name}
-              showTriageHistory={persona.triagePolicy === "industrial"}
+              channelScope={isIndustrial ? "whatsapp" : undefined}
+              showTriageHistory={isIndustrial}
               tenantId={tenant || undefined}
               selectedConversationId={sdrSelectedInfo.conversationId}
               selectedConversationName={sdrSelectedInfo.contactName}
               onSelectConversationFromSweep={handleSelectConversationFromSweep}
+              onOpenChatFromSweep={handleOpenChatFromSweep}
+            />
+          </div>
+        )}
+
+        {activeTab === "site" && (
+          <div className="flex items-center gap-2 md:gap-2.5 flex-wrap w-full md:w-auto animate-fadeIn">
+            <div className="hidden md:block">
+              <SystemTooltip content={siteToggleTooltip}>
+                <button
+                  type="button"
+                  onClick={handleToggleSiteChannel}
+                  disabled={!isAdmin || siteChannelEnabled === null || isSavingSiteChannel}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold transition flex items-center gap-1.5 shadow-soft border ${
+                    siteChannelEnabled === true
+                      ? "bg-primary text-primary-foreground border-primary hover:bg-primary-hover"
+                      : "bg-muted text-muted-foreground border-border hover:bg-muted/80"
+                  } ${
+                    !isAdmin || siteChannelEnabled === null || isSavingSiteChannel
+                      ? "opacity-70 cursor-not-allowed"
+                      : "cursor-pointer"
+                  }`}
+                >
+                  {siteChannelEnabled === null || isSavingSiteChannel ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Globe className="h-3 w-3" />
+                  )}
+                  <span>
+                    {siteChannelEnabled === null
+                      ? "Carregando..."
+                      : siteChannelEnabled
+                        ? "Site Ativo"
+                        : "Site Inativo"}
+                  </span>
+                </button>
+              </SystemTooltip>
+            </div>
+
+            <SdrHeaderControls
+              filterState={siteFilterState}
+              onFilterChange={setSiteFilterState}
+              viewMode={siteViewMode}
+              onViewModeChange={setSiteViewMode}
+              onRefresh={handleRefreshSite}
+              isLoading={isSiteLoading}
+              personaName={persona.name}
+              channelScope="site"
+              showTriageHistory={isIndustrial}
+              tenantId={tenant || undefined}
+              selectedConversationId={siteSelectedInfo.conversationId}
+              selectedConversationName={siteSelectedInfo.contactName}
+              onSelectConversationFromSweep={handleSelectSiteConversationFromSweep}
               onOpenChatFromSweep={handleOpenChatFromSweep}
             />
           </div>
@@ -394,7 +655,7 @@ export function ValentinaView() {
         className={`flex-1 overflow-hidden flex flex-col ${
           showMobileFeed || activeTab === "chat"
             ? ""
-            : activeTab === "sdr"
+            : activeTab === "sdr" || activeTab === "site"
               ? "px-2 md:px-4 py-2.5"
               : "px-3 md:px-5 py-3 md:py-4"
         }`}
@@ -422,8 +683,11 @@ export function ValentinaView() {
                 {activeTab === "chat" && <ValentinaChatTab />}
                 {activeTab === "sdr" && (
                   <SdrTab
+                    key="sdr-whatsapp"
+                    channelScope={isIndustrial ? "whatsapp" : undefined}
                     sdrEnabled={sdrEnabled ?? false}
                     onSdrConfigChange={setSdrEnabled}
+                    onSiteChannelEnabledChange={setSiteChannelEnabled}
                     filterState={sdrFilterState}
                     onFilterChange={setSdrFilterState}
                     viewMode={sdrViewMode}
@@ -435,9 +699,40 @@ export function ValentinaView() {
                     onTargetConversationHandled={handleTargetConversationHandled}
                   />
                 )}
+                {activeTab === "site" && (
+                  <SdrTab
+                    key="sdr-site"
+                    channelScope="site"
+                    sdrEnabled={siteChannelEnabled ?? false}
+                    onSdrConfigChange={setSdrEnabled}
+                    onSiteChannelEnabledChange={setSiteChannelEnabled}
+                    filterState={siteFilterState}
+                    onFilterChange={setSiteFilterState}
+                    viewMode={siteViewMode}
+                    onViewModeChange={setSiteViewMode}
+                    refreshKey={siteRefreshKey}
+                    onLoadingChange={setIsSiteLoading}
+                    onSelectedConversationChange={handleSiteSelectedConversationChange}
+                    targetConversation={siteTargetConversation}
+                    onTargetConversationHandled={handleSiteTargetConversationHandled}
+                  />
+                )}
                 {activeTab === "rodizio" && (
                   <RodizioTab
                     onOpenTriage={(conversationId, leadName) => {
+                      if (
+                        isSiteConversationId(conversationId) &&
+                        allowedTabIds.includes("site")
+                      ) {
+                        setSiteTargetConversation({
+                          conversationId,
+                          leadName,
+                          ts: Date.now(),
+                        });
+                        setSiteViewMode("live");
+                        setActiveTab("site");
+                        return;
+                      }
                       setSdrTargetConversation({
                         conversationId,
                         leadName,
@@ -508,6 +803,62 @@ export function ValentinaView() {
                   className="px-3.5 py-2 rounded-xl text-xs font-extrabold bg-destructive text-destructive-foreground hover:opacity-90 transition cursor-pointer shadow-soft"
                 >
                   Sim, desativar SDR
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      {/* Modal de confirmação antes de desativar o atendimento do Site */}
+      <AnimatePresence>
+        {showDisableSiteConfirm && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.16 }}
+            onClick={() => setShowDisableSiteConfirm(false)}
+            className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 backdrop-blur-xs p-4"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: 8 }}
+              transition={{ duration: 0.16 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-md rounded-2xl border border-border bg-card p-5 shadow-2xl space-y-4"
+            >
+              <div className="flex items-start gap-3">
+                <div className="h-10 w-10 rounded-xl bg-destructive/15 border border-destructive/25 flex items-center justify-center shrink-0">
+                  <AlertTriangle className="h-5 w-5 text-destructive" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-sm font-extrabold text-foreground">
+                    Tem certeza que deseja pausar {persona.gender === "female" ? "a" : "o"} {persona.name} no Site?
+                  </h3>
+                  <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                    Ao desativar, o widget da loja virtual deixará de aceitar novos atendimentos pelo {persona.name}. O atendimento SDR no WhatsApp continuará funcionando normalmente.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setShowDisableSiteConfirm(false)}
+                  className="px-3.5 py-2 rounded-xl text-xs font-bold border border-border bg-muted/40 text-foreground hover:bg-muted transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowDisableSiteConfirm(false);
+                    void executeToggleSiteChannel(false);
+                  }}
+                  className="px-3.5 py-2 rounded-xl text-xs font-extrabold bg-destructive text-destructive-foreground hover:opacity-90 transition cursor-pointer shadow-soft"
+                >
+                  Sim, desativar Site
                 </button>
               </div>
             </motion.div>

@@ -77,11 +77,48 @@ export function isSiteOriginAllowed(origin: string | null | undefined, allowedOr
   return Boolean(normalized && allowedOrigins.includes(normalized));
 }
 
+/** Normaliza telefone informado no pré-chat do site para formato E.164 BR apenas dígitos (ex.: 5514999999999). */
+export function normalizeSitePhone(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  let digits = raw.replace(/\D/g, "");
+  if (digits.startsWith("0") && (digits.length === 11 || digits.length === 12)) {
+    digits = digits.slice(1);
+  }
+  if (digits.length === 10 || digits.length === 11) {
+    const ddd = digits.slice(0, 2);
+    const local = digits.slice(2);
+    if (!/^[1-9][1-9]$/.test(ddd) || /^(\d)\1+$/.test(local)) return null;
+    return `55${digits}`;
+  }
+  if ((digits.length === 12 || digits.length === 13) && digits.startsWith("55")) {
+    const ddd = digits.slice(2, 4);
+    const local = digits.slice(4);
+    if (!/^[1-9][1-9]$/.test(ddd) || /^(\d)\1+$/.test(local)) return null;
+    return digits;
+  }
+  if (digits.length >= 10 && digits.length <= 15 && !/^(\d)\1+$/.test(digits)) {
+    return digits;
+  }
+  return null;
+}
+
+/** Normaliza e-mail informado no pré-chat do site. */
+export function normalizeSiteEmail(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const clean = raw.trim().toLowerCase().slice(0, 160);
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(clean) ? clean : null;
+}
+
 /**
  * Dados do pré-chat do widget. Documento só é guardado quando os dígitos verificadores
  * conferem — isso não comprova titularidade nem situação cadastral.
  */
-export function sanitizeSiteIdentity(name: unknown, doc: unknown) {
+export function sanitizeSiteIdentity(
+  name: unknown,
+  doc: unknown,
+  email?: unknown,
+  phone?: unknown,
+) {
   const cleanName = typeof name === "string" ? name.replace(/\s+/g, " ").trim().slice(0, 120) : "";
   const digits = typeof doc === "string" ? doc.replace(/\D/g, "") : "";
   const validDoc = digits && isValidTriageDocument(digits) ? digits : "";
@@ -89,6 +126,8 @@ export function sanitizeSiteIdentity(name: unknown, doc: unknown) {
     name: cleanName.length >= 2 ? cleanName : "",
     cpf: validDoc.length === 11 ? validDoc : null,
     cnpj: validDoc.length === 14 ? validDoc : null,
+    email: normalizeSiteEmail(email),
+    phone: normalizeSitePhone(phone),
   };
 }
 

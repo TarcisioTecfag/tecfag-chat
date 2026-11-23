@@ -34,6 +34,7 @@ export interface SdrHeaderControlsProps {
   onRefresh: () => void;
   isLoading: boolean;
   personaName: string;
+  channelScope?: "whatsapp" | "site";
   showTriageHistory?: boolean;
   tenantId?: string;
   selectedConversationId?: string;
@@ -73,6 +74,7 @@ export const SdrHeaderControls = React.memo(function SdrHeaderControls({
   onRefresh,
   isLoading,
   personaName,
+  channelScope,
   showTriageHistory,
   tenantId,
   selectedConversationId,
@@ -348,30 +350,32 @@ export const SdrHeaderControls = React.memo(function SdrHeaderControls({
                 </div>
               </div>
 
-              {/* Canal (Apenas canais reais do SDR: Todos, WhatsApp e Site) */}
-              <div className="space-y-1.5 pt-1 border-t border-border">
-                <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground block">
-                  Canal
-                </span>
-                <div className="grid grid-cols-3 gap-1.5">
-                  {CHANNEL_OPTIONS.map((opt) => (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      onClick={() => handleUpdate({ channelFilter: opt.id })}
-                      className={`px-2 py-1 rounded-lg text-[10px] font-bold transition border cursor-pointer flex items-center justify-center gap-1 ${
-                        filterState.channelFilter === opt.id
-                          ? "bg-primary text-primary-foreground border-primary shadow-soft"
-                          : "bg-muted/40 text-muted-foreground border-border hover:text-foreground"
-                      }`}
-                    >
-                      {opt.id === "site" && <Globe className="h-3 w-3" />}
-                      {opt.id === "whatsapp" && <MessageSquare className="h-3 w-3" />}
-                      <span>{opt.label}</span>
-                    </button>
-                  ))}
+              {/* Canal (oculto quando a aba já é dedicada a WhatsApp ou Site) */}
+              {!channelScope && (
+                <div className="space-y-1.5 pt-1 border-t border-border">
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground block">
+                    Canal
+                  </span>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {CHANNEL_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => handleUpdate({ channelFilter: opt.id })}
+                        className={`px-2 py-1 rounded-lg text-[10px] font-bold transition border cursor-pointer flex items-center justify-center gap-1 ${
+                          filterState.channelFilter === opt.id
+                            ? "bg-primary text-primary-foreground border-primary shadow-soft"
+                            : "bg-muted/40 text-muted-foreground border-border hover:text-foreground"
+                        }`}
+                      >
+                        {opt.id === "site" && <Globe className="h-3 w-3" />}
+                        {opt.id === "whatsapp" && <MessageSquare className="h-3 w-3" />}
+                        <span>{opt.label}</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Seletor de Período Rápido + Mini Calendário */}
               <div className="space-y-2 pt-1 border-t border-border">
@@ -497,6 +501,7 @@ export const SdrHeaderControls = React.memo(function SdrHeaderControls({
           <div className="sm:order-4">
             <SdrSweepModal
               personaName={personaName}
+              channelScope={channelScope}
               onSelectConversation={(convId) => onSelectConversationFromSweep?.(convId)}
               onOpenChat={(convId) => onOpenChatFromSweep?.(convId)}
             />

@@ -4,7 +4,7 @@
 
 // ── Tipos ───────────────────────────────────────────────────────────────────
 
-export type ValentinaTab = "chat" | "sdr" | "rodizio" | "fluxos" | "supervisor" | "vendedor" | "knowledge";
+export type ValentinaTab = "chat" | "sdr" | "site" | "rodizio" | "fluxos" | "supervisor" | "vendedor" | "knowledge";
 
 export type InternalMessage = {
   id: string;

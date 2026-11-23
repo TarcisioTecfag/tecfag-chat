@@ -40,11 +40,15 @@ export const Route = createFileRoute("/api/valentina/sdr-sweep")({
               : "today";
           const startDate = url.searchParams.get("startDate");
           const endDate = url.searchParams.get("endDate");
+          const rawChannel = (url.searchParams.get("channel") || "").trim().toLowerCase();
+          const channel =
+            rawChannel === "site" || rawChannel === "whatsapp" ? rawChannel : undefined;
 
           const result = await runSdrSweep(db, tenantId, {
             period,
             startDate,
             endDate,
+            channel,
           });
 
           return new Response(JSON.stringify(result), { status: 200, headers });

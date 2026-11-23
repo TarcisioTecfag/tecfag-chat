@@ -43,6 +43,7 @@ import { appendIndustrialJournal } from "./industrial-triage-journal-store";
 import { setAttendanceActor } from "../attendance-events";
 import { getAiPersona } from "../ai-persona";
 import { readSiteContext, type SiteContext } from "../livechat/site-context";
+import { isSiteConversationId } from "../livechat/site-channel-policy";
 import {
   buildIndustrialOffHoursClosingNotice,
   isWithinIndustrialSchedule,
@@ -321,7 +322,7 @@ export function createIndustrialHandoffStore(
             .where(and(eq(contacts.tenantId, key.tenantId), eq(contacts.id, state.conv.contactId)));
           if (!contact) throw new HandoffOperationalError("contact_missing");
           const settings = cfg.config as Record<string, unknown>;
-          const siteContact = contact.mainChannel === "livechat";
+          const siteContact = isSiteConversationId(state.conv.id) || contact.mainChannel === "livechat";
           if (siteContact && settings.siteChannelEnabled !== true) {
             await tx
               .update(agentFlowStates)

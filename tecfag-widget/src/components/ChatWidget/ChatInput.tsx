@@ -7,6 +7,7 @@ export interface ChatInputProps {
   onSend?: (message: string, attachments: Attachment[]) => void;
   onSendMessage?: (message: string, attachments?: Attachment[]) => void;
   isBlackNovember?: boolean;
+  isMobile?: boolean;
   disabled?: boolean;
 }
 
@@ -16,6 +17,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   onSend,
   onSendMessage,
   isBlackNovember = false,
+  isMobile = false,
   disabled = false,
 }) => {
   const [text, setText] = useState("");
@@ -114,7 +116,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       style={{
         borderTop: "1px solid hsl(0 10% 90%)",
         background: "hsl(0 0% 100%)",
-        borderRadius: "0 0 16px 16px",
+        borderRadius: isMobile ? "0px" : "0 0 16px 16px",
+        flexShrink: 0,
       }}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -238,7 +241,11 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           onPaste={handlePaste}
           placeholder={isDragging ? "Solte as imagens aqui..." : "Escreva sua mensagem..."}
           className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none"
-          style={{ color: "hsl(222 47% 6%)" }}
+          style={{
+            color: "hsl(222 47% 6%)",
+            fontSize: isMobile ? "16px" : "14px",
+            minWidth: 0,
+          }}
         />
 
         <button

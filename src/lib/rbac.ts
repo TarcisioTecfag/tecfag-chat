@@ -23,7 +23,7 @@ export type ViewId =
   | "groups"
   | "settings";
 
-export type ValentinaTabId = "chat" | "sdr" | "rodizio" | "fluxos" | "supervisor" | "vendedor" | "knowledge";
+export type ValentinaTabId = "chat" | "sdr" | "site" | "rodizio" | "fluxos" | "supervisor" | "vendedor" | "knowledge";
 export type MonitorTabId = "live" | "alerts" | "operators" | "audits" | "tasks" | "site";
 export type AnalyticsTabId = "overview" | "performance" | "sla" | "contacts" | "crm" | "reports" | "costs";
 export type SettingsTabId = "whatsapp" | "voz" | "rd" | "crm" | "email" | "livechat";

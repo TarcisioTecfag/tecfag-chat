@@ -1,9 +1,10 @@
-import { and, desc, eq, inArray, isNotNull, ne, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, like, ne, not, sql } from "drizzle-orm";
 import { agentFlowStates, contacts, conversations, messages, operators } from "../../db/schema";
 import type { IndustrialDatabase } from "./industrial-rodizio-store";
 import { getAiPersona } from "../ai-persona";
 import { projectIndustrialMonitoring } from "./industrial-monitor";
 import { normalizeIndustrialFunnel } from "./industrial-policy";
+import { isSiteConversationId } from "../livechat/site-channel-policy";
 
 export type SdrSweepPeriod = "today" | "range" | "all";
 
@@ -11,6 +12,7 @@ export interface SdrSweepParams {
   period: SdrSweepPeriod;
   startDate?: string | null; // YYYY-MM-DD (Brasília)
   endDate?: string | null;   // YYYY-MM-DD (Brasília)
+  channel?: "whatsapp" | "site";
   now?: Date;
 }
 
@@ -177,11 +179,30 @@ export async function runSdrSweep(
     if (op.name) opsByName.set(op.name.trim().toLowerCase(), op);
   }
 
-  // 2. Buscar último ciclo SDR por conversa do tenant
+  // 2. Buscar último ciclo SDR por conversa do tenant (com recorte opcional de canal)
+  const flowChannelCond =
+    params.channel === "site"
+      ? like(agentFlowStates.conversationId, "conv-lc-%")
+      : params.channel === "whatsapp"
+        ? not(like(agentFlowStates.conversationId, "conv-lc-%"))
+        : undefined;
+  const convChannelCond =
+    params.channel === "site"
+      ? like(conversations.id, "conv-lc-%")
+      : params.channel === "whatsapp"
+        ? not(like(conversations.id, "conv-lc-%"))
+        : undefined;
+
   const latestFlowsSubquery = database
     .selectDistinctOn([agentFlowStates.conversationId])
     .from(agentFlowStates)
-    .where(and(eq(agentFlowStates.tenantId, tenantId), eq(agentFlowStates.agentType, "sdr")))
+    .where(
+      and(
+        eq(agentFlowStates.tenantId, tenantId),
+        eq(agentFlowStates.agentType, "sdr"),
+        flowChannelCond,
+      ),
+    )
     .orderBy(
       agentFlowStates.conversationId,
       desc(agentFlowStates.startedAt),
@@ -198,7 +219,13 @@ export async function runSdrSweep(
     database
       .select()
       .from(conversations)
-      .where(and(eq(conversations.tenantId, tenantId), eq(conversations.queueState, "automacao")))
+      .where(
+        and(
+          eq(conversations.tenantId, tenantId),
+          eq(conversations.queueState, "automacao"),
+          convChannelCond,
+        ),
+      )
       .orderBy(desc(conversations.lastMessageTime))
       .limit(200),
   ]);
@@ -339,9 +366,12 @@ export async function runSdrSweep(
     const resolvedOp = resolveOperator(conv, meta);
 
     const channel: "whatsapp" | "site" =
-      contact?.mainChannel === "livechat" || contact?.mainChannel === "site"
+      isSiteConversationId(fs.conversationId) ||
+      contact?.mainChannel === "livechat" ||
+      contact?.mainChannel === "site"
         ? "site"
         : "whatsapp";
+    if (params.channel && channel !== params.channel) continue;
 
     const company =
       (typeof collected["EMPRESA"]?.value === "string" &&
@@ -518,7 +548,9 @@ export async function runSdrSweep(
         (contact?.customFields as any)?.company ||
         "Empresa não informada",
       channel:
-        contact?.mainChannel === "livechat" || contact?.mainChannel === "site"
+        isSiteConversationId(conv.id) ||
+        contact?.mainChannel === "livechat" ||
+        contact?.mainChannel === "site"
           ? "site"
           : "whatsapp",
       outcome: "in_progress",

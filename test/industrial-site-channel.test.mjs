@@ -82,14 +82,30 @@ describe("canal Site no núcleo industrial — regras puras", () => {
       name: "Maria Souza",
       cpf: "52998224725",
       cnpj: null,
+      email: null,
+      phone: null,
     });
     assert.deepEqual(sanitizeSiteIdentity("ACME", "11.222.333/0001-81"), {
       name: "ACME",
       cpf: null,
       cnpj: "11222333000181",
+      email: null,
+      phone: null,
     });
-    assert.deepEqual(sanitizeSiteIdentity("X", "111.111.111-11"), { name: "", cpf: null, cnpj: null });
-    assert.deepEqual(sanitizeSiteIdentity(null, 123), { name: "", cpf: null, cnpj: null });
+    assert.deepEqual(sanitizeSiteIdentity("X", "111.111.111-11"), {
+      name: "",
+      cpf: null,
+      cnpj: null,
+      email: null,
+      phone: null,
+    });
+    assert.deepEqual(sanitizeSiteIdentity(null, 123), {
+      name: "",
+      cpf: null,
+      cnpj: null,
+      email: null,
+      phone: null,
+    });
   });
 
   it("limita texto livre do visitante", () => {
@@ -328,5 +344,83 @@ describe("virada do widget Fagner no site (itens 2, 3 e 4)", () => {
     assert.match(liveChatTab, /persona\.triagePolicy === "industrial" \? "\/test-chat-tecfag\.html" : "\/test-chat\.html"/);
     assert.match(testPageTecfag, /src="\/site-chat\.iife\.js"/);
     assert.match(testPageTecfag, /data-tenant="tecfag"/);
+  });
+});
+
+describe("fase 2: modal 580px, pré-chat obrigatório com match de telefone, aba Site separada e mobile fullscreen", () => {
+  const widgetTsx = read("tecfag-widget/src/components/ChatWidget/ChatWidget.tsx");
+  const widgetEntry = read("tecfag-widget/src/widget-entry.tsx");
+  const widgetInput = read("tecfag-widget/src/components/ChatWidget/ChatInput.tsx");
+  const siteAdapter = read("src/lib/livechat/site-industrial-adapter.ts");
+  const sendRoute = read("src/routes/api/whatsapp/send.ts");
+  const handoffStore = read("src/lib/triage/industrial-handoff-store.ts");
+  const valentinaView = read("src/components/valentina/ValentinaView.tsx");
+  const sdrTab = read("src/components/valentina/SdrTab.tsx");
+  const sdrRoute = read("src/routes/api/valentina/sdr.ts");
+  const monitorStore = read("src/lib/triage/agent-monitor-store.ts");
+  const sweepLib = read("src/lib/triage/sdr-sweep.ts");
+
+  it("normaliza e-mail e telefone brasileiro no pré-chat (incluindo DDD 55 e rejeitando inválidos)", () => {
+    const valid = sanitizeSiteIdentity("Carlos Silva", "", "  Carlos@Empresa.COM.BR ", "(14) 99988-7766");
+    assert.equal(valid.name, "Carlos Silva");
+    assert.equal(valid.email, "carlos@empresa.com.br");
+    assert.equal(valid.phone, "5514999887766");
+
+    // DDD 55 (RS) com 11 dígitos deve receber prefixo DDI 55 corretamente
+    const rsPhone = sanitizeSiteIdentity("Ana Souza", "", "ana@rs.com.br", "(55) 99123-4567");
+    assert.equal(rsPhone.phone, "5555991234567");
+
+    // Número já com DDI 55 e zero na frente
+    const withDdi = sanitizeSiteIdentity("João", "", "joao@x.com", "+55 (11) 98765-4321");
+    assert.equal(withDdi.phone, "5511987654321");
+    const withLeadingZero = sanitizeSiteIdentity("João", "", "joao@x.com", "014991234567");
+    assert.equal(withLeadingZero.phone, "5514991234567");
+
+    // Inválidos viram null
+    const invalid = sanitizeSiteIdentity("X", "", "email-invalido", "(14) 99999-9999");
+    assert.equal(invalid.name, "");
+    assert.equal(invalid.email, null);
+    assert.equal(invalid.phone, null);
+  });
+
+  it("widget usa altura desktop 580px (clamp 82%), mobile fullscreen com visualViewport e 16px anti-zoom", () => {
+    assert.match(widgetTsx, /const CHAT_H_MAX = 580;/);
+    assert.match(widgetTsx, /window\.visualViewport/);
+    assert.match(widgetTsx, /document\.body\.style\.overflow = "hidden"/);
+    assert.match(widgetTsx, /fontSize: viewportLayout\.isMobile \? 16 : 14/);
+    assert.match(widgetInput, /fontSize: isMobile \? "16px" : "14px"/);
+    assert.match(widgetEntry, /@media \(max-width: 639px\)/);
+    assert.match(widgetEntry, /font-size: 16px !important;/);
+  });
+
+  it("pré-chat exige nome, e-mail e telefone com máscara e envia todos no SET_VISITOR_NAME", () => {
+    assert.match(widgetTsx, /id="tecfag-prechat-name"/);
+    assert.match(widgetTsx, /id="tecfag-prechat-email"/);
+    assert.match(widgetTsx, /id="tecfag-prechat-phone"/);
+    assert.match(widgetTsx, /formatBrPhoneMask/);
+    assert.match(widgetTsx, /if \(!hasCompletePreChat && !hasActiveConversation\)/);
+  });
+
+  it("backend faz match por telefone preservando isolamento de canal em send.ts e handoff-store", () => {
+    assert.match(siteAdapter, /findContactByAnyPhone\(tx, tenantId, phone\)/);
+    assert.match(siteAdapter, /enrichExistingContactInTx/);
+    assert.match(siteAdapter, /eq\(conversations\.id, conversationId\)/);
+    assert.match(sendRoute, /isSiteConversationId\(conv\.id\) \|\| targetContact\?\.mainChannel === SITE_CHANNEL/);
+    assert.match(handoffStore, /const siteContact = isSiteConversationId\(state\.conv\.id\) \|\| contact\.mainChannel === "livechat";/);
+  });
+
+  it("aba Site é duplicada do SDR apenas no perfil industrial com cache, API e sweep segregados por canal", () => {
+    assert.match(valentinaView, /\{\s*id:\s*"site",\s*label:\s*"Site",\s*icon:\s*Globe\s*\}/);
+    assert.match(valentinaView, /if \(tab\.id === "site" && !isIndustrial\) return false;/);
+    assert.match(valentinaView, /channelScope=\{isIndustrial \? "whatsapp" : undefined\}/);
+    assert.match(valentinaView, /channelScope="site"/);
+    assert.match(valentinaView, /"Site Ativo"/);
+    assert.match(sdrTab, /sdr_swr_cache_v1:\$\{tenantId\}:\$\{channelScope \|\| "all"\}/);
+    assert.match(sdrTab, /params\.set\("channel", channelScope\)/);
+    assert.match(monitorStore, /like\(agentFlowStates\.conversationId, "conv-lc-%"\)/);
+    assert.match(monitorStore, /not\(like\(agentFlowStates\.conversationId, "conv-lc-%"\)\)/);
+    assert.match(sdrRoute, /isSiteConversationId\(fs\.conversationId\)/);
+    assert.match(sdrRoute, /isSiteConversationId\(c\.id\)/);
+    assert.match(sweepLib, /isSiteConversationId\(fs\.conversationId\)/);
   });
 });

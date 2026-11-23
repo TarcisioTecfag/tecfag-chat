@@ -28,7 +28,7 @@ import {
   metaVideoNeedsConversion,
   META_VIDEO_OUTPUT_MIME,
 } from "../../../lib/whatsapp/video-convert";
-import { SITE_CHANNEL, SITE_PROVIDER } from "../../../lib/livechat/site-channel-policy";
+import { isSiteConversationId, SITE_CHANNEL, SITE_PROVIDER } from "../../../lib/livechat/site-channel-policy";
 import { sendSiteOperatorText } from "../../../lib/livechat/site-delivery";
 import { SdrDebouncer } from "../../../lib/valentina/sdr-debouncer";
 import { requireConversationWriteAccess, requireConversationAccess } from "../../../lib/access-control/conversation-access";
@@ -256,7 +256,7 @@ export const Route = createFileRoute("/api/whatsapp/send")({
               .select({ mainChannel: contacts.mainChannel })
               .from(contacts)
               .where(and(eq(contacts.id, conv.contactId), eq(contacts.tenantId, session.tenantId)));
-            if (!conv.whatsappConnectionId && targetContact?.mainChannel === SITE_CHANNEL) {
+            if (!conv.whatsappConnectionId && (isSiteConversationId(conv.id) || targetContact?.mainChannel === SITE_CHANNEL)) {
               if (templateName || pendingFile || mediaUrl) {
                 return Response.json(
                   { error: "No chat do site, envie apenas mensagens de texto por enquanto.", code: "SITE_TEXT_ONLY" },

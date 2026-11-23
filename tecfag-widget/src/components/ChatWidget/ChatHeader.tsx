@@ -27,6 +27,7 @@ export interface ChatHeaderProps {
   onRestart?: () => void;
   messages?: { sender: string; content: string }[];
   isBlackNovember?: boolean;
+  isMobile?: boolean;
   avatarSrc?: string;
   operatorName?: string | null;
 }
@@ -37,6 +38,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
   onRestart,
   messages = [],
   isBlackNovember = false,
+  isMobile = false,
   avatarSrc,
 }) => {
   const [copied, setCopied] = useState(false);
@@ -88,7 +90,8 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
         display: "flex",
         alignItems: "center",
         gap: 12,
-        borderRadius: "16px 16px 0 0",
+        borderRadius: isMobile ? "0px" : "16px 16px 0 0",
+        paddingTop: isMobile ? "calc(14px + env(safe-area-inset-top, 0px))" : "16px",
         flexShrink: 0,
         background: isBlackNovember
           ? "linear-gradient(135deg, #09090b 0%, #18181b 55%, #3f3f46 100%)"

@@ -771,18 +771,22 @@ const SDR_CACHE_TTL_MS = 10 * 60 * 1000;
 interface SdrCachedSnapshot {
   savedAt: number;
   sdrEnabled?: boolean;
+  siteChannelEnabled?: boolean;
   monitoringSummary: AgentMonitoringSummary | null;
   sessions: SdrTriageSession[];
 }
 
-function getSdrCacheKey(tenantId: string): string {
-  return `sdr_swr_cache_v1:${tenantId}`;
+function getSdrCacheKey(tenantId: string, channelScope?: "whatsapp" | "site"): string {
+  return `sdr_swr_cache_v1:${tenantId}:${channelScope || "all"}`;
 }
 
-function readSdrCachedSnapshot(tenantId: string | null | undefined): SdrCachedSnapshot | null {
+function readSdrCachedSnapshot(
+  tenantId: string | null | undefined,
+  channelScope?: "whatsapp" | "site",
+): SdrCachedSnapshot | null {
   if (!tenantId || typeof window === "undefined") return null;
   try {
-    const raw = window.sessionStorage.getItem(getSdrCacheKey(tenantId));
+    const raw = window.sessionStorage.getItem(getSdrCacheKey(tenantId, channelScope));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as SdrCachedSnapshot;
     if (!parsed || typeof parsed.savedAt !== "number" || !Array.isArray(parsed.sessions)) {
@@ -798,6 +802,7 @@ function readSdrCachedSnapshot(tenantId: string | null | undefined): SdrCachedSn
 function writeSdrCachedSnapshot(
   tenantId: string | null | undefined,
   snapshot: SdrCachedSnapshot,
+  channelScope?: "whatsapp" | "site",
 ): void {
   if (!tenantId || typeof window === "undefined") return;
   try {
@@ -808,10 +813,11 @@ function writeSdrCachedSnapshot(
       messages: [],
     }));
     window.sessionStorage.setItem(
-      getSdrCacheKey(tenantId),
+      getSdrCacheKey(tenantId, channelScope),
       JSON.stringify({
         savedAt: snapshot.savedAt,
         sdrEnabled: snapshot.sdrEnabled,
+        siteChannelEnabled: snapshot.siteChannelEnabled,
         monitoringSummary: snapshot.monitoringSummary,
         sessions: compactSessions,
       }),
@@ -1294,8 +1300,10 @@ const SdrTimelineRow = React.memo(function SdrTimelineRow({
 });
 
 export interface SdrTabProps {
+  channelScope?: "whatsapp" | "site";
   sdrEnabled?: boolean;
   onSdrConfigChange?: (enabled: boolean) => void;
+  onSiteChannelEnabledChange?: (enabled: boolean) => void;
   filterState?: SdrFilterState;
   onFilterChange?: React.Dispatch<React.SetStateAction<SdrFilterState>>;
   viewMode?: SdrViewMode;
@@ -1317,8 +1325,10 @@ export interface SdrTabProps {
 }
 
 export function SdrTab({
+  channelScope,
   sdrEnabled = false,
   onSdrConfigChange,
+  onSiteChannelEnabledChange,
   filterState,
   onFilterChange,
   viewMode = "live",
@@ -1374,20 +1384,20 @@ export function SdrTab({
     null,
   );
 
-  // SESSÕES DE TRIAGEM (100% reais do banco + hidratação imediata SWR por tenant)
+  // SESSÕES DE TRIAGEM (100% reais do banco + hidratação imediata SWR por tenant + canal)
   const [sessions, setSessions] = useState<SdrTriageSession[]>(() => {
-    const cached = readSdrCachedSnapshot(tenant);
+    const cached = readSdrCachedSnapshot(tenant, channelScope);
     return cached?.sessions || [];
   });
   const [hasLoadedOnce, setHasLoadedOnce] = useState<boolean>(() => {
-    const cached = readSdrCachedSnapshot(tenant);
+    const cached = readSdrCachedSnapshot(tenant, channelScope);
     return Boolean(cached && cached.sessions.length > 0);
   });
   const sessionsCountRef = useRef<number>(sessions.length);
   sessionsCountRef.current = sessions.length;
 
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(() => {
-    const cached = readSdrCachedSnapshot(tenant);
+    const cached = readSdrCachedSnapshot(tenant, channelScope);
     return cached?.sessions?.[0]?.id || null;
   });
   const selectedConversationIdRef = useRef<string | null>(null);
@@ -1399,7 +1409,7 @@ export function SdrTab({
   const lastRttMsRef = useRef<number>(0);
   const errorStreakRef = useRef<number>(0);
   const [monitoringSummary, setMonitoringSummary] = useState<AgentMonitoringSummary | null>(() => {
-    const cached = readSdrCachedSnapshot(tenant);
+    const cached = readSdrCachedSnapshot(tenant, channelScope);
     return cached?.monitoringSummary || null;
   });
   const [monitoringError, setMonitoringError] = useState<string | null>(null);
@@ -1409,7 +1419,7 @@ export function SdrTab({
   const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
   useEffect(() => {
-    const cached = readSdrCachedSnapshot(tenant);
+    const cached = readSdrCachedSnapshot(tenant, channelScope);
     setSessions(cached?.sessions || []);
     setHasLoadedOnce(Boolean(cached && cached.sessions.length > 0));
     setSelectedSessionId(cached?.sessions?.[0]?.id || null);
@@ -1424,13 +1434,16 @@ export function SdrTab({
     if (cached && typeof cached.sdrEnabled === "boolean") {
       onSdrConfigChange?.(cached.sdrEnabled);
     }
+    if (cached && typeof cached.siteChannelEnabled === "boolean") {
+      onSiteChannelEnabledChange?.(cached.siteChannelEnabled);
+    }
     return () => {
       monitorFetchRef.current?.abort();
       monitorFetchRef.current = null;
       msgFetchRef.current?.abort();
       msgFetchRef.current = null;
     };
-  }, [tenant, onSdrConfigChange]);
+  }, [tenant, channelScope, onSdrConfigChange, onSiteChannelEnabledChange]);
 
   const effectiveFilterState = filterState || DEFAULT_SDR_FILTER_STATE;
   const deferredFilterState = useDeferredValue(effectiveFilterState);
@@ -1762,13 +1775,16 @@ export function SdrTab({
         const isKanbanMode = viewModeRef.current === "kanban";
         const selConv = isKanbanMode ? null : selectedConversationIdRef.current;
         const params = new URLSearchParams();
+        if (channelScope) {
+          params.set("channel", channelScope);
+        }
         if (isKanbanMode) {
           params.set("includeMessages", "0");
         } else if (selConv) {
           params.set("selectedConversationId", selConv);
         }
         const queryString = params.toString();
-        const queryKey = `${tenant}:${queryString}`;
+        const queryKey = `${tenant}:${channelScope || "all"}:${queryString}`;
 
         const headers: Record<string, string> = {};
         if (
@@ -1816,6 +1832,9 @@ export function SdrTab({
           );
           if (data.config) {
             onSdrConfigChange?.(Boolean(data.config.enabled));
+            if (typeof data.config.siteChannelEnabled === "boolean") {
+              onSiteChannelEnabledChange?.(Boolean(data.config.siteChannelEnabled));
+            }
           }
           if (Array.isArray(data.sessions)) {
             const formattedLiveSessions: SdrTriageSession[] = data.sessions
@@ -1874,12 +1893,20 @@ export function SdrTab({
               return match ? match.id : formattedLiveSessions[0]?.id || null;
             });
 
-            writeSdrCachedSnapshot(tenant, {
-              savedAt: Date.now(),
-              sdrEnabled: data.config ? Boolean(data.config.enabled) : undefined,
-              monitoringSummary: nextSummary,
-              sessions: formattedLiveSessions,
-            });
+            writeSdrCachedSnapshot(
+              tenant,
+              {
+                savedAt: Date.now(),
+                sdrEnabled: data.config ? Boolean(data.config.enabled) : undefined,
+                siteChannelEnabled:
+                  data.config && typeof data.config.siteChannelEnabled === "boolean"
+                    ? Boolean(data.config.siteChannelEnabled)
+                    : undefined,
+                monitoringSummary: nextSummary,
+                sessions: formattedLiveSessions,
+              },
+              channelScope,
+            );
           }
         } else {
           errorStreakRef.current = Math.min(errorStreakRef.current + 1, 6);
@@ -1906,7 +1933,7 @@ export function SdrTab({
         }
       }
     },
-    [tenant, BACKEND_URL, onSdrConfigChange],
+    [tenant, channelScope, BACKEND_URL, onSdrConfigChange, onSiteChannelEnabledChange],
   );
 
   // Atualização forçada vinda do botão Atualizar do header

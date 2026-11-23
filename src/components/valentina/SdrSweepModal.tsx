@@ -34,6 +34,7 @@ import type {
 
 export interface SdrSweepModalProps {
   personaName: string;
+  channelScope?: "whatsapp" | "site";
   onSelectConversation: (conversationId: string) => void;
   onOpenChat: (conversationId: string) => void;
 }
@@ -83,6 +84,7 @@ function getInitials(name?: string | null): string {
 
 export function SdrSweepModal({
   personaName,
+  channelScope,
   onSelectConversation,
   onOpenChat,
 }: SdrSweepModalProps) {
@@ -113,6 +115,9 @@ export function SdrSweepModal({
       setError(null);
       try {
         const params = new URLSearchParams({ period: targetPeriod });
+        if (channelScope) {
+          params.set("channel", channelScope);
+        }
         if (targetPeriod === "range") {
           if (targetStart) params.set("startDate", targetStart);
           if (targetEnd) params.set("endDate", targetEnd);
@@ -148,7 +153,7 @@ export function SdrSweepModal({
         }
       }
     },
-    [BACKEND_URL, period, startDate, endDate],
+    [BACKEND_URL, channelScope, period, startDate, endDate],
   );
 
   useEffect(() => {

@@ -191,6 +191,7 @@ export const MODULE_ROUTE_SPECS: Record<ViewId, ModuleRouteSpec> = {
     tabToSlug: {
       chat: "chat",
       sdr: "sdr",
+      site: "site",
       rodizio: "rodizio",
       fluxos: "fluxos",
       supervisor: "supervisor",
@@ -200,6 +201,7 @@ export const MODULE_ROUTE_SPECS: Record<ViewId, ModuleRouteSpec> = {
     slugToTab: {
       chat: "chat",
       sdr: "sdr",
+      site: "site",
       rodizio: "rodizio",
       fluxos: "fluxos",
       supervisor: "supervisor",

@@ -427,18 +427,31 @@ async function handleVisitorMessage(
   }
 
   if ((type === "visitor_identify" || type === "SET_VISITOR_NAME") && conn.industrial) {
-    const identity = await applySiteIdentity(tenantId, visitor.id, payload.name, payload.doc);
+    const identity = await applySiteIdentity(
+      tenantId,
+      visitor.id,
+      payload.name,
+      payload.doc,
+      payload.email,
+      payload.phone,
+    );
     const fields: Record<string, unknown> = {};
     if (identity.name) fields.name = identity.name;
+    if (identity.email) fields.email = identity.email;
+    if (identity.phone) fields.phone = identity.phone;
     if (identity.cnpj) fields.cnpj = identity.cnpj;
     if (conn.siteContext) Object.assign(fields, { currentUrl: conn.siteContext.page.url, currentTitle: conn.siteContext.page.title });
     if (Object.keys(fields).length) await updateVisitorData(tenantId, visitor.id, fields);
     if (identity.name) visitor.name = identity.name;
+    if (identity.email) visitor.email = identity.email;
+    if (identity.phone) visitor.phone = identity.phone;
     if (identity.cnpj) visitor.cnpj = identity.cnpj;
     broadcastToOperators(tenantId, {
       type: "visitor_updated",
       visitorId: visitor.id,
       name: identity.name || undefined,
+      email: identity.email || undefined,
+      phone: identity.phone || undefined,
       cnpj: identity.cnpj || undefined,
     });
     return;

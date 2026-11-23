@@ -718,6 +718,44 @@ export class SdrEngine {
           const enriched = applyKnownClientConfirmationToData(existingCollectedData, knownClient);
           Object.assign(existingCollectedData, enriched);
         }
+
+        // Pré-preenche dados do pré-chat do site (Nome, E-mail e Telefone) no contexto da triagem
+        // para que o Fagner já conheça o visitante e não pergunte novamente o que ele acabou de preencher.
+        if (isSiteConversationId(conversationId) && convCheck?.contactId) {
+          try {
+            const [siteContactRow] = await db
+              .select({
+                name: contacts.name,
+                email: contacts.email,
+                phone: contacts.phone,
+              })
+              .from(contacts)
+              .where(and(eq(contacts.tenantId, tenantId), eq(contacts.id, convCheck.contactId)))
+              .limit(1);
+            if (siteContactRow) {
+              const rawContactName = (siteContactRow.name || "").trim();
+              const isRealName =
+                rawContactName.length >= 2 &&
+                !/^(visitante do site|visitante|sem nome)$/i.test(rawContactName) &&
+                !/^[\d\s()+-]+$/.test(rawContactName);
+              if (isRealName && !existingCollectedData["NOME COMPLETO"]?.value) {
+                existingCollectedData["NOME COMPLETO"] = { value: rawContactName, status: "filled" };
+              }
+              if (siteContactRow.email?.trim() && !existingCollectedData["EMAIL"]?.value) {
+                existingCollectedData["EMAIL"] = {
+                  value: siteContactRow.email.trim(),
+                  status: "filled",
+                };
+              }
+              if (siteContactRow.phone?.trim() && !existingCollectedData["TELEFONE"]?.value) {
+                existingCollectedData["TELEFONE"] = {
+                  value: siteContactRow.phone.trim(),
+                  status: "filled",
+                };
+              }
+            }
+          } catch {}
+        }
       }
 
       const currentDataSummary: Record<string, string> = {};

@@ -13,11 +13,16 @@ import {
   crmDeals,
   crmDealContacts,
 } from "../../../db/schema";
-import { eq, and, desc, inArray, isNotNull, sql } from "drizzle-orm";
+import { eq, and, desc, inArray, isNotNull, like, not, sql } from "drizzle-orm";
 import { requireSession } from "../../../lib/auth-session";
 import { getAiPersona } from "../../../lib/ai-persona";
 import { projectIndustrialMonitoring } from "../../../lib/triage/industrial-monitor";
-import { readAgentMonitoringSummary, readLatestSdrFlows } from "../../../lib/triage/agent-monitor-store";
+import {
+  readAgentMonitoringSummary,
+  readLatestSdrFlows,
+  type SdrChannelScope,
+} from "../../../lib/triage/agent-monitor-store";
+import { isSiteConversationId } from "../../../lib/livechat/site-channel-policy";
 import { stopIndustrialCycle } from "../../../lib/triage/industrial-cycle-stop";
 import {
   computeIndustrialTriageProgress,
@@ -281,6 +286,11 @@ export const Route = createFileRoute("/api/valentina/sdr")({
         const selectedConversationId = (url.searchParams.get("selectedConversationId") || "").trim();
         const includeMessagesParam = (url.searchParams.get("includeMessages") || "").trim().toLowerCase();
         const includeMessages = includeMessagesParam !== "0" && includeMessagesParam !== "false";
+        const rawChannelParam = (url.searchParams.get("channel") || "").trim().toLowerCase();
+        const channelScope: SdrChannelScope | undefined =
+          rawChannelParam === "site" || rawChannelParam === "whatsapp"
+            ? rawChannelParam
+            : undefined;
 
         // Mapa de operadores do tenant (populado em paralelo com as queries principais)
         const operatorsById = new Map<string, { id: string; name: string; avatar: string | null }>();
@@ -504,7 +514,7 @@ export const Route = createFileRoute("/api/valentina/sdr")({
         }
 
         // ── MODO LISTAGEM OTIMIZADO (Batch Queries — Zero N+1 + ETag + Gzip) ────
-        let config = { enabled: false };
+        let config: { enabled: boolean; siteChannelEnabled?: boolean } = { enabled: false };
 
         const [tenantOps, dbConfig, flowStates, automacaoConvs, monitoringSummary] = await Promise.all([
           fetchTenantOperators(),
@@ -518,11 +528,21 @@ export const Route = createFileRoute("/api/valentina/sdr")({
               return null;
             }),
           (isIndustrial
-            ? readLatestSdrFlows(db, tenantId, 100)
+            ? readLatestSdrFlows(db, tenantId, 100, channelScope)
             : db
                 .select()
                 .from(agentFlowStates)
-                .where(and(eq(agentFlowStates.tenantId, tenantId), eq(agentFlowStates.agentType, "sdr")))
+                .where(
+                  and(
+                    eq(agentFlowStates.tenantId, tenantId),
+                    eq(agentFlowStates.agentType, "sdr"),
+                    channelScope === "site"
+                      ? like(agentFlowStates.conversationId, "conv-lc-%")
+                      : channelScope === "whatsapp"
+                        ? not(like(agentFlowStates.conversationId, "conv-lc-%"))
+                        : undefined,
+                  ),
+                )
                 .orderBy(desc(agentFlowStates.lastInteractionAt))
                 .limit(100)
           ).catch((err) => {
@@ -540,7 +560,17 @@ export const Route = createFileRoute("/api/valentina/sdr")({
               createdAt: conversations.createdAt,
             })
             .from(conversations)
-            .where(and(eq(conversations.tenantId, tenantId), eq(conversations.queueState, "automacao")))
+            .where(
+              and(
+                eq(conversations.tenantId, tenantId),
+                eq(conversations.queueState, "automacao"),
+                channelScope === "site"
+                  ? like(conversations.id, "conv-lc-%")
+                  : channelScope === "whatsapp"
+                    ? not(like(conversations.id, "conv-lc-%"))
+                    : undefined,
+              ),
+            )
             .orderBy(desc(conversations.lastMessageTime))
             .limit(30)
             .catch((err) => {
@@ -555,7 +585,7 @@ export const Route = createFileRoute("/api/valentina/sdr")({
                 createdAt: Date;
               }>;
             }),
-          readAgentMonitoringSummary(db, tenantId).catch((error) => {
+          readAgentMonitoringSummary(db, tenantId, new Date(), channelScope).catch((error) => {
             console.error("[api/valentina/sdr] Métricas indisponíveis:", error);
             return { available: false as const, reason: "Métricas temporariamente indisponíveis." };
           }),
@@ -564,7 +594,11 @@ export const Route = createFileRoute("/api/valentina/sdr")({
         populateOperators(tenantOps);
 
         if (dbConfig) {
-          config = { enabled: dbConfig.enabled === 1 };
+          const rawCfg = (dbConfig.config as Record<string, unknown>) || {};
+          config = {
+            enabled: dbConfig.enabled === 1,
+            siteChannelEnabled: dbConfig.enabled === 1 && rawCfg.siteChannelEnabled === true,
+          };
         }
 
         // Deduplicar flowStates por conversationId preservando ciclos anteriores
@@ -1004,7 +1038,12 @@ export const Route = createFileRoute("/api/valentina/sdr")({
 
             const rawChannel = contact?.mainChannel || "whatsapp";
             const normalizedChannel =
-              rawChannel === "livechat" || rawChannel === "site" ? "site" : "whatsapp";
+              isSiteConversationId(fs.conversationId) ||
+              rawChannel === "livechat" ||
+              rawChannel === "site"
+                ? "site"
+                : "whatsapp";
+            if (channelScope && normalizedChannel !== channelScope) continue;
 
             sessions.push({
               id: fs.id,
@@ -1090,7 +1129,12 @@ export const Route = createFileRoute("/api/valentina/sdr")({
 
             const rawChannel = contact?.mainChannel || "whatsapp";
             const normalizedChannel =
-              rawChannel === "livechat" || rawChannel === "site" ? "site" : "whatsapp";
+              isSiteConversationId(c.id) ||
+              rawChannel === "livechat" ||
+              rawChannel === "site"
+                ? "site"
+                : "whatsapp";
+            if (channelScope && normalizedChannel !== channelScope) continue;
 
             sessions.push({
               id: `fs-auto-${c.id}`,

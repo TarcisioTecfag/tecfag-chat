@@ -42,6 +42,7 @@ export function usePermissions() {
     switch (tabId) {
       case "chat": return v.canAccessChat;
       case "sdr": return v.canAccessSdr;
+      case "site": return v.canAccessSdr;
       case "rodizio": return v.canAccessRodizio;
       case "fluxos": return v.canAccessRodizio;
       case "supervisor": return v.canAccessSupervisor;

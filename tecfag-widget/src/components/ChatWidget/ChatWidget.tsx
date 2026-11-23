@@ -34,10 +34,42 @@ const COOKIE_KEY = "tecfag_visitor_id";
 const STORAGE_KEY_MESSAGES = "tecfag_chat_messages";
 const STORAGE_KEY_CHAT_ID = "tecfag_chat_id";
 const STORAGE_KEY_VISITOR_NAME = "tecfag_visitor_name";
+const STORAGE_KEY_VISITOR_EMAIL = "tecfag_visitor_email";
+const STORAGE_KEY_VISITOR_PHONE = "tecfag_visitor_phone";
 const STORAGE_KEY_NAME_CONFIRMED = "tecfag_name_confirmed";
 const STORAGE_KEY_IS_OPEN = "tecfag_chat_is_open";
 const STORAGE_KEY_OPERATOR_NAME = "tecfag_operator_name";
 const STORAGE_KEY_LAST_ACTIVITY = "tecfag_chat_last_activity";
+
+function normalizeBrPhoneDigits(raw: string): string {
+  let digits = (raw || "").replace(/\D/g, "");
+  if (digits.length > 11 && digits.startsWith("55")) {
+    digits = digits.slice(2);
+  }
+  return digits.slice(0, 11);
+}
+
+function formatBrPhoneMask(raw: string): string {
+  const d = normalizeBrPhoneDigits(raw);
+  if (!d) return "";
+  if (d.length <= 2) return `(${d}`;
+  if (d.length <= 6) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
+  if (d.length <= 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+  return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7, 11)}`;
+}
+
+function isValidEmailAddress(email: string): boolean {
+  const trimmed = (email || "").trim();
+  return trimmed.length <= 180 && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(trimmed);
+}
+
+function isValidBrPhone(raw: string): boolean {
+  const d = normalizeBrPhoneDigits(raw);
+  if (d.length !== 10 && d.length !== 11) return false;
+  if (/^(\d)\1+$/.test(d)) return false;
+  const ddd = Number(d.slice(0, 2));
+  return ddd >= 11 && ddd <= 99;
+}
 
 const MSG_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 horas
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
@@ -175,16 +207,64 @@ function clearStoredMessages(): void {
   } catch {}
 }
 
-// ─── Posição inicial da janela de chat (canto inferior esquerdo) ──────────────
+// ─── Posição e dimensões responsivas da janela de chat ───────────────────────
 const CHAT_W = 380;
-const CHAT_H = 440;
+const CHAT_H_MAX = 580;
+const CHAT_H_MIN = 440;
 const CHAT_MARGIN = 24;
+const MOBILE_BREAKPOINT = 640;
 
-function getInitialChatPos() {
-  const innerH = typeof window !== "undefined" && window.innerHeight ? window.innerHeight : 800;
+interface ViewportLayout {
+  isMobile: boolean;
+  width: number;
+  height: number;
+  offsetTop: number;
+  viewportW: number;
+  viewportH: number;
+}
+
+function getViewportLayout(): ViewportLayout {
+  if (typeof window === "undefined") {
+    return { isMobile: false, width: CHAT_W, height: CHAT_H_MAX, offsetTop: 0, viewportW: 1024, viewportH: 800 };
+  }
+  const vv = window.visualViewport;
+  const viewportW = Math.round(vv?.width || window.innerWidth || 1024);
+  const viewportH = Math.round(vv?.height || window.innerHeight || 800);
+  const offsetTop = Math.round(vv?.offsetTop || 0);
+  const isMobile = (window.innerWidth || viewportW) < MOBILE_BREAKPOINT;
+
+  if (isMobile) {
+    return {
+      isMobile: true,
+      width: viewportW,
+      height: viewportH,
+      offsetTop,
+      viewportW,
+      viewportH,
+    };
+  }
+
+  const desktopH = Math.max(
+    CHAT_H_MIN,
+    Math.min(CHAT_H_MAX, Math.floor(viewportH * 0.82)),
+  );
+  return {
+    isMobile: false,
+    width: Math.min(CHAT_W, Math.max(300, viewportW - CHAT_MARGIN * 2)),
+    height: Math.min(desktopH, Math.max(360, viewportH - CHAT_MARGIN * 2)),
+    offsetTop: 0,
+    viewportW,
+    viewportH,
+  };
+}
+
+function getInitialChatPos(layout: ViewportLayout = getViewportLayout()) {
+  if (layout.isMobile) {
+    return { x: 0, y: layout.offsetTop };
+  }
   return {
     x: CHAT_MARGIN,
-    y: Math.max(CHAT_MARGIN, innerH - CHAT_H - CHAT_MARGIN - 72),
+    y: Math.max(CHAT_MARGIN, layout.viewportH - layout.height - CHAT_MARGIN),
   };
 }
 
@@ -218,16 +298,54 @@ export const ChatWidget: React.FC = () => {
     }
   });
 
-  const [nameConfirmed, setNameConfirmed] = useState<boolean>(() => {
+  const [visitorEmail, setVisitorEmail] = useState<string>(() => {
+    try {
+      return (
+        localStorage.getItem(STORAGE_KEY_VISITOR_EMAIL) ||
+        sessionStorage.getItem(STORAGE_KEY_VISITOR_EMAIL) ||
+        ""
+      );
+    } catch {
+      return "";
+    }
+  });
+
+  const [visitorPhone, setVisitorPhone] = useState<string>(() => {
+    try {
+      const saved =
+        localStorage.getItem(STORAGE_KEY_VISITOR_PHONE) ||
+        sessionStorage.getItem(STORAGE_KEY_VISITOR_PHONE) ||
+        "";
+      return saved ? formatBrPhoneMask(saved) : "";
+    } catch {
+      return "";
+    }
+  });
+
+  const [preChatNameInput, setPreChatNameInput] = useState<string>(() => visitorName);
+  const [preChatEmailInput, setPreChatEmailInput] = useState<string>(() => visitorEmail);
+  const [preChatPhoneInput, setPreChatPhoneInput] = useState<string>(() => visitorPhone);
+  const [preChatError, setPreChatError] = useState<string | null>(null);
+
+  const [, setNameConfirmed] = useState<boolean>(() => {
     try {
       return (
         sessionStorage.getItem(STORAGE_KEY_NAME_CONFIRMED) === "true" ||
-        Boolean(localStorage.getItem(STORAGE_KEY_VISITOR_NAME))
+        (Boolean(localStorage.getItem(STORAGE_KEY_VISITOR_NAME)) &&
+          Boolean(localStorage.getItem(STORAGE_KEY_VISITOR_EMAIL)) &&
+          Boolean(localStorage.getItem(STORAGE_KEY_VISITOR_PHONE)))
       );
     } catch {
       return false;
     }
   });
+
+  const hasCompletePreChat = Boolean(
+    visitorName.trim().length >= 2 &&
+      isValidEmailAddress(visitorEmail) &&
+      isValidBrPhone(visitorPhone),
+  );
+  const hasActiveConversation = messages.some((m) => m.sender === "visitor");
 
   const [preChatMode, setPreChatMode] = useState<boolean>(false);
   const [chatStarted, setChatStarted] = useState<boolean>(() => {
@@ -268,11 +386,17 @@ export const ChatWidget: React.FC = () => {
     }
   });
 
-  // ── Posição arrastável da janela de chat ──────────────────────────
-  const [chatPos, setChatPos] = useState(getInitialChatPos);
+  // ── Layout responsivo + posição arrastável da janela de chat ─────────
+  const [viewportLayout, setViewportLayout] = useState<ViewportLayout>(getViewportLayout);
+  const viewportLayoutRef = useRef(viewportLayout);
+  const [chatPos, setChatPos] = useState(() => getInitialChatPos(viewportLayout));
   const chatPosRef = useRef(chatPos);
   const dragStartMouse = useRef({ x: 0, y: 0 });
   const dragStartPos = useRef({ x: 0, y: 0 });
+  const visitorIdentityRef = useRef({ name: visitorName, email: visitorEmail, phone: visitorPhone });
+  useEffect(() => {
+    visitorIdentityRef.current = { name: visitorName, email: visitorEmail, phone: visitorPhone };
+  }, [visitorName, visitorEmail, visitorPhone]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const buttonWrapperRef = useRef<HTMLDivElement>(null);
@@ -342,27 +466,48 @@ export const ChatWidget: React.FC = () => {
   useEffect(() => {
     if (!isOpen && buttonWrapperRef.current) {
       const el = buttonWrapperRef.current;
+      const mobileOffset = viewportLayout.isMobile ? "16px" : "24px";
       el.style?.setProperty?.("position", "fixed", "important");
-      el.style?.setProperty?.("bottom", "24px", "important");
-      el.style?.setProperty?.("left", "24px", "important");
+      el.style?.setProperty?.("bottom", mobileOffset, "important");
+      el.style?.setProperty?.("left", mobileOffset, "important");
       el.style?.setProperty?.("z-index", "99999", "important");
       el.style?.setProperty?.("transform", "none", "important");
       el.style?.setProperty?.("display", "block", "important");
       el.style?.setProperty?.("visibility", "visible", "important");
       el.style?.setProperty?.("opacity", "1", "important");
     }
-  }, [isOpen, bubblePhase]);
+  }, [isOpen, bubblePhase, viewportLayout.isMobile]);
 
   useEffect(() => {
     if (isOpen && chatWindowRef.current) {
       const el = chatWindowRef.current;
       el.style?.setProperty?.("position", "fixed", "important");
-      el.style?.setProperty?.("left", `${chatPos.x}px`, "important");
-      el.style?.setProperty?.("top", `${chatPos.y}px`, "important");
-      el.style?.setProperty?.("z-index", "99999", "important");
+      if (viewportLayout.isMobile) {
+        el.style?.setProperty?.("left", "0px", "important");
+        el.style?.setProperty?.("top", `${viewportLayout.offsetTop}px`, "important");
+        el.style?.setProperty?.("width", "100%", "important");
+        el.style?.setProperty?.("height", `${viewportLayout.height}px`, "important");
+        el.style?.setProperty?.("z-index", "2147483647", "important");
+      } else {
+        el.style?.setProperty?.("left", `${chatPos.x}px`, "important");
+        el.style?.setProperty?.("top", `${chatPos.y}px`, "important");
+        el.style?.setProperty?.("width", `${viewportLayout.width}px`, "important");
+        el.style?.setProperty?.("height", `${viewportLayout.height}px`, "important");
+        el.style?.setProperty?.("z-index", "2147483646", "important");
+      }
       el.style?.setProperty?.("transform", "none", "important");
     }
-  }, [isOpen, chatPos]);
+  }, [isOpen, chatPos, viewportLayout]);
+
+  // Trava scroll do fundo da loja VTEX enquanto o chat mobile está aberto em tela cheia
+  useEffect(() => {
+    if (!isOpen || !viewportLayout.isMobile || typeof document === "undefined" || !document.body) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [isOpen, viewportLayout.isMobile]);
 
   // Alterna o botão flutuante entre ícone e pílula com Fagner a cada 3.2s
   useEffect(() => {
@@ -378,18 +523,36 @@ export const ChatWidget: React.FC = () => {
   }, [chatPos]);
 
   useEffect(() => {
-    const onResize = () => {
-      if (typeof window === "undefined" || !window.innerWidth) return;
-      setChatPos((p) => ({
-        x: Math.min(p.x, window.innerWidth - CHAT_W - CHAT_MARGIN),
-        y: Math.min(p.y, window.innerHeight - CHAT_H - CHAT_MARGIN),
-      }));
+    viewportLayoutRef.current = viewportLayout;
+  }, [viewportLayout]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const syncViewport = () => {
+      const next = getViewportLayout();
+      setViewportLayout(next);
+      if (next.isMobile) {
+        setChatPos({ x: 0, y: next.offsetTop });
+      } else {
+        setChatPos((p) => ({
+          x: Math.max(CHAT_MARGIN, Math.min(p.x, next.viewportW - next.width - CHAT_MARGIN)),
+          y: Math.max(CHAT_MARGIN, Math.min(p.y, next.viewportH - next.height - CHAT_MARGIN)),
+        }));
+      }
     };
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
+    window.addEventListener("resize", syncViewport);
+    const vv = window.visualViewport;
+    vv?.addEventListener?.("resize", syncViewport);
+    vv?.addEventListener?.("scroll", syncViewport);
+    return () => {
+      window.removeEventListener("resize", syncViewport);
+      vv?.removeEventListener?.("resize", syncViewport);
+      vv?.removeEventListener?.("scroll", syncViewport);
+    };
   }, []);
 
   const handleHeaderDragStart = useCallback((e: React.MouseEvent) => {
+    if (viewportLayoutRef.current.isMobile) return;
     if (e.button !== 0) return;
     if ((e.target as HTMLElement)?.closest?.("button, a")) return;
     e.preventDefault();
@@ -398,10 +561,11 @@ export const ChatWidget: React.FC = () => {
     dragStartPos.current = { ...chatPosRef.current };
 
     const onMove = (ev: MouseEvent) => {
+      const layout = viewportLayoutRef.current;
       const dx = ev.clientX - dragStartMouse.current.x;
       const dy = ev.clientY - dragStartMouse.current.y;
-      const nx = Math.max(0, Math.min(window.innerWidth - CHAT_W, dragStartPos.current.x + dx));
-      const ny = Math.max(0, Math.min(window.innerHeight - CHAT_H, dragStartPos.current.y + dy));
+      const nx = Math.max(0, Math.min(layout.viewportW - layout.width, dragStartPos.current.x + dx));
+      const ny = Math.max(0, Math.min(layout.viewportH - layout.height, dragStartPos.current.y + dy));
       setChatPos({ x: nx, y: ny });
     };
 
@@ -420,9 +584,11 @@ export const ChatWidget: React.FC = () => {
       sessionStorage.setItem(STORAGE_KEY_IS_OPEN, String(isOpen));
     } catch {}
     if (isOpen) {
+      const next = getViewportLayout();
+      setViewportLayout(next);
       setBubblePhase("icon");
       setUnreadCount(0);
-      setChatPos(getInitialChatPos());
+      setChatPos(getInitialChatPos(next));
       requestNotificationPermission();
     }
   }, [isOpen]);
@@ -512,6 +678,17 @@ export const ChatWidget: React.FC = () => {
             utmCampaign: urlParams.get("utm_campaign") || undefined,
           }),
         );
+        const savedIdentity = visitorIdentityRef.current;
+        if (savedIdentity.name || savedIdentity.email || savedIdentity.phone) {
+          ws.send(
+            JSON.stringify({
+              type: "SET_VISITOR_NAME",
+              name: savedIdentity.name || undefined,
+              email: savedIdentity.email || undefined,
+              phone: savedIdentity.phone ? normalizeBrPhoneDigits(savedIdentity.phone) : undefined,
+            }),
+          );
+        }
         flushOutbox(true);
 
         if (heartbeatIntervalRef.current) clearInterval(heartbeatIntervalRef.current);
@@ -999,16 +1176,22 @@ export const ChatWidget: React.FC = () => {
       );
     }
 
-    if (!visitorName && !nameConfirmed) {
+    if (!hasCompletePreChat && !hasActiveConversation) {
+      setPreChatNameInput(visitorName);
+      setPreChatEmailInput(visitorEmail);
+      setPreChatPhoneInput(visitorPhone);
+      setPreChatError(null);
       setPreChatMode(true);
       return;
     }
 
-    if (visitorName && wsRef.current?.readyState === WebSocket.OPEN) {
+    if ((visitorName || visitorEmail || visitorPhone) && wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(
         JSON.stringify({
           type: "SET_VISITOR_NAME",
-          name: visitorName,
+          name: visitorName || undefined,
+          email: visitorEmail || undefined,
+          phone: visitorPhone ? normalizeBrPhoneDigits(visitorPhone) : undefined,
         }),
       );
     }
@@ -1018,12 +1201,40 @@ export const ChatWidget: React.FC = () => {
     }
   };
 
-  const handleNameSubmit = (name: string) => {
-    setVisitorName(name);
+  const handlePreChatSubmit = (rawName: string, rawEmail: string, rawPhone: string) => {
+    const cleanName = rawName.trim();
+    const cleanEmail = rawEmail.trim().toLowerCase();
+    const cleanPhoneDigits = normalizeBrPhoneDigits(rawPhone);
+    const formattedPhone = formatBrPhoneMask(cleanPhoneDigits);
+
+    if (cleanName.length < 2) {
+      setPreChatError("Informe seu nome completo para iniciar o atendimento.");
+      return;
+    }
+    if (!isValidEmailAddress(cleanEmail)) {
+      setPreChatError("Informe um e-mail válido (ex.: nome@empresa.com.br).");
+      return;
+    }
+    if (!isValidBrPhone(cleanPhoneDigits)) {
+      setPreChatError("Informe um telefone/WhatsApp válido com DDD (ex.: (14) 99999-9999).");
+      return;
+    }
+
+    setPreChatError(null);
+    setVisitorName(cleanName);
+    setVisitorEmail(cleanEmail);
+    setVisitorPhone(formattedPhone);
+    setPreChatNameInput(cleanName);
+    setPreChatEmailInput(cleanEmail);
+    setPreChatPhoneInput(formattedPhone);
     setNameConfirmed(true);
     try {
-      localStorage.setItem(STORAGE_KEY_VISITOR_NAME, name);
-      sessionStorage.setItem(STORAGE_KEY_VISITOR_NAME, name);
+      localStorage.setItem(STORAGE_KEY_VISITOR_NAME, cleanName);
+      sessionStorage.setItem(STORAGE_KEY_VISITOR_NAME, cleanName);
+      localStorage.setItem(STORAGE_KEY_VISITOR_EMAIL, cleanEmail);
+      sessionStorage.setItem(STORAGE_KEY_VISITOR_EMAIL, cleanEmail);
+      localStorage.setItem(STORAGE_KEY_VISITOR_PHONE, cleanPhoneDigits);
+      sessionStorage.setItem(STORAGE_KEY_VISITOR_PHONE, cleanPhoneDigits);
       sessionStorage.setItem(STORAGE_KEY_NAME_CONFIRMED, "true");
     } catch {}
     setPreChatMode(false);
@@ -1032,7 +1243,9 @@ export const ChatWidget: React.FC = () => {
       wsRef.current.send(
         JSON.stringify({
           type: "SET_VISITOR_NAME",
-          name,
+          name: cleanName,
+          email: cleanEmail,
+          phone: cleanPhoneDigits,
         }),
       );
     }
@@ -1060,7 +1273,7 @@ export const ChatWidget: React.FC = () => {
       return;
     }
 
-    startThreePartGreeting(name);
+    startThreePartGreeting(cleanName);
   };
 
   const handleClose = () => {
@@ -1101,10 +1314,25 @@ export const ChatWidget: React.FC = () => {
         setUnreadCount(0);
       }
 
-      if (!visitorName && !nameConfirmed) {
+      if (!hasCompletePreChat && !hasActiveConversation) {
+        setPreChatNameInput(visitorName);
+        setPreChatEmailInput(visitorEmail);
+        setPreChatPhoneInput(visitorPhone);
+        setPreChatError(null);
         setPendingProductInquiry(product);
         setPreChatMode(true);
         return;
+      }
+
+      if ((visitorName || visitorEmail || visitorPhone) && wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(
+          JSON.stringify({
+            type: "SET_VISITOR_NAME",
+            name: visitorName || undefined,
+            email: visitorEmail || undefined,
+            phone: visitorPhone ? normalizeBrPhoneDigits(visitorPhone) : undefined,
+          }),
+        );
       }
 
       setChatStarted(true);
@@ -1120,7 +1348,15 @@ export const ChatWidget: React.FC = () => {
       });
       setDismissedProductSlug(product.slug);
     },
-    [isOpen, visitorName, nameConfirmed, queueVisitorMessage],
+    [
+      isOpen,
+      hasCompletePreChat,
+      hasActiveConversation,
+      visitorName,
+      visitorEmail,
+      visitorPhone,
+      queueVisitorMessage,
+    ],
   );
 
   useEffect(() => {
@@ -1221,11 +1457,11 @@ export const ChatWidget: React.FC = () => {
             id="tecfag-chat-window-shell"
             style={{
               position: "fixed",
-              left: chatPos.x,
-              top: chatPos.y,
-              width: CHAT_W,
-              height: CHAT_H,
-              zIndex: 2147483646,
+              left: viewportLayout.isMobile ? 0 : chatPos.x,
+              top: viewportLayout.isMobile ? viewportLayout.offsetTop : chatPos.y,
+              width: viewportLayout.isMobile ? "100%" : viewportLayout.width,
+              height: viewportLayout.height,
+              zIndex: viewportLayout.isMobile ? 2147483647 : 2147483646,
             }}
           >
             <motion.div
@@ -1240,19 +1476,23 @@ export const ChatWidget: React.FC = () => {
                 display: "flex",
                 flexDirection: "column",
                 overflow: "hidden",
-                borderRadius: "16px",
-                boxShadow: isBlackNovember
-                  ? "0 25px 60px -12px rgba(0, 0, 0, 0.55), 0 8px 24px -8px rgba(0, 0, 0, 0.25)"
-                  : "0 25px 60px -12px rgba(139, 0, 0, 0.25), 0 8px 24px -8px rgba(0,0,0,0.15)",
-                border: isBlackNovember
-                  ? "1px solid rgba(255, 255, 255, 0.22)"
-                  : "1px solid hsl(0 10% 90%)",
+                borderRadius: viewportLayout.isMobile ? "0px" : "16px",
+                boxShadow: viewportLayout.isMobile
+                  ? "none"
+                  : isBlackNovember
+                    ? "0 25px 60px -12px rgba(0, 0, 0, 0.55), 0 8px 24px -8px rgba(0, 0, 0, 0.25)"
+                    : "0 25px 60px -12px rgba(139, 0, 0, 0.25), 0 8px 24px -8px rgba(0,0,0,0.15)",
+                border: viewportLayout.isMobile
+                  ? "none"
+                  : isBlackNovember
+                    ? "1px solid rgba(255, 255, 255, 0.22)"
+                    : "1px solid hsl(0 10% 90%)",
                 background: "hsl(0 0% 100%)",
               }}
             >
           {preChatMode ? (
             <div
-              className="flex flex-col h-full text-white rounded-2xl overflow-hidden shadow-2xl relative w-full flex-1"
+              className="flex flex-col h-full text-white overflow-hidden shadow-2xl relative w-full flex-1"
               style={{
                 background: isBlackNovember
                   ? "linear-gradient(135deg, #09090b 0%, #27272a 50%, #09090b 100%)"
@@ -1265,41 +1505,62 @@ export const ChatWidget: React.FC = () => {
                 flex: 1,
                 position: "relative",
                 overflow: "hidden",
+                borderRadius: viewportLayout.isMobile ? "0px" : "16px",
               }}
             >
-              <div
+              <button
+                type="button"
+                aria-label="Fechar"
                 className="absolute top-4 right-4 cursor-pointer p-2 z-10"
-                style={{ position: "absolute", top: 16, right: 16, cursor: "pointer", padding: 8, zIndex: 10 }}
+                style={{
+                  position: "absolute",
+                  top: viewportLayout.isMobile ? "calc(12px + env(safe-area-inset-top, 0px))" : 14,
+                  right: 14,
+                  cursor: "pointer",
+                  padding: 8,
+                  zIndex: 10,
+                  background: "transparent",
+                  border: "none",
+                  color: "#ffffff",
+                }}
                 onClick={handleClose}
               >
-                <span className="text-xl font-light opacity-60 hover:opacity-100 transition-opacity" style={{ fontSize: 20, opacity: 0.7 }}>
+                <span className="text-xl font-light opacity-60 hover:opacity-100 transition-opacity" style={{ fontSize: 20, opacity: 0.78 }}>
                   ✕
                 </span>
-              </div>
+              </button>
 
               <div
-                className="flex-1 flex flex-col items-center justify-center p-8 text-center"
+                className="flex-1 flex flex-col items-center justify-center text-center"
                 style={{
                   flex: 1,
+                  minHeight: 0,
                   display: "flex",
                   flexDirection: "column",
                   alignItems: "center",
                   justifyContent: "center",
-                  padding: 32,
+                  padding: viewportLayout.isMobile
+                    ? "calc(24px + env(safe-area-inset-top, 0px)) 20px calc(24px + env(safe-area-inset-bottom, 0px))"
+                    : "28px 28px 24px",
                   textAlign: "center",
+                  overflowY: "auto",
+                  overscrollBehavior: "contain",
+                  position: "relative",
+                  zIndex: 5,
                 }}
               >
                 <motion.div
                   initial={{ scale: 0 }}
                   animate={{ scale: 1 }}
                   transition={{ type: "spring", stiffness: 300, delay: 0.1 }}
-                  className="w-20 h-20 bg-white/10 rounded-full flex items-center justify-center mb-6 shadow-xl backdrop-blur-sm border border-white/20 overflow-hidden"
+                  className="bg-white/10 rounded-full flex items-center justify-center shadow-xl backdrop-blur-sm border border-white/20 overflow-hidden"
                   style={{
-                    width: 80,
-                    height: 80,
+                    width: viewportLayout.isMobile ? 68 : 74,
+                    height: viewportLayout.isMobile ? 68 : 74,
+                    flexShrink: 0,
                     borderRadius: "50%",
                     overflow: "hidden",
-                    marginBottom: 24,
+                    marginBottom: 16,
                     boxShadow: isBlackNovember
                       ? "0 0 0 2px rgba(255,255,255,0.4), 0 12px 28px rgba(0,0,0,0.55)"
                       : "0 0 0 2px rgba(255,255,255,0.25), 0 12px 28px rgba(127,29,29,0.45)",
@@ -1321,9 +1582,9 @@ export const ChatWidget: React.FC = () => {
                 <motion.h3
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.2 }}
-                  className="text-2xl font-bold mb-2 tracking-tight"
-                  style={{ fontSize: 24, fontWeight: 700, margin: "0 0 8px", color: "#ffffff" }}
+                  transition={{ delay: 0.18 }}
+                  className="font-bold tracking-tight"
+                  style={{ fontSize: 22, fontWeight: 700, margin: "0 0 6px", color: "#ffffff", lineHeight: 1.2 }}
                 >
                   Bem-vindo à Tecfag!
                 </motion.h3>
@@ -1331,63 +1592,200 @@ export const ChatWidget: React.FC = () => {
                 <motion.p
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.3 }}
-                  className="text-sm mb-8 leading-relaxed px-2 font-medium"
+                  transition={{ delay: 0.25 }}
+                  className="text-sm leading-relaxed px-2 font-medium"
                   style={{
-                    fontSize: 14,
-                    marginBottom: 32,
-                    lineHeight: 1.6,
-                    padding: "0 8px",
+                    fontSize: 13.5,
+                    margin: "0 0 18px",
+                    lineHeight: 1.45,
+                    padding: "0 6px",
                     fontWeight: 500,
-                    color: isBlackNovember ? "rgba(255,255,255,0.82)" : "rgba(254,226,226,0.8)",
+                    color: isBlackNovember ? "rgba(255,255,255,0.82)" : "rgba(254,226,226,0.86)",
                   }}
                 >
-                  Fagner está pronto para te atender. Como podemos te chamar?
+                  Preencha seus dados para o Fagner iniciar seu atendimento personalizado.
                 </motion.p>
 
                 <motion.form
-                  initial={{ opacity: 0, y: 20 }}
+                  initial={{ opacity: 0, y: 18 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.4 }}
-                  className="w-full flex flex-col gap-4 relative z-10"
-                  style={{ width: "100%", display: "flex", flexDirection: "column", gap: 16, position: "relative", zIndex: 10 }}
+                  transition={{ delay: 0.32 }}
+                  noValidate
+                  className="w-full flex flex-col gap-3 relative z-10"
+                  style={{
+                    width: "100%",
+                    maxWidth: 360,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 10,
+                    position: "relative",
+                    zIndex: 10,
+                    textAlign: "left",
+                  }}
                   onSubmit={(e) => {
                     e.preventDefault();
-                    const fd = new FormData(e.currentTarget);
-                    const name = (fd.get("name") as string) || "";
-                    if (name.trim()) handleNameSubmit(name.trim());
+                    handlePreChatSubmit(preChatNameInput, preChatEmailInput, preChatPhoneInput);
                   }}
                 >
-                  <input
-                    autoFocus
-                    name="name"
-                    placeholder="Digite seu nome..."
-                    className={
-                      isBlackNovember
-                        ? "w-full bg-black/35 border border-white/25 rounded-xl px-5 py-4 text-white placeholder-white/55 focus:outline-none focus:ring-2 focus:ring-white/60 focus:bg-black/50 transition-all font-medium shadow-inner"
-                        : "w-full bg-black/20 border border-white/20 rounded-xl px-5 py-4 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-red-400 focus:bg-black/30 transition-all font-medium shadow-inner"
-                    }
-                    style={{
-                      width: "100%",
-                      background: isBlackNovember ? "rgba(0,0,0,0.35)" : "rgba(0,0,0,0.22)",
-                      border: "1px solid rgba(255,255,255,0.22)",
-                      borderRadius: 12,
-                      padding: "14px 20px",
-                      color: "#ffffff",
-                      fontSize: 14,
-                      fontWeight: 500,
-                      outline: "none",
-                    }}
-                    required
-                  />
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    <label
+                      htmlFor="tecfag-prechat-name"
+                      style={{
+                        fontSize: 11.5,
+                        fontWeight: 600,
+                        color: "rgba(255,255,255,0.82)",
+                        paddingLeft: 2,
+                      }}
+                    >
+                      Nome completo *
+                    </label>
+                    <input
+                      id="tecfag-prechat-name"
+                      autoFocus={!viewportLayout.isMobile}
+                      name="name"
+                      type="text"
+                      autoComplete="name"
+                      value={preChatNameInput}
+                      onChange={(e) => {
+                        setPreChatNameInput(e.target.value);
+                        if (preChatError) setPreChatError(null);
+                      }}
+                      placeholder="Digite seu nome..."
+                      className={
+                        isBlackNovember
+                          ? "w-full bg-black/35 border border-white/25 rounded-xl text-white placeholder-white/55 focus:outline-none focus:ring-2 focus:ring-white/60 focus:bg-black/50 transition-all font-medium shadow-inner"
+                          : "w-full bg-black/20 border border-white/20 rounded-xl text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-red-400 focus:bg-black/30 transition-all font-medium shadow-inner"
+                      }
+                      style={{
+                        width: "100%",
+                        background: isBlackNovember ? "rgba(0,0,0,0.35)" : "rgba(0,0,0,0.22)",
+                        border: "1px solid rgba(255,255,255,0.24)",
+                        borderRadius: 11,
+                        padding: "11px 14px",
+                        color: "#ffffff",
+                        fontSize: viewportLayout.isMobile ? 16 : 14,
+                        fontWeight: 500,
+                        outline: "none",
+                      }}
+                      required
+                    />
+                  </div>
+
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    <label
+                      htmlFor="tecfag-prechat-email"
+                      style={{
+                        fontSize: 11.5,
+                        fontWeight: 600,
+                        color: "rgba(255,255,255,0.82)",
+                        paddingLeft: 2,
+                      }}
+                    >
+                      E-mail *
+                    </label>
+                    <input
+                      id="tecfag-prechat-email"
+                      name="email"
+                      type="email"
+                      inputMode="email"
+                      autoComplete="email"
+                      value={preChatEmailInput}
+                      onChange={(e) => {
+                        setPreChatEmailInput(e.target.value);
+                        if (preChatError) setPreChatError(null);
+                      }}
+                      placeholder="voce@empresa.com.br"
+                      className={
+                        isBlackNovember
+                          ? "w-full bg-black/35 border border-white/25 rounded-xl text-white placeholder-white/55 focus:outline-none focus:ring-2 focus:ring-white/60 focus:bg-black/50 transition-all font-medium shadow-inner"
+                          : "w-full bg-black/20 border border-white/20 rounded-xl text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-red-400 focus:bg-black/30 transition-all font-medium shadow-inner"
+                      }
+                      style={{
+                        width: "100%",
+                        background: isBlackNovember ? "rgba(0,0,0,0.35)" : "rgba(0,0,0,0.22)",
+                        border: "1px solid rgba(255,255,255,0.24)",
+                        borderRadius: 11,
+                        padding: "11px 14px",
+                        color: "#ffffff",
+                        fontSize: viewportLayout.isMobile ? 16 : 14,
+                        fontWeight: 500,
+                        outline: "none",
+                      }}
+                      required
+                    />
+                  </div>
+
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    <label
+                      htmlFor="tecfag-prechat-phone"
+                      style={{
+                        fontSize: 11.5,
+                        fontWeight: 600,
+                        color: "rgba(255,255,255,0.82)",
+                        paddingLeft: 2,
+                      }}
+                    >
+                      WhatsApp / Telefone com DDD *
+                    </label>
+                    <input
+                      id="tecfag-prechat-phone"
+                      name="phone"
+                      type="tel"
+                      inputMode="tel"
+                      autoComplete="tel"
+                      value={preChatPhoneInput}
+                      onChange={(e) => {
+                        setPreChatPhoneInput(formatBrPhoneMask(e.target.value));
+                        if (preChatError) setPreChatError(null);
+                      }}
+                      placeholder="(14) 99999-9999"
+                      className={
+                        isBlackNovember
+                          ? "w-full bg-black/35 border border-white/25 rounded-xl text-white placeholder-white/55 focus:outline-none focus:ring-2 focus:ring-white/60 focus:bg-black/50 transition-all font-medium shadow-inner"
+                          : "w-full bg-black/20 border border-white/20 rounded-xl text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-red-400 focus:bg-black/30 transition-all font-medium shadow-inner"
+                      }
+                      style={{
+                        width: "100%",
+                        background: isBlackNovember ? "rgba(0,0,0,0.35)" : "rgba(0,0,0,0.22)",
+                        border: "1px solid rgba(255,255,255,0.24)",
+                        borderRadius: 11,
+                        padding: "11px 14px",
+                        color: "#ffffff",
+                        fontSize: viewportLayout.isMobile ? 16 : 14,
+                        fontWeight: 500,
+                        outline: "none",
+                      }}
+                      required
+                    />
+                  </div>
+
+                  {preChatError && (
+                    <div
+                      role="alert"
+                      style={{
+                        background: "rgba(239, 68, 68, 0.24)",
+                        border: "1px solid rgba(254, 202, 202, 0.55)",
+                        borderRadius: 10,
+                        padding: "8px 12px",
+                        fontSize: 12,
+                        lineHeight: 1.4,
+                        color: "#fee2e2",
+                        fontWeight: 500,
+                      }}
+                    >
+                      {preChatError}
+                    </div>
+                  )}
+
                   <button
                     type="submit"
-                    className="w-full font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-[0.98]"
+                    className="w-full font-bold rounded-xl transition-all flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-[0.98]"
                     style={
                       isBlackNovember
                         ? {
                             width: "100%",
-                            padding: "14px 0",
+                            marginTop: 4,
+                            padding: "13px 0",
                             borderRadius: 12,
                             fontWeight: 700,
                             fontSize: 15,
@@ -1399,7 +1797,8 @@ export const ChatWidget: React.FC = () => {
                           }
                         : {
                             width: "100%",
-                            padding: "14px 0",
+                            marginTop: 4,
+                            padding: "13px 0",
                             borderRadius: 12,
                             fontWeight: 700,
                             fontSize: 15,
@@ -1445,8 +1844,11 @@ export const ChatWidget: React.FC = () => {
             </div>
           ) : (
             <>
-              {/* Header serve como alça de drag */}
-              <div onMouseDown={handleHeaderDragStart} style={{ cursor: "grab" }}>
+              {/* Header serve como alça de drag no desktop */}
+              <div
+                onMouseDown={handleHeaderDragStart}
+                style={{ cursor: viewportLayout.isMobile ? "default" : "grab", flexShrink: 0 }}
+              >
                 <ChatHeader
                   onMinimize={() => setIsOpen(false)}
                   onClose={handleCloseRequest}
@@ -1457,6 +1859,7 @@ export const ChatWidget: React.FC = () => {
                     content: m.content,
                   }))}
                   isBlackNovember={isBlackNovember}
+                  isMobile={viewportLayout.isMobile}
                   avatarSrc={activeAvatar}
                 />
               </div>
@@ -1469,9 +1872,10 @@ export const ChatWidget: React.FC = () => {
                   background: isBlackNovember
                     ? "linear-gradient(180deg, hsl(0 0% 100%) 0%, hsl(0 0% 93%) 100%)"
                     : "linear-gradient(180deg, hsl(0 0% 100%) 0%, hsl(0 73% 97%) 100%)",
-                  minHeight: "300px",
+                  minHeight: 0,
                   flex: "1 1 0%",
                   overflowY: "auto",
+                  overscrollBehavior: "contain",
                   padding: "16px",
                 }}
               >
@@ -1624,6 +2028,7 @@ export const ChatWidget: React.FC = () => {
                 onSend={handleSendMessage}
                 onSendMessage={handleSendMessage}
                 isBlackNovember={isBlackNovember}
+                isMobile={viewportLayout.isMobile}
               />
 
               {/* ── Modal de confirmação de reinicialização ── */}
@@ -1645,7 +2050,7 @@ export const ChatWidget: React.FC = () => {
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    borderRadius: "16px",
+                    borderRadius: viewportLayout.isMobile ? "0px" : "16px",
                     padding: "24px",
                   }}
                 >
@@ -1807,6 +2212,7 @@ export const ChatWidget: React.FC = () => {
                   : "0 8px 32px -4px rgba(139, 0, 0, 0.5)",
                 borderRadius: "9999px",
                 height: "56px",
+                maxWidth: "calc(100vw - 32px)",
                 padding: 0,
               }}
               aria-label="Abrir chat"

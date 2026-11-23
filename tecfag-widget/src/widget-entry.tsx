@@ -87,6 +87,7 @@ function mount() {
           height: auto !important;
           min-height: 56px !important;
           overflow: visible !important;
+          padding-bottom: env(safe-area-inset-bottom, 0px) !important;
         }
         #tecfag-chat-root #tecfag-chat-window #tecfag-input-row {
           display: flex !important;
@@ -141,6 +142,37 @@ function mount() {
           flex: 1 1 0% !important;
           overflow-y: auto !important;
           min-height: 0 !important;
+          overscroll-behavior: contain !important;
+          -webkit-overflow-scrolling: touch !important;
+        }
+        /* ── Mobile responsivo (< 640px): tela cheia sincronizada + anti-zoom iOS (16px) ── */
+        @media (max-width: 639px) {
+          #tecfag-chat-root #tecfag-fab-button {
+            bottom: 16px !important;
+            left: 16px !important;
+            max-width: calc(100vw - 32px) !important;
+            touch-action: manipulation !important;
+          }
+          #tecfag-chat-root #tecfag-chat-window-shell {
+            left: 0 !important;
+            right: 0 !important;
+            width: 100% !important;
+            max-width: 100vw !important;
+            z-index: 2147483647 !important;
+            touch-action: manipulation !important;
+          }
+          #tecfag-chat-root #tecfag-chat-window {
+            border-radius: 0 !important;
+            border-width: 0 !important;
+          }
+          #tecfag-chat-root #tecfag-chat-window #tecfag-input-area {
+            border-radius: 0 !important;
+          }
+          #tecfag-chat-root #tecfag-chat-window input,
+          #tecfag-chat-root #tecfag-chat-window textarea,
+          #tecfag-chat-root #tecfag-chat-window #tecfag-input-row input[type="text"] {
+            font-size: 16px !important;
+          }
         }
       `;
       document.head.appendChild(overrideStyle);
