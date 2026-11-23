@@ -45,7 +45,7 @@ export const DEFAULT_MCP_ADMIN_TOKEN = "mcp_admin_7d9e3b5c1a8f4e6d2b0c9a7e5f3d1b
 
 export const MCP_SERVER_INFO = {
   name: "valem-tecfag-mcp",
-  version: "3.6.0",
+  version: "3.7.0",
 };
 
 export type McpAccessLevel = "read" | "read_write";

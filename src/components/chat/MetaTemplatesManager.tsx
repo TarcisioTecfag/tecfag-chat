@@ -34,6 +34,11 @@ import {
   type PipelineWithStages,
 } from "@/components/crm/FunnelStageScopeSelector";
 import {
+  SectorScopeSelector,
+  type SectorOption,
+  type SectorScopeValue,
+} from "@/components/chat/SectorScopeSelector";
+import {
   MessageSquare,
   Sparkles,
   Plus,
@@ -58,6 +63,7 @@ import {
   FolderPlus,
   Search,
   Edit2,
+  Users,
 } from "lucide-react";
 
 const BASE = import.meta.env.VITE_BACKEND_URL || "";
@@ -80,6 +86,8 @@ type MetaTemplate = {
   allPipelines?: boolean;
   pipelineIds?: string[];
   stageIds?: string[];
+  allSectors?: boolean;
+  sectorIds?: string[];
   rejectedReason: string | null;
 };
 
@@ -89,6 +97,8 @@ type MetaTemplateGroup = {
   allPipelines?: boolean;
   pipelineIds?: string[];
   stageIds?: string[];
+  allSectors?: boolean;
+  sectorIds?: string[];
   createdAt?: string;
 };
 
@@ -193,13 +203,18 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
     pipelineIds: [],
     stageIds: [],
   });
+  const [groupSectorScope, setGroupSectorScope] = useState<SectorScopeValue>({
+    allSectors: true,
+    sectorIds: [],
+  });
   const [groupTemplateSearch, setGroupTemplateSearch] = useState("");
   const [savingGroup, setSavingGroup] = useState(false);
 
-  // Governança de Funil / Etapa para Templates Meta
+  // Governança de Funil / Etapa e Setor para Templates Meta
   const [restrictByStage, setRestrictByStage] = useState(false);
   const [savingRestrict, setSavingRestrict] = useState(false);
   const [pipelines, setPipelines] = useState<PipelineWithStages[]>([]);
+  const [sectorsList, setSectorsList] = useState<SectorOption[]>([]);
 
   // Modal Rápido para Vincular Grupos em um Template Específico
   const [linkingTemplate, setLinkingTemplate] = useState<MetaTemplate | null>(null);
@@ -212,9 +227,12 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
     setLoading(true);
     setError("");
     try {
-      const [data, pipeRes] = await Promise.all([
+      const [data, pipeRes, secRes] = await Promise.all([
         api("/api/whatsapp/meta-templates"),
         fetch(`${BASE}/api/crm/pipelines`, { credentials: "include" })
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null),
+        fetch(`${BASE}/api/sectors`, { credentials: "include" })
           .then((r) => (r.ok ? r.json() : null))
           .catch(() => null),
       ]);
@@ -226,6 +244,12 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
       if (Array.isArray(pipeRes?.pipelines)) {
         setPipelines(pipeRes.pipelines);
       }
+      const rawSectors = Array.isArray(secRes?.sectors)
+        ? secRes.sectors
+        : Array.isArray(secRes)
+          ? secRes
+          : [];
+      setSectorsList(rawSectors);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Falha ao carregar templates.");
     } finally {
@@ -291,6 +315,40 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
     }
   };
 
+  const handleSaveTemplateSectorScope = async (
+    item: MetaTemplate,
+    nextScope: SectorScopeValue,
+  ) => {
+    try {
+      await api("/api/whatsapp/meta-templates", {
+        method: "PATCH",
+        body: JSON.stringify({
+          metaTemplateId: item.metaTemplateId,
+          allSectors: nextScope.allSectors,
+          sectorIds: nextScope.sectorIds,
+        }),
+      });
+      setTemplates((prev) =>
+        prev.map((t) =>
+          t.metaTemplateId === item.metaTemplateId
+            ? {
+                ...t,
+                allSectors: nextScope.allSectors,
+                sectorIds: nextScope.sectorIds,
+              }
+            : t,
+        ),
+      );
+      toast.success(
+        nextScope.allSectors
+          ? `Template "${item.name}" liberado para todos os setores.`
+          : `Visibilidade por setor do template "${item.name}" atualizada!`,
+      );
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "Falha ao atualizar setores do template.");
+    }
+  };
+
   useEffect(() => {
     void refresh();
   }, [refresh]);
@@ -331,6 +389,7 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
     setGroupNameInput("");
     setGroupTemplateIds([]);
     setGroupScope({ allPipelines: true, pipelineIds: [], stageIds: [] });
+    setGroupSectorScope({ allSectors: true, sectorIds: [] });
     setGroupTemplateSearch("");
     setGroupModalOpen(true);
   };
@@ -344,6 +403,10 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
       allPipelines: existingGroup?.allPipelines !== false,
       pipelineIds: existingGroup?.pipelineIds || [],
       stageIds: existingGroup?.stageIds || [],
+    });
+    setGroupSectorScope({
+      allSectors: existingGroup?.allSectors !== false,
+      sectorIds: existingGroup?.sectorIds || [],
     });
     const linkedIds = templates
       .filter((t) =>
@@ -375,6 +438,8 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
           allPipelines: groupScope.allPipelines,
           pipelineIds: groupScope.pipelineIds,
           stageIds: groupScope.stageIds,
+          allSectors: groupSectorScope.allSectors,
+          sectorIds: groupSectorScope.sectorIds,
         }),
       });
       if (Array.isArray(data.templates)) {
@@ -819,6 +884,14 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
             {allCustomGroupNames.map((groupName) => {
               const filterKey = `GRP:${groupName}`;
               const isSelected = selectedFilter === filterKey;
+              const groupObj = groups.find((g) => g.name.toLowerCase() === groupName.toLowerCase());
+              const restrictedSectorIds =
+                groupObj && groupObj.allSectors === false && Array.isArray(groupObj.sectorIds)
+                  ? groupObj.sectorIds
+                  : [];
+              const restrictedSectorNames = restrictedSectorIds
+                .map((id) => sectorsList.find((s) => s.id === id)?.name)
+                .filter(Boolean);
               const count = templates.filter((t) =>
                 normalizeTemplateCustomGroups(t.customGroups).some(
                   (g) => g.toLowerCase() === groupName.toLowerCase(),
@@ -842,6 +915,16 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
                     <Folder className="h-3.5 w-3.5 shrink-0" />
                     <span>{groupName}</span>
                     <span className="opacity-80">({count})</span>
+                    {restrictedSectorIds.length > 0 && (
+                      <SystemTooltip
+                        content={`Visível apenas para: ${restrictedSectorNames.join(", ") || `${restrictedSectorIds.length} setor(es)`} (+ admins)`}
+                      >
+                        <span className="inline-flex items-center gap-0.5 rounded bg-emerald-500/20 px-1 py-0.5 text-[9px] font-bold">
+                          <Users className="h-2.5 w-2.5" />
+                          <span>{restrictedSectorIds.length}</span>
+                        </span>
+                      </SystemTooltip>
+                    )}
                   </button>
                   <SystemTooltip content={`Editar grupo "${groupName}" e vincular templates`}>
                     <button
@@ -978,6 +1061,18 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
                         stageIds: item.stageIds || [],
                       }}
                       onChange={(nextScope) => void handleSaveTemplateScope(item, nextScope)}
+                      compact
+                      triggerClassName="text-[10px] py-0.5 px-2"
+                    />
+                  )}
+                  {sectorsList.length > 0 && (
+                    <SectorScopeSelector
+                      sectors={sectorsList}
+                      value={{
+                        allSectors: item.allSectors !== false,
+                        sectorIds: item.sectorIds || [],
+                      }}
+                      onChange={(nextScope) => void handleSaveTemplateSectorScope(item, nextScope)}
                       compact
                       triggerClassName="text-[10px] py-0.5 px-2"
                     />
@@ -1286,6 +1381,11 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
                         ),
                       ).length;
 
+                      const groupSectorIds =
+                        groupObj && groupObj.allSectors === false && Array.isArray(groupObj.sectorIds)
+                          ? groupObj.sectorIds
+                          : [];
+
                       return (
                         <div
                           key={gName}
@@ -1303,15 +1403,22 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
                             <Folder className="h-3.5 w-3.5 shrink-0 text-primary" />
                             <span className="truncate">{gName}</span>
                             <span className="text-[10px] text-muted-foreground shrink-0">({count})</span>
+                            {groupSectorIds.length > 0 && (
+                              <span className="inline-flex items-center gap-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 px-1.5 py-0.5 text-[9px] font-bold shrink-0">
+                                <Users className="h-2.5 w-2.5" />
+                                <span>{groupSectorIds.length}</span>
+                              </span>
+                            )}
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => void handleDeleteGroup(gName)}
-                            title={`Excluir grupo ${gName}`}
-                            className="p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors cursor-pointer shrink-0"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
+                          <SystemTooltip content={`Excluir grupo ${gName}`}>
+                            <button
+                              type="button"
+                              onClick={() => void handleDeleteGroup(gName)}
+                              className="p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors cursor-pointer shrink-0"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </SystemTooltip>
                         </div>
                       );
                     })
@@ -1325,25 +1432,32 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
                   <Label className="text-xs font-bold text-foreground">
                     {editingGroupId ? "Editar Nome do Grupo" : "Nome do Novo Grupo Personalizado"}
                   </Label>
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 flex-wrap">
                     <Input
                       value={groupNameInput}
                       onChange={(e) => setGroupNameInput(e.target.value)}
                       placeholder="Ex: Assistência Técnica, Pós-Venda, Comercial, Cobrança..."
-                      className="h-10 text-xs rounded-xl bg-background border-border flex-1"
+                      className="h-10 text-xs rounded-xl bg-background border-border flex-1 min-w-[180px]"
                     />
-                    {pipelines.length > 0 && (
-                      <div className="shrink-0">
+                    <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                      {sectorsList.length > 0 && (
+                        <SectorScopeSelector
+                          sectors={sectorsList}
+                          value={groupSectorScope}
+                          onChange={setGroupSectorScope}
+                        />
+                      )}
+                      {pipelines.length > 0 && (
                         <FunnelStageScopeSelector
                           pipelines={pipelines}
                           value={groupScope}
                           onChange={setGroupScope}
                         />
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </div>
                   <p className="text-[11px] text-muted-foreground">
-                    Vincular o grupo a funis/etapas libera automaticamente todos os templates deste grupo nas etapas escolhidas.
+                    Configure quais setores podem ver e enviar os templates deste grupo no chat (administradores sempre veem todos) e, opcionalmente, restrinja por funil/etapa.
                   </p>
                 </div>
 

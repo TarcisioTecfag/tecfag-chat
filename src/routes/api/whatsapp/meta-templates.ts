@@ -61,6 +61,8 @@ export const Route = createFileRoute("/api/whatsapp/meta-templates")({
               allPipelines: typeof body.allPipelines === "boolean" ? body.allPipelines : undefined,
               pipelineIds: Array.isArray(body.pipelineIds) ? body.pipelineIds : undefined,
               stageIds: Array.isArray(body.stageIds) ? body.stageIds : undefined,
+              allSectors: typeof body.allSectors === "boolean" ? body.allSectors : undefined,
+              sectorIds: Array.isArray(body.sectorIds) ? body.sectorIds : undefined,
             });
             return Response.json(result);
           }
@@ -112,6 +114,8 @@ export const Route = createFileRoute("/api/whatsapp/meta-templates")({
                 allPipelines: typeof body.allPipelines === "boolean" ? body.allPipelines : undefined,
                 pipelineIds: Array.isArray(body.pipelineIds) ? body.pipelineIds : undefined,
                 stageIds: Array.isArray(body.stageIds) ? body.stageIds : undefined,
+                allSectors: typeof body.allSectors === "boolean" ? body.allSectors : undefined,
+                sectorIds: Array.isArray(body.sectorIds) ? body.sectorIds : undefined,
               },
             ),
           );

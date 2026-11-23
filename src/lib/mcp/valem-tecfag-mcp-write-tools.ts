@@ -97,6 +97,7 @@ import {
   MCP_TEMPLATE_GROUPS_TOOL_LABELS_PT,
   executeTemplateGroupsMcpTool,
   isTemplateGroupsMcpTool,
+  resolveTenantSectorScopeInput,
 } from "./valem-tecfag-mcp-template-groups-tools";
 
 export type McpToolAccessKind = "read" | "write";
@@ -579,6 +580,21 @@ export const MCP_EXTENDED_TOOLS: McpToolDefinition[] = [
           items: { type: "string" },
           description:
             "Opcional: substitui as categorias/grupos internos do template (ex: ['COMERCIAL', 'Fagner']). Omita para manter inalterado.",
+        },
+        allSectors: {
+          type: "boolean",
+          description:
+            "Opcional: true libera o template para todos os setores (herdando a regra da categoria); false restringe o template individual aos setores informados em sectorIds/sectorNames.",
+        },
+        sectorIds: {
+          type: "array",
+          items: { type: "string" },
+          description: "Opcional: IDs de setores liberados para ver e enviar este template no chat.",
+        },
+        sectorNames: {
+          type: "array",
+          items: { type: "string" },
+          description: "Opcional: nomes de setores liberados para ver e enviar este template no chat.",
         },
       },
     },
@@ -1420,6 +1436,8 @@ export async function executeExtendedMcpTool(
           allPipelines: g.allPipelines !== false,
           pipelineIds: Array.isArray(g.pipelineIds) ? g.pipelineIds : [],
           stageIds: Array.isArray(g.stageIds) ? g.stageIds : [],
+          allSectors: g.allSectors !== false,
+          sectorIds: Array.isArray(g.sectorIds) ? g.sectorIds : [],
         })),
         templates: filtered.map((t) => ({
           id: t.id,
@@ -1434,6 +1452,8 @@ export async function executeExtendedMcpTool(
           allPipelines: t.allPipelines,
           pipelineIds: t.pipelineIds,
           stageIds: t.stageIds,
+          allSectors: t.allSectors,
+          sectorIds: t.sectorIds,
           rejectedReason: t.rejectedReason,
           lastSyncedAt: t.lastSyncedAt,
         })),
@@ -2483,6 +2503,17 @@ export async function executeExtendedMcpTool(
           ? (args.bindings as Record<string, unknown>)
           : undefined;
       const customGroupsInput = Array.isArray(args.customGroups) ? args.customGroups : undefined;
+      const sectorIdsArg = Array.isArray(args.sectorIds)
+        ? args.sectorIds.filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+        : undefined;
+      const sectorNamesArg = Array.isArray(args.sectorNames)
+        ? args.sectorNames.filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+        : undefined;
+      const sectorPatch = await resolveTenantSectorScopeInput(tenantId, {
+        allSectors: typeof args.allSectors === "boolean" ? args.allSectors : undefined,
+        sectorIds: sectorIdsArg,
+        sectorNames: sectorNamesArg,
+      });
 
       await setMetaTemplateBindings(
         tenantId,
@@ -2493,6 +2524,12 @@ export async function executeExtendedMcpTool(
           allPipelines: args.allPipelines,
           pipelineIds,
           stageIds,
+          ...(sectorPatch.hasSectorPatch
+            ? {
+                allSectors: sectorPatch.allSectors,
+                sectorIds: sectorPatch.sectorIds,
+              }
+            : {}),
         },
       );
 
@@ -2501,6 +2538,8 @@ export async function executeExtendedMcpTool(
           allPipelines: metaMessageTemplates.allPipelines,
           pipelineIds: metaMessageTemplates.pipelineIds,
           stageIds: metaMessageTemplates.stageIds,
+          allSectors: metaMessageTemplates.allSectors,
+          sectorIds: metaMessageTemplates.sectorIds,
           bindings: metaMessageTemplates.bindings,
           customGroups: metaMessageTemplates.customGroups,
         })
@@ -2517,6 +2556,9 @@ export async function executeExtendedMcpTool(
         allPipelines: refreshedTpl?.allPipelines ?? args.allPipelines,
         pipelineIds: refreshedTpl?.pipelineIds ?? pipelineIds,
         stageIds: refreshedTpl?.stageIds ?? stageIds,
+        allSectors: refreshedTpl?.allSectors ?? true,
+        sectorIds: Array.isArray(refreshedTpl?.sectorIds) ? refreshedTpl.sectorIds : [],
+        notFoundSectors: sectorPatch.notFoundSectors,
         bindings: refreshedTpl?.bindings ?? {},
         customGroups: normalizeCustomGroups(refreshedTpl?.customGroups),
       };

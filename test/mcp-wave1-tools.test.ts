@@ -88,8 +88,8 @@ async function callTool(
 }
 
 describe("MCP v3.4.0 — Onda 1 & Piloto Black (Unitário & Validações)", () => {
-  it("expõe versão 3.6.0 e calcula corretamente faixas de ciclo 80% (esfria) e 110% (limite)", () => {
-    expect(MCP_SERVER_INFO.version).toBe("3.6.0");
+  it("expõe versão 3.7.0 e calcula corretamente faixas de ciclo 80% (esfria) e 110% (limite)", () => {
+    expect(MCP_SERVER_INFO.version).toBe("3.7.0");
 
     const t1 = computeCycleTierForValue(5_000, DEFAULT_MATURITY_RULES)!;
     expect(t1.tierIndex).toBe(1);

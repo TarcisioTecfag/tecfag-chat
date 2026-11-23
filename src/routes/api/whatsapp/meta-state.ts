@@ -8,7 +8,10 @@ import { metaAdapter } from "../../../lib/whatsapp/adapters/meta";
 import { getMetaServiceWindow } from "../../../lib/whatsapp/meta-policy";
 import {
   filterMetaTemplatesForContext,
+  filterMetaTemplatesForSector,
   getMetaTemplatesRestrictByStage,
+  getOperatorSectorIds,
+  isMetaTemplateGroupVisibleForSector,
   listMetaTemplateGroups,
   resolveConversationActiveDealStage,
 } from "../../../lib/whatsapp/meta-templates";
@@ -47,33 +50,49 @@ export const Route = createFileRoute("/api/whatsapp/meta-state")({
         }
         try {
           const preferredDealId = url.searchParams.get("dealId");
-          const [allTemplates, groups, restrictByStage, dealStage] = await Promise.all([
+          const isAdmin = auth.session.operator.role === "admin";
+          const [allTemplates, groups, restrictByStage, dealStage, operatorSectorIds] = await Promise.all([
             metaAdapter.listApprovedTemplates(tenantId),
             listMetaTemplateGroups(tenantId),
             getMetaTemplatesRestrictByStage(tenantId),
             resolveConversationActiveDealStage(tenantId, conversationId, preferredDealId),
+            isAdmin ? Promise.resolve([] as string[]) : getOperatorSectorIds(tenantId, auth.session.operator.id),
           ]);
-          const templates = filterMetaTemplatesForContext(allTemplates, groups, restrictByStage, dealStage);
+          const sectorAllowedTemplates = filterMetaTemplatesForSector(
+            allTemplates,
+            groups,
+            operatorSectorIds,
+            isAdmin,
+          );
+          const templates = filterMetaTemplatesForContext(
+            sectorAllowedTemplates,
+            groups,
+            restrictByStage,
+            dealStage,
+          );
           const visibleGroupNames = new Set<string>();
           for (const g of groups) {
-            if (!restrictByStage) {
+            if (!restrictByStage && isMetaTemplateGroupVisibleForSector(g, operatorSectorIds, isAdmin)) {
               visibleGroupNames.add(g.name);
             }
           }
           for (const t of templates) {
             for (const gName of t.customGroups || []) {
-              visibleGroupNames.add(gName);
+              const groupMeta = groups.find((g) => g.name.toLowerCase() === gName.toLowerCase());
+              if (!groupMeta || isMetaTemplateGroupVisibleForSector(groupMeta, operatorSectorIds, isAdmin)) {
+                visibleGroupNames.add(gName);
+              }
             }
           }
           return Response.json({
             activeProvider: "meta",
             window,
             templates,
-            fallbackTemplates: allTemplates.filter((item) => item.supported),
+            fallbackTemplates: sectorAllowedTemplates.filter((item) => item.supported),
             customGroups: Array.from(visibleGroupNames),
             stageFilterMeta: {
               restricted: restrictByStage,
-              totalCount: allTemplates.length,
+              totalCount: sectorAllowedTemplates.length,
               filteredCount: templates.length,
               ...dealStage,
             },

@@ -10,6 +10,7 @@ import {
   crmStages,
   metaMessageTemplates,
   metaTemplateGroups,
+  sectors,
 } from "../../db/schema";
 import {
   bodyVariableIndexes,
@@ -26,6 +27,32 @@ export interface MetaTemplateScope {
   allPipelines: boolean;
   pipelineIds: string[];
   stageIds: string[];
+}
+
+export interface MetaTemplateSectorScope {
+  allSectors: boolean;
+  sectorIds: string[];
+}
+
+export function normalizeMetaTemplateSectorScope(raw: any): MetaTemplateSectorScope {
+  const sectorIds: string[] = Array.isArray(raw?.sectorIds)
+    ? Array.from(
+        new Set<string>(
+          raw.sectorIds
+            .filter((id: unknown): id is string => typeof id === "string")
+            .map((id: string) => id.trim())
+            .filter(Boolean),
+        ),
+      )
+    : [];
+  const allSectors =
+    typeof raw?.allSectors === "boolean"
+      ? raw.allSectors
+      : sectorIds.length === 0;
+  return {
+    allSectors: allSectors || sectorIds.length === 0,
+    sectorIds: allSectors ? [] : sectorIds,
+  };
 }
 
 export function normalizeMetaTemplateScope(raw: any): MetaTemplateScope {
@@ -72,7 +99,9 @@ export async function ensureMetaTemplateGroupsSchema(): Promise<void> {
         ADD COLUMN IF NOT EXISTS custom_groups jsonb NOT NULL DEFAULT '[]'::jsonb,
         ADD COLUMN IF NOT EXISTS all_pipelines boolean NOT NULL DEFAULT true,
         ADD COLUMN IF NOT EXISTS pipeline_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
-        ADD COLUMN IF NOT EXISTS stage_ids jsonb NOT NULL DEFAULT '[]'::jsonb;
+        ADD COLUMN IF NOT EXISTS stage_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+        ADD COLUMN IF NOT EXISTS all_sectors boolean NOT NULL DEFAULT true,
+        ADD COLUMN IF NOT EXISTS sector_ids jsonb NOT NULL DEFAULT '[]'::jsonb;
 
       CREATE TABLE IF NOT EXISTS meta_template_groups (
         id text PRIMARY KEY,
@@ -81,13 +110,17 @@ export async function ensureMetaTemplateGroupsSchema(): Promise<void> {
         all_pipelines boolean NOT NULL DEFAULT true,
         pipeline_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
         stage_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+        all_sectors boolean NOT NULL DEFAULT true,
+        sector_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
         created_at timestamp NOT NULL DEFAULT now()
       );
 
       ALTER TABLE meta_template_groups
         ADD COLUMN IF NOT EXISTS all_pipelines boolean NOT NULL DEFAULT true,
         ADD COLUMN IF NOT EXISTS pipeline_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
-        ADD COLUMN IF NOT EXISTS stage_ids jsonb NOT NULL DEFAULT '[]'::jsonb;
+        ADD COLUMN IF NOT EXISTS stage_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+        ADD COLUMN IF NOT EXISTS all_sectors boolean NOT NULL DEFAULT true,
+        ADD COLUMN IF NOT EXISTS sector_ids jsonb NOT NULL DEFAULT '[]'::jsonb;
 
       CREATE INDEX IF NOT EXISTS idx_meta_template_groups_tenant
         ON meta_template_groups(tenant_id);
@@ -134,6 +167,8 @@ export interface MetaTemplateGroupItem {
   allPipelines?: boolean;
   pipelineIds?: string[];
   stageIds?: string[];
+  allSectors?: boolean;
+  sectorIds?: string[];
   createdAt: Date;
 }
 
@@ -505,7 +540,13 @@ export async function setMetaTemplateBindings(
   metaTemplateId: string,
   value: unknown,
   customGroupsInput?: unknown,
-  scopeInput?: { allPipelines?: boolean; pipelineIds?: string[]; stageIds?: string[] },
+  scopeInput?: {
+    allPipelines?: boolean;
+    pipelineIds?: string[];
+    stageIds?: string[];
+    allSectors?: boolean;
+    sectorIds?: string[];
+  },
 ) {
   await ensureMetaTemplateGroupsSchema();
   const [existing] = await db.select().from(metaMessageTemplates).where(and(
@@ -551,6 +592,18 @@ export async function setMetaTemplateBindings(
     updateFields.stageIds = nextScope.stageIds;
   }
 
+  if (
+    scopeInput &&
+    (scopeInput.allSectors !== undefined || scopeInput.sectorIds !== undefined)
+  ) {
+    const nextSectorScope = normalizeMetaTemplateSectorScope({
+      allSectors: scopeInput.allSectors,
+      sectorIds: scopeInput.sectorIds ?? existing.sectorIds,
+    });
+    updateFields.allSectors = nextSectorScope.allSectors;
+    updateFields.sectorIds = nextSectorScope.sectorIds;
+  }
+
   if (Object.keys(updateFields).length > 0) {
     await db.update(metaMessageTemplates).set(updateFields).where(and(
       eq(metaMessageTemplates.tenantId, tenantId), eq(metaMessageTemplates.metaTemplateId, metaTemplateId)
@@ -576,6 +629,8 @@ export async function saveMetaTemplateGroupWithLinks(
     allPipelines?: boolean;
     pipelineIds?: string[];
     stageIds?: string[];
+    allSectors?: boolean;
+    sectorIds?: string[];
   },
 ) {
   await ensureMetaTemplateGroupsSchema();
@@ -610,8 +665,20 @@ export async function saveMetaTemplateGroupWithLinks(
     stageIds: payload.stageIds ?? targetGroup?.stageIds,
   });
 
+  const hasSectorPatch =
+    payload.allSectors !== undefined || payload.sectorIds !== undefined;
+  const resolvedSectorScope = normalizeMetaTemplateSectorScope({
+    allSectors:
+      payload.allSectors !== undefined
+        ? payload.allSectors
+        : payload.sectorIds !== undefined
+          ? payload.sectorIds.length === 0
+          : targetGroup?.allSectors,
+    sectorIds: payload.sectorIds ?? targetGroup?.sectorIds,
+  });
+
   if (targetGroup) {
-    if (targetGroup.name !== cleanName || hasScopePatch) {
+    if (targetGroup.name !== cleanName || hasScopePatch || hasSectorPatch) {
       await db
         .update(metaTemplateGroups)
         .set({
@@ -621,6 +688,12 @@ export async function saveMetaTemplateGroupWithLinks(
                 allPipelines: resolvedScope.allPipelines,
                 pipelineIds: resolvedScope.pipelineIds,
                 stageIds: resolvedScope.stageIds,
+              }
+            : {}),
+          ...(hasSectorPatch
+            ? {
+                allSectors: resolvedSectorScope.allSectors,
+                sectorIds: resolvedSectorScope.sectorIds,
               }
             : {}),
         })
@@ -635,6 +708,12 @@ export async function saveMetaTemplateGroupWithLinks(
               stageIds: resolvedScope.stageIds,
             }
           : {}),
+        ...(hasSectorPatch
+          ? {
+              allSectors: resolvedSectorScope.allSectors,
+              sectorIds: resolvedSectorScope.sectorIds,
+            }
+          : {}),
       };
     }
   } else {
@@ -646,6 +725,8 @@ export async function saveMetaTemplateGroupWithLinks(
       allPipelines: resolvedScope.allPipelines,
       pipelineIds: resolvedScope.pipelineIds,
       stageIds: resolvedScope.stageIds,
+      allSectors: resolvedSectorScope.allSectors,
+      sectorIds: resolvedSectorScope.sectorIds,
       createdAt: new Date(),
     });
     targetGroup = {
@@ -655,6 +736,8 @@ export async function saveMetaTemplateGroupWithLinks(
       allPipelines: resolvedScope.allPipelines,
       pipelineIds: resolvedScope.pipelineIds,
       stageIds: resolvedScope.stageIds,
+      allSectors: resolvedSectorScope.allSectors,
+      sectorIds: resolvedSectorScope.sectorIds,
       createdAt: new Date(),
     };
   }
@@ -788,6 +871,8 @@ export async function getMetaTemplateLocalMetadataMap(
       allPipelines: boolean;
       pipelineIds: string[];
       stageIds: string[];
+      allSectors: boolean;
+      sectorIds: string[];
     }
   >
 > {
@@ -802,6 +887,8 @@ export async function getMetaTemplateLocalMetadataMap(
       allPipelines: metaMessageTemplates.allPipelines,
       pipelineIds: metaMessageTemplates.pipelineIds,
       stageIds: metaMessageTemplates.stageIds,
+      allSectors: metaMessageTemplates.allSectors,
+      sectorIds: metaMessageTemplates.sectorIds,
     })
     .from(metaMessageTemplates)
     .where(eq(metaMessageTemplates.tenantId, tenantId));
@@ -816,10 +903,13 @@ export async function getMetaTemplateLocalMetadataMap(
       allPipelines: boolean;
       pipelineIds: string[];
       stageIds: string[];
+      allSectors: boolean;
+      sectorIds: string[];
     }
   >();
   for (const row of rows) {
     const scope = normalizeMetaTemplateScope(row);
+    const sectorScope = normalizeMetaTemplateSectorScope(row);
     const entry = {
       name: row.name,
       language: row.language,
@@ -828,6 +918,8 @@ export async function getMetaTemplateLocalMetadataMap(
       allPipelines: scope.allPipelines,
       pipelineIds: scope.pipelineIds,
       stageIds: scope.stageIds,
+      allSectors: sectorScope.allSectors,
+      sectorIds: sectorScope.sectorIds,
     };
     map.set(String(row.metaTemplateId), entry);
   }
@@ -1125,5 +1217,111 @@ export function filterMetaTemplatesForContext<
   // 3. Fallback global
   const globalMatches = enriched.filter((item) => !item.isScoped).map((item) => item.tpl);
   return globalMatches.length > 0 ? globalMatches : templates;
+}
+
+/**
+ * Retorna os IDs de setores aos quais um operador pertence no tenant (100% isolado por tenantId).
+ */
+export async function getOperatorSectorIds(
+  tenantId: string,
+  operatorId: string,
+): Promise<string[]> {
+  if (!operatorId) return [];
+  const rows = await db
+    .select({
+      id: sectors.id,
+      operatorIds: sectors.operatorIds,
+    })
+    .from(sectors)
+    .where(eq(sectors.tenantId, tenantId));
+
+  const matched: string[] = [];
+  for (const row of rows) {
+    const ops = Array.isArray(row.operatorIds) ? row.operatorIds : [];
+    if (ops.includes(operatorId)) {
+      matched.push(row.id);
+    }
+  }
+  return matched;
+}
+
+/**
+ * Indica se uma categoria/grupo de templates Meta é visível para o operador logado.
+ * Administradores sempre visualizam todas as categorias.
+ */
+export function isMetaTemplateGroupVisibleForSector(
+  group: { allSectors?: boolean; sectorIds?: string[] },
+  operatorSectorIds: string[],
+  isAdmin: boolean = false,
+): boolean {
+  if (isAdmin) return true;
+  const scope = normalizeMetaTemplateSectorScope(group);
+  if (scope.allSectors || scope.sectorIds.length === 0) return true;
+  if (operatorSectorIds.length === 0) return false;
+  const opSet = new Set(operatorSectorIds);
+  return scope.sectorIds.some((sId) => opSet.has(sId));
+}
+
+/**
+ * Filtra templates Meta conforme os setores do operador logado:
+ * - Administradores (`isAdmin = true`) visualizam todos os templates.
+ * - Se o template possui restrição individual de setor (`allSectors: false` + `sectorIds`),
+ *   apenas operadores pertencentes a pelo menos um desses setores o visualizam.
+ * - Caso contrário (`allSectors: true` no template), herda a visibilidade das suas categorias:
+ *   se pelo menos uma categoria do template for restrita e nenhuma categoria dele for global,
+ *   o template fica visível apenas para a união dos setores liberados dessas categorias.
+ *   Se não houver categoria restrita (ou houver alguma categoria global), fica visível para todos.
+ */
+export function filterMetaTemplatesForSector<
+  T extends {
+    customGroups?: string[];
+    allSectors?: boolean;
+    sectorIds?: string[];
+  },
+>(
+  templates: T[],
+  groups: MetaTemplateGroupItem[],
+  operatorSectorIds: string[],
+  isAdmin: boolean = false,
+): T[] {
+  if (isAdmin) return templates;
+
+  const opSet = new Set(operatorSectorIds);
+  const groupScopeByKey = new Map<string, MetaTemplateSectorScope>();
+  for (const g of groups) {
+    groupScopeByKey.set(stripTemplateAccents(g.name), normalizeMetaTemplateSectorScope(g));
+  }
+
+  return templates.filter((tpl) => {
+    const tplSectorScope = normalizeMetaTemplateSectorScope(tpl);
+    if (!tplSectorScope.allSectors && tplSectorScope.sectorIds.length > 0) {
+      return tplSectorScope.sectorIds.some((sId) => opSet.has(sId));
+    }
+
+    const tplGroups = normalizeCustomGroups(tpl.customGroups);
+    if (tplGroups.length === 0) return true;
+
+    let hasGlobalGroup = false;
+    const allowedSectorIds = new Set<string>();
+    let hasRestrictedGroup = false;
+
+    for (const gName of tplGroups) {
+      const gScope = groupScopeByKey.get(stripTemplateAccents(gName));
+      if (!gScope || gScope.allSectors || gScope.sectorIds.length === 0) {
+        hasGlobalGroup = true;
+      } else {
+        hasRestrictedGroup = true;
+        for (const sId of gScope.sectorIds) {
+          allowedSectorIds.add(sId);
+        }
+      }
+    }
+
+    if (hasGlobalGroup || !hasRestrictedGroup) return true;
+    for (const sId of allowedSectorIds) {
+      if (opSet.has(sId)) return true;
+    }
+    return false;
+  });
 }
 

@@ -1,8 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "../src/db";
-import { metaMessageTemplates, metaTemplateGroups, tenants } from "../src/db/schema";
+import { metaMessageTemplates, metaTemplateGroups, sectors, tenants } from "../src/db/schema";
 import {
   MCP_SERVER_INFO,
   MCP_TOOLS,
@@ -17,7 +19,12 @@ import {
   computeNextTemplateGroups,
   resolveCanonicalGroupNames,
 } from "../src/lib/mcp/valem-tecfag-mcp-template-groups-tools";
-import { ensureMetaTemplateGroupsSchema } from "../src/lib/whatsapp/meta-templates";
+import {
+  ensureMetaTemplateGroupsSchema,
+  filterMetaTemplatesForSector,
+  isMetaTemplateGroupVisibleForSector,
+  type MetaTemplateGroupItem,
+} from "../src/lib/whatsapp/meta-templates";
 import { getApiLibraryCatalog } from "../src/lib/marketing/api-library-catalog";
 
 const RUN_DB_TESTS = Boolean(process.env.DATABASE_URL);
@@ -59,9 +66,9 @@ async function callMcp(
   return { isError: false as const, errorText: "", data: JSON.parse(text) };
 }
 
-describe("MCP v3.6.0 — CRUD Completo de Categorias/Grupos de Templates Meta", () => {
+describe("MCP v3.7.0 — CRUD Completo de Categorias/Grupos de Templates Meta & Visibilidade por Setor", () => {
   it("expõe list_meta_template_groups em leitura, 3 tools de escrita apenas em read_write e 100% de paridade na Biblioteca de API", async () => {
-    expect(MCP_SERVER_INFO.version).toBe("3.6.0");
+    expect(MCP_SERVER_INFO.version).toBe("3.7.0");
 
     const readTools = getVisibleMcpTools(makeAccess("read"));
     const rwTools = getVisibleMcpTools(makeAccess("read_write"));
@@ -423,6 +430,121 @@ describe("MCP v3.6.0 — CRUD Completo de Categorias/Grupos de Templates Meta", 
       expect(afterDelete.isError).toBe(false);
       expect(afterDelete.data.templates).toHaveLength(1);
       expect(afterDelete.data.templates[0].customGroups).toEqual([]);
+
+      // 11. Visibilidade por setor no PostgreSQL real (save_meta_template_group + update_meta_template_visibility)
+      const secComercialId = `sec_tg_${suffix}_com`;
+      const secSdrId = `sec_tg_${suffix}_sdr`;
+      const secComercialName = `Comercial_${suffix}`;
+      const secSdrName = `Sdr_${suffix}`;
+      await db.insert(sectors).values([
+        { id: secComercialId, tenantId: "tecfag", name: secComercialName, operatorIds: ["op-com-1"] },
+        { id: secSdrId, tenantId: "tecfag", name: secSdrName, operatorIds: ["op-sdr-1"] },
+      ]);
+      try {
+        const restrictedGroup = await callMcp(
+          "save_meta_template_group",
+          {
+            name: groupComercial,
+            allSectors: false,
+            sectorNames: [secComercialName],
+          },
+          rwTecfag,
+        );
+        expect(restrictedGroup.isError).toBe(false);
+        expect(restrictedGroup.data.group.allSectors).toBe(false);
+        expect(restrictedGroup.data.group.sectorIds).toEqual([secComercialId]);
+
+        const listedWithSectors = await callMcp(
+          "list_meta_template_groups",
+          { search: groupComercial },
+          readTecfag,
+        );
+        expect(listedWithSectors.isError).toBe(false);
+        const foundGrp = listedWithSectors.data.groups.find((g: any) => g.name === groupComercial);
+        expect(foundGrp.allSectors).toBe(false);
+        expect(foundGrp.sectorIds).toEqual([secComercialId]);
+        expect(foundGrp.sectorNames).toEqual([secComercialName]);
+
+        const restrictedTpl = await callMcp(
+          "update_meta_template_visibility",
+          {
+            templateId: tplB.metaTemplateId,
+            allPipelines: true,
+            allSectors: false,
+            sectorNames: [secSdrName],
+          },
+          rwTecfag,
+        );
+        expect(restrictedTpl.isError).toBe(false);
+        expect(restrictedTpl.data.allSectors).toBe(false);
+        expect(restrictedTpl.data.sectorIds).toEqual([secSdrId]);
+      } finally {
+        await db
+          .delete(sectors)
+          .where(inArray(sectors.id, [secComercialId, secSdrId]));
+      }
     });
+  });
+
+  it("filtra templates e categorias corretamente por setor do operador (Comercial vê Comercial, SDR vê SDR, Admin vê todos)", () => {
+    const now = new Date();
+    const groups: MetaTemplateGroupItem[] = [
+      { id: "g-com", name: "COMERCIAL", allSectors: false, sectorIds: ["sec-maq", "sec-pers"], createdAt: now },
+      { id: "g-sdr", name: "SDR", allSectors: false, sectorIds: ["sec-sdr"], createdAt: now },
+      { id: "g-pec", name: "PEÇAS", allSectors: false, sectorIds: ["sec-pecas"], createdAt: now },
+      { id: "g-out", name: "OUTROS", allSectors: true, sectorIds: [], createdAt: now },
+    ];
+
+    const templates = [
+      { name: "comercial1", customGroups: ["COMERCIAL"], allSectors: true, sectorIds: [] },
+      { name: "sdr1", customGroups: ["SDR"], allSectors: true, sectorIds: [] },
+      { name: "pecas1", customGroups: ["PEÇAS"], allSectors: true, sectorIds: [] },
+      { name: "outros1", customGroups: ["OUTROS"], allSectors: true, sectorIds: [] },
+      { name: "exclusivo_pecas", customGroups: ["OUTROS"], allSectors: false, sectorIds: ["sec-pecas"] },
+      { name: "sem_grupo", customGroups: [], allSectors: true, sectorIds: [] },
+    ];
+
+    // Vendedor Comercial (Máquinas) vê COMERCIAL + globais (OUTROS, sem_grupo) — NÃO vê SDR nem PEÇAS nem exclusivo_pecas
+    const comVisible = filterMetaTemplatesForSector(templates, groups, ["sec-maq"], false);
+    expect(comVisible.map((t) => t.name)).toEqual(["comercial1", "outros1", "sem_grupo"]);
+
+    // Operador SDR vê SDR + globais
+    const sdrVisible = filterMetaTemplatesForSector(templates, groups, ["sec-sdr"], false);
+    expect(sdrVisible.map((t) => t.name)).toEqual(["sdr1", "outros1", "sem_grupo"]);
+
+    // Operador de Peças vê PEÇAS + exclusivo_pecas (override individual) + globais
+    const pecasVisible = filterMetaTemplatesForSector(templates, groups, ["sec-pecas"], false);
+    expect(pecasVisible.map((t) => t.name)).toEqual(["pecas1", "outros1", "exclusivo_pecas", "sem_grupo"]);
+
+    // Operador em 2 setores vê a união
+    const dualVisible = filterMetaTemplatesForSector(templates, groups, ["sec-sdr", "sec-pers"], false);
+    expect(dualVisible.map((t) => t.name)).toEqual(["comercial1", "sdr1", "outros1", "sem_grupo"]);
+
+    // Operador sem setor vê apenas globais
+    const noSectorVisible = filterMetaTemplatesForSector(templates, groups, [], false);
+    expect(noSectorVisible.map((t) => t.name)).toEqual(["outros1", "sem_grupo"]);
+
+    // Admin sempre vê todos
+    const adminVisible = filterMetaTemplatesForSector(templates, groups, [], true);
+    expect(adminVisible).toHaveLength(templates.length);
+
+    // Visibilidade das pílulas de categoria
+    expect(isMetaTemplateGroupVisibleForSector(groups[0], ["sec-maq"], false)).toBe(true);
+    expect(isMetaTemplateGroupVisibleForSector(groups[0], ["sec-sdr"], false)).toBe(false);
+    expect(isMetaTemplateGroupVisibleForSector(groups[1], ["sec-sdr"], false)).toBe(true);
+    expect(isMetaTemplateGroupVisibleForSector(groups[3], [], false)).toBe(true);
+    expect(isMetaTemplateGroupVisibleForSector(groups[0], [], true)).toBe(true);
+  });
+
+  it("respeita o Design System em SectorScopeSelector.tsx (sem <select> nativo nem title= nativo)", () => {
+    const src = fs.readFileSync(
+      path.resolve(process.cwd(), "src/components/chat/SectorScopeSelector.tsx"),
+      "utf-8",
+    );
+    expect(src).toContain("Popover");
+    expect(src).toContain("SystemTooltip");
+    expect(src).toContain("Checkbox");
+    expect(src).not.toMatch(/<select[\s>]/);
+    expect(src).not.toMatch(/\btitle=/);
   });
 });

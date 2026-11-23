@@ -1,12 +1,13 @@
 import { asc, eq } from "drizzle-orm";
 import { db } from "../../db";
-import { metaMessageTemplates, metaTemplateGroups } from "../../db/schema";
+import { metaMessageTemplates, metaTemplateGroups, sectors } from "../../db/schema";
 import { stripTemplateAccents } from "../whatsapp/meta-template-common";
 import {
   deleteMetaTemplateGroup,
   ensureMetaTemplateGroupsSchema,
   listMetaTemplateGroups,
   normalizeCustomGroups,
+  normalizeMetaTemplateSectorScope,
   saveMetaTemplateGroupWithLinks,
   setMetaTemplateCustomGroups,
 } from "../whatsapp/meta-templates";
@@ -198,6 +199,22 @@ export const MCP_TEMPLATE_GROUPS_TOOLS: McpToolDefinition[] = [
           items: { type: "string" },
           description: "Opcional: IDs de etapas permitidas para a categoria.",
         },
+        allSectors: {
+          type: "boolean",
+          description:
+            "Opcional: true libera a categoria para todos os setores; false restringe aos setores informados em sectorIds/sectorNames (admins sempre veem todos).",
+        },
+        sectorIds: {
+          type: "array",
+          items: { type: "string" },
+          description: "Opcional: IDs de setores que podem ver e enviar templates desta categoria no chat.",
+        },
+        sectorNames: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Opcional: nomes dos setores que podem ver esta categoria (ex: ['Máquinas', 'Personnalité', 'Projetos']). Resolvidos automaticamente para os IDs do tenant.",
+        },
       },
     },
   },
@@ -324,6 +341,73 @@ function findTemplateInList(
   return undefined;
 }
 
+export async function resolveTenantSectorScopeInput(
+  tenantId: string,
+  input: {
+    allSectors?: boolean;
+    sectorIds?: string[];
+    sectorNames?: string[];
+  },
+): Promise<{
+  hasSectorPatch: boolean;
+  allSectors?: boolean;
+  sectorIds?: string[];
+  notFoundSectors: string[];
+}> {
+  const hasSectorPatch =
+    input.allSectors !== undefined ||
+    input.sectorIds !== undefined ||
+    input.sectorNames !== undefined;
+  if (!hasSectorPatch) {
+    return { hasSectorPatch: false, notFoundSectors: [] };
+  }
+  if (input.allSectors === true) {
+    return { hasSectorPatch: true, allSectors: true, sectorIds: [], notFoundSectors: [] };
+  }
+
+  const tenantSectors = await db
+    .select({ id: sectors.id, name: sectors.name })
+    .from(sectors)
+    .where(eq(sectors.tenantId, tenantId))
+    .orderBy(asc(sectors.name));
+
+  const resolvedIds = new Set<string>();
+  const notFoundSectors: string[] = [];
+
+  for (const idRef of input.sectorIds ?? []) {
+    const found = tenantSectors.find((s) => s.id === idRef);
+    if (found) resolvedIds.add(found.id);
+    else notFoundSectors.push(idRef);
+  }
+  for (const nameRef of input.sectorNames ?? []) {
+    const targetKey = stripTemplateAccents(nameRef);
+    const found = tenantSectors.find((s) => stripTemplateAccents(s.name) === targetKey);
+    if (found) resolvedIds.add(found.id);
+    else notFoundSectors.push(nameRef);
+  }
+
+  const idsArr = Array.from(resolvedIds);
+  if (input.allSectors === false && idsArr.length === 0) {
+    throw new Error(
+      notFoundSectors.length > 0
+        ? `Nenhum setor válido encontrado (${notFoundSectors.join(", ")}). Informe sectorIds ou sectorNames válidos do tenant '${tenantId}'.`
+        : "Informe pelo menos um setor em 'sectorIds' ou 'sectorNames' quando allSectors=false.",
+    );
+  }
+
+  const normalized = normalizeMetaTemplateSectorScope({
+    allSectors: input.allSectors !== undefined ? input.allSectors : idsArr.length === 0,
+    sectorIds: idsArr,
+  });
+
+  return {
+    hasSectorPatch: true,
+    allSectors: normalized.allSectors,
+    sectorIds: normalized.sectorIds,
+    notFoundSectors,
+  };
+}
+
 export async function executeTemplateGroupsMcpTool(
   name: string,
   args: Record<string, unknown>,
@@ -339,7 +423,7 @@ export async function executeTemplateGroupsMcpTool(
       const statusFilter = asTrimmedString(args.status)?.toUpperCase();
       const includeTemplates = args.includeTemplates !== false;
 
-      const [groups, rawTemplates] = await Promise.all([
+      const [groups, rawTemplates, tenantSectors] = await Promise.all([
         listMetaTemplateGroups(tenantId),
         db
           .select({
@@ -350,11 +434,19 @@ export async function executeTemplateGroupsMcpTool(
             category: metaMessageTemplates.category,
             status: metaMessageTemplates.status,
             customGroups: metaMessageTemplates.customGroups,
+            allSectors: metaMessageTemplates.allSectors,
+            sectorIds: metaMessageTemplates.sectorIds,
           })
           .from(metaMessageTemplates)
           .where(eq(metaMessageTemplates.tenantId, tenantId))
           .orderBy(asc(metaMessageTemplates.name)),
+        db
+          .select({ id: sectors.id, name: sectors.name })
+          .from(sectors)
+          .where(eq(sectors.tenantId, tenantId))
+          .orderBy(asc(sectors.name)),
       ]);
+      const sectorNameById = new Map(tenantSectors.map((s) => [s.id, s.name]));
 
       const activeTemplates = rawTemplates
         .filter((t) => {
@@ -394,14 +486,21 @@ export async function executeTemplateGroupsMcpTool(
         totalTemplates: activeTemplates.length,
         classifiedCount: activeTemplates.length - unclassifiedTemplates.length,
         unclassifiedCount: unclassifiedTemplates.length,
+        availableSectors: tenantSectors,
         groups: filteredGroups.map((g) => {
           const linked = templatesByGroupKey.get(stripTemplateAccents(g.name)) ?? [];
+          const sectorScope = normalizeMetaTemplateSectorScope(g);
           return {
             id: g.id,
             name: g.name,
             allPipelines: g.allPipelines !== false,
             pipelineIds: Array.isArray(g.pipelineIds) ? g.pipelineIds : [],
             stageIds: Array.isArray(g.stageIds) ? g.stageIds : [],
+            allSectors: sectorScope.allSectors,
+            sectorIds: sectorScope.sectorIds,
+            sectorNames: sectorScope.sectorIds
+              .map((id) => sectorNameById.get(id))
+              .filter((n): n is string => Boolean(n)),
             createdAt: g.createdAt,
             templateCount: linked.length,
             ...(includeTemplates
@@ -413,6 +512,8 @@ export async function executeTemplateGroupsMcpTool(
                     category: t.category,
                     status: t.status,
                     language: t.language,
+                    allSectors: t.allSectors !== false,
+                    sectorIds: Array.isArray(t.sectorIds) ? t.sectorIds : [],
                   })),
                 }
               : {}),
@@ -427,6 +528,8 @@ export async function executeTemplateGroupsMcpTool(
                 category: t.category,
                 status: t.status,
                 language: t.language,
+                allSectors: t.allSectors !== false,
+                sectorIds: Array.isArray(t.sectorIds) ? t.sectorIds : [],
               })),
             }
           : {}),
@@ -542,6 +645,12 @@ export async function executeTemplateGroupsMcpTool(
         }
       }
 
+      const sectorPatch = await resolveTenantSectorScopeInput(tenantId, {
+        allSectors: typeof args.allSectors === "boolean" ? args.allSectors : undefined,
+        sectorIds: asStringArray(args.sectorIds),
+        sectorNames: asStringArray(args.sectorNames),
+      });
+
       const saved = await saveMetaTemplateGroupWithLinks(tenantId, {
         groupId: matchedExistingGroup?.id,
         name: targetName,
@@ -549,6 +658,12 @@ export async function executeTemplateGroupsMcpTool(
         allPipelines: typeof args.allPipelines === "boolean" ? args.allPipelines : undefined,
         pipelineIds: asStringArray(args.pipelineIds),
         stageIds: asStringArray(args.stageIds),
+        ...(sectorPatch.hasSectorPatch
+          ? {
+              allSectors: sectorPatch.allSectors,
+              sectorIds: sectorPatch.sectorIds,
+            }
+          : {}),
       });
 
       const savedNameKey = stripTemplateAccents(saved.group.name);
@@ -568,6 +683,7 @@ export async function executeTemplateGroupsMcpTool(
           status: t.status,
         }));
 
+      const savedSectorScope = normalizeMetaTemplateSectorScope(saved.group);
       return {
         success: true,
         tenantId,
@@ -582,10 +698,13 @@ export async function executeTemplateGroupsMcpTool(
           allPipelines: saved.group.allPipelines !== false,
           pipelineIds: Array.isArray(saved.group.pipelineIds) ? saved.group.pipelineIds : [],
           stageIds: Array.isArray(saved.group.stageIds) ? saved.group.stageIds : [],
+          allSectors: savedSectorScope.allSectors,
+          sectorIds: savedSectorScope.sectorIds,
         },
         templateCount: linkedTemplates.length,
         templates: linkedTemplates,
         notFoundTemplates: notFoundRefs,
+        notFoundSectors: sectorPatch.notFoundSectors,
         totalGroupsInTenant: saved.groups.length,
       };
     }

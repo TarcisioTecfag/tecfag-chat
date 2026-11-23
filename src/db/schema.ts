@@ -649,6 +649,8 @@ export const metaMessageTemplates = pgTable("meta_message_templates", {
   allPipelines: boolean("all_pipelines").default(true).notNull(),
   pipelineIds: jsonb("pipeline_ids").$type<string[]>().default([]).notNull(),
   stageIds: jsonb("stage_ids").$type<string[]>().default([]).notNull(),
+  allSectors: boolean("all_sectors").default(true).notNull(),
+  sectorIds: jsonb("sector_ids").$type<string[]>().default([]).notNull(),
   rejectedReason: text("rejected_reason"),
   lastSyncedAt: timestamp("last_synced_at").defaultNow().notNull(),
 }, (table) => [uniqueIndex("meta_message_templates_tenant_meta_id_unique").on(table.tenantId, table.metaTemplateId)]);
@@ -661,6 +663,8 @@ export const metaTemplateGroups = pgTable("meta_template_groups", {
   allPipelines: boolean("all_pipelines").default(true).notNull(),
   pipelineIds: jsonb("pipeline_ids").$type<string[]>().default([]).notNull(),
   stageIds: jsonb("stage_ids").$type<string[]>().default([]).notNull(),
+  allSectors: boolean("all_sectors").default(true).notNull(),
+  sectorIds: jsonb("sector_ids").$type<string[]>().default([]).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => [
   index("idx_meta_template_groups_tenant").on(table.tenantId),

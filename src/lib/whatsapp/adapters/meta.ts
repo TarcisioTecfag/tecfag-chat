@@ -169,6 +169,8 @@ export class MetaAdapter implements WhatsAppAdapter {
       allPipelines?: boolean;
       pipelineIds?: string[];
       stageIds?: string[];
+      allSectors?: boolean;
+      sectorIds?: string[];
       components: unknown[];
     }>
   > {
@@ -189,6 +191,8 @@ export class MetaAdapter implements WhatsAppAdapter {
       allPipelines?: boolean;
       pipelineIds?: string[];
       stageIds?: string[];
+      allSectors?: boolean;
+      sectorIds?: string[];
       components: unknown[];
     }> = [];
     let url: string | null = `${META_BASE_URL}/${encodeURIComponent(businessAccountId)}/message_templates?fields=id,name,language,status,category,components&limit=100`;
@@ -219,6 +223,8 @@ export class MetaAdapter implements WhatsAppAdapter {
             allPipelines: localMeta?.allPipelines ?? true,
             pipelineIds: localMeta?.pipelineIds ?? [],
             stageIds: localMeta?.stageIds ?? [],
+            allSectors: localMeta?.allSectors ?? true,
+            sectorIds: localMeta?.sectorIds ?? [],
           });
         }
       }

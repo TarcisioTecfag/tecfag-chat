@@ -14,7 +14,9 @@ import {
 } from "../../../lib/whatsapp/meta-template-common";
 import {
   filterMetaTemplatesForContext,
+  filterMetaTemplatesForSector,
   getMetaTemplatesRestrictByStage,
+  getOperatorSectorIds,
   listMetaTemplateGroups,
   loadDealCustomFieldsForTemplate,
   resolveConversationActiveDealStage,
@@ -361,12 +363,34 @@ export const Route = createFileRoute("/api/whatsapp/send")({
             if (!selected?.supported) return Response.json({ error: "Template não aprovado ou formato não suportado." }, { status: 400 });
 
             try {
-              const restrictByStage = await getMetaTemplatesRestrictByStage(session.tenantId);
+              const isAdmin = session.operator.role === "admin";
+              const [groups, operatorSectorIds, restrictByStage] = await Promise.all([
+                listMetaTemplateGroups(session.tenantId),
+                isAdmin
+                  ? Promise.resolve([] as string[])
+                  : getOperatorSectorIds(session.tenantId, session.operator.id),
+                getMetaTemplatesRestrictByStage(session.tenantId),
+              ]);
+              const allowedForSector = filterMetaTemplatesForSector(
+                approved,
+                groups,
+                operatorSectorIds,
+                isAdmin,
+              );
+              const isSectorAllowed = allowedForSector.some(
+                (item) => item.name === selected.name && item.language === selected.language,
+              );
+              if (!isSectorAllowed) {
+                return Response.json(
+                  {
+                    error: `O template "${selected.name}" não está liberado para o seu setor.`,
+                    code: "TEMPLATE_SECTOR_RESTRICTED",
+                  },
+                  { status: 403 },
+                );
+              }
               if (restrictByStage) {
-                const [groups, dealStage] = await Promise.all([
-                  listMetaTemplateGroups(session.tenantId),
-                  resolveConversationActiveDealStage(session.tenantId, conv.id),
-                ]);
+                const dealStage = await resolveConversationActiveDealStage(session.tenantId, conv.id);
                 if (!dealStage.hasActiveDeal) {
                   return Response.json(
                     { error: DEAL_REQUIRED_MESSAGE, code: "DEAL_REQUIRED", conversationId: conv.id },
