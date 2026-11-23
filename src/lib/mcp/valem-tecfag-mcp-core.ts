@@ -54,7 +54,7 @@ export const DEFAULT_MCP_ADMIN_TOKEN = "mcp_admin_7d9e3b5c1a8f4e6d2b0c9a7e5f3d1b
 
 export const MCP_SERVER_INFO = {
   name: "valem-tecfag-mcp",
-  version: "3.8.0",
+  version: "3.9.0",
 };
 
 export type McpAccessLevel = "read" | "read_write";
@@ -497,6 +497,18 @@ export function summarizeMcpToolResult(toolName: string, data: any): string {
         const prefix = data.dryRun ? "[DRY-RUN] " : "";
         return `${prefix}${updated}/${totalReq} template(s) atualizado(s) em categorias`;
       }
+      case "get_triage_approval_options":
+        return `${Number(data.sectorsCount ?? 0)} setor(es), ${Number(data.operatorsCount ?? 0)} operador(es) e ${Number(data.pipelinesCount ?? 0)} funil(is) SDR listados`;
+      case "approve_fagner_triage":
+        return `Triagem aprovada na conversa ${data.conversationId} → ${data.operatorName || data.operatorId}${data.targetFunnel ? ` (${data.targetFunnel})` : ""}`;
+      case "dismiss_fagner_triage":
+        return `Triagem concluída sem transferência na conversa ${data.conversationId} (${data.queueState || "finalizados"})`;
+      case "stop_or_resume_fagner_triage":
+        return data.action === "stop"
+          ? `${data.assistantName || "IA"} interrompido na conversa ${data.conversationId} (${data.queueState || "fila"})`
+          : `${data.assistantName || "IA"} retomado na conversa ${data.conversationId} (${data.currentStep || "Em Qualificação"})`;
+      case "recover_fagner_stuck_turns":
+        return `Recuperação de turnos travados concluída: ${Number(data.recoveredCount ?? 0)} conversa(s) reativada(s)`;
       case "create_crm_deal":
         return `Negociação "${data.title || data.dealId}" criada na etapa "${data.stageName || data.stageId}" (${data.dealId})`;
       case "update_crm_deal_stage":

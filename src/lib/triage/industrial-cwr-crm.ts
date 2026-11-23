@@ -444,7 +444,7 @@ export interface MoveDealOnSdrApprovalParams {
   clientName?: string | null;
   companyName?: string | null;
   collectedData?: Record<string, { value?: string; status?: string }> | null;
-  approvedByOperatorId: string;
+  approvedByOperatorId: string | null;
   approvedByOperatorName: string;
 }
 

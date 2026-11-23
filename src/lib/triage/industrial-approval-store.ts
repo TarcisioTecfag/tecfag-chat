@@ -69,7 +69,7 @@ export class IndustrialApprovalError extends Error {
 }
 
 export interface ApprovalActor {
-  id: string;
+  id: string | null;
   name: string;
   role: string;
   canAccessSdr: boolean;
@@ -1046,7 +1046,7 @@ export async function approveIndustrialTriage(
         .returning();
 
       if (updatedFlow) {
-        await appendIndustrialJournal(tx, flow, updatedFlow, "handoff", `approved:${actor.id}:${now.getTime()}`);
+        await appendIndustrialJournal(tx, flow, updatedFlow, "handoff", `approved:${actor.id || "mcp"}:${now.getTime()}`);
       }
     }
 
@@ -1293,7 +1293,7 @@ export async function completeIndustrialTriageWithoutTransfer(
         .returning();
 
       if (updatedFlow) {
-        await appendIndustrialJournal(tx, flow, updatedFlow, "handoff", `dismiss:${actor.id}:${now.getTime()}`);
+        await appendIndustrialJournal(tx, flow, updatedFlow, "handoff", `dismiss:${actor.id || "mcp"}:${now.getTime()}`);
       }
     }
 
@@ -1451,6 +1451,10 @@ export async function assumeIndustrialTriageManually(
   if (!conversationId) {
     throw new IndustrialApprovalError(400, "conversationId é obrigatório.");
   }
+  if (!actor.id) {
+    throw new IndustrialApprovalError(400, "Um operador válido é obrigatório para assumir a triagem manualmente.");
+  }
+  const actorId = actor.id;
 
   const persona = getAiPersona(tenantId);
 
@@ -1472,11 +1476,11 @@ export async function assumeIndustrialTriageManually(
       actorName: actor.name,
     });
 
-    await setAttendanceActor(tx, tenantId, actor.name, actor.id);
+    await setAttendanceActor(tx, tenantId, actor.name, actorId);
     const [updatedConv] = await tx
       .update(conversations)
       .set({
-        operatorId: actor.id,
+        operatorId: actorId,
         queueState: "meus",
         version: sql`${conversations.version} + 1`,
         updatedAt: now,
@@ -1488,7 +1492,7 @@ export async function assumeIndustrialTriageManually(
       await tx
         .update(contacts)
         .set({
-          walletOperatorId: actor.id,
+          walletOperatorId: actorId,
           responsibleName: actor.name,
         })
         .where(and(eq(contacts.tenantId, tenantId), eq(contacts.id, conv.contactId)));
@@ -1522,7 +1526,7 @@ export async function assumeIndustrialTriageManually(
             handoffStatus: "superseded",
             readyForHandoff: false,
             pendingApproval: null,
-            allocatedOperatorId: actor.id,
+            allocatedOperatorId: actorId,
             allocatedOperatorName: actor.name,
           },
         })
@@ -1530,7 +1534,7 @@ export async function assumeIndustrialTriageManually(
         .returning();
 
       if (updatedFlow) {
-        await appendIndustrialJournal(tx, flow, updatedFlow, "handoff", `assume:${actor.id}:${now.getTime()}`);
+        await appendIndustrialJournal(tx, flow, updatedFlow, "handoff", `assume:${actorId}:${now.getTime()}`);
       }
     }
 
@@ -1545,7 +1549,7 @@ export async function assumeIndustrialTriageManually(
       direction: "outbound",
       provider: "system",
       status: "accepted",
-      metaDetails: { attendanceSkip: true, sdrManualAssume: true, operatorId: actor.id },
+      metaDetails: { attendanceSkip: true, sdrManualAssume: true, operatorId: actorId },
       sentAt: now,
       updatedAt: now,
     });
@@ -1563,8 +1567,8 @@ export async function assumeIndustrialTriageManually(
         id: conversationId,
         contactId: result.conversation.contactId,
         queue: "meus",
-        operatorId: actor.id,
-        walletOperatorId: actor.id,
+        operatorId: actorId,
+        walletOperatorId: actorId,
         responsibleName: actor.name,
         version: result.conversation.version,
         sectorId: result.conversation.sectorId,
@@ -1574,8 +1578,8 @@ export async function assumeIndustrialTriageManually(
       type: "queue_update",
       conversationId,
       queueState: "meus",
-      operatorId: actor.id,
-      walletOperatorId: actor.id,
+      operatorId: actorId,
+      walletOperatorId: actorId,
       responsibleName: actor.name,
       version: result.conversation.version,
     });
@@ -1589,5 +1593,5 @@ export async function assumeIndustrialTriageManually(
     // Não bloqueia resposta
   }
 
-  return { success: true, conversationId, operatorId: actor.id };
+  return { success: true, conversationId, operatorId: actorId };
 }
