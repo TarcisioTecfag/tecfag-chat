@@ -248,7 +248,7 @@ describe("chat-transfer-deal-action", () => {
     const stgLoss = pipe1.allStages![3];
     const stgPv1 = pipeHidden.allStages![0];
 
-    // Sem nenhuma alteração -> erro NO_DEAL_CHANGES
+    // Sem nenhuma alteração (card já está no funil/etapa/responsável selecionados) -> noop sem bloquear
     const noChange = buildDealActionPatchPayload({
       mode: "transfer_deal",
       currentDeal: { status: "open", pipelineId: "pipe-1", stageId: "stg-1", operatorId: "op-1", version: 2 },
@@ -257,8 +257,11 @@ describe("chat-transfer-deal-action", () => {
       targetStage: stg1,
       targetOperatorId: "op-1",
     });
-    expect(noChange.ok).toBe(false);
-    if (!noChange.ok) expect(noChange.code).toBe("NO_DEAL_CHANGES");
+    expect(noChange.ok).toBe(true);
+    if (noChange.ok) {
+      expect(noChange.noop).toBe(true);
+      expect(noChange.payload).toEqual({});
+    }
 
     // Troca de funil + etapa + responsável
     const transferOk = buildDealActionPatchPayload({
@@ -373,6 +376,14 @@ describe("chat-transfer-deal-action", () => {
     expect(modalSource).toContain("Qual etapa?");
     expect(modalSource).toContain("Qual responsável?");
     expect(modalSource).toContain("Transferir apenas conversa");
+    // Regressão: aviso informativo no-op + layout com corpo rolável e rodapé fixo sem corte de botões
+    expect(modalSource).toContain(
+      "Esta negociação já está neste funil, etapa e responsável. Ao confirmar, apenas a conversa será transferida.",
+    );
+    expect(modalSource).toContain("flex-1 min-h-0 overflow-y-auto");
+    expect(modalSource).toContain("shrink-0 px-5 py-3.5 border-t");
+    expect(modalSource).toContain("min-h-9 py-2");
+    expect(modalSource).not.toContain("NO_DEAL_CHANGES");
 
     const chatPanelSource = readFileSync(
       join(process.cwd(), "src/components/chat/ChatPanel.tsx"),

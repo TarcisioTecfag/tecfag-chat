@@ -218,7 +218,7 @@ export interface BuildDealActionPatchInput {
 }
 
 export type BuildDealActionPatchResult =
-  | { ok: true; payload: Record<string, unknown> }
+  | { ok: true; payload: Record<string, unknown>; noop?: boolean }
   | { ok: false; error: string; code: string };
 
 export function buildDealActionPatchPayload(
@@ -356,7 +356,8 @@ export function buildDealActionPatchPayload(
     payload.customFields = input.customFields;
   }
 
-  // Se nada mudou na negociação, evita PATCH vazio desnecessário mas alerta o operador
+  // Se nada mudou na negociação (ex.: card já está no funil, etapa e responsável selecionados),
+  // retorna noop=true para pular o PATCH desnecessário e transferir a conversa sem bloquear o operador.
   const hasAnyMutation =
     payload.pipelineId !== undefined ||
     payload.stageId !== undefined ||
@@ -366,10 +367,9 @@ export function buildDealActionPatchPayload(
 
   if (!hasAnyMutation) {
     return {
-      ok: false,
-      error:
-        "Altere o funil, a etapa ou o responsável para transferir a negociação, ou clique em \"Transferir apenas conversa\".",
-      code: "NO_DEAL_CHANGES",
+      ok: true,
+      noop: true,
+      payload: {},
     };
   }
 

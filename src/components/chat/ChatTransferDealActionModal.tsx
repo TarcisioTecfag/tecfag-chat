@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   Columns3,
   EyeOff,
+  Info,
   Loader2,
   PauseCircle,
   Send,
@@ -378,6 +379,63 @@ export const ChatTransferDealActionModal: React.FC<ChatTransferDealActionModalPr
     [missingStageFieldDefinitions],
   );
 
+  const changedTransferCustomFields = useMemo(() => {
+    const changed: CustomFieldValues = {};
+    if (mode === "transfer_deal" && missingStageFieldDefinitions.length > 0) {
+      for (const field of missingStageFieldDefinitions) {
+        const val = customFieldValues[field.id];
+        if (val !== undefined) {
+          changed[field.id] = val;
+        }
+      }
+    }
+    return changed;
+  }, [mode, missingStageFieldDefinitions, customFieldValues]);
+
+  const transferDealPatchPreview = useMemo(() => {
+    if (mode !== "transfer_deal" || !effectiveDeal) return null;
+    return buildDealActionPatchPayload({
+      mode: "transfer_deal",
+      currentDeal: {
+        status: effectiveDeal.status,
+        pipelineId: effectiveDeal.pipelineId,
+        stageId: effectiveDeal.stageId,
+        operatorId: effectiveDeal.operatorId,
+        lossReason: effectiveDeal.lossReason,
+        version: effectiveDeal.version,
+      },
+      currentOperatorId,
+      lossReason,
+      targetPipeline: selectedPipeline,
+      targetStage: selectedStage,
+      targetOperatorId:
+        selectedOperatorId === UNASSIGNED_OPERATOR_VALUE || !selectedOperatorId
+          ? null
+          : selectedOperatorId,
+      keepCurrentOperator: !permitted.canChangePipelineOrOwner,
+      customFields:
+        Object.keys(changedTransferCustomFields).length > 0
+          ? changedTransferCustomFields
+          : undefined,
+    });
+  }, [
+    mode,
+    effectiveDeal,
+    currentOperatorId,
+    lossReason,
+    selectedPipeline,
+    selectedStage,
+    selectedOperatorId,
+    permitted.canChangePipelineOrOwner,
+    changedTransferCustomFields,
+  ]);
+
+  const isTransferDealNoop = Boolean(
+    mode === "transfer_deal" &&
+      transferDealPatchPreview?.ok &&
+      transferDealPatchPreview.noop,
+  );
+
   const handlePipelineChange = (nextPipelineId: string) => {
     setErrorMessage(null);
     setSelectedPipelineId(nextPipelineId);
@@ -430,19 +488,10 @@ export const ChatTransferDealActionModal: React.FC<ChatTransferDealActionModalPr
     setErrorMessage(null);
 
     let dealClosed = mode === "mark_won" || mode === "mark_lost" || Boolean(selectedStage?.isLossStage);
+    let appliedDealAction: ChatTransferDealMode = mode;
 
     // 1. Executa a ação / transferência na negociação Atual (se ainda não concluída)
     if (!dealActionCompleted) {
-      const changedCustomFields: CustomFieldValues = {};
-      if (mode === "transfer_deal" && missingStageFieldDefinitions.length > 0) {
-        for (const field of missingStageFieldDefinitions) {
-          const val = customFieldValues[field.id];
-          if (val !== undefined) {
-            changedCustomFields[field.id] = val;
-          }
-        }
-      }
-
       const patchResult = buildDealActionPatchPayload({
         mode,
         currentDeal: {
@@ -464,12 +513,37 @@ export const ChatTransferDealActionModal: React.FC<ChatTransferDealActionModalPr
             ? null
             : selectedOperatorId,
         keepCurrentOperator: !permitted.canChangePipelineOrOwner,
-        customFields: Object.keys(changedCustomFields).length > 0 ? changedCustomFields : undefined,
+        customFields:
+          Object.keys(changedTransferCustomFields).length > 0
+            ? changedTransferCustomFields
+            : undefined,
       });
 
       if (!patchResult.ok) {
         setErrorMessage(patchResult.error);
         toast.error(patchResult.error);
+        return;
+      }
+
+      if (patchResult.noop) {
+        // A negociação já está no funil, etapa e responsável selecionados:
+        // pula o PATCH desnecessário e transfere a conversa normalmente.
+        appliedDealAction = "none";
+        setSubmitting("with_deal");
+        try {
+          const transferred = await transferChat(
+            intent.conversationId,
+            intent.sectorName,
+            intent.targetOperatorId,
+            intent.dealSelection,
+          );
+          if (transferred) {
+            onCompleted?.({ dealAction: appliedDealAction });
+            onClose();
+          }
+        } finally {
+          setSubmitting("none");
+        }
         return;
       }
 
@@ -521,7 +595,7 @@ export const ChatTransferDealActionModal: React.FC<ChatTransferDealActionModalPr
       setSubmitting("with_deal");
     }
 
-    // 2. Recarrega contexto atualizado (essencial após ganho/perda para ativar carência 24h e versão nova) e transfere a conversa
+    // 2. Recarrega contexto atualizado (essencial após ganho/perda para ativar carência e versão nova) e transfere a conversa
     try {
       let nextDealSelection = intent.dealSelection;
       if (tenant && currentOperatorId) {
@@ -552,7 +626,7 @@ export const ChatTransferDealActionModal: React.FC<ChatTransferDealActionModalPr
       );
 
       if (transferred) {
-        onCompleted?.({ dealAction: mode });
+        onCompleted?.({ dealAction: appliedDealAction });
         onClose();
       } else {
         setErrorMessage(
@@ -574,9 +648,11 @@ export const ChatTransferDealActionModal: React.FC<ChatTransferDealActionModalPr
     if (mode === "mark_won") return "Marcar venda e transferir";
     if (mode === "mark_lost") return "Marcar perda e transferir";
     if (mode === "mark_paused") return "Pausar e transferir";
-    if (mode === "transfer_deal") return "Transferir negociação e conversa";
+    if (mode === "transfer_deal") {
+      return isTransferDealNoop ? "Transferir conversa" : "Transferir negociação e conversa";
+    }
     return "Confirmar";
-  }, [mode, submitting]);
+  }, [mode, submitting, isTransferDealNoop]);
 
   const isConfirmDisabled = useMemo(() => {
     if (submitting !== "none" || mode === "none") return true;
@@ -624,8 +700,8 @@ export const ChatTransferDealActionModal: React.FC<ChatTransferDealActionModalPr
         }
       }}
     >
-      <DialogContent className="sm:max-w-[540px] max-h-[92vh] overflow-y-auto scrollbar-thin p-5 bg-card text-foreground border border-border shadow-2xl">
-        <DialogHeader className="space-y-1.5">
+      <DialogContent className="flex flex-col sm:max-w-[580px] max-h-[90vh] overflow-hidden p-0 gap-0 bg-card text-foreground border border-border shadow-2xl">
+        <DialogHeader className="shrink-0 space-y-1.5 px-5 pt-5 pb-3.5 pr-11 border-b border-border/60">
           <DialogTitle className="flex items-center gap-2 text-sm font-bold text-foreground">
             <div className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary border border-primary/20">
               <ArrowRightLeft className="h-4 w-4" />
@@ -637,8 +713,9 @@ export const ChatTransferDealActionModal: React.FC<ChatTransferDealActionModalPr
           </DialogDescription>
         </DialogHeader>
 
+        <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin px-5 py-4 space-y-4">
         {/* Resumo do destino da conversa + card Atual vinculado */}
-        <div className="mt-1 space-y-2 rounded-xl border border-border/80 bg-muted/35 p-3 text-xs">
+        <div className="space-y-2 rounded-xl border border-border/80 bg-muted/35 p-3 text-xs">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground min-w-0">
               <Send className="h-3.5 w-3.5 shrink-0 text-primary" />
@@ -1017,6 +1094,19 @@ export const ChatTransferDealActionModal: React.FC<ChatTransferDealActionModalPr
                       </Select>
                     </div>
 
+                    {/* Aviso informativo quando a negociação já está exatamente no destino escolhido */}
+                    {isTransferDealNoop && !loadingPipelines && (
+                      <div
+                        role="status"
+                        className="rounded-xl border border-sky-500/35 bg-sky-500/10 p-2.5 text-[11px] text-sky-800 dark:text-sky-200 flex items-start gap-2"
+                      >
+                        <Info className="h-4 w-4 shrink-0 mt-0.5 text-sky-600 dark:text-sky-400" />
+                        <span>
+                          Esta negociação já está neste funil, etapa e responsável. Ao confirmar, apenas a conversa será transferida.
+                        </span>
+                      </div>
+                    )}
+
                     {/* Aviso quando destino for etapa/funil sem visibilidade */}
                     {targetIsHidden && (
                       <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-2.5 text-[11px] text-amber-700 dark:text-amber-300 flex items-start gap-2">
@@ -1075,41 +1165,53 @@ export const ChatTransferDealActionModal: React.FC<ChatTransferDealActionModalPr
           </div>
         )}
 
-        <DialogFooter className="mt-2 pt-3 border-t border-border/70 flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-2">
+        </div>
+
+        <DialogFooter className="shrink-0 px-5 py-3.5 border-t border-border/70 bg-card flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-2 sm:space-x-0">
           <button
             type="button"
             disabled={submitting !== "none"}
             onClick={onClose}
-            className="h-9 px-3.5 rounded-xl border border-border bg-card text-xs font-semibold text-muted-foreground hover:bg-muted transition cursor-pointer disabled:opacity-50"
+            className="min-h-9 py-2 px-3.5 rounded-xl border border-border bg-card text-xs font-semibold text-muted-foreground hover:bg-muted transition cursor-pointer whitespace-nowrap disabled:opacity-50"
           >
             Cancelar
           </button>
 
           <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center gap-2">
-            <SystemTooltip content="Transfere apenas a conversa no chat, sem alterar a negociação atual">
-              <button
-                type="button"
-                disabled={submitting !== "none"}
-                onClick={() => void handleTransferChatOnly()}
-                className="h-9 px-3.5 rounded-xl border border-border bg-muted/60 text-xs font-bold text-foreground hover:bg-muted transition cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50"
-              >
-                {submitting === "chat_only" ? (
-                  <>
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    <span>Transferindo...</span>
-                  </>
-                ) : (
-                  <span>Transferir apenas conversa</span>
-                )}
-              </button>
-            </SystemTooltip>
+            {(mode === "none" || dealActionCompleted || !isTransferDealNoop) && (
+              <SystemTooltip content="Transfere apenas a conversa no chat, sem alterar a negociação atual">
+                <button
+                  type="button"
+                  disabled={submitting !== "none"}
+                  onClick={() => void handleTransferChatOnly()}
+                  className={`min-h-9 py-2 px-3.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap disabled:opacity-50 ${
+                    mode === "none" || dealActionCompleted
+                      ? "bg-primary hover:opacity-90 text-primary-foreground shadow-sm"
+                      : "border border-border bg-muted/60 text-foreground hover:bg-muted"
+                  }`}
+                >
+                  {submitting === "chat_only" ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+                      <span>Transferindo...</span>
+                    </>
+                  ) : (
+                    <span>
+                      {mode === "none" || dealActionCompleted
+                        ? "Transferir apenas conversa"
+                        : "Apenas conversa"}
+                    </span>
+                  )}
+                </button>
+              </SystemTooltip>
+            )}
 
             {mode !== "none" && !dealActionCompleted && (
               <button
                 type="button"
                 disabled={isConfirmDisabled}
                 onClick={() => void handleConfirmWithDealAction()}
-                className={`h-9 px-4 rounded-xl text-xs font-bold text-white shadow-sm transition cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed ${
+                className={`min-h-9 py-2 px-4 rounded-xl text-xs font-bold text-white shadow-sm transition cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed ${
                   mode === "mark_won"
                     ? "bg-emerald-600 hover:bg-emerald-700"
                     : mode === "mark_lost"
@@ -1119,7 +1221,7 @@ export const ChatTransferDealActionModal: React.FC<ChatTransferDealActionModalPr
                         : "bg-primary hover:opacity-90 text-primary-foreground"
                 }`}
               >
-                {submitting === "with_deal" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                {submitting === "with_deal" && <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />}
                 <span>{confirmButtonLabel}</span>
               </button>
             )}
