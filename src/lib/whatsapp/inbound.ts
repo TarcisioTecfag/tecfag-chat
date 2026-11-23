@@ -24,6 +24,10 @@ import { getAiPersona, isSdrTenant } from "../ai-persona";
 import { SessionManager } from "../baileys/session-manager";
 import { SdrDebouncer } from "../valentina/sdr-debouncer";
 import { restartIndustrialCycle } from "../triage/industrial-cycle-restart";
+import {
+  evaluateIndustrialSdrOwnershipGuard,
+  fetchLatestPublicOutboundMessage,
+} from "../triage/industrial-ownership-guard";
 import { normalizeCanonicalPhone, buildPhoneSearchTerms } from "../utils";
 import { sendPushToOperator } from "../push-notifications";
 import { checkAndSendOperatorStatusAutoReply } from "./status-auto-reply";
@@ -440,6 +444,10 @@ export class InboundProcessor {
     // 2. Se a conversa estava finalizada e foi reaberta sem operador de carteira, arquiva a triagem anterior e inicia novo ciclo
     if (reopened && !conv.operatorId && conv.queueState !== "meus") {
       if (getAiPersona(tenantId).triagePolicy === "industrial") {
+        if (conv.queueState !== "automacao") {
+          console.log(`[Meta/SDR] 🛑 Reabertura industrial em fila '${conv.queueState}' (${convId}). ${getAiPersona(tenantId).name} silenciado.`);
+          return;
+        }
         const restarted = await restartIndustrialCycle(db, tenantId, convId, { reason: "reopened", sourceKey: messageId, receivedAt: inbound.timestamp });
         if (!restarted) return;
       } else {
@@ -466,28 +474,45 @@ export class InboundProcessor {
       }
     }
 
-    // 4. Trava de Operador: só aciona o SDR se a conversa não estiver com vendedor humano
+    // 4. Trava de Operador / Posse da Conversa: só aciona o SDR se a conversa não estiver com vendedor humano ou agente externo
     const currentFlow = await db.query.agentFlowStates.findFirst({
       where: (t, { eq: dEq, and: dAnd }) =>
         dAnd(dEq(t.conversationId, convId), dEq(t.tenantId, tenantId)),
     });
 
     const currentFlowMeta = (currentFlow?.metadata as Record<string, any>) || {};
-    const isHandledByOperator = Boolean(
-      conv.operatorId !== null ||
-      conv.queueState === "meus" ||
-      conv.queueState === "finalizados" ||
-      currentFlow?.outcome === "completed" ||
-      currentFlow?.outcome === "transferred" ||
-      currentFlow?.outcome === "stopped" ||
-      currentFlow?.outcome === "paused" ||
-      currentFlowMeta.handoffStatus === "awaiting_approval" ||
-      Boolean(currentFlowMeta.pendingApproval)
-    );
+    const isIndustrial = getAiPersona(tenantId).triagePolicy === "industrial";
+    if (isIndustrial) {
+      const latestOutbound = await fetchLatestPublicOutboundMessage(db, tenantId, convId);
+      const guard = evaluateIndustrialSdrOwnershipGuard({
+        queueState: conv.queueState,
+        operatorId: conv.operatorId,
+        flowOutcome: currentFlow?.outcome || null,
+        flowMetadata: currentFlowMeta,
+        flowStartedAt: currentFlow?.startedAt || null,
+        latestOutbound,
+      });
+      if (guard.blocked) {
+        console.log(`[Meta/SDR] 🛑 Trava de Posse Industrial ativa (${guard.reason}) para conversa ${convId} (${fromPhone}). ${getAiPersona(tenantId).name} silenciado.`);
+        return;
+      }
+    } else {
+      const isHandledByOperator = Boolean(
+        conv.operatorId !== null ||
+        conv.queueState === "meus" ||
+        conv.queueState === "finalizados" ||
+        currentFlow?.outcome === "completed" ||
+        currentFlow?.outcome === "transferred" ||
+        currentFlow?.outcome === "stopped" ||
+        currentFlow?.outcome === "paused" ||
+        currentFlowMeta.handoffStatus === "awaiting_approval" ||
+        Boolean(currentFlowMeta.pendingApproval)
+      );
 
-    if (isHandledByOperator) {
-      console.log(`[Meta/SDR] 🛑 Trava de Operador ativa para conversa ${convId} (${fromPhone}). ${getAiPersona(tenantId).name} silenciado.`);
-      return;
+      if (isHandledByOperator) {
+        console.log(`[Meta/SDR] 🛑 Trava de Operador ativa para conversa ${convId} (${fromPhone}). ${getAiPersona(tenantId).name} silenciado.`);
+        return;
+      }
     }
 
     // 5. Dar sinal imediato de leitura (✓✓ azul) no WhatsApp do cliente assim que entra na fila do SDR

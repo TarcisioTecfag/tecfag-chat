@@ -28,6 +28,17 @@ export type IndustrialHandoffStatus =
 
 export const INDUSTRIAL_AWAITING_APPROVAL_CLIENT_MESSAGE =
   "Perfeito, já coletei tudo! Estou validando e já te encaminho para o responsável.";
+
+/**
+ * Detecta promessas/anúncios de encaminhamento, transferência ou acionamento de equipe
+ * que o modelo NÃO pode emitir enquanto a triagem ainda estiver em coleta (`collecting`).
+ */
+export const INDUSTRIAL_CLAIMS_EFFECT_PATTERN =
+  /(?:j[aá] (?:criei|vinculei|transferi|encaminhei|direcionei|redirecionei|acionei|passei|enviei)|(?:card|negocia[cç][aã]o|atendimento|solicita[cç][aã]o|contato|pedido|caso|demanda).{0,45}(?:criad[oa]|vinculad[oa]|transferid[oa]|encaminhad[oa]|direcionad[oa]|redirecionad[oa]|j[aá] est[aá] com|foi direcionad[oa]|foi encaminhad[oa]|foi transferid[oa]|foi enviad[oa])|(?:estou|te|vou) (?:te )?(?:transferindo|transferir|encaminhando|encaminhar|direcionando|direcionar|redirecionando|redirecionar|acionando|acionar|passando|passar)|(?:equipe|especialista|consultor(?:a|es)?|setor|time|p[oó]s[\s-]?venda|financeiro|suporte|pe[cç]as).{0,55}(?:j[aá] (?:foi acionad[oa]|recebeu|est[aá] com|dar[aá] andamento)|entrar[aá] em contato|retornar[aá](?: o contato)?|assumir[aá]|dar[aá] continuidade|dar[aá] prioridade|vai entrar em contato)|j[aá] coletei tudo|estou validando)/i;
+
+export function claimsIndustrialHandoffEffect(messages: readonly string[]): boolean {
+  return messages.some((text) => INDUSTRIAL_CLAIMS_EFFECT_PATTERN.test(String(text || "")));
+}
 export interface IndustrialHandoffResult {
   status: IndustrialHandoffStatus;
   operator: HandoffOperator | null;
@@ -126,8 +137,7 @@ export function industrialClientMessages(params: {
     params.result.operator?.name,
     { isOperatorAbsent },
   );
-  const claimsEffectPattern =
-    /(?:j[aá] (?:criei|vinculei|transferi|encaminhei)|(?:card|negocia[cç][aã]o|atendimento).{0,40}(?:criad[oa]|vinculad[oa]|transferid[oa]|encaminhad[oa])|(?:estou|te|vou) (?:te )?(?:transferindo|transferir|encaminhando|encaminhar|acionar)|j[aá] coletei tudo|estou validando)/i;
+  const claimsEffectPattern = INDUSTRIAL_CLAIMS_EFFECT_PATTERN;
   if (confirmation) {
     if (params.result.status === "awaiting_approval" || params.result.status === "transferred") {
       // Preserva balões informativos gerados pelo modelo para responder perguntas finais do cliente
@@ -142,7 +152,7 @@ export function industrialClientMessages(params: {
     }
     return [confirmation];
   }
-  const claimsSuccess = params.messages.some((text) => claimsEffectPattern.test(text));
+  const claimsSuccess = claimsIndustrialHandoffEffect(params.messages);
   if (!claimsSuccess) return params.messages;
   const next = assessIndustrialReadiness(params.route, params.data).missing[0];
   const questions = {

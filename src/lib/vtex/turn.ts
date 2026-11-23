@@ -1,6 +1,45 @@
 import { readSiteContext } from "../livechat/site-context.ts";
 import { resolveIndustrialRoute, requestsHuman } from "../triage/industrial-policy.ts";
 import { type VtexQuery, type VtexResult, type VtexChannel, plainText } from "./contract.ts";
+const NON_STORE_URL_HOST_PATTERN =
+  /(?:^|\.)(?:instagram\.com|facebook\.com|fb\.com|fb\.watch|youtube\.com|youtu\.be|tiktok\.com|wa\.me|whatsapp\.com|linkedin\.com|twitter\.com|x\.com|google\.com(?:\.br)?|goo\.gl|maps\.app\.goo\.gl|mercadolivre\.com\.br|shopee\.com\.br|bit\.ly|linktr\.ee|t\.me)$/i;
+
+const KNOWN_STORE_URL_HOST_PATTERN =
+  /(?:^|\.)(?:tecfag\.com\.br|lojatecfag\.com\.br|vtexcommercestable\.com\.br)$/i;
+
+function extractStoreProductUrl(text: string, siteContext: unknown): string | undefined {
+  const matches = text.match(/https:\/\/[^\s<>"']+/gi) || [];
+  if (matches.length === 0) return undefined;
+  const ctx = readSiteContext(siteContext);
+  let contextOrigin: string | null = null;
+  for (const candidate of [ctx?.product?.url, ctx?.page?.url]) {
+    if (!candidate) continue;
+    try {
+      contextOrigin = new URL(candidate).origin;
+      break;
+    } catch {
+      /* ignore invalid context URL */
+    }
+  }
+  for (const raw of matches) {
+    const cleaned = raw.replace(/[).,;]+$/, "");
+    try {
+      const parsed = new URL(cleaned);
+      if (NON_STORE_URL_HOST_PATTERN.test(parsed.hostname)) continue;
+      if (
+        (contextOrigin && parsed.origin === contextOrigin) ||
+        KNOWN_STORE_URL_HOST_PATTERN.test(parsed.hostname) ||
+        /\/p(?:\/|$)/i.test(parsed.pathname)
+      ) {
+        return cleaned;
+      }
+    } catch {
+      continue;
+    }
+  }
+  return undefined;
+}
+
 export function deriveVtexQuery(
   text: string,
   siteContext: unknown,
@@ -21,15 +60,39 @@ export function deriveVtexQuery(
   const sku =
     text.match(/\bsku\s*[:#-]?\s*(\d{1,20})\b/i)?.[1] ||
     (previous?.status === "choices" ? text.match(/^\s*(\d{1,20})\s*$/)?.[1] : undefined);
-  const url = text.match(/https:\/\/[^\s<>"']+/i)?.[0]?.replace(/[).,;]+$/, "");
+  const url = extractStoreProductUrl(text, siteContext);
   const postalReply = postal && previous?.selectedSkuId && /^\s*\d{5}-?\d{3}[.!]?\s*$/.test(text);
   const hasStoreContext = Boolean(product || sku || url || previous?.selectedSkuId);
-  const detail =
-    availability ||
-    /\b(?:especificac|ficha tecnica|medidas|dimensoes|potencia|voltagem|sku)\w*/.test(
-      normalized,
+  // Extrai possível produto/modelo explicitamente nomeado antes de decidir se termos técnicos ativam a loja.
+  const named = text
+    .match(
+      /(?:pre[cç]o|valor|quanto custa|especifica[cç][oõ]es|ficha t[eé]cnica)\s+(?:d[aoe]\s+|sobre\s+)?(.+)/i,
+    )?.[1]
+    ?.replace(/[?!.]+$/g, "")
+    .trim();
+  const normalizedNamed = named
+    ? named
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+    : "";
+  const generic =
+    !normalizedNamed ||
+    /^(?:(?:d?ess[ea]s?|d?est[ea]s?|aquel[ea]s?|o|a|os|as|n?ess[ea]s?|n?est[ea]s?)\s+)*(?:produto|modelo|item|m[aá]quina|equipamento|seladora|envasadora|dosadora)?s?(?:\s*(?:acima|abaixo|anterior(?:es)?|citad[oa]s?|mencionad[oa]s?|informad[oa]s?|enviad[oa]s?|descrit[oa]s?|pedid[oa]s?|solicitad[oa]s?|aqui|dela|dele|deles|delas))*$/i.test(
+      normalizedNamed,
     ) ||
-    (hasStoreContext && /\binformacoes sobre\b/.test(normalized));
+    /^(?:acima|abaixo|anterior(?:es)?|citad[oa]s?|mencionad[oa]s?|informad[oa]s?|enviad[oa]s?|descrit[oa]s?|pedid[oa]s?|solicitad[oa]s?|aqui|dela|dele|deles|delas)$/i.test(
+      normalizedNamed,
+    );
+  const hasNamedProduct = Boolean(named && !generic && named.length >= 3 && named.length <= 120);
+  const detail =
+    (hasStoreContext && availability) ||
+    (hasNamedProduct &&
+      /\b(?:especificac|ficha tecnica|medidas|dimensoes|potencia|voltagem)\w*/.test(normalized)) ||
+    (hasStoreContext &&
+      /\b(?:especificac|ficha tecnica|medidas|dimensoes|potencia|voltagem|sku|informacoes sobre)\w*/.test(
+        normalized,
+      ));
   if (!shipping && !price && !detail && !sku && !url && !postalReply) return null;
   let query: VtexQuery | null = sku
     ? { kind: "sku", value: sku, quantity: 1 }
@@ -37,16 +100,7 @@ export function deriveVtexQuery(
       ? { kind: "url", value: url, quantity: 1 }
       : null;
   // Um produto novo nomeado na mensagem não pode herdar silenciosamente o SKU anterior.
-  const named = text
-    .match(
-      /(?:pre[cç]o|valor|quanto custa|especifica[cç][oõ]es|ficha t[eé]cnica)\s+(?:d[aoe]\s+|sobre\s+)?(.+)/i,
-    )?.[1]
-    ?.replace(/[?!.]+$/g, "")
-    .trim();
-  const generic =
-    !named ||
-    /^(?:d?esse|d?este|d?essa|d?esta|o|a)?\s*(?:produto|modelo|item|m[aá]quina)?$/i.test(named);
-  if (!query && named && !generic && named.length >= 3 && named.length <= 120)
+  if (!query && hasNamedProduct && named)
     query = { kind: "term", value: named, quantity: 1 };
   const changingProduct = /\b(?:outro|outra|diferente|mudar|trocar de modelo)\b/.test(normalized);
   if (

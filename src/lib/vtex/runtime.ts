@@ -41,6 +41,16 @@ export async function runVtexStoreTurn(
       shippingRequested: request.intent === "shipping",
       credentials: credentialsForVtex(tenantId, state),
     });
+    // No WhatsApp, consulta livre por termo técnico que não encontra SKU/produto na loja
+    // não deve sequestrar a triagem consultiva com mensagem robótica de "envie link ou SKU".
+    if (
+      input.channel === "whatsapp" &&
+      request.intent === "details" &&
+      request.query.kind === "term" &&
+      (result.status === "not_found" || result.status === "unavailable")
+    ) {
+      return null;
+    }
     return {
       messages: formatVtexAnswer(result, request.intent),
       evidence: safeVtexEvidence(result),

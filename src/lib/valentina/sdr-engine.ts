@@ -55,8 +55,18 @@ import { runVtexStoreTurn } from "../vtex/runtime";
 import { guardVtexMessages } from "../vtex/turn";
 import { readVtexEvidence } from "../vtex/contract";
 import { parseIndustrialAiResult } from "../triage/industrial-ai-result";
-import { industrialHandoffOutcome, industrialClientMessages, type IndustrialHandoffResult } from "../triage/industrial-handoff";
+import {
+  claimsIndustrialHandoffEffect,
+  industrialHandoffOutcome,
+  industrialClientMessages,
+  type IndustrialHandoffResult,
+} from "../triage/industrial-handoff";
 import { createIndustrialHandoffStore } from "../triage/industrial-handoff-store";
+import {
+  evaluateIndustrialSdrOwnershipGuard,
+  fetchLatestPublicOutboundMessage,
+  isIndustrialOwnerStillValidForSend,
+} from "../triage/industrial-ownership-guard";
 import { deliverIndustrialPostCommit } from "../triage/industrial-post-commit-delivery";
 import { appendIndustrialJournal } from "../triage/industrial-triage-journal-store";
 import {
@@ -327,13 +337,29 @@ export class SdrEngine {
             ...(industrialTriage ? [dEq(t.agentType, "sdr")] : [])),
       });
 
-      // 🛑 TRAVA DE OPERADOR: Se a conversa possui um operador humano alocado, está na aba 'meus'/'finalizados' ou a triagem terminou/parou, o SDR SILENCIA IMEDIATAMENTE!
+      // 🛑 TRAVA DE OPERADOR / POSSE DA CONVERSA: Se a conversa possui um operador humano alocado,
+      // está em fila humana ('fila'/'meus'/'finalizados'), tem agente externo ativo ou a triagem terminou/parou,
+      // o SDR SILENCIA IMEDIATAMENTE!
       const convCheck = await db.query.conversations.findFirst({
         where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.id, conversationId), dEq(t.tenantId, tenantId)),
       });
 
       const flowMetaCheck = (flowState?.metadata as Record<string, any>) || {};
-      if (
+      if (industrialTriage) {
+        const latestOutbound = await fetchLatestPublicOutboundMessage(db, tenantId, conversationId);
+        const guard = evaluateIndustrialSdrOwnershipGuard({
+          queueState: convCheck?.queueState || null,
+          operatorId: convCheck?.operatorId || null,
+          flowOutcome: flowState?.outcome || null,
+          flowMetadata: flowMetaCheck,
+          flowStartedAt: flowState?.startedAt || null,
+          latestOutbound,
+        });
+        if (guard.blocked) {
+          console.log(`[SdrEngine] 🛑 TRAVA DE POSSE INDUSTRIAL ATIVA (${guard.reason}): Conversa ${conversationId} (Cliente ${contactPhone}, fila=${convCheck?.queueState || 'n/a'}, op=${convCheck?.operatorId || 'Não'}). ${aiPersona.name} SILENCIADO(A).`);
+          return false;
+        }
+      } else if (
         convCheck?.operatorId ||
         convCheck?.queueState === "meus" ||
         convCheck?.queueState === "finalizados" ||
@@ -1475,7 +1501,19 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       // ╚══════════════════════════════════════════════════════════════════════╝
       let isCompleted = false;
       if (industrialRoute) {
-        isCompleted = !storeTurn && canFinishIndustrialTriage({ route: industrialRoute, data: updatedCollectedData, isCompleted: aiResult.isCompleted, hasPendingQuestion: hasPendingTriageQuestion(aiResult.messagesToSend) });
+        const hasPendingQuestion = hasPendingTriageQuestion(aiResult.messagesToSend);
+        const implicitReadyHandoff =
+          Boolean(industrialReadiness?.ready) &&
+          !hasPendingQuestion &&
+          claimsIndustrialHandoffEffect(aiResult.messagesToSend);
+        isCompleted =
+          !storeTurn &&
+          canFinishIndustrialTriage({
+            route: industrialRoute,
+            data: updatedCollectedData,
+            isCompleted: Boolean(aiResult.isCompleted) || implicitReadyHandoff,
+            hasPendingQuestion,
+          });
       } else if (hasVitalInformation) {
         // Com dados vitais coletados: aceita conclusão da IA (sem pergunta real pendente) OU transferência explícita
         if ((aiResult.isCompleted && !botIsAskingQuestion) || messagesMentionTransfer) {
@@ -1662,7 +1700,16 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         const currentOwner = await db.query.conversations.findFirst({
           where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.tenantId, tenantId), dEq(t.id, conversationId)),
         });
-        if (!currentOwner || currentOwner.queueState === "finalizados" || (currentOwner.operatorId && currentOwner.operatorId !== allocatedOp?.id)) return false;
+        if (
+          !currentOwner ||
+          !isIndustrialOwnerStillValidForSend({
+            queueState: currentOwner.queueState,
+            operatorId: currentOwner.operatorId,
+            expectedOperatorId: allocatedOp?.id || null,
+          })
+        ) {
+          return false;
+        }
       }
       const flowOutcome = industrialTriage
         ? industrialHandoffOutcome(industrialHandoff.status)
@@ -2091,9 +2138,11 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
               });
               if (
                 !ownerBeforeImg ||
-                ownerBeforeImg.queueState === "finalizados" ||
-                (ownerBeforeImg.operatorId || null) !== (allocatedOp?.id || null) ||
-                (ownerBeforeImg.queueState === "meus" && !allocatedOp?.id)
+                !isIndustrialOwnerStillValidForSend({
+                  queueState: ownerBeforeImg.queueState,
+                  operatorId: ownerBeforeImg.operatorId,
+                  expectedOperatorId: allocatedOp?.id || null,
+                })
               ) {
                 break;
               }
@@ -2304,7 +2353,14 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       return;
     }
     if (persona.triagePolicy === "industrial") {
-      if (!ownerAudio || ownerAudio.queueState === "finalizados" || ownerAudio.queueState === "meus" || ownerAudio.operatorId) {
+      if (
+        !ownerAudio ||
+        !isIndustrialOwnerStillValidForSend({
+          queueState: ownerAudio.queueState,
+          operatorId: ownerAudio.operatorId,
+          expectedOperatorId: null,
+        })
+      ) {
         return;
       }
     }
@@ -2600,7 +2656,16 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         return;
       }
       if (persona.triagePolicy === "industrial") {
-        if (!ownerText || ownerText.queueState === "finalizados" || (ownerText.operatorId || null) !== (expectedOperatorId || null) || (ownerText.queueState === "meus" && !expectedOperatorId)) return;
+        if (
+          !ownerText ||
+          !isIndustrialOwnerStillValidForSend({
+            queueState: ownerText.queueState,
+            operatorId: ownerText.operatorId,
+            expectedOperatorId: expectedOperatorId || null,
+          })
+        ) {
+          return;
+        }
       }
       const isRequoteFragment = /só me responde/i.test(fragmentText) || /me responde isso/i.test(fragmentText);
       const hasRequoteInArray = messagesArray.some((m) => /só me responde/i.test(m) || /me responde isso/i.test(m));
