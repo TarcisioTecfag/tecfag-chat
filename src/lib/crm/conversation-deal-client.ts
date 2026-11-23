@@ -1,7 +1,19 @@
+export type ConversationDealContextItem = {
+  id: string;
+  title: string;
+  status?: string;
+  pipelineId?: string | null;
+  pipelineName?: string | null;
+  stageId?: string | null;
+  stageName?: string | null;
+  operatorId?: string | null;
+  operatorName?: string | null;
+};
+
 export type ConversationDealContext = {
   version: number;
-  currentDeal: { id: string; title: string; status?: string } | null;
-  previousDeal: { id: string; title: string; status?: string } | null;
+  currentDeal: ConversationDealContextItem | null;
+  previousDeal: ConversationDealContextItem | null;
   hasCurrentDeal: boolean;
   selectionRequired: boolean;
   gracePeriodActive?: boolean;
@@ -18,6 +30,12 @@ export type ConversationDealContext = {
     id: string;
     title: string;
     status: string;
+    pipelineId?: string | null;
+    pipelineName?: string | null;
+    stageId?: string | null;
+    stageName?: string | null;
+    operatorId?: string | null;
+    operatorName?: string | null;
     isLinked: boolean;
     closedAt?: string | Date | null;
   }>;
@@ -53,6 +71,24 @@ export const cachedDealRequirement = (conversationId?: string | null) => {
   if (!conversationId) return undefined;
   return requirementCache.get(conversationId);
 };
+
+export function invalidateDealContextCache(conversationId?: string | null) {
+  if (!conversationId) return;
+  mutationEpoch.set(conversationId, (mutationEpoch.get(conversationId) || 0) + 1);
+  inFlightRequirement.delete(conversationId);
+  requirementCache.delete(conversationId);
+  const keySuffix = `,${JSON.stringify(conversationId)}]`;
+  for (const k of Array.from(cache.keys())) {
+    if (k.endsWith(keySuffix)) {
+      cache.delete(k);
+    }
+  }
+  for (const k of Array.from(inFlightContext.keys())) {
+    if (k.endsWith(keySuffix)) {
+      inFlightContext.delete(k);
+    }
+  }
+}
 
 export function markConversationDealSatisfied(
   conversationId?: string | null,

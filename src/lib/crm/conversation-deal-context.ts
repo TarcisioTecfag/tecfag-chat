@@ -97,12 +97,29 @@ export async function getDealContext(
     .for("update")
     .limit(1);
   const deals = (await getContactDealRows(tx, tenantId, conversation.contactId)).map(
-    ({ id, title, status, pipelineId, operatorId, rdDealId, isLinked, closedAt }) => ({
+    ({
       id,
       title,
       status,
       pipelineId,
+      pipelineName,
+      stageId,
+      stageName,
       operatorId,
+      operatorName,
+      rdDealId,
+      isLinked,
+      closedAt,
+    }) => ({
+      id,
+      title,
+      status,
+      pipelineId,
+      pipelineName,
+      stageId,
+      stageName,
+      operatorId,
+      operatorName,
       rdDealId,
       isLinked,
       closedAt,

@@ -14,6 +14,12 @@ import { SharedFiles } from "@/components/chat/SharedFiles";
 import { getAiPersona } from "@/lib/ai-persona";
 import { AiAvatar } from "@/components/ui/AiAvatar";
 import { ConversationDealTransferContext } from "@/components/crm/ConversationDealContext";
+import { cachedDealContext, fetchDealContext } from "@/lib/crm/conversation-deal-client";
+import { getPermittedDealActions, resolveTransferTargetDeal } from "@/lib/crm/chat-transfer-deal-action";
+import {
+  ChatTransferDealActionModal,
+  type PendingChatTransferIntent,
+} from "@/components/chat/ChatTransferDealActionModal";
 import {
   OperatorInitialQuickBar,
   OperatorAvatarWithInitial,
@@ -48,16 +54,108 @@ export const MobileActionsModal: React.FC<MobileActionsModalProps> = ({
     setActiveView,
     tenant,
   } = useChat();
-  const { canCaptureChat, canOverrideChat, canTransferChat, canFinishChat } = usePermissions();
+  const {
+    permissions,
+    canCaptureChat,
+    canOverrideChat,
+    canTransferChat,
+    canFinishChat,
+    canViewCrm,
+    canCloseDeals,
+    canEditDeals,
+    canMoveStages,
+  } = usePermissions();
 
   const persona = getAiPersona(tenant || "valem");
 
   const [showTransferSelect, setShowTransferSelect] = useState(false);
+  const [transferDealSelection, setTransferDealSelection] = useState<
+    { dealId: string; expectedVersion: number } | undefined
+  >(undefined);
+  const [pendingTransferIntent, setPendingTransferIntent] =
+    useState<PendingChatTransferIntent | null>(null);
   const [showCustomerFile, setShowCustomerFile] = useState(false);
   const [showFinishConfirm, setShowFinishConfirm] = useState(false);
   const [highlightedOpId, setHighlightedOpId] = useState<string | null>(null);
   const [initialMeta, setInitialMeta] = useState<OperatorInitialMatchMeta | null>(null);
   const transferListRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    setTransferDealSelection(undefined);
+  }, [showTransferSelect, activeChat?.id]);
+
+  const initiateMobileTransfer = useCallback(
+    async (targetOpId: string | null, sectorName: string | null = null) => {
+      if (!activeChat) return;
+      const targetOp = targetOpId ? operators.find((op) => op.id === targetOpId) : null;
+      const targetLabel = targetOp
+        ? targetOp.name
+        : `Fila do setor ${sectorName || "Geral"}`;
+
+      let resolvedContext =
+        tenant && currentOperatorId
+          ? cachedDealContext(tenant, currentOperatorId, activeChat.id)
+          : undefined;
+      if (!resolvedContext && tenant && currentOperatorId) {
+        resolvedContext = await fetchDealContext(
+          tenant,
+          currentOperatorId,
+          activeChat.id,
+        ).catch(() => undefined);
+      }
+
+      const currentDeal = resolveTransferTargetDeal(resolvedContext);
+      const dealPerms = getPermittedDealActions(
+        {
+          canViewCrm,
+          canCloseDeals,
+          canEditDeals,
+          canMoveStages,
+          canSendToHiddenStagesOrPipelines: Boolean(
+            permissions?.crm?.canSendToHiddenStagesOrPipelines,
+          ),
+        },
+        currentDeal?.status,
+      );
+
+      if (currentDeal && dealPerms.hasAnyAction) {
+        setShowTransferSelect(false);
+        setHighlightedOpId(null);
+        setInitialMeta(null);
+        setPendingTransferIntent({
+          conversationId: activeChat.id,
+          contactName: activeChat.name,
+          sectorName,
+          targetOperatorId: targetOpId,
+          targetLabel,
+          dealSelection: transferDealSelection,
+          currentDeal,
+        });
+        return;
+      }
+
+      if (await transferChat(activeChat.id, sectorName, targetOpId, transferDealSelection)) {
+        setShowTransferSelect(false);
+        setHighlightedOpId(null);
+        setInitialMeta(null);
+        onClose();
+      }
+    },
+    [
+      activeChat,
+      operators,
+      tenant,
+      currentOperatorId,
+      canViewCrm,
+      canCloseDeals,
+      canEditDeals,
+      canMoveStages,
+      permissions?.crm?.canSendToHiddenStagesOrPipelines,
+      transferDealSelection,
+      transferChat,
+      onClose,
+    ],
+  );
 
   const sortedSectors = useMemo(() => sortAlphabeticallyByName(sectors), [sectors]);
   const sortedOperators = useMemo(
@@ -107,14 +205,7 @@ export const MobileActionsModal: React.FC<MobileActionsModalProps> = ({
         const target = sortedOperators.find((op) => op.id === highlightedOpId);
         if (target) {
           e.preventDefault();
-          void transferChat(activeChat.id, null, target.id).then((ok) => {
-            if (ok) {
-              setShowTransferSelect(false);
-              setHighlightedOpId(null);
-              setInitialMeta(null);
-              onClose();
-            }
-          });
+          void initiateMobileTransfer(target.id, null);
         }
         return;
       }
@@ -132,12 +223,28 @@ export const MobileActionsModal: React.FC<MobileActionsModalProps> = ({
     showTransferSelect,
     highlightedOpId,
     sortedOperators,
-    transferChat,
-    onClose,
+    initiateMobileTransfer,
     handleCycleInitial,
   ]);
 
-  if (!isOpen || !activeChat) return null;
+  if (!isOpen && !pendingTransferIntent) return null;
+  if (pendingTransferIntent) {
+    return (
+      <ChatTransferDealActionModal
+        open={Boolean(pendingTransferIntent)}
+        intent={pendingTransferIntent}
+        onClose={() => {
+          setPendingTransferIntent(null);
+          onClose();
+        }}
+        onCompleted={() => {
+          setPendingTransferIntent(null);
+          onClose();
+        }}
+      />
+    );
+  }
+  if (!activeChat) return null;
 
   const isAiChat =
     activeChat.id === "valentina" ||
@@ -171,10 +278,7 @@ export const MobileActionsModal: React.FC<MobileActionsModalProps> = ({
   };
 
   const handleTransfer = async (targetOpId: string | null, sectorName: string | null = null) => {
-    if (await transferChat(activeChat.id, sectorName, targetOpId)) {
-      setShowTransferSelect(false);
-      onClose();
-    }
+    await initiateMobileTransfer(targetOpId, sectorName);
   };
 
   return (
@@ -351,7 +455,10 @@ export const MobileActionsModal: React.FC<MobileActionsModalProps> = ({
                 </div>
 
                 {activeChat.id !== "valentina" && (
-                  <ConversationDealTransferContext conversationId={activeChat.id} />
+                  <ConversationDealTransferContext
+                    conversationId={activeChat.id}
+                    onChange={setTransferDealSelection}
+                  />
                 )}
 
                 {sortedOperators.length > 0 && (

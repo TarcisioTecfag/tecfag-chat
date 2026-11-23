@@ -113,7 +113,19 @@ import {
   normalizeTemplateCustomGroups,
 } from "@/lib/whatsapp/meta-template-common";
 import { toast } from "sonner";
-import { fetchDealRequirement } from "@/lib/crm/conversation-deal-client";
+import {
+  cachedDealContext,
+  fetchDealContext,
+  fetchDealRequirement,
+} from "@/lib/crm/conversation-deal-client";
+import {
+  getPermittedDealActions,
+  resolveTransferTargetDeal,
+} from "@/lib/crm/chat-transfer-deal-action";
+import {
+  ChatTransferDealActionModal,
+  type PendingChatTransferIntent,
+} from "@/components/chat/ChatTransferDealActionModal";
 import { getConversationSortTimestamp, type Conversation, type Message } from "@/lib/mockData";
 import {
   classifyConversationMessageSender,
@@ -1323,7 +1335,17 @@ export function CrmChatWidget() {
     valentinaResetAt,
     resetValentinaChat,
   } = useChat();
-  const { canAccessView, canViewCrm, canSendInternalNotes } = usePermissions();
+  const {
+    permissions,
+    canAccessView,
+    canViewCrm,
+    canSendInternalNotes,
+    canCloseDeals,
+    canEditDeals,
+    canMoveStages,
+  } = usePermissions();
+  const [pendingTransferIntent, setPendingTransferIntent] =
+    useState<PendingChatTransferIntent | null>(null);
   const [showMiniNoteComposer, setShowMiniNoteComposer] = useState(false);
 
   useEffect(() => {
@@ -1546,6 +1568,51 @@ export function CrmChatWidget() {
     if (!transferTargetChat || transferSubmitting) return;
     setTransferSubmitting(true);
     try {
+      const targetOp = operators.find((op) => op.id === targetOpId);
+      const targetLabel = targetOp?.name || "Operador";
+      let resolvedContext =
+        tenant && currentOperatorId
+          ? cachedDealContext(tenant, currentOperatorId, transferTargetChat.id)
+          : undefined;
+      if (!resolvedContext && tenant && currentOperatorId) {
+        resolvedContext = await fetchDealContext(
+          tenant,
+          currentOperatorId,
+          transferTargetChat.id,
+        ).catch(() => undefined);
+      }
+
+      const currentDeal = resolveTransferTargetDeal(resolvedContext);
+      const dealPerms = getPermittedDealActions(
+        {
+          canViewCrm,
+          canCloseDeals,
+          canEditDeals,
+          canMoveStages,
+          canSendToHiddenStagesOrPipelines: Boolean(
+            permissions?.crm?.canSendToHiddenStagesOrPipelines,
+          ),
+        },
+        currentDeal?.status,
+      );
+
+      if (currentDeal && dealPerms.hasAnyAction) {
+        const chatToTransfer = transferTargetChat;
+        setTransferTargetChat(null);
+        setTransferSearch("");
+        setHighlightedTransferOpId(null);
+        setTransferInitialMeta(null);
+        setPendingTransferIntent({
+          conversationId: chatToTransfer.id,
+          contactName: chatToTransfer.name,
+          sectorName: null,
+          targetOperatorId: targetOpId,
+          targetLabel,
+          currentDeal,
+        });
+        return;
+      }
+
       const ok = await transferChat(transferTargetChat.id, null, targetOpId);
       if (ok) {
         setTransferTargetChat(null);
@@ -5006,6 +5073,19 @@ export function CrmChatWidget() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <ChatTransferDealActionModal
+        open={Boolean(pendingTransferIntent)}
+        intent={pendingTransferIntent}
+        onClose={() => setPendingTransferIntent(null)}
+        onCompleted={() => {
+          if (pendingTransferIntent && selectedChatId === pendingTransferIntent.conversationId) {
+            setView("list");
+            setSelectedChatId(null);
+          }
+          setPendingTransferIntent(null);
+        }}
+      />
     </>
   );
 }

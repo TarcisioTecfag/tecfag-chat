@@ -1,5 +1,8 @@
 import { useConversationDealRequirement, ConversationDealRequirement } from "@/components/crm/ConversationDealRequirement";
 import { ConversationDealContext, ConversationDealTransferContext, useConversationDealContext } from "@/components/crm/ConversationDealContext";
+import { cachedDealContext, fetchDealContext } from "@/lib/crm/conversation-deal-client";
+import { getPermittedDealActions, resolveTransferTargetDeal } from "@/lib/crm/chat-transfer-deal-action";
+import { ChatTransferDealActionModal, type PendingChatTransferIntent } from "./ChatTransferDealActionModal";
 import {
   saveBrowserIntent,
   readBrowserIntents,
@@ -1240,6 +1243,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   const activeOperatorTyping = activeChat ? operatorTypingStatus[activeChat.id] : null;
 
   const {
+    permissions,
     canCaptureChat,
     canTransferChat,
     canFinishChat,
@@ -1250,6 +1254,10 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     canManageRdCrm,
     canChangeWalletOperator,
     canManageGlobalTemplates,
+    canViewCrm,
+    canCloseDeals,
+    canEditDeals,
+    canMoveStages,
   } = usePermissions();
 
   // ── Flags de permissão derivadas do grupo de acesso ──────────────────────
@@ -1636,8 +1644,78 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   }, []);
 
   const [showTransferModal, setShowTransferModal] = useState(false);
+  const [pendingTransferIntent, setPendingTransferIntent] =
+    useState<PendingChatTransferIntent | null>(null);
   const [transferDealSelection, setTransferDealSelection] = useState<{ dealId: string; expectedVersion: number } | undefined>();
   useEffect(() => { setTransferDealSelection(undefined); }, [showTransferModal, activeChat?.id]);
+
+  const initiateChatTransfer = useCallback(
+    async (params: {
+      conversationId: string;
+      contactName?: string | null;
+      sectorName: string | null;
+      targetOperatorId: string | null;
+      targetLabel: string;
+      dealSelection?: { dealId: string; expectedVersion: number };
+    }): Promise<boolean> => {
+      let resolvedContext =
+        activeChat?.id === params.conversationId ? dealContext.data : undefined;
+      if (!resolvedContext && tenant && currentOperatorId) {
+        resolvedContext =
+          cachedDealContext(tenant, currentOperatorId, params.conversationId) ||
+          (await fetchDealContext(tenant, currentOperatorId, params.conversationId).catch(
+            () => undefined,
+          ));
+      }
+
+      const currentDeal = resolveTransferTargetDeal(resolvedContext);
+      const dealPerms = getPermittedDealActions(
+        {
+          canViewCrm,
+          canCloseDeals,
+          canEditDeals,
+          canMoveStages,
+          canSendToHiddenStagesOrPipelines: Boolean(
+            permissions?.crm?.canSendToHiddenStagesOrPipelines,
+          ),
+        },
+        currentDeal?.status,
+      );
+
+      if (currentDeal && dealPerms.hasAnyAction) {
+        setPendingTransferIntent({
+          conversationId: params.conversationId,
+          contactName: params.contactName ?? activeChat?.name ?? null,
+          sectorName: params.sectorName,
+          targetOperatorId: params.targetOperatorId,
+          targetLabel: params.targetLabel,
+          dealSelection: params.dealSelection,
+          currentDeal,
+        });
+        return true;
+      }
+
+      return transferChat(
+        params.conversationId,
+        params.sectorName,
+        params.targetOperatorId,
+        params.dealSelection,
+      );
+    },
+    [
+      activeChat?.id,
+      activeChat?.name,
+      dealContext.data,
+      tenant,
+      currentOperatorId,
+      canViewCrm,
+      canCloseDeals,
+      canEditDeals,
+      canMoveStages,
+      permissions?.crm?.canSendToHiddenStagesOrPipelines,
+      transferChat,
+    ],
+  );
   const [transferModalSearch, setTransferModalSearch] = useState("");
   const [transferModalSubmitting, setTransferModalSubmitting] = useState(false);
   const [highlightedModalOpId, setHighlightedModalOpId] = useState<string | null>(null);
@@ -1776,12 +1854,13 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
           e.preventDefault();
           const directTransfer = selectedTransferSectorId === "__direct__";
           const selectedSector = sectors.find((s) => s.id === selectedTransferSectorId);
-          void transferChat(
-            activeChat.id,
-            directTransfer ? null : selectedSector?.name || "Sem Nome",
-            targetOp.id,
-          );
           closeTransferDropdown();
+          void initiateChatTransfer({
+            conversationId: activeChat.id,
+            sectorName: directTransfer ? null : selectedSector?.name || "Sem Nome",
+            targetOperatorId: targetOp.id,
+            targetLabel: targetOp.name,
+          });
         }
         return;
       }
@@ -1802,7 +1881,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     sortedTransferDropdownOps,
     highlightedTransferOpId,
     sectors,
-    transferChat,
+    initiateChatTransfer,
     closeTransferDropdown,
     scrollOpRowIntoContainer,
     handleCycleTransferDropdownInitial,
@@ -1852,19 +1931,24 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
       if (transferModalSubmitting || !activeChat) return;
       setTransferModalSubmitting(true);
       try {
-        const ok = await transferChat(activeChat.id, null, op.id, transferDealSelection);
+        const ok = await initiateChatTransfer({
+          conversationId: activeChat.id,
+          sectorName: null,
+          targetOperatorId: op.id,
+          targetLabel: op.name,
+          dealSelection: transferDealSelection,
+        });
         if (ok) {
           setShowTransferModal(false);
           setTransferModalSearch("");
           setHighlightedModalOpId(null);
           setModalInitialMeta(null);
-          toast.success(`Atendimento transferido para ${op.name}`);
         }
       } finally {
         setTransferModalSubmitting(false);
       }
     },
-    [transferModalSubmitting, activeChat, transferChat, transferDealSelection],
+    [transferModalSubmitting, activeChat, initiateChatTransfer, transferDealSelection],
   );
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [attachments, setAttachments] = useState<File[]>(initialTransientState?.attachments ?? []);
@@ -3829,12 +3913,13 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                                     type="button"
                                     data-transfer-nav-action="true"
                                     onClick={() => {
-                                      transferChat(
-                                        activeChat.id,
-                                        selectedSector?.name || "Sem Nome",
-                                        null,
-                                      );
                                       closeTransferDropdown();
+                                      void initiateChatTransfer({
+                                        conversationId: activeChat.id,
+                                        sectorName: selectedSector?.name || "Sem Nome",
+                                        targetOperatorId: null,
+                                        targetLabel: `Fila do setor ${selectedSector?.name || "Geral"}`,
+                                      });
                                     }}
                                     className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 mb-1 text-left text-xs font-semibold text-foreground hover:bg-muted transition border-b border-line border-dashed cursor-pointer"
                                   >
@@ -3869,12 +3954,13 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                                             }
                                           }}
                                           onClick={() => {
-                                            transferChat(
-                                              activeChat.id,
-                                              directTransfer ? null : selectedSector?.name || "Sem Nome",
-                                              op.id,
-                                            );
                                             closeTransferDropdown();
+                                            void initiateChatTransfer({
+                                              conversationId: activeChat.id,
+                                              sectorName: directTransfer ? null : selectedSector?.name || "Sem Nome",
+                                              targetOperatorId: op.id,
+                                              targetLabel: op.name,
+                                            });
                                           }}
                                           className={`flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold transition cursor-pointer ${
                                             isHighlighted
@@ -6013,13 +6099,18 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                           if (transferModalSubmitting || !activeChat) return;
                           setTransferModalSubmitting(true);
                           try {
-                            const ok = await transferChat(activeChat.id, sec.name, null, transferDealSelection);
+                            const ok = await initiateChatTransfer({
+                              conversationId: activeChat.id,
+                              sectorName: sec.name,
+                              targetOperatorId: null,
+                              targetLabel: `Fila do setor ${sec.name}`,
+                              dealSelection: transferDealSelection,
+                            });
                             if (ok) {
                               setShowTransferModal(false);
                               setTransferModalSearch("");
                               setHighlightedModalOpId(null);
                               setModalInitialMeta(null);
-                              toast.success(`Atendimento transferido para a fila de ${sec.name}`);
                             }
                           } finally {
                             setTransferModalSubmitting(false);
@@ -6057,6 +6148,13 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Pop-up de Ação / Transferência na Negociação Atual ao Transferir Conversa */}
+      <ChatTransferDealActionModal
+        open={Boolean(pendingTransferIntent)}
+        intent={pendingTransferIntent}
+        onClose={() => setPendingTransferIntent(null)}
+      />
     </motion.section>
   );
 }
