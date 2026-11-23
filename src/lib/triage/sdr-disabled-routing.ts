@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNull, like, sql } from "drizzle-orm";
 import {
   agentConfigs,
   agentFlowStates,
@@ -716,26 +716,12 @@ export async function sweepUnassignedAutomacaoWhenSdrDisabled(
 
   let sweptCount = 0;
   for (const row of strandedRows) {
-    SdrDebouncerRef?.clearSession(row.id);
+    // Revalida antes de mexer no estado: se o admin religou o SDR durante o loop, interrompe a varredura imediatamente
+    if (await isSdrEnabledForTenant(database, tenantId)) {
+      break;
+    }
 
     const { routing, contactName } = await database.transaction(async (tx) => {
-      // Interrompe eventual estado de fluxo em progresso para evitar retomada indevida
-      await tx
-        .update(agentFlowStates)
-        .set({
-          outcome: "stopped",
-          currentStep: "Encaminhado (SDR Desativado)",
-          completedAt: new Date(),
-          lastInteractionAt: new Date(),
-        })
-        .where(
-          and(
-            eq(agentFlowStates.tenantId, tenantId),
-            eq(agentFlowStates.conversationId, row.id),
-            eq(agentFlowStates.outcome, "in_progress"),
-          ),
-        );
-
       const [cRow] = row.contactId
         ? await tx
             .select({ name: contacts.name })
@@ -750,10 +736,35 @@ export async function sweepUnassignedAutomacaoWhenSdrDisabled(
         contactId: row.contactId,
         clientName: cRow?.name || "Cliente",
       });
+
+      // Só interrompe o fluxo em progresso se a conversa foi EFETIVAMENTE encaminhada (nunca se SDR foi religado)
+      if (res.routed) {
+        await tx
+          .update(agentFlowStates)
+          .set({
+            outcome: "stopped",
+            currentStep: "Encaminhado (SDR Desativado)",
+            completedAt: new Date(),
+            lastInteractionAt: new Date(),
+          })
+          .where(
+            and(
+              eq(agentFlowStates.tenantId, tenantId),
+              eq(agentFlowStates.conversationId, row.id),
+              eq(agentFlowStates.outcome, "in_progress"),
+            ),
+          );
+      }
+
       return { routing: res, contactName: cRow?.name || "Cliente" };
     });
 
+    if (routing.reason === "sdr_enabled") {
+      break;
+    }
+
     if (routing.routed) {
+      SdrDebouncerRef?.clearSession(row.id);
       sweptCount++;
       const runner =
         options.deliverEffects === undefined
@@ -772,4 +783,335 @@ export async function sweepUnassignedAutomacaoWhenSdrDisabled(
   }
 
   return { sweptCount };
+}
+
+function resolveRestoredIndustrialStep(metadata: unknown): string {
+  const meta =
+    metadata && typeof metadata === "object"
+      ? (metadata as Record<string, unknown>)
+      : {};
+  const wasAwaitingApproval =
+    meta.handoffStatus === "awaiting_approval" && Boolean(meta.pendingApproval);
+  return wasAwaitingApproval ? "Aguardando Aprovação SDR" : "Em Qualificação";
+}
+
+export interface RestoreSdrDisabledResult {
+  restoredCount: number;
+  skippedHumanActiveCount: number;
+  restoredConversationIds: string[];
+}
+
+/**
+ * Restaura triagens industriais marcadas como `Encaminhado (SDR Desativado)` quando o SDR
+ * volta a ficar ativo.
+ *
+ * - Por padrão (`includeRouted = false`), restaura com segurança absoluta todas as triagens
+ *   cujas conversas NUNCA saíram de `queueState = 'automacao'` (sem operador atribuído) —
+ *   exatamente o caso de clique acidental rápido (desligar e religar o SDR).
+ * - Com `includeRouted = true`, também reverte conversas que chegaram a receber nota
+ *   `sys-sdr-off-*` e ir para `meus`/`fila`, DESDE QUE nenhum operador humano tenha enviado
+ *   mensagem real após a interrupção.
+ */
+export async function restoreSdrDisabledFlows(
+  database: IndustrialDatabase,
+  tenantId: string,
+  options: {
+    conversationId?: string;
+    includeRouted?: boolean;
+    windowHours?: number;
+  } = {},
+): Promise<RestoreSdrDisabledResult> {
+  if (getAiPersona(tenantId).triagePolicy !== "industrial") {
+    return { restoredCount: 0, skippedHumanActiveCount: 0, restoredConversationIds: [] };
+  }
+  if (!(await isSdrEnabledForTenant(database, tenantId))) {
+    return { restoredCount: 0, skippedHumanActiveCount: 0, restoredConversationIds: [] };
+  }
+
+  const windowHours = options.windowHours ?? 48;
+  const windowStart = new Date(Date.now() - windowHours * 60 * 60 * 1000);
+  const includeRouted = options.includeRouted === true;
+
+  const whereClauses = [
+    eq(agentFlowStates.tenantId, tenantId),
+    eq(agentFlowStates.agentType, "sdr"),
+    eq(agentFlowStates.outcome, "stopped"),
+    eq(agentFlowStates.currentStep, "Encaminhado (SDR Desativado)"),
+  ];
+  if (options.conversationId) {
+    whereClauses.push(eq(agentFlowStates.conversationId, options.conversationId));
+  } else {
+    whereClauses.push(gte(agentFlowStates.completedAt, windowStart));
+  }
+
+  const interruptedFlows = await database
+    .select()
+    .from(agentFlowStates)
+    .where(and(...whereClauses))
+    .orderBy(desc(agentFlowStates.completedAt));
+
+  if (interruptedFlows.length === 0) {
+    return { restoredCount: 0, skippedHumanActiveCount: 0, restoredConversationIds: [] };
+  }
+
+  const restoredConversationIds: string[] = [];
+  let skippedHumanActiveCount = 0;
+
+  for (const flow of interruptedFlows) {
+    const restored = await database.transaction(async (tx) => {
+      const [conv] = await tx
+        .select()
+        .from(conversations)
+        .where(and(eq(conversations.tenantId, tenantId), eq(conversations.id, flow.conversationId)))
+        .for("update");
+
+      if (!conv || conv.queueState === "finalizados" || conv.whatsappConnectionId !== null) {
+        return "skip" as const;
+      }
+
+      const now = new Date();
+      const restoredStep = resolveRestoredIndustrialStep(flow.metadata);
+
+      // Caso 1: Conversa nunca saiu de automacao (estado inconsistente por clique rápido off/on)
+      if (conv.queueState === "automacao" && conv.operatorId === null) {
+        await tx
+          .update(agentFlowStates)
+          .set({
+            outcome: "in_progress",
+            currentStep: restoredStep,
+            completedAt: null,
+            lastInteractionAt: now,
+          })
+          .where(and(eq(agentFlowStates.tenantId, tenantId), eq(agentFlowStates.id, flow.id)));
+        return "restored" as const;
+      }
+
+      if (!includeRouted) {
+        return "skip" as const;
+      }
+
+      // Caso 2: Conversa encaminhada durante desativação — só reverte se houver nota sys-sdr-off-* e zero resposta humana posterior
+      const cutoff = flow.completedAt || windowStart;
+      const [sysNote] = await tx
+        .select({
+          id: messages.id,
+          metaDetails: messages.metaDetails,
+        })
+        .from(messages)
+        .where(
+          and(
+            eq(messages.tenantId, tenantId),
+            eq(messages.conversationId, conv.id),
+            like(messages.id, "sys-sdr-off-%"),
+            gte(messages.sentAt, new Date(cutoff.getTime() - 60_000)),
+          ),
+        )
+        .orderBy(desc(messages.sentAt))
+        .limit(1);
+
+      if (!sysNote) {
+        return "skip" as const;
+      }
+
+      const [humanReply] = await tx
+        .select({ id: messages.id })
+        .from(messages)
+        .where(
+          and(
+            eq(messages.tenantId, tenantId),
+            eq(messages.conversationId, conv.id),
+            eq(messages.senderType, "agent"),
+            eq(messages.isInternalNote, false),
+            gte(messages.sentAt, cutoff),
+          ),
+        )
+        .limit(1);
+
+      if (humanReply) {
+        return "human_active" as const;
+      }
+
+      const persona = getAiPersona(tenantId);
+      await setAttendanceActor(
+        tx as any,
+        tenantId,
+        `Reversão Automação (${persona.name} Reativado)`,
+        null,
+      );
+
+      await tx
+        .update(conversations)
+        .set({
+          queueState: "automacao",
+          operatorId: null,
+          version: sql`${conversations.version} + 1`,
+          updatedAt: now,
+        })
+        .where(and(eq(conversations.tenantId, tenantId), eq(conversations.id, conv.id)));
+
+      const allocatedOpId =
+        sysNote.metaDetails && typeof sysNote.metaDetails === "object"
+          ? String((sysNote.metaDetails as Record<string, unknown>).allocatedOperatorId || "")
+          : "";
+
+      if (conv.contactId && allocatedOpId) {
+        const [contactRow] = await tx
+          .select({ id: contacts.id, walletOperatorId: contacts.walletOperatorId })
+          .from(contacts)
+          .where(and(eq(contacts.tenantId, tenantId), eq(contacts.id, conv.contactId)))
+          .limit(1);
+
+        if (contactRow && contactRow.walletOperatorId === allocatedOpId) {
+          await tx
+            .update(contacts)
+            .set({ walletOperatorId: null, responsibleName: "Na Fila" })
+            .where(and(eq(contacts.tenantId, tenantId), eq(contacts.id, contactRow.id)));
+        }
+      }
+
+      await tx
+        .delete(messages)
+        .where(and(eq(messages.tenantId, tenantId), eq(messages.id, sysNote.id)));
+
+      await tx
+        .update(agentFlowStates)
+        .set({
+          outcome: "in_progress",
+          currentStep: restoredStep,
+          completedAt: null,
+          lastInteractionAt: now,
+        })
+        .where(and(eq(agentFlowStates.tenantId, tenantId), eq(agentFlowStates.id, flow.id)));
+
+      return "restored" as const;
+    });
+
+    if (restored === "restored") {
+      restoredConversationIds.push(flow.conversationId);
+    } else if (restored === "human_active") {
+      skippedHumanActiveCount++;
+    }
+  }
+
+  if (restoredConversationIds.length > 0) {
+    console.log(
+      `[SdrDisabledRouting] ✅ Restauradas ${restoredConversationIds.length} triagem(ns) interrompidas por desativação do SDR no tenant "${tenantId}".`,
+    );
+    try {
+      const { SessionManager } = await import("../baileys/session-manager");
+      for (const convId of restoredConversationIds) {
+        SessionManager.getInstance().notifyPublic(tenantId, {
+          type: "sdr_live_activity",
+          conversationId: convId,
+        });
+      }
+    } catch {
+      // ignore SSE notify error
+    }
+  }
+
+  return {
+    restoredCount: restoredConversationIds.length,
+    skippedHumanActiveCount,
+    restoredConversationIds,
+  };
+}
+
+/**
+ * Retoma manualmente uma triagem industrial interrompida (`outcome = 'stopped'`),
+ * devolvendo a conversa para `automacao` e restaurando `currentStep` fielmente
+ * (`Aguardando Aprovação SDR` se já havia aprovação pendente, ou `Em Qualificação`).
+ */
+export async function resumeStoppedIndustrialFlow(
+  database: IndustrialDatabase,
+  tenantId: string,
+  conversationId: string,
+  actorName: string,
+): Promise<{ resumed: boolean; currentStep?: string; reason?: string }> {
+  const now = new Date();
+  const result = await database.transaction(async (tx) => {
+    const [conv] = await tx
+      .select()
+      .from(conversations)
+      .where(and(eq(conversations.tenantId, tenantId), eq(conversations.id, conversationId)))
+      .for("update");
+
+    if (!conv) {
+      return { resumed: false, reason: "conversation_not_found" };
+    }
+    if (conv.queueState === "finalizados") {
+      return { resumed: false, reason: "conversation_closed" };
+    }
+
+    const [flow] = await tx
+      .select()
+      .from(agentFlowStates)
+      .where(
+        and(
+          eq(agentFlowStates.tenantId, tenantId),
+          eq(agentFlowStates.conversationId, conversationId),
+          eq(agentFlowStates.agentType, "sdr"),
+        ),
+      )
+      .orderBy(desc(agentFlowStates.lastInteractionAt))
+      .limit(1);
+
+    if (!flow) {
+      return { resumed: false, reason: "flow_not_found" };
+    }
+
+    const restoredStep = resolveRestoredIndustrialStep(flow.metadata);
+    const prevMeta =
+      flow.metadata && typeof flow.metadata === "object"
+        ? (flow.metadata as Record<string, unknown>)
+        : {};
+    const nextMeta: Record<string, unknown> = {
+      ...prevMeta,
+      aiPaused: false,
+      manualMode: false,
+      resumedBy: actorName,
+      resumedAt: now.toISOString(),
+    };
+    delete nextMeta.stoppedAt;
+    delete nextMeta.stoppedBy;
+
+    await setAttendanceActor(tx as any, tenantId, `Retomada SDR (${actorName})`, null);
+
+    await tx
+      .update(conversations)
+      .set({
+        queueState: "automacao",
+        operatorId: null,
+        version: sql`${conversations.version} + 1`,
+        updatedAt: now,
+      })
+      .where(and(eq(conversations.tenantId, tenantId), eq(conversations.id, conversationId)));
+
+    await tx
+      .update(agentFlowStates)
+      .set({
+        outcome: "in_progress",
+        currentStep: restoredStep,
+        completedAt: null,
+        lastInteractionAt: now,
+        metadata: nextMeta,
+      })
+      .where(and(eq(agentFlowStates.tenantId, tenantId), eq(agentFlowStates.id, flow.id)));
+
+    return { resumed: true, currentStep: restoredStep };
+  });
+
+  if (result.resumed) {
+    try {
+      const { SessionManager } = await import("../baileys/session-manager");
+      SessionManager.getInstance().notifyPublic(tenantId, {
+        type: "sdr_live_activity",
+        conversationId,
+      });
+    } catch {
+      // ignore SSE error
+    }
+  }
+
+  return result;
 }

@@ -17,6 +17,7 @@ import {
   Sparkles,
   Workflow,
   Loader2,
+  AlertTriangle,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ValentinaTab } from "./valentina-mock-data";
@@ -87,6 +88,7 @@ export function ValentinaView() {
   // Estado e Controle de SDR Triagem Automática (inicializado como null para não piscar "SDR Ativo")
   const [sdrEnabled, setSdrEnabled] = useState<boolean | null>(null);
   const [isSavingSdrConfig, setIsSavingSdrConfig] = useState(false);
+  const [showDisableSdrConfirm, setShowDisableSdrConfirm] = useState(false);
   const [sdrFilterState, setSdrFilterState] = useState<SdrFilterState>(DEFAULT_SDR_FILTER_STATE);
   const [sdrViewMode, setSdrViewMode] = useState<SdrViewMode>(() =>
     typeof window !== "undefined" && parseSdrTargetFromSearch(window.location.search)
@@ -106,9 +108,8 @@ export function ValentinaView() {
     setSdrSelectedInfo({});
   }, [tenant]);
 
-  const handleToggleSdr = async () => {
+  const executeToggleSdr = async (nextState: boolean) => {
     if (!isAdmin || sdrEnabled === null || isSavingSdrConfig) return;
-    const nextState = !sdrEnabled;
     setSdrEnabled(nextState);
     setIsSavingSdrConfig(true);
     try {
@@ -126,6 +127,9 @@ export function ValentinaView() {
             ? `SDR ${persona.name} ativado para todos os contatos!`
             : `SDR ${persona.name} pausado com sucesso!`,
         );
+        if (nextState) {
+          setSdrRefreshKey((prev) => prev + 1);
+        }
       } else {
         const err = await res.json().catch(() => ({}));
         setSdrEnabled(!nextState);
@@ -138,6 +142,16 @@ export function ValentinaView() {
     } finally {
       setIsSavingSdrConfig(false);
     }
+  };
+
+  const handleToggleSdr = () => {
+    if (!isAdmin || sdrEnabled === null || isSavingSdrConfig) return;
+    if (sdrEnabled === true) {
+      // Exige confirmação explícita antes de desativar para evitar cliques acidentais
+      setShowDisableSdrConfirm(true);
+      return;
+    }
+    void executeToggleSdr(true);
   };
 
   useTabNavigation({
@@ -443,6 +457,63 @@ export function ValentinaView() {
           </motion.div>
         </AnimatePresence>
       </div>
+
+      {/* Modal de confirmação antes de desativar o SDR global (proteção contra clique acidental) */}
+      <AnimatePresence>
+        {showDisableSdrConfirm && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.16 }}
+            onClick={() => setShowDisableSdrConfirm(false)}
+            className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 backdrop-blur-xs p-4"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: 8 }}
+              transition={{ duration: 0.16 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-md rounded-2xl border border-border bg-card p-5 shadow-2xl space-y-4"
+            >
+              <div className="flex items-start gap-3">
+                <div className="h-10 w-10 rounded-xl bg-destructive/15 border border-destructive/25 flex items-center justify-center shrink-0">
+                  <AlertTriangle className="h-5 w-5 text-destructive" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-sm font-extrabold text-foreground">
+                    Desativar SDR {persona.name}?
+                  </h3>
+                  <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                    Ao desativar, {persona.gender === "female" ? "a" : "o"} {persona.name} deixará de atender novos contatos e as triagens abertas em automação serão interrompidas e encaminhadas para a fila humana.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setShowDisableSdrConfirm(false)}
+                  className="px-3.5 py-2 rounded-xl text-xs font-bold border border-border bg-muted/40 text-foreground hover:bg-muted transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowDisableSdrConfirm(false);
+                    void executeToggleSdr(false);
+                  }}
+                  className="px-3.5 py-2 rounded-xl text-xs font-extrabold bg-destructive text-destructive-foreground hover:opacity-90 transition cursor-pointer shadow-soft"
+                >
+                  Sim, desativar SDR
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

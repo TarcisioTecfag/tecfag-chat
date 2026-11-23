@@ -428,9 +428,6 @@ export const Route = createFileRoute("/api/valentina/sdr")({
           content: messages.content,
           sentAt: messages.sentAt,
           isInternalNote: messages.isInternalNote,
-          mediaUrl: messages.mediaUrl,
-          mediaType: messages.mediaType,
-          fileName: messages.fileName,
           metaDetails: messages.metaDetails,
         };
 
@@ -1383,6 +1380,100 @@ export const Route = createFileRoute("/api/valentina/sdr")({
             );
           }
 
+          // Ação de Retomar a IA para uma conversa específica interrompida
+          if (action === "resume" && conversationId) {
+            const [conv] = await db
+              .select({ id: conversations.id })
+              .from(conversations)
+              .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)))
+              .limit(1);
+
+            if (!conv) {
+              return new Response(
+                JSON.stringify({ error: "Conversa não encontrada ou não pertence a este tenant.", code: "NOT_FOUND" }),
+                { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+              );
+            }
+
+            const persona = getAiPersona(tenantId);
+            if (persona.triagePolicy === "industrial") {
+              const { resumeStoppedIndustrialFlow } = await import("../../../lib/triage/sdr-disabled-routing");
+              const res = await resumeStoppedIndustrialFlow(
+                db,
+                tenantId,
+                conversationId,
+                session.operator.name || "Operador",
+              );
+              if (!res.resumed) {
+                return new Response(
+                  JSON.stringify({
+                    error:
+                      res.reason === "conversation_closed"
+                        ? "Conversa já está finalizada."
+                        : "Não foi possível retomar esta triagem.",
+                  }),
+                  { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+                );
+              }
+              void import("../../../lib/valentina/sdr-recovery")
+                .then(({ recoverIndustrialInterruptedTurns }) => recoverIndustrialInterruptedTurns())
+                .catch(() => {});
+              return new Response(
+                JSON.stringify({
+                  success: true,
+                  currentStep: res.currentStep,
+                  message: `Triagem do ${persona.name} retomada com sucesso.`,
+                }),
+                { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+              );
+            }
+
+            await db
+              .update(agentFlowStates)
+              .set({
+                outcome: "in_progress",
+                currentStep: "Em Qualificação",
+                completedAt: null,
+                lastInteractionAt: new Date(),
+              })
+              .where(
+                and(
+                  eq(agentFlowStates.conversationId, conversationId),
+                  eq(agentFlowStates.tenantId, tenantId),
+                  eq(agentFlowStates.agentType, "sdr"),
+                ),
+              );
+            await db
+              .update(conversations)
+              .set({ queueState: "automacao", operatorId: null, updatedAt: new Date() })
+              .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)));
+
+            return new Response(
+              JSON.stringify({ success: true, message: `Triagem do ${persona.name} retomada com sucesso.` }),
+              { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+            );
+          }
+
+          // Ação de Reverter em lote triagens interrompidas por desativação acidental do SDR
+          if (action === "restore_sdr_disabled") {
+            const { restoreSdrDisabledFlows } = await import("../../../lib/triage/sdr-disabled-routing");
+            const result = await restoreSdrDisabledFlows(db, tenantId, {
+              includeRouted: Boolean(body.includeRouted),
+            });
+            if (result.restoredCount > 0) {
+              void import("../../../lib/valentina/sdr-recovery")
+                .then(({ recoverIndustrialInterruptedTurns }) => recoverIndustrialInterruptedTurns())
+                .catch(() => {});
+            }
+            return new Response(
+              JSON.stringify({
+                success: true,
+                ...result,
+              }),
+              { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+            );
+          }
+
           // Apenas administradores podem salvar/alterar configurações globais de SDR
           if (session.operator.role !== "admin") {
             return new Response(
@@ -1431,6 +1522,23 @@ export const Route = createFileRoute("/api/valentina/sdr")({
                 console.warn(
                   "[api/valentina/sdr] Falha ao varrer conversas órfãs em automacao:",
                   sweepErr,
+                ),
+              );
+          } else if (enabled === true) {
+            void import("../../../lib/triage/sdr-disabled-routing")
+              .then(async ({ restoreSdrDisabledFlows }) => {
+                const res = await restoreSdrDisabledFlows(db, tenantId, { includeRouted: false });
+                if (res.restoredCount > 0) {
+                  const { recoverIndustrialInterruptedTurns } = await import(
+                    "../../../lib/valentina/sdr-recovery"
+                  );
+                  await recoverIndustrialInterruptedTurns();
+                }
+              })
+              .catch((restoreErr) =>
+                console.warn(
+                  "[api/valentina/sdr] Falha ao restaurar fluxos após reativar SDR:",
+                  restoreErr,
                 ),
               );
           }

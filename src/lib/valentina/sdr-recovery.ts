@@ -33,6 +33,18 @@ export async function recoverIndustrialInterruptedTurns(nowOverride?: Date): Pro
       )).limit(1);
       if (!enabled) continue;
 
+      // Auto-recuperação segura: restaura fluxos marcados como "Encaminhado (SDR Desativado)"
+      // cujas conversas permaneceram em `automacao` (ex.: clique acidental rápido de desligar/religar).
+      try {
+        const { restoreSdrDisabledFlows } = await import("../triage/sdr-disabled-routing");
+        await restoreSdrDisabledFlows(db, tenantId, { includeRouted: false });
+      } catch (restoreErr: any) {
+        console.warn(
+          `[SdrRecovery] Aviso ao restaurar fluxos órfãos de SDR desativado (${tenantId}):`,
+          restoreErr?.message || restoreErr,
+        );
+      }
+
       const candidateConvs = await db
         .select({
           id: conversations.id,

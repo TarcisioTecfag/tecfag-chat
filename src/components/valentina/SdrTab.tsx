@@ -1365,6 +1365,7 @@ export function SdrTab({
   const [isOpenActionPopupOpen, setIsOpenActionPopupOpen] = useState(false);
   const openActionPopupRef = useRef<HTMLDivElement | null>(null);
   const [isStoppingBot, setIsStoppingBot] = useState(false);
+  const [isResumingBot, setIsResumingBot] = useState(false);
 
   // Modal de visualização em tela cheia de mídia/foto
   const [previewModalImage, setPreviewModalImage] = useState<{ url: string; title: string } | null>(
@@ -2182,6 +2183,43 @@ export function SdrTab({
     }
   };
 
+  const handleResumeBot = async () => {
+    if (!selectedSession || selectedSession.status !== "stopped" || isResumingBot) return;
+    setIsResumingBot(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/valentina/sdr`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "resume",
+          conversationId: selectedSession.conversationId,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        toast.success(
+          data.message ||
+            `Triagem ${persona.gender === "female" ? "da" : "do"} ${persona.name} retomada com sucesso!`,
+        );
+        void fetchSdrData({ force: true });
+      } else {
+        const err = await res.json().catch(() => ({}));
+        toast.error(
+          err.error ||
+            `Erro ao retomar ${persona.gender === "female" ? "a" : "o"} ${persona.name}.`,
+        );
+      }
+    } catch (e) {
+      console.error(`Erro ao retomar ${persona.name}:`, e);
+      toast.error(
+        `Erro de conexão ao retomar ${persona.gender === "female" ? "a" : "o"} ${persona.name}.`,
+      );
+    } finally {
+      setIsResumingBot(false);
+    }
+  };
+
   const timelineItems = useMemo(
     () => (selectedSession ? buildSdrTimelineItems(selectedSession, persona.name) : []),
     [selectedSession, persona.name],
@@ -2645,7 +2683,7 @@ export function SdrTab({
                   )}
 
                   {selectedSession.outcome && selectedSession.outcome !== "in_progress" && (
-                    <div className="flex justify-center mt-3 animate-fadeIn">
+                    <div className="flex flex-wrap items-center justify-center gap-2 mt-3 animate-fadeIn">
                       <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-bold bg-muted/70 text-foreground border border-border">
                         {selectedSession.status === "completed" ? (
                           <CheckCircle className="h-3 w-3 text-emerald-500" />
@@ -2657,11 +2695,28 @@ export function SdrTab({
                         {selectedSession.status === "abandoned"
                           ? `Ciclo sem resposta do cliente${selectedSession.responsibleName ? ` · ${selectedSession.responsibleName}` : ""}`
                           : selectedSession.status === "stopped"
-                            ? "Triagem interrompida manualmente"
+                            ? selectedSession.currentStep === "Encaminhado (SDR Desativado)"
+                              ? "Triagem interrompida (SDR desativado)"
+                              : "Triagem interrompida manualmente"
                             : selectedSession.status === "completed"
                               ? `Triagem concluída${selectedSession.responsibleName ? ` · ${selectedSession.responsibleName}` : ""}`
                               : selectedSession.monitoring?.label || selectedSession.outcome}
                       </span>
+                      {selectedSession.status === "stopped" && sdrEnabled && (
+                        <button
+                          type="button"
+                          onClick={handleResumeBot}
+                          disabled={isResumingBot}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-extrabold bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 transition cursor-pointer disabled:opacity-50"
+                        >
+                          {isResumingBot ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <RotateCcw className="h-3 w-3" />
+                          )}
+                          {isResumingBot ? "Retomando..." : `Retomar ${persona.name}`}
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -2746,22 +2801,42 @@ export function SdrTab({
                             <TooltipProvider>
                               <Tooltip>
                                 <TooltipTrigger asChild>
-                                  <button
-                                    type="button"
-                                    onClick={handleStopBot}
-                                    disabled={isStoppingBot || !canStopBot}
-                                    className="text-[10px] font-extrabold text-primary hover:text-primary-hover bg-primary-soft hover:bg-primary-soft/80 border border-primary/20 px-2 py-1.5 rounded-lg transition flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                                  >
-                                    <Square className="h-2.5 w-2.5 text-primary fill-primary/30" />
-                                    <span className="hidden sm:inline">
-                                      {isStoppingBot ? "Parando..." : `Parar ${persona.name}`}
-                                    </span>
-                                  </button>
+                                  {selectedSession.status === "stopped" && sdrEnabled ? (
+                                    <button
+                                      type="button"
+                                      onClick={handleResumeBot}
+                                      disabled={isResumingBot}
+                                      className="text-[10px] font-extrabold text-emerald-600 dark:text-emerald-400 bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 px-2 py-1.5 rounded-lg transition flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                                    >
+                                      {isResumingBot ? (
+                                        <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                                      ) : (
+                                        <RotateCcw className="h-2.5 w-2.5" />
+                                      )}
+                                      <span className="hidden sm:inline">
+                                        {isResumingBot ? "Retomando..." : `Retomar ${persona.name}`}
+                                      </span>
+                                    </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={handleStopBot}
+                                      disabled={isStoppingBot || !canStopBot}
+                                      className="text-[10px] font-extrabold text-primary hover:text-primary-hover bg-primary-soft hover:bg-primary-soft/80 border border-primary/20 px-2 py-1.5 rounded-lg transition flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                                    >
+                                      <Square className="h-2.5 w-2.5 text-primary fill-primary/30" />
+                                      <span className="hidden sm:inline">
+                                        {isStoppingBot ? "Parando..." : `Parar ${persona.name}`}
+                                      </span>
+                                    </button>
+                                  )}
                                 </TooltipTrigger>
                                 <TooltipContent side="bottom">
-                                  {canStopBot
-                                    ? `Interromper instantaneamente as ações ${persona.gender === "female" ? "da" : "do"} ${persona.name} para este contato`
-                                    : `Disponível apenas enquanto a triagem estiver ativa (${persona.name} não está atuando neste ciclo)`}
+                                  {selectedSession.status === "stopped" && sdrEnabled
+                                    ? `Retomar a triagem automática ${persona.gender === "female" ? "da" : "do"} ${persona.name} exatamente de onde parou`
+                                    : canStopBot
+                                      ? `Interromper instantaneamente as ações ${persona.gender === "female" ? "da" : "do"} ${persona.name} para este contato`
+                                      : `Disponível apenas enquanto a triagem estiver ativa (${persona.name} não está atuando neste ciclo)`}
                                 </TooltipContent>
                               </Tooltip>
 
