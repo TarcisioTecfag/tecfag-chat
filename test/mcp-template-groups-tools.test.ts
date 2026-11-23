@@ -66,9 +66,9 @@ async function callMcp(
   return { isError: false as const, errorText: "", data: JSON.parse(text) };
 }
 
-describe("MCP v3.7.0 — CRUD Completo de Categorias/Grupos de Templates Meta & Visibilidade por Setor", () => {
+describe("MCP v3.8.0 — CRUD Completo de Categorias/Grupos de Templates Meta & Visibilidade por Setor", () => {
   it("expõe list_meta_template_groups em leitura, 3 tools de escrita apenas em read_write e 100% de paridade na Biblioteca de API", async () => {
-    expect(MCP_SERVER_INFO.version).toBe("3.7.0");
+    expect(MCP_SERVER_INFO.version).toBe("3.8.0");
 
     const readTools = getVisibleMcpTools(makeAccess("read"));
     const rwTools = getVisibleMcpTools(makeAccess("read_write"));

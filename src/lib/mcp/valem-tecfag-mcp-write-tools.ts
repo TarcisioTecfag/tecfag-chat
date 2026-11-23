@@ -27,6 +27,7 @@ import {
   tasks,
 } from "../../db/schema";
 import { crmService } from "../crm/crm-service";
+import { resolveAccountCustomFieldsInput } from "./valem-tecfag-mcp-account-fields";
 import {
   conflictsWithStandardField,
   isCustomFieldEntity,
@@ -345,7 +346,7 @@ export const MCP_EXTENDED_TOOLS: McpToolDefinition[] = [
     name: "create_account",
     access: "write",
     description:
-      "[ESCRITA] Cria uma nova empresa ou cliente PF (crm_accounts) via crmService com validação real de CPF/CNPJ e deduplicação de documento.",
+      "[ESCRITA] Cria uma nova empresa ou cliente PF (crm_accounts) via crmService com validação real de CPF/CNPJ, deduplicação de documento e suporte a campos personalizados (customFields por ID ou nome) e endereço (address).",
     inputSchema: {
       type: "object",
       required: ["name"],
@@ -365,6 +366,15 @@ export const MCP_EXTENDED_TOOLS: McpToolDefinition[] = [
         phone: { type: "string", description: "Telefone da empresa (opcional)." },
         website: { type: "string", description: "Website (opcional)." },
         notes: { type: "string", description: "Observações (opcional)." },
+        address: {
+          type: "object",
+          description: "Endereço / dados Receita Federal opcionais (street, number, complement, neighborhood, city, state, zipCode).",
+        },
+        customFields: {
+          type: "object",
+          description:
+            "Campos personalizados da empresa (entityType='company') como objeto { [idOuNomeDoCampo]: valor }. Para campos de seleção (single/multiple), aceita ID ou rótulo da opção.",
+        },
       },
     },
   },
@@ -372,7 +382,7 @@ export const MCP_EXTENDED_TOOLS: McpToolDefinition[] = [
     name: "update_account",
     access: "write",
     description:
-      "[ESCRITA] Atualiza parcialmente uma empresa/conta (crm_accounts) via crmService.",
+      "[ESCRITA] Atualiza parcialmente uma empresa/conta (crm_accounts) via crmService, incluindo campos personalizados (customFields por ID ou nome) e endereço (address).",
     inputSchema: {
       type: "object",
       required: ["accountId"],
@@ -388,6 +398,15 @@ export const MCP_EXTENDED_TOOLS: McpToolDefinition[] = [
         phone: { type: "string" },
         website: { type: "string" },
         notes: { type: "string" },
+        address: {
+          type: "object",
+          description: "Campos de endereço a mesclar em crm_accounts.address.",
+        },
+        customFields: {
+          type: "object",
+          description:
+            "Campos personalizados da empresa a mesclar em crm_accounts.custom_fields ({ [idOuNomeDoCampo]: valor }). Use null para limpar um campo.",
+        },
       },
     },
   },
@@ -1798,6 +1817,25 @@ export async function executeExtendedMcpTool(
       const accountName = asTrimmedString(args.name);
       if (!accountName) throw new Error("Campo obrigatório 'name' não informado.");
 
+      let resolvedCustomFields: Record<string, unknown> | undefined;
+      if (args.customFields !== undefined) {
+        if (!args.customFields || typeof args.customFields !== "object" || Array.isArray(args.customFields)) {
+          throw new Error("Campo 'customFields' deve ser um objeto chave→valor.");
+        }
+        resolvedCustomFields = await resolveAccountCustomFieldsInput(
+          tenantId,
+          args.customFields as Record<string, unknown>,
+        );
+      }
+
+      let addressPayload: Record<string, any> | undefined;
+      if (args.address !== undefined) {
+        if (!args.address || typeof args.address !== "object" || Array.isArray(args.address)) {
+          throw new Error("Campo 'address' deve ser um objeto.");
+        }
+        addressPayload = args.address as Record<string, any>;
+      }
+
       const account = await crmService.createAccount(tenantId, {
         name: accountName,
         type: args.type === "person" ? "person" : "company",
@@ -1808,6 +1846,8 @@ export async function executeExtendedMcpTool(
         phone: asTrimmedString(args.phone),
         website: asTrimmedString(args.website),
         notes: asTrimmedString(args.notes),
+        ...(addressPayload ? { address: addressPayload } : {}),
+        ...(resolvedCustomFields ? { customFields: resolvedCustomFields } : {}),
       });
 
       return {
@@ -1817,6 +1857,7 @@ export async function executeExtendedMcpTool(
         name: account.name,
         type: account.type,
         document: account.document,
+        customFields: account.customFields ?? {},
       };
     }
 
@@ -1835,6 +1876,21 @@ export async function executeExtendedMcpTool(
       if (args.phone !== undefined) payload.phone = asTrimmedString(args.phone) ?? null;
       if (args.website !== undefined) payload.website = asTrimmedString(args.website) ?? null;
       if (args.notes !== undefined) payload.notes = typeof args.notes === "string" ? args.notes : null;
+      if (args.address !== undefined) {
+        if (!args.address || typeof args.address !== "object" || Array.isArray(args.address)) {
+          throw new Error("Campo 'address' deve ser um objeto.");
+        }
+        payload.address = args.address as Record<string, any>;
+      }
+      if (args.customFields !== undefined) {
+        if (!args.customFields || typeof args.customFields !== "object" || Array.isArray(args.customFields)) {
+          throw new Error("Campo 'customFields' deve ser um objeto chave→valor.");
+        }
+        payload.customFields = await resolveAccountCustomFieldsInput(
+          tenantId,
+          args.customFields as Record<string, unknown>,
+        );
+      }
 
       if (Object.keys(payload).length === 0) {
         throw new Error("Informe ao menos um campo para atualizar na conta/empresa.");
@@ -1848,6 +1904,7 @@ export async function executeExtendedMcpTool(
         name: updated.name,
         type: updated.type,
         document: updated.document,
+        customFields: updated.customFields ?? {},
       };
     }
 

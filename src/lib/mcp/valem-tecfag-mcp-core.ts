@@ -36,6 +36,15 @@ import {
   type McpToolDefinition,
 } from "./valem-tecfag-mcp-write-tools";
 import { resolveTriageAuditDateWindow } from "./valem-tecfag-mcp-triage-tools";
+import {
+  LIST_CRM_CUSTOM_FIELDS_TOOL_SCHEMA,
+  buildAccountFilledFieldSqlCondition,
+  buildHasCustomFieldsSqlCondition,
+  computeAccountFilledFields,
+  executeListCrmCustomFields,
+  formatAccountCustomFields,
+  normalizeCustomFieldDefinitionRow,
+} from "./valem-tecfag-mcp-account-fields";
 import { getAiPersona } from "../ai-persona";
 
 // Tokens operacionais padrão (podem ser sobrescritos via variáveis de ambiente no Railway)
@@ -45,7 +54,7 @@ export const DEFAULT_MCP_ADMIN_TOKEN = "mcp_admin_7d9e3b5c1a8f4e6d2b0c9a7e5f3d1b
 
 export const MCP_SERVER_INFO = {
   name: "valem-tecfag-mcp",
-  version: "3.7.0",
+  version: "3.8.0",
 };
 
 export type McpAccessLevel = "read" | "read_write";
@@ -269,6 +278,7 @@ const TOOL_LABELS_PT: Record<string, string> = {
   search_crm_deals: "Pesquisa de Negociações (CRM)",
   get_crm_deal_details: "Ficha 360º da Negociação",
   search_crm_accounts: "Empresas & Receita Federal",
+  list_crm_custom_fields: "Campos Personalizados do CRM",
   search_contacts: "Busca de Contatos",
   get_sales_and_commercial_metrics: "Métricas de Vendas & Meta",
   get_rodizio_and_operators_status: "Escala do Rodízio & Operadores",
@@ -428,11 +438,16 @@ export function summarizeMcpToolResult(toolName: string, data: any): string {
         if (data.account) {
           return `Ficha da empresa "${data.account.name}" (${data.account.document || "sem doc"})`;
         }
-        const count = Number(data.totalReturned ?? 0);
+        const count = Number(data.returnedCount ?? data.totalReturned ?? data.accounts?.length ?? 0);
         const first = data.accounts?.[0]?.name;
         return first
           ? `${count} empresa(s) encontrada(s) (ex: ${first})`
           : `${count} empresa(s) encontrada(s)`;
+      }
+      case "list_crm_custom_fields": {
+        const count = Number(data.totalFields ?? data.fields?.length ?? 0);
+        const ent = data.entityType || "all";
+        return `${count} campo(s) personalizado(s) listado(s) (${ent})`;
       }
       case "search_contacts": {
         const count = Number(data.totalReturned ?? 0);
@@ -1547,7 +1562,7 @@ const MCP_READ_CORE_TOOLS_RAW = [
   {
     name: "search_crm_accounts",
     description:
-      "Busca empresas/contas cadastradas no CRM (crm_accounts) por Razão Social, Nome Fantasia, CNPJ/CPF, segmento, cidade ou UF, ou retorna a ficha completa de uma empresa específica (accountId) com Dados da Receita Federal, contatos vinculados e negociações.",
+      "Busca empresas/contas cadastradas no CRM (crm_accounts) por Razão Social, Nome Fantasia, CNPJ/CPF, segmento, cidade ou UF, ou retorna a ficha completa de uma empresa específica (accountId) com Dados da Receita Federal, campos personalizados rotulados (customFields), resumo de campos preenchidos (filledFields), contatos vinculados e negociações.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1559,7 +1574,7 @@ const MCP_READ_CORE_TOOLS_RAW = [
         accountId: {
           type: "string",
           description:
-            "ID específico da empresa (crm_accounts.id) para ver todos os contatos e negociações dela.",
+            "ID específico da empresa (crm_accounts.id) para ver todos os campos (padrão + personalizados + vazios), contatos e negociações dela.",
         },
         query: {
           type: "string",
@@ -1571,13 +1586,36 @@ const MCP_READ_CORE_TOOLS_RAW = [
           enum: ["company", "person"],
           description: "Filtra por PJ ('company') ou PF ('person').",
         },
+        hasCustomFields: {
+          type: "boolean",
+          description:
+            "Filtra empresas que possuam ao menos um campo personalizado preenchido (true) ou nenhum (false).",
+        },
+        filledField: {
+          type: "string",
+          description:
+            "Filtra empresas que tenham determinado campo preenchido. Aceita campos padrão ('document', 'cnpj', 'tradeName', 'segment', 'phone', 'email', 'website', 'notes', 'address', 'uf', 'city', 'receitaFederal', 'rdOrganizationId') ou o ID/nome de um campo personalizado de empresa.",
+        },
+        includeEmpty: {
+          type: "boolean",
+          default: false,
+          description:
+            "Quando true na listagem, inclui também `emptyCustomFields` e `emptyStandardFields` por empresa (no modo `accountId` já vêm incluídos).",
+        },
+        offset: {
+          type: "number",
+          default: 0,
+          description: "Deslocamento para paginação (padrão: 0).",
+        },
         limit: {
           type: "number",
           default: 25,
+          description: "Quantidade máxima de registros por página (padrão: 25, máx: 100).",
         },
       },
     },
   },
+  LIST_CRM_CUSTOM_FIELDS_TOOL_SCHEMA,
   {
     name: "search_contacts",
     description:
@@ -2469,7 +2507,10 @@ export async function executeMcpTool(
           acc.phone AS account_phone,
           acc.email AS account_email,
           acc.website AS account_website,
-          acc.address AS account_address
+          acc.address AS account_address,
+          acc.notes AS account_notes,
+          acc.custom_fields AS account_custom_fields,
+          acc.rd_organization_id AS account_rd_organization_id
         FROM crm_deals d
         JOIN crm_pipelines p ON p.id = d.pipeline_id AND p.tenant_id = d.tenant_id
         LEFT JOIN crm_pipelines orig_p ON orig_p.id = d.original_pipeline_id AND orig_p.tenant_id = d.tenant_id
@@ -2560,14 +2601,18 @@ export async function executeMcpTool(
           sql,
         ),
         sql`
-          SELECT id, name, field_type
+          SELECT id, entity_type, name, field_type, options, required, archived_at
           FROM crm_custom_field_definitions
-          WHERE tenant_id = ${tenantId} AND entity_type = 'deal'
+          WHERE tenant_id = ${tenantId} AND entity_type IN ('deal', 'company')
         `,
       ]);
 
+      const dealFieldDefinitions = fieldDefinitions.filter((f: any) => f.entity_type === "deal");
+      const companyFieldDefinitions = fieldDefinitions
+        .filter((f: any) => f.entity_type === "company" && !f.archived_at)
+        .map(normalizeCustomFieldDefinitionRow);
       const fieldMap = new Map<string, string>(
-        fieldDefinitions.map((f: any) => [String(f.id), String(f.name)]),
+        dealFieldDefinitions.map((f: any) => [String(f.id), String(f.name)]),
       );
       const rawCustom =
         deal.custom_fields && typeof deal.custom_fields === "object" ? deal.custom_fields : {};
@@ -2576,6 +2621,31 @@ export async function executeMcpTool(
         const label = fieldMap.get(k) || k;
         labeledCustomFields[label] = v;
       }
+
+      const accountReceita = deal.account_id
+        ? extractReceitaDetails(deal.account_address, deal.account_document)
+        : null;
+      const accountCustomFormatted = deal.account_id
+        ? formatAccountCustomFields(deal.account_custom_fields, companyFieldDefinitions)
+        : null;
+      const accountFilledSummary =
+        deal.account_id && accountReceita && accountCustomFormatted
+          ? computeAccountFilledFields(
+              {
+                name: deal.account_name,
+                tradeName: deal.account_trade_name,
+                segment: deal.account_segment,
+                document: deal.account_document,
+                phone: deal.account_phone,
+                email: deal.account_email,
+                website: deal.account_website,
+                notes: deal.account_notes,
+                rdOrganizationId: deal.account_rd_organization_id,
+              },
+              accountReceita,
+              accountCustomFormatted.filledCustomFields,
+            )
+          : null;
 
       const effectiveWon = isEffectiveCommercialWin({
         status: deal.status,
@@ -2646,7 +2716,13 @@ export async function executeMcpTool(
               phone: deal.account_phone,
               email: deal.account_email,
               website: deal.account_website,
-              receitaFederal: extractReceitaDetails(deal.account_address, deal.account_document),
+              notes: deal.account_notes || null,
+              rdOrganizationId: deal.account_rd_organization_id || null,
+              customFields: accountCustomFormatted?.customFields ?? {},
+              customFieldsRaw: accountCustomFormatted?.customFieldsRaw ?? {},
+              filledCustomFields: accountCustomFormatted?.filledCustomFields ?? [],
+              filledFields: accountFilledSummary?.filledFields ?? null,
+              receitaFederal: accountReceita,
             }
           : null,
         contacts: dealContacts,
@@ -2668,7 +2744,37 @@ export async function executeMcpTool(
       const accountId = args.accountId ? String(args.accountId).trim() : null;
       const query = String(args.query || "").trim();
       const type = args.type ? String(args.type).trim() : null;
+      const hasCustomFields =
+        typeof args.hasCustomFields === "boolean" ? args.hasCustomFields : null;
+      const filledField = args.filledField ? String(args.filledField).trim() : null;
+      const includeEmpty = args.includeEmpty === true;
+      const rawOffset = Number(args.offset ?? 0);
+      const offset = Number.isFinite(rawOffset) && rawOffset > 0 ? Math.floor(rawOffset) : 0;
       const limit = clampLimit(args.limit, 25, 100);
+
+      const companyFieldDefRows = await sql`
+        SELECT
+          id,
+          entity_type,
+          name,
+          field_type,
+          options,
+          required,
+          all_pipelines,
+          pipeline_ids,
+          visible_on_create,
+          is_unique,
+          required_rule,
+          required_from_stage_id,
+          sort_order,
+          archived_at
+        FROM crm_custom_field_definitions
+        WHERE tenant_id = ${tenantId}
+          AND entity_type = 'company'
+          AND archived_at IS NULL
+        ORDER BY sort_order ASC, created_at ASC
+      `;
+      const companyFieldDefs = (companyFieldDefRows || []).map(normalizeCustomFieldDefinitionRow);
 
       if (accountId) {
         const [acc] = await sql`
@@ -2700,6 +2806,14 @@ export async function executeMcpTool(
           `,
         ]);
 
+        const receitaFederal = extractReceitaDetails(acc.address, acc.document);
+        const formattedCf = formatAccountCustomFields(acc.custom_fields, companyFieldDefs);
+        const filledSummary = computeAccountFilledFields(
+          acc,
+          receitaFederal,
+          formattedCf.filledCustomFields,
+        );
+
         return {
           tenantId,
           account: {
@@ -2714,7 +2828,14 @@ export async function executeMcpTool(
             email: acc.email,
             website: acc.website,
             notes: acc.notes,
-            receitaFederal: extractReceitaDetails(acc.address, acc.document),
+            rdOrganizationId: acc.rd_organization_id || null,
+            customFields: formattedCf.customFields,
+            customFieldsRaw: formattedCf.customFieldsRaw,
+            filledCustomFields: formattedCf.filledCustomFields,
+            filledFields: filledSummary.filledFields,
+            emptyStandardFields: filledSummary.emptyStandardFields,
+            emptyCustomFields: formattedCf.emptyCustomFields,
+            receitaFederal,
             createdAt: acc.created_at,
             updatedAt: acc.updated_at,
           },
@@ -2728,6 +2849,12 @@ export async function executeMcpTool(
 
       const conditions = [sql`acc.tenant_id = ${tenantId}`, sql`acc.archived_at IS NULL`];
       if (type) conditions.push(sql`acc.type = ${type}`);
+      if (hasCustomFields !== null) {
+        conditions.push(buildHasCustomFieldsSqlCondition(sql, hasCustomFields));
+      }
+      if (filledField) {
+        conditions.push(buildAccountFilledFieldSqlCondition(sql, filledField, companyFieldDefs));
+      }
       if (query) {
         const cleanDigits = query.replace(/\D/g, "");
         const pattern = `%${query}%`;
@@ -2754,46 +2881,99 @@ export async function executeMcpTool(
         idx === 0 ? curr : sql`${acc} AND ${curr}`,
       );
 
-      const rows = await sql`
-        SELECT
-          acc.id,
-          acc.type,
-          acc.name,
-          acc.trade_name,
-          acc.segment,
-          acc.document_type,
-          acc.document,
-          acc.phone,
-          acc.email,
-          acc.website,
-          acc.address,
-          acc.updated_at,
-          (SELECT COUNT(*)::int FROM contacts c WHERE c.tenant_id = acc.tenant_id AND c.account_id = acc.id) AS contacts_count,
-          (SELECT COUNT(*)::int FROM crm_deals d WHERE d.tenant_id = acc.tenant_id AND d.account_id = acc.id) AS deals_count
-        FROM crm_accounts acc
-        WHERE ${whereClause}
-        ORDER BY acc.updated_at DESC
-        LIMIT ${limit}
-      `;
+      const [countRows, rows] = await Promise.all([
+        sql`
+          SELECT COUNT(*)::int AS total
+          FROM crm_accounts acc
+          WHERE ${whereClause}
+        `,
+        sql`
+          SELECT
+            acc.id,
+            acc.type,
+            acc.name,
+            acc.trade_name,
+            acc.segment,
+            acc.document_type,
+            acc.document,
+            acc.phone,
+            acc.email,
+            acc.website,
+            acc.address,
+            acc.custom_fields,
+            acc.notes,
+            acc.rd_organization_id,
+            acc.created_at,
+            acc.updated_at,
+            (SELECT COUNT(*)::int FROM contacts c WHERE c.tenant_id = acc.tenant_id AND c.account_id = acc.id) AS contacts_count,
+            (SELECT COUNT(*)::int FROM crm_deals d WHERE d.tenant_id = acc.tenant_id AND d.account_id = acc.id) AS deals_count
+          FROM crm_accounts acc
+          WHERE ${whereClause}
+          ORDER BY acc.updated_at DESC
+          LIMIT ${limit}
+          OFFSET ${offset}
+        `,
+      ]);
+
+      const totalMatching = Number(countRows?.[0]?.total ?? rows.length);
 
       return {
         tenantId,
+        totalMatching,
+        offset,
+        limit,
         returnedCount: rows.length,
-        accounts: rows.map((acc: any) => ({
-          id: acc.id,
-          type: acc.type,
-          name: acc.name,
-          tradeName: acc.trade_name,
-          segment: acc.segment,
-          document: formatCnpjOrCpf(acc.document),
-          phone: acc.phone,
-          email: acc.email,
-          website: acc.website,
-          contactsCount: acc.contacts_count,
-          dealsCount: acc.deals_count,
-          receitaFederal: extractReceitaDetails(acc.address, acc.document),
+        hasMore: offset + rows.length < totalMatching,
+        companyCustomFieldDefinitions: companyFieldDefs.map((def) => ({
+          id: def.id,
+          name: def.name,
+          fieldType: def.fieldType,
+          required: def.required,
         })),
+        accounts: rows.map((acc: any) => {
+          const receitaFederal = extractReceitaDetails(acc.address, acc.document);
+          const formattedCf = formatAccountCustomFields(acc.custom_fields, companyFieldDefs);
+          const filledSummary = computeAccountFilledFields(
+            acc,
+            receitaFederal,
+            formattedCf.filledCustomFields,
+          );
+
+          return {
+            id: acc.id,
+            type: acc.type,
+            name: acc.name,
+            tradeName: acc.trade_name,
+            segment: acc.segment,
+            documentType: acc.document_type,
+            document: formatCnpjOrCpf(acc.document),
+            phone: acc.phone,
+            email: acc.email,
+            website: acc.website,
+            notes: acc.notes || null,
+            rdOrganizationId: acc.rd_organization_id || null,
+            contactsCount: acc.contacts_count,
+            dealsCount: acc.deals_count,
+            customFields: formattedCf.customFields,
+            customFieldsRaw: formattedCf.customFieldsRaw,
+            filledCustomFields: formattedCf.filledCustomFields,
+            filledFields: filledSummary.filledFields,
+            ...(includeEmpty
+              ? {
+                  emptyStandardFields: filledSummary.emptyStandardFields,
+                  emptyCustomFields: formattedCf.emptyCustomFields,
+                }
+              : {}),
+            receitaFederal,
+            createdAt: acc.created_at,
+            updatedAt: acc.updated_at,
+          };
+        }),
       };
+    }
+
+    case "list_crm_custom_fields": {
+      return await executeListCrmCustomFields(args, tenantId, sql);
     }
 
     case "search_contacts": {

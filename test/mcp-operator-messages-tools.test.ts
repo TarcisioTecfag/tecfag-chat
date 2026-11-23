@@ -47,7 +47,7 @@ function makeAccess(
 
 describe("MCP v3.5.0 — Conversas/Mensagens por Colaborador & Repasse Proativo para IA", () => {
   it("expõe get_operator_conversations_messages em leitura e handoff_conversation_to_ai_proactive apenas em read_write", async () => {
-    expect(MCP_SERVER_INFO.version).toBe("3.7.0");
+    expect(MCP_SERVER_INFO.version).toBe("3.8.0");
 
     const readTools = getVisibleMcpTools(makeAccess("read"));
     const rwTools = getVisibleMcpTools(makeAccess("read_write"));

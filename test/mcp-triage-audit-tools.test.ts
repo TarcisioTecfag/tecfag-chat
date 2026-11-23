@@ -30,7 +30,7 @@ function makeReadAccess(tenantId: "tecfag" | "valem" = "tecfag"): McpAccessConte
 
 describe("MCP v3.4.0 — Ferramentas de Varredura e Auditoria Precisa de Triagens SDR", () => {
   it("expõe get_fagner_triage_sweep e get_fagner_triage_audit_batch em modo Somente Leitura com paridade total", () => {
-    expect(MCP_SERVER_INFO.version).toBe("3.7.0");
+    expect(MCP_SERVER_INFO.version).toBe("3.8.0");
 
     const readTools = getVisibleMcpTools(makeReadAccess("tecfag"));
     const readNames = new Set(readTools.map((t) => t.name));
