@@ -9,6 +9,7 @@ import { buildAccountUpdatePayloadFromCnpjDetails } from "../crm/cnpj-account-ma
 import { vertexAi, MultimodalPart } from "../vertex-ai";
 import { SessionManager, resolveRealJid } from "../baileys/session-manager";
 import { QueuedMessageItem } from "./sdr-debouncer";
+import { hydrateMediaAttachmentsFromDb } from "./media-hydration";
 import { extractCnpjFromText, fetchCnpjInfo } from "./cnpj-service";
 import {
   getKnowledgeBaseContext,
@@ -1091,6 +1092,20 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
       const multimodalParts: MultimodalPart[] = [{ text: promptText }];
 
+      // Hidrata anexos de mídia do banco (`media_files`) quando chegaram sem `mediaBase64`
+      // (ex.: imagem/áudio enviado antes da conversa entrar em `automacao` e acionado via `trigger_ai` ou recovery)
+      let hydratedDbAttachments: Awaited<ReturnType<typeof hydrateMediaAttachmentsFromDb>> = [];
+      try {
+        hydratedDbAttachments = await hydrateMediaAttachmentsFromDb({
+          db,
+          tenantId,
+          batchItems,
+          historyMsgs,
+        });
+      } catch (hydrateErr: any) {
+        console.warn("[SdrEngine] Aviso ao hidratar mídia do banco:", hydrateErr?.message || hydrateErr);
+      }
+
       // Anexar buffers de imagem, áudio e PDF recebidos no lote com rótulo explícito para leitura direta (NF, etiquetas, comprovantes)
       let attachmentIndex = 0;
       for (const item of batchItems) {
@@ -1107,13 +1122,27 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           });
         }
       }
+      for (const att of hydratedDbAttachments) {
+        attachmentIndex += 1;
+        multimodalParts.push({
+          text: `[Anexo ${attachmentIndex} enviado pelo cliente (carregado do histórico recente) — tipo: ${att.mediaType} (${att.mimeType}). Leia/analise diretamente este conteúdo visual/textual/auditivo e descreva em mediaDescription.]`,
+        });
+        multimodalParts.push({
+          inlineData: {
+            mimeType: att.mimeType,
+            data: att.mediaBase64,
+          },
+        });
+      }
 
       if (signal?.aborted) return false;
 
       // 6. Consultar o Gemini 2.5 Pro via Vertex AI
-      const hasMediaInBatch = batchItems.some(
-        (i) => i.mediaType === "image" || i.mediaType === "audio" || i.mediaType === "document",
-      );
+      const hasMediaInBatch =
+        hydratedDbAttachments.length > 0 ||
+        batchItems.some(
+          (i) => i.mediaType === "image" || i.mediaType === "audio" || i.mediaType === "document",
+        );
       const isClientDeclinedTurn =
         industrialTriage &&
         !hasMediaInBatch &&
@@ -1942,13 +1971,14 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       // Se o Gemini retornou uma mediaDescription, salvamos na mensagem do cliente que
       // continha a mídia para que em turnos futuros a Valentina saiba o que foi visto/ouvido
       // sem precisar reenviar o binário da imagem/áudio/PDF.
-      if (aiResult.mediaDescription && mediaItem) {
+      const mediaTargetMessageId = mediaItem?.messageId || hydratedDbAttachments[0]?.messageId || "";
+      if (aiResult.mediaDescription && mediaTargetMessageId) {
         try {
           await db
             .update(messages)
             .set({ mediaInterpretation: aiResult.mediaDescription } as any)
-            .where(and(eq(messages.id, mediaItem.messageId || ""), eq(messages.tenantId, tenantId)));
-          console.log(`[SdrEngine] 📸 Interpretação de mídia salva na mensagem ${mediaItem.messageId}: "${aiResult.mediaDescription.slice(0, 60)}..."`);
+            .where(and(eq(messages.id, mediaTargetMessageId), eq(messages.tenantId, tenantId)));
+          console.log(`[SdrEngine] 📸 Interpretação de mídia salva na mensagem ${mediaTargetMessageId}: "${aiResult.mediaDescription.slice(0, 60)}..."`);
         } catch (mediaErr: any) {
           // Não é crítico — falha silenciosa para não bloquear o fluxo
           console.warn("[SdrEngine] Aviso: não foi possível salvar mediaInterpretation:", mediaErr?.message);

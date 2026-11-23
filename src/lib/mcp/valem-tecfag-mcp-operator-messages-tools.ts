@@ -8,6 +8,7 @@ import {
   crmAccounts,
   crmConversationDeals,
   crmDeals,
+  mediaFiles,
   messages,
   operators,
   sectors,
@@ -18,6 +19,7 @@ import { SessionManager } from "../baileys/session-manager";
 import { ensureCwrDealOnContacting } from "../triage/industrial-cwr-crm";
 import { isSdrEnabledForTenant } from "../triage/sdr-disabled-routing";
 import { SdrDebouncer } from "../valentina/sdr-debouncer";
+import { parseMediaTagFromContent } from "../valentina/media-hydration";
 import { metaAdapter } from "../whatsapp/adapters/meta";
 import { resolveConversationConnection } from "../whatsapp/connections";
 import {
@@ -1673,10 +1675,36 @@ export async function executeOperatorMessagesMcpTool(
                 .limit(1);
 
               if (lastClientMsg && effectivePhone) {
+                const parsedMedia = !lastClientMsg.mediaInterpretation
+                  ? parseMediaTagFromContent(lastClientMsg.content)
+                  : null;
+                let hydratedMediaType: "text" | "image" | "audio" | "document" = "text";
+                let hydratedMimeType: string | undefined;
+                let hydratedMediaBase64: string | undefined;
+                if (parsedMedia) {
+                  const [mf] = await db
+                    .select({
+                      mimeType: mediaFiles.mimeType,
+                      base64Data: mediaFiles.base64Data,
+                    })
+                    .from(mediaFiles)
+                    .where(
+                      and(
+                        eq(mediaFiles.tenantId, tenantId),
+                        eq(mediaFiles.id, parsedMedia.mediaId),
+                      ),
+                    )
+                    .limit(1);
+                  if (mf?.base64Data && mf.base64Data.length <= 8_000_000) {
+                    hydratedMediaType = parsedMedia.mediaType;
+                    hydratedMimeType = mf.mimeType;
+                    hydratedMediaBase64 = mf.base64Data;
+                  }
+                }
                 const effectiveText =
                   (lastClientMsg.mediaInterpretation &&
                     String(lastClientMsg.mediaInterpretation).trim()) ||
-                  lastClientMsg.content ||
+                  (parsedMedia?.caption ? parsedMedia.caption : lastClientMsg.content) ||
                   "Olá";
                 SdrDebouncer.getInstance().pushIncomingMessage(
                   tenantId,
@@ -1685,7 +1713,9 @@ export async function executeOperatorMessagesMcpTool(
                   {
                     messageId: lastClientMsg.id,
                     text: effectiveText,
-                    mediaType: "text",
+                    mediaType: hydratedMediaType,
+                    mimeType: hydratedMimeType,
+                    mediaBase64: hydratedMediaBase64,
                     receivedAt: actionNow,
                   },
                 );

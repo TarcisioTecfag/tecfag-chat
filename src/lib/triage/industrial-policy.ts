@@ -1012,7 +1012,22 @@ export function isValidIndustrialPersonName(raw?: string | null): boolean {
  */
 export function isClientDecliningTriage(raw: string): boolean {
   const text = normalizeTriageText(raw);
-  if (!text || text.length > 140) return false;
+  if (!text || text.length > 320) return false;
+
+  // Desistência/recusa inequívoca (inclusive quando acompanhada de frustração mencionando "máquina"/"vendedor")
+  const hasExplicitWalkAway =
+    /\b(?:vamos\s+deixar\s+quieto|deix[ae]r?\s+quieto|deix[ae]r?\s+pra\s+la|pode\s+encerrar|desisti|nao\s+quero\s+mais|nao\s+preciso\s+mais|nao\s+tenho\s+interesse|pode\s+esquecer|esquece\s+isso)\b/.test(
+      text,
+    );
+  const hasActiveBuyingAsk =
+    /\b(?:quero\s+comprar|preciso\s+de\s+uma?|me\s+passa\s+o?\s*(?:valor|preco|orcamento)|quanto\s+custa|faz\s+um?\s*orcamento|quero\s+cotacao)\b/.test(
+      text,
+    );
+  if (hasExplicitWalkAway && !hasActiveBuyingAsk) {
+    return true;
+  }
+
+  if (text.length > 140) return false;
   const hasNewDemand =
     /\b(?:maquina|seladora|envasadora|dosadora|empacotadora|rotuladora|datador|peca|pecas|teflon|resistencia|correia|boleto|nota fiscal|nf|rastreio|entrega|pedido|defeito|manutencao|assistencia|orcamento|cotacao|preco|valor|quero comprar|preciso de)\b/.test(
       text,
@@ -1023,7 +1038,7 @@ export function isClientDecliningTriage(raw: string): boolean {
     /^(?:obrigad[oa]|agradeco)\s*,?\s*(?:mas\s+)?nao(?:\s+(?:preciso|quero|tenho interesse))?[!.]*$/.test(
       text,
     ) ||
-    /\b(?:nao tenho interesse|nao preciso mais|nao quero mais|ja resolvi|ja comprei em outro|pode encerrar|desisti|nao precisa mais|por enquanto nao(?:,\s*(?:obrigad[oa]|agradeco))?)\b/.test(
+    /\b(?:ja resolvi|ja comprei em outro|nao precisa mais|por enquanto nao(?:,\s*(?:obrigad[oa]|agradeco))?)\b/.test(
       text,
     )
   );
