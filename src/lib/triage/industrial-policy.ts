@@ -304,10 +304,19 @@ function textSubflow(raw: string): IndustrialSubflow | null {
     if (!/\b(?:quero comprar|gostaria de comprar|quero adquirir)\b/.test(text)) return "3_AT";
   }
   if (
-    /\b(?:rastre\w*|transportadora|entrega|pedido (?:chegou|existente)|proposta \d+)\b/.test(text)
+    /\b(?:rastre\w*|transportadora|entrega|pedido (?:chegou|existente)|proposta \d+|ainda nao recebi|nao recebi (?:a|as|o|os|minha|meu)|nao chegou|ainda nao chegou|cade (?:meu|o|a|as|os) (?:pedido|maquina|seladora|envasadora|equipamento|encomenda))\b/.test(
+      text,
+    )
   )
     return "4A_RASTREAR";
-  if (/\b(?:pos venda|comprei|compramos|efetuamos um pedido|fizemos um pedido)\b/.test(text))
+  const boughtElsewhere =
+    /\b(?:comprei|compramos|adquiri|adquirimos|fechei|fechamos|fiz(?:emos)? a compra)\s+(?:na\s+shopee|no\s+mercado\s*livre|na\s+amazon|na\s+magalu|com\s+outr[ao]|em\s+outr[ao]|por\s+fora|no\s+concorrente|na\s+concorrencia)\b/.test(
+      text,
+    );
+  if (
+    !boughtElsewhere &&
+    /\b(?:pos venda|comprei|compramos|efetuamos um pedido|fizemos um pedido)\b/.test(text)
+  )
     return "POS_VENDA";
   if (
     /\b(?:pecas?|insumos?|consumiveis|reposicao|ribbon|ink ?roll|teflon|resistencia|correias?|roletes?|sensor|clp)\b/.test(
@@ -1006,8 +1015,28 @@ export function isValidIndustrialPersonName(raw?: string | null): boolean {
   return true;
 }
 
+const ACTIVE_DEMAND_CUE_PATTERN =
+  /\b(?:maquina|maquinas|seladora|seladoras|envasadora|envasadoras|dosadora|dosadoras|empacotadora|empacotadoras|rotuladora|rotuladoras|datador|peca|pecas|teflon|resistencia|correia|borracha|pistao|vedacao|boleto|nota fiscal|nf|rastreio|entrega|nao recebi|ainda nao recebi|nao chegou|defeito|manutencao|assistencia|orcamento|cotacao|preco|valor|quero comprar|preciso de|manda (?:a )?foto|envia (?:a )?foto|mande foto|consegue verificar|voces vendem|vcs vendem|segmento de|linha de)\b/;
+
 /**
- * Detecta desistência/recusa educada explícita do cliente (ex.: "Não, agradeço", "Não tenho interesse")
+ * Detecta se o cliente fez uma pergunta informativa/institucional junto com a recusa
+ * (ex.: "Agora não mais. Já fiz a compra com outra empresa. Vcs são de onde"), permitindo
+ * responder a dúvida rapidamente e ainda encerrar limpo sem aprovação/transferência.
+ */
+export function hasClientFactualQuestionInDecline(raw: string): boolean {
+  const text = normalizeTriageText(raw);
+  if (!text) return false;
+  return (
+    raw.includes("?") ||
+    /\b(?:vcs sao de onde|voces sao de onde|de onde voces sao|onde voces ficam|onde fica|qual cidade|qual endereco|qual telefone|qual o site|qual site|tem garantia|qual a garantia|tem assistencia)\b/.test(
+      text,
+    )
+  );
+}
+
+/**
+ * Detecta desistência/recusa educada explícita do cliente (ex.: "Não, agradeço", "Não tenho interesse",
+ * "deixa quieto", "já comprei na Shopee", "já fui atendido e já comprei", "no momento não")
  * sem nova demanda comercial/suporte na mesma mensagem.
  */
 export function isClientDecliningTriage(raw: string): boolean {
@@ -1020,33 +1049,65 @@ export function isClientDecliningTriage(raw: string): boolean {
       text,
     );
   const hasActiveBuyingAsk =
-    /\b(?:quero\s+comprar|preciso\s+de\s+uma?|me\s+passa\s+o?\s*(?:valor|preco|orcamento)|quanto\s+custa|faz\s+um?\s*orcamento|quero\s+cotacao)\b/.test(
+    /\b(?:quero\s+comprar|preciso\s+de\s+uma?|me\s+passa\s+o?\s*(?:valor|preco|orcamento)|quanto\s+custa|faz\s+um?\s*orcamento|quero\s+cotacao|voces\s+vendem|vcs\s+vendem)\b/.test(
       text,
     );
   if (hasExplicitWalkAway && !hasActiveBuyingAsk) {
     return true;
   }
 
-  if (text.length > 140) return false;
-  const hasNewDemand =
-    /\b(?:maquina|seladora|envasadora|dosadora|empacotadora|rotuladora|datador|peca|pecas|teflon|resistencia|correia|boleto|nota fiscal|nf|rastreio|entrega|pedido|defeito|manutencao|assistencia|orcamento|cotacao|preco|valor|quero comprar|preciso de)\b/.test(
+  const hasNewDemand = ACTIVE_DEMAND_CUE_PATTERN.test(text);
+
+  // Cliente informa explicitamente que já comprou em outra empresa / marketplace concorrente
+  const hasBoughtElsewhere =
+    /\b(?:ja\s+)?(?:comprei|compramos|adquiri|adquirimos|fechei|fechamos|fiz(?:emos)?\s+a\s+compra)\s+(?:na\s+shopee|no\s+mercado\s*livre|na\s+amazon|na\s+magalu|com\s+outr[ao]\s*(?:empresa|fornecedor|loja|vendedor)?|em\s+outr[ao]\s*(?:empresa|lugar|loja|fornecedor)?|por\s+fora|no\s+concorrente|na\s+concorrencia)\b/.test(
       text,
     );
+  if (hasBoughtElsewhere && !hasNewDemand) {
+    return true;
+  }
+
+  if (text.length > 180) return false;
   if (hasNewDemand) return false;
+
   return (
     /^(?:nao|n)\s*,?\s*(?:muito\s+)?(?:obrigad[oa]|agradeco|valeu|bgd|obg)[!.]*$/.test(text) ||
     /^(?:obrigad[oa]|agradeco)\s*,?\s*(?:mas\s+)?nao(?:\s+(?:preciso|quero|tenho interesse))?[!.]*$/.test(
       text,
     ) ||
-    /\b(?:ja resolvi|ja comprei em outro|nao precisa mais|por enquanto nao(?:,\s*(?:obrigad[oa]|agradeco))?)\b/.test(
+    /^(?:no\s+momento\s+nao|agora\s+nao(?:\s+mais)?|por\s+enquanto\s+nao|no\s+momento\s+nao\s+(?:preciso|quero|tenho|possuo\s+nenhuma\s+solicitacao(?:\s+em\s+andamento)?)|agora\s+nao\s+(?:preciso|quero))(?:\s*,?\s*(?:muito\s+)?(?:obrigad[oa]|agradeco|valeu|obg))?[!.]*$/.test(
+      text,
+    ) ||
+    /\b(?:ja resolvi|ja comprei em outro|ja fui atendid[oa]|ja estou sendo atendid[oa]|ja estamos sendo atendid[oa]s|nao precisa mais|por enquanto nao(?:,\s*(?:obrigad[oa]|agradeco))?)\b/.test(
+      text,
+    ) ||
+    /^(?:(?:muito\s+)?(?:obrigad[oa]|agradeco|valeu|oi|ola|bom dia|boa tarde|boa noite)[\s,!]*)?(?:mas\s+)?(?:eu\s+)?ja\s+(?:comprei|compramos|adquiri|adquirimos)\b/.test(
       text,
     )
   );
 }
 
 /**
- * Detecta mensagens vindas de URAs/bots automáticos externos ou números 0800
- * (ex.: Grupo Caçola 558007222652) para evitar loop bot-a-bot e card falso no FUNIL CWR.
+ * Detecta mensagens curtas puramente de cortesia/despedida após um encerramento automático
+ * (ex.: "Ok", "Obrigada", "Ah ta joia", "Tenha um bom dia"), que NÃO devem reabrir o fluxo.
+ */
+export function isPostCloseCourtesyOnlyMessage(raw: string): boolean {
+  const clean = String(raw || "").trim();
+  if (!clean) return true;
+  const text = normalizeTriageText(clean);
+  // Apenas emojis/pontuação sem letras ou dígitos (ex.: "👍", "🙏")
+  if (!/[a-z0-9]/.test(text)) return true;
+  if (text.length > 90) return false;
+  if (clean.includes("?") || ACTIVE_DEMAND_CUE_PATTERN.test(text)) return false;
+
+  return /^(?:(?:ah+|a|eh|ta|t[aá]|ok+|okay|certo|beleza|blz|joia|show|perfeito|combinado|entendido|entendi|tranquilo|valeu|vlw|obg|bgd|muito|obrigad[oa]|agradeco|pelo\s+retorno|pela\s+atencao|igualmente|otimo|otima|bom\s+dia|boa\s+tarde|boa\s+noite|tenha\s+um\s+bom\s+dia|tenha\s+um\s+otimo\s+dia|tenha\s+uma\s+boa\s+tarde|tenha\s+uma\s+boa\s+noite|abraco|abracos|tchau|ate\s+mais|disponha|imagina|de\s+nada|sim|nao)[\s,!.]*)+$/.test(
+    text,
+  );
+}
+
+/**
+ * Detecta mensagens vindas de URAs/bots automáticos externos, pesquisas NPS ou números 0800
+ * (ex.: Grupo Caçola 558007222652, bot NPS DSM) para evitar loop bot-a-bot e card falso no FUNIL CWR.
  */
 export function isAutomatedBotOrUraMessage(params: {
   phone?: string | null;
@@ -1061,10 +1122,23 @@ export function isAutomatedBotOrUraMessage(params: {
   if (!text) return false;
 
   if (
-    /\b(?:finalizar autoatendimento|nao entendi,\s*poderia repetir|como nao entendi sua resposta,\s*estarei te direcionando|seja bem vindo ao atendimento automatico|atendimento eletronico)\b/.test(
+    /\b(?:finalizar autoatendimento|nao entendi,\s*poderia repetir|(?:desculpe,\s*)?nao entendi sua resposta|como nao entendi sua resposta,\s*estarei te direcionando|seja bem vindo ao atendimento automatico|atendimento eletronico|digite um numero entre \d+ e \d+|digite uma nota (?:de|entre) \d+|obrigado\s+nome privado\s+por entrar em contato)\b/.test(
       text,
     )
   ) {
+    return true;
+  }
+
+  // Pesquisa de satisfação / NPS automática (ex.: "Como você avalia o atendimento recebido? 1 = Péssimo a 5 = Excelente")
+  const hasSurveyHeader =
+    /\b(?:como voce avalia (?:o|nosso) atendimento|deixe sua avaliacao|avalie (?:o|nosso) atendimento|pesquisa de satisfacao)\b/.test(
+      text,
+    );
+  const hasSurveyScale =
+    /\b(?:pessimo|excelente|neutro|vou encerrar seu atendimento por aqui|1\s*(?:=|a|-)\s*5|0\s*(?:=|a|-)\s*10)\b/.test(
+      text,
+    );
+  if (hasSurveyHeader && hasSurveyScale) {
     return true;
   }
 

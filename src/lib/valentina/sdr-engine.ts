@@ -44,6 +44,7 @@ import {
   computeIndustrialTriageProgress,
   isValidIndustrialPersonName,
   isClientDecliningTriage,
+  hasClientFactualQuestionInDecline,
   isAutomatedBotOrUraMessage,
   type SystemOperatorCandidate,
   type DirectOperatorAiDecision,
@@ -73,6 +74,7 @@ import {
   evaluateIndustrialSdrOwnershipGuard,
   fetchLatestPublicOutboundMessage,
   isIndustrialOwnerStillValidForSend,
+  buildIndustrialPostCloseReopenPatch,
 } from "../triage/industrial-ownership-guard";
 import { deliverIndustrialPostCommit } from "../triage/industrial-post-commit-delivery";
 import { appendIndustrialJournal } from "../triage/industrial-triage-journal-store";
@@ -353,20 +355,27 @@ export class SdrEngine {
       });
 
       const flowMetaCheck = (flowState?.metadata as Record<string, any>) || {};
+      const incomingBatchText = batchItems.map((i) => i.text).join(" ");
+      const incomingBatchHasMedia = batchItems.some((i) => i.mediaType !== "text");
+      let shouldReopenCompletedIndustrialFlow = false;
       if (industrialTriage) {
         const latestOutbound = await fetchLatestPublicOutboundMessage(db, tenantId, conversationId);
         const guard = evaluateIndustrialSdrOwnershipGuard({
           queueState: convCheck?.queueState || null,
           operatorId: convCheck?.operatorId || null,
           flowOutcome: flowState?.outcome || null,
+          flowCurrentStep: flowState?.currentStep || null,
           flowMetadata: flowMetaCheck,
           flowStartedAt: flowState?.startedAt || null,
           latestOutbound,
+          incomingText: incomingBatchText,
+          hasIncomingMedia: incomingBatchHasMedia,
         });
         if (guard.blocked) {
           console.log(`[SdrEngine] 🛑 TRAVA DE POSSE INDUSTRIAL ATIVA (${guard.reason}): Conversa ${conversationId} (Cliente ${contactPhone}, fila=${convCheck?.queueState || 'n/a'}, op=${convCheck?.operatorId || 'Não'}). ${aiPersona.name} SILENCIADO(A).`);
           return false;
         }
+        shouldReopenCompletedIndustrialFlow = Boolean(guard.reopenCompletedFlow);
       } else if (
         convCheck?.operatorId ||
         convCheck?.queueState === "meus" ||
@@ -414,6 +423,43 @@ export class SdrEngine {
 
       // A conclusão já tem checkpoint durável. O worker transacional retoma sem outra chamada de IA.
       if (industrialTriage && (flowState?.metadata as Record<string, unknown>)?.handoffRequest) return false;
+
+      // Reabertura automática quando o cliente traz nova demanda após encerramento sem transferência
+      // (ex.: Reci disse "Não, obrigada" e segundos depois "aproveitando, ainda não recebi as seladoras")
+      if (industrialTriage && flowState && shouldReopenCompletedIndustrialFlow) {
+        const reopenNow = new Date();
+        const batchEarliestMs = batchItems.reduce((minMs, item) => {
+          const ts = item.receivedAt ? new Date(item.receivedAt).getTime() : reopenNow.getTime();
+          return Number.isFinite(ts) && ts < minMs ? ts : minMs;
+        }, reopenNow.getTime());
+        const reopenPatch = buildIndustrialPostCloseReopenPatch({
+          collectedData: (flowState.collectedData as Record<string, { value?: string; status?: string }>) || {},
+          metadata: (flowState.metadata as Record<string, unknown>) || {},
+          currentStep: flowState.currentStep,
+          completedAt: flowState.completedAt,
+          startedAt: flowState.startedAt,
+          now: reopenNow,
+        });
+        const reopenedRows = await db
+          .update(agentFlowStates)
+          .set({
+            outcome: "in_progress",
+            completedAt: null,
+            currentStep: "Em Qualificação",
+            startedAt: new Date(batchEarliestMs - 1000),
+            collectedData: reopenPatch.collectedData,
+            metadata: reopenPatch.metadata,
+            lastInteractionAt: reopenNow,
+          })
+          .where(and(eq(agentFlowStates.id, flowState.id), eq(agentFlowStates.tenantId, tenantId)))
+          .returning();
+        if (reopenedRows[0]) {
+          flowState = reopenedRows[0];
+          console.log(
+            `[SdrEngine] 🔄 Fluxo industrial reaberto automaticamente após encerramento sem transferência na conversa ${conversationId} (${contactPhone}).`,
+          );
+        }
+      }
 
       // Retomada automática do fluxo industrial se o cliente voltou a responder após follow-up ou Sem Resposta (outcome='abandoned')
       if (
@@ -1164,6 +1210,8 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         industrialTriage &&
         !hasMediaInBatch &&
         isClientDecliningTriage(combinedBatchText);
+      const clientDeclinedWithFactualQuestion =
+        isClientDeclinedTurn && hasClientFactualQuestionInDecline(combinedBatchText);
       const storeTurn =
         industrialTriage && !isClientDeclinedTurn
           ? await runVtexStoreTurn(db, tenantId, {
@@ -1180,11 +1228,19 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         industrialTriage &&
         !isClientDeclinedTurn &&
         (vertexAi.isReady() ? requestsGenericHuman(combinedBatchText) : requestsHuman(combinedBatchText));
-      if (isClientDeclinedTurn) {
+      if (isClientDeclinedTurn && !clientDeclinedWithFactualQuestion) {
+        const boughtElsewhere =
+          /\b(?:comprei|compramos|adquiri|adquirimos|fechei|fechamos|compra)\s+(?:na\s+shopee|no\s+mercado\s*livre|na\s+amazon|na\s+magalu|com\s+outr[ao]|em\s+outr[ao]|por\s+fora|no\s+concorrente|na\s+concorrencia)\b/i.test(
+            combinedBatchText
+              .normalize("NFD")
+              .replace(/[\u0300-\u036f]/g, ""),
+          );
         aiResult = {
           subflow: null,
           messagesToSend: [
-            "Entendido! Agradeço o retorno. Caso precise de alguma solução ou equipamento no futuro, continuamos à disposição.",
+            boughtElsewhere
+              ? "Entendido! Que pena que não conseguimos fechar desta vez, mas desejamos sucesso com o equipamento. Se precisar de peças, assistência ou outra solução no futuro, continuamos à disposição."
+              : "Entendido! Agradeço o retorno. Caso precise de alguma solução ou equipamento no futuro, continuamos à disposição.",
           ],
           isCompleted: true,
         };

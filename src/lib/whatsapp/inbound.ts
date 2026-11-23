@@ -493,13 +493,19 @@ export class InboundProcessor {
         queueState: conv.queueState,
         operatorId: conv.operatorId,
         flowOutcome: currentFlow?.outcome || null,
+        flowCurrentStep: currentFlow?.currentStep || null,
         flowMetadata: currentFlowMeta,
         flowStartedAt: currentFlow?.startedAt || null,
         latestOutbound,
+        incomingText: cleanText,
+        hasIncomingMedia: Boolean(media),
       });
       if (guard.blocked) {
         console.log(`[Meta/SDR] 🛑 Trava de Posse Industrial ativa (${guard.reason}) para conversa ${convId} (${fromPhone}). ${getAiPersona(tenantId).name} silenciado.`);
         return;
+      }
+      if (guard.reopenCompletedFlow) {
+        console.log(`[Meta/SDR] 🔄 Nova demanda detectada após encerramento sem transferência na conversa ${convId} (${fromPhone}). Encaminhando para reabertura automática do ${getAiPersona(tenantId).name}.`);
       }
     } else {
       const isHandledByOperator = Boolean(

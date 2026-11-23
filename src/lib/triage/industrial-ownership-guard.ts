@@ -1,5 +1,10 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { messages } from "../../db/schema";
+import {
+  isClientDecliningTriage,
+  isPostCloseCourtesyOnlyMessage,
+  type CollectedFields,
+} from "./industrial-policy";
 
 export interface IndustrialOutboundSample {
   senderType: string;
@@ -11,9 +16,12 @@ export interface IndustrialSdrGuardInput {
   queueState?: string | null;
   operatorId?: string | null;
   flowOutcome?: string | null;
+  flowCurrentStep?: string | null;
   flowMetadata?: Record<string, unknown> | null;
   flowStartedAt?: Date | string | null;
   latestOutbound?: IndustrialOutboundSample | null;
+  incomingText?: string | null;
+  hasIncomingMedia?: boolean;
   now?: Date;
   externalAgentWindowMs?: number;
 }
@@ -21,6 +29,128 @@ export interface IndustrialSdrGuardInput {
 export interface IndustrialSdrGuardDecision {
   blocked: boolean;
   reason: string | null;
+  reopenCompletedFlow?: boolean;
+}
+
+const REOPENABLE_COMPLETED_STEPS = new Set([
+  "encerrado (sem interesse)",
+  "concluído (informativo)",
+  "concluido (informativo)",
+]);
+
+const IDENTITY_COLLECTED_KEYS = new Set([
+  "NOME COMPLETO",
+  "EMPRESA",
+  "CNPJ OU CPF",
+  "_KNOWN_COMPANY_CONFIRMED",
+]);
+
+/**
+ * Verifica se um fluxo industrial recém-encerrado automaticamente pelo Fagner (sem transferência
+ * nem intervenção humana) pode ser reaberto quando o cliente envia uma nova demanda real
+ * (ex.: Reci disse "Não, obrigada" e segundos depois "aproveitando, ainda não recebi as seladoras").
+ * Mensagens puramente de cortesia ("Obrigada!", "Ok", "Ah ta joia") NÃO reabrem o fluxo.
+ */
+export function isReopenableCompletedIndustrialFlow(
+  input: Pick<
+    IndustrialSdrGuardInput,
+    | "queueState"
+    | "operatorId"
+    | "flowOutcome"
+    | "flowCurrentStep"
+    | "flowMetadata"
+    | "incomingText"
+    | "hasIncomingMedia"
+  >,
+): boolean {
+  if (input.operatorId) return false;
+  const queue = (input.queueState || "").trim().toLowerCase();
+  if (queue !== "automacao") return false;
+  if (input.flowOutcome !== "completed") return false;
+
+  const meta = (input.flowMetadata || {}) as Record<string, unknown>;
+  if (meta.dismissedBy || meta.pendingApproval || meta.handoffRequest) return false;
+  if (meta.handoffStatus === "awaiting_approval") return false;
+
+  const stepNorm = String(input.flowCurrentStep || "").trim().toLowerCase();
+  const closedWithoutTransfer =
+    meta.handoffStatus === "resolved" || REOPENABLE_COMPLETED_STEPS.has(stepNorm);
+  if (!closedWithoutTransfer) return false;
+
+  if (input.hasIncomingMedia) return true;
+  const text = String(input.incomingText || "").trim();
+  if (!text) return false;
+  if (isPostCloseCourtesyOnlyMessage(text)) return false;
+  if (isClientDecliningTriage(text)) return false;
+  return true;
+}
+
+/**
+ * Constrói o patch de reabertura limpa de um fluxo industrial encerrado sem transferência,
+ * arquivando o ciclo anterior em `previousTriages`, preservando identidade já coletada e
+ * limpando intenção/funil antigos para classificar a nova demanda do cliente do zero.
+ */
+export function buildIndustrialPostCloseReopenPatch(input: {
+  collectedData?: CollectedFields | null;
+  metadata?: Record<string, unknown> | null;
+  currentStep?: string | null;
+  completedAt?: Date | string | null;
+  startedAt?: Date | string | null;
+  now?: Date;
+}): {
+  collectedData: CollectedFields;
+  metadata: Record<string, unknown>;
+} {
+  const now = input.now || new Date();
+  const prevMeta = (input.metadata || {}) as Record<string, unknown>;
+  const prevData = (input.collectedData || {}) as CollectedFields;
+
+  const preservedData: CollectedFields = {};
+  for (const [key, val] of Object.entries(prevData)) {
+    if (IDENTITY_COLLECTED_KEYS.has(key) && val && typeof val === "object") {
+      preservedData[key] = val;
+    }
+  }
+
+  const prevTriages = Array.isArray(prevMeta.previousTriages) ? [...prevMeta.previousTriages] : [];
+  prevTriages.push({
+    cycleStartedAt:
+      input.startedAt instanceof Date
+        ? input.startedAt.toISOString()
+        : input.startedAt || null,
+    completedAt:
+      input.completedAt instanceof Date
+        ? input.completedAt.toISOString()
+        : input.completedAt || now.toISOString(),
+    outcome: "completed",
+    currentStep: input.currentStep || "Encerrado (Sem interesse)",
+    targetFunnel: prevMeta.targetFunnel || null,
+    reopenedAt: now.toISOString(),
+    reopenReason: "client_new_demand_after_close",
+  });
+
+  return {
+    collectedData: preservedData,
+    metadata: {
+      ...prevMeta,
+      previousTriages: prevTriages.slice(-10),
+      funnelStage: "triagem",
+      targetFunnel: null,
+      subflow: null,
+      needsReview: false,
+      routeReason: null,
+      missingFields: [],
+      handoffStatus: "collecting",
+      readyForHandoff: false,
+      machineDecision: null,
+      pendingApproval: null,
+      handoffRequest: null,
+      followUpStage: 0,
+      greetingDone: true,
+      assumePriorGreeting: true,
+      reopenedFromCompletedAt: now.toISOString(),
+    },
+  };
 }
 
 const DEFAULT_EXTERNAL_AGENT_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -51,8 +181,14 @@ export function evaluateIndustrialSdrOwnershipGuard(
     return { blocked: true, reason: `non_automacao_queue:${queue || "unknown"}` };
   }
 
-  if (
-    input.flowOutcome === "completed" ||
+  let reopenCompletedFlow = false;
+  if (input.flowOutcome === "completed") {
+    if (isReopenableCompletedIndustrialFlow(input)) {
+      reopenCompletedFlow = true;
+    } else {
+      return { blocked: true, reason: "flow_outcome:completed" };
+    }
+  } else if (
     input.flowOutcome === "transferred" ||
     input.flowOutcome === "stopped" ||
     input.flowOutcome === "paused"
@@ -78,7 +214,9 @@ export function evaluateIndustrialSdrOwnershipGuard(
     }
   }
 
-  return { blocked: false, reason: null };
+  return reopenCompletedFlow
+    ? { blocked: false, reason: null, reopenCompletedFlow: true }
+    : { blocked: false, reason: null };
 }
 
 /**
