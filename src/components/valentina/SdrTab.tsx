@@ -39,6 +39,7 @@ import {
   Info,
   RotateCcw,
   Sparkles,
+  AlertTriangle,
 } from "lucide-react";
 import { useChat } from "@/hooks/useChatState";
 import { getAiPersona } from "@/lib/ai-persona";
@@ -1365,6 +1366,7 @@ export function SdrTab({
   const [isOpenActionPopupOpen, setIsOpenActionPopupOpen] = useState(false);
   const openActionPopupRef = useRef<HTMLDivElement | null>(null);
   const [isStoppingBot, setIsStoppingBot] = useState(false);
+  const [showStopBotConfirm, setShowStopBotConfirm] = useState(false);
   const [isResumingBot, setIsResumingBot] = useState(false);
 
   // Modal de visualização em tela cheia de mídia/foto
@@ -2137,7 +2139,7 @@ export function SdrTab({
     }
   };
 
-  const handleStopBot = async () => {
+  const executeStopBot = async () => {
     if (!selectedSession || selectedSession.status !== "active") return;
     setIsStoppingBot(true);
     try {
@@ -2181,6 +2183,11 @@ export function SdrTab({
     } finally {
       setIsStoppingBot(false);
     }
+  };
+
+  const handleStopBot = () => {
+    if (!selectedSession || selectedSession.status !== "active" || isStoppingBot) return;
+    setShowStopBotConfirm(true);
   };
 
   const handleResumeBot = async () => {
@@ -3292,6 +3299,63 @@ export function SdrTab({
               <p className="text-[10px] text-muted-foreground">
                 Clique fora ou no X para fechar a visualização.
               </p>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── MODAL DE CONFIRMAÇÃO ANTES DE PARAR A IA EM UMA CONVERSA ────────── */}
+      <AnimatePresence>
+        {showStopBotConfirm && selectedSession && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.16 }}
+            onClick={() => setShowStopBotConfirm(false)}
+            className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 backdrop-blur-xs p-4"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: 8 }}
+              transition={{ duration: 0.16 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-md rounded-2xl border border-border bg-card p-5 shadow-2xl space-y-4"
+            >
+              <div className="flex items-start gap-3">
+                <div className="h-10 w-10 rounded-xl bg-destructive/15 border border-destructive/25 flex items-center justify-center shrink-0">
+                  <AlertTriangle className="h-5 w-5 text-destructive" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-sm font-extrabold text-foreground">
+                    Tem certeza que deseja parar {persona.gender === "female" ? "a" : "o"} {persona.name} neste atendimento?
+                  </h3>
+                  <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                    A triagem automática de <strong className="text-foreground">{selectedSession.contactName}</strong> será interrompida e o atendimento passará para controle manual. Você poderá retomar depois pelo botão <strong className="text-foreground">Retomar {persona.name}</strong>.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setShowStopBotConfirm(false)}
+                  className="px-3.5 py-2 rounded-xl text-xs font-bold border border-border bg-muted/40 text-foreground hover:bg-muted transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowStopBotConfirm(false);
+                    void executeStopBot();
+                  }}
+                  className="px-3.5 py-2 rounded-xl text-xs font-extrabold bg-destructive text-destructive-foreground hover:opacity-90 transition cursor-pointer shadow-soft"
+                >
+                  Sim, parar {persona.name}
+                </button>
+              </div>
             </motion.div>
           </motion.div>
         )}

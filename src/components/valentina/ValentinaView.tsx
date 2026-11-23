@@ -483,7 +483,7 @@ export function ValentinaView() {
                 </div>
                 <div className="min-w-0">
                   <h3 className="text-sm font-extrabold text-foreground">
-                    Desativar SDR {persona.name}?
+                    Tem certeza que deseja parar {persona.gender === "female" ? "a" : "o"} {persona.name} (SDR)?
                   </h3>
                   <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
                     Ao desativar, {persona.gender === "female" ? "a" : "o"} {persona.name} deixará de atender novos contatos e as triagens abertas em automação serão interrompidas e encaminhadas para a fila humana.
