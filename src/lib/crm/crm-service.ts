@@ -5015,7 +5015,7 @@ export class CrmService {
         const normalizedLossReason = normalizeLossReasonInput(updates.lossReason);
         if (normalizedLossReason && normalizedLossReason !== current.lossReason) {
           try {
-            const policy = await getCatalogPolicy(tenantId, "loss_reason");
+            const policy = await getCatalogPolicy(tenantId, "loss_reason", tx);
             if (policy.restrictByStage) {
               const contextStageId = updates.stageId || current.stageId || null;
               const contextPipelineId = updates.pipelineId || current.pipelineId || null;
@@ -5227,6 +5227,7 @@ export class CrmService {
           current.closedAt !== null
         ) {
           setPayload.closedAt = null;
+          setPayload.closedByOperatorId = null;
         }
       }
 
@@ -5251,11 +5252,13 @@ export class CrmService {
         setPayload.status = effectiveNewStatus;
         if (effectiveNewStatus === "won" || effectiveNewStatus === "lost") {
           setPayload.closedAt = now;
+          setPayload.closedByOperatorId = operatorId || null;
           if (updates.pausedReason === undefined && current.pausedReason) {
             setPayload.pausedReason = null;
           }
         } else {
           setPayload.closedAt = null;
+          setPayload.closedByOperatorId = null;
         }
         setPayload.lastActivityAt = now;
       }
@@ -6221,8 +6224,10 @@ export class CrmService {
           setPayload.status = newStatus;
           if (newStatus === "won" || newStatus === "lost") {
             setPayload.closedAt = now;
+            setPayload.closedByOperatorId = operatorId || null;
           } else {
             setPayload.closedAt = null;
+            setPayload.closedByOperatorId = null;
           }
           if (bulkLossCheck.lossReason) {
             setPayload.lossReason = bulkLossCheck.lossReason;

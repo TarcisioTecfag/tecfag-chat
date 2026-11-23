@@ -78,6 +78,17 @@ function getHistoricalStatusLabel(status: string, isLinked?: boolean) {
   return "Histórico";
 }
 
+function formatGraceExpiryLabel(graceExpiresAt?: string | null): string | null {
+  if (!graceExpiresAt) return null;
+  const expiresDate = new Date(graceExpiresAt);
+  if (Number.isNaN(expiresDate.getTime())) return null;
+  return expiresDate.toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
+
 export function ConversationDealContext({
   conversationId,
   onSelected,
@@ -160,12 +171,13 @@ export function ConversationDealContext({
     }
   };
 
+  const graceExpiryLabel = formatGraceExpiryLabel(data.graceExpiresAt);
   const triggerLabel = data.currentDeal?.title
     ? `${data.currentDeal.title}${data.currentDeal.status === "paused" ? " (Pausado)" : ""}`
     : data.hasCurrentDeal
       ? "Negociação selecionada (acesso restrito)"
       : data.gracePeriodActive && data.graceDeal
-        ? `${data.graceDeal.title} (${data.graceDeal.status === "won" ? "Vendido" : "Perdido"} • Carência 24h)`
+        ? `${data.graceDeal.title} (${data.graceDeal.status === "won" ? "Vendido" : "Perdido"} • Carência 30d)`
         : "Selecione uma negociação disponível";
 
   return (
@@ -219,7 +231,7 @@ export function ConversationDealContext({
               {data.hasCurrentDeal
                 ? "Notas e ações serão registradas neste card. Transferências mantêm esta seleção."
                 : data.gracePeriodActive && data.graceDeal
-                  ? `Carência de 24h ativa (${data.graceDeal.status === "won" ? "venda concluída" : "negociação perdida"}): você pode conversar sem vincular outra negociação.`
+                  ? `Carência exclusiva de 30 dias ativa (${data.graceDeal.status === "won" ? "venda concluída" : "negociação perdida"} por você${graceExpiryLabel ? ` • até ${graceExpiryLabel}` : ""}): você pode conversar sem vincular outra negociação.`
                   : data.previousDeal
                     ? `Última negociação: ${data.previousDeal.title}. Confira o assunto antes de continuar.`
                     : "Escolha pelo menu suspenso ou clique no botão \"Escolher essa\" em um dos cards abaixo."}
@@ -423,7 +435,7 @@ export function ConversationDealTransferContext({
   const defaultLabel = data.hasCurrentDeal
     ? `Manter: ${data.currentDeal?.title || "negociação atual"}`
     : data.gracePeriodActive && data.graceDeal
-      ? `Carência 24h: ${data.graceDeal.title} (${data.graceDeal.status === "won" ? "Vendido" : "Perdido"})`
+      ? `Carência 30d: ${data.graceDeal.title} (${data.graceDeal.status === "won" ? "Vendido" : "Perdido"})`
       : "Escolha a negociação do atendimento";
 
   return (

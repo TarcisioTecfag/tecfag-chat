@@ -197,8 +197,8 @@ export const InlineChatTaskComposer: React.FC<InlineChatTaskComposerProps> = ({
 
   const effectiveDeal = useMemo(() => {
     if (taskDealContext.data?.currentDeal) return taskDealContext.data.currentDeal;
-    if (taskDealContext.data?.gracePeriodActive && taskDealContext.data?.previousDeal) {
-      return taskDealContext.data.previousDeal;
+    if (taskDealContext.data?.gracePeriodActive && (taskDealContext.data?.graceDeal || taskDealContext.data?.previousDeal)) {
+      return taskDealContext.data.graceDeal || taskDealContext.data.previousDeal;
     }
     if (openLinkedDeals.length === 1) return openLinkedDeals[0];
     if (openLinkedDeals.length === 0 && pausedLinkedDeals.length === 1) return pausedLinkedDeals[0];
@@ -206,6 +206,7 @@ export const InlineChatTaskComposer: React.FC<InlineChatTaskComposerProps> = ({
   }, [
     taskDealContext.data?.currentDeal,
     taskDealContext.data?.gracePeriodActive,
+    taskDealContext.data?.graceDeal,
     taskDealContext.data?.previousDeal,
     openLinkedDeals,
     pausedLinkedDeals,

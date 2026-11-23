@@ -181,9 +181,13 @@ export type CatalogPolicy = {
   standardItemScopes: Record<string, CatalogItemScope>;
 };
 
-export async function getCatalogPolicy(tenantId: string, kind: CatalogKind): Promise<CatalogPolicy> {
+export async function getCatalogPolicy(
+  tenantId: string,
+  kind: CatalogKind,
+  executor: Pick<typeof db, "select"> = db,
+): Promise<CatalogPolicy> {
   try {
-    const [policy] = await db
+    const [policy] = await executor
       .select()
       .from(crmCatalogPolicies)
       .where(and(eq(crmCatalogPolicies.tenantId, tenantId), eq(crmCatalogPolicies.kind, kind)))

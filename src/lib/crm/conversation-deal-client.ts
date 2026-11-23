@@ -22,6 +22,7 @@ export type ConversationDealContext = {
     title: string;
     status: string;
     closedAt?: string | Date | null;
+    closedByOperatorId?: string | null;
   } | null;
   graceExpiresAt?: string | null;
   editable: boolean;
@@ -38,6 +39,7 @@ export type ConversationDealContext = {
     operatorName?: string | null;
     isLinked: boolean;
     closedAt?: string | Date | null;
+    closedByOperatorId?: string | null;
   }>;
 };
 
@@ -67,9 +69,22 @@ export const cachedDealContext = (
   return cache.get(key(tenantId, operatorId, conversationId));
 };
 
-export const cachedDealRequirement = (conversationId?: string | null) => {
+const requirementKey = (
+  conversationId: string,
+  tenantId?: string | null,
+  operatorId?: string | null,
+) =>
+  tenantId && operatorId
+    ? JSON.stringify([tenantId, operatorId, conversationId])
+    : conversationId;
+
+export const cachedDealRequirement = (
+  conversationId?: string | null,
+  tenantId?: string | null,
+  operatorId?: string | null,
+) => {
   if (!conversationId) return undefined;
-  return requirementCache.get(conversationId);
+  return requirementCache.get(requirementKey(conversationId, tenantId, operatorId));
 };
 
 export function invalidateDealContextCache(conversationId?: string | null) {
@@ -78,6 +93,16 @@ export function invalidateDealContextCache(conversationId?: string | null) {
   inFlightRequirement.delete(conversationId);
   requirementCache.delete(conversationId);
   const keySuffix = `,${JSON.stringify(conversationId)}]`;
+  for (const k of Array.from(requirementCache.keys())) {
+    if (k === conversationId || k.endsWith(keySuffix)) {
+      requirementCache.delete(k);
+    }
+  }
+  for (const k of Array.from(inFlightRequirement.keys())) {
+    if (k === conversationId || k.endsWith(keySuffix)) {
+      inFlightRequirement.delete(k);
+    }
+  }
   for (const k of Array.from(cache.keys())) {
     if (k.endsWith(keySuffix)) {
       cache.delete(k);
@@ -98,17 +123,28 @@ export function markConversationDealSatisfied(
   mutationEpoch.set(conversationId, (mutationEpoch.get(conversationId) || 0) + 1);
   inFlightRequirement.delete(conversationId);
   const keySuffix = `,${JSON.stringify(conversationId)}]`;
+  for (const k of Array.from(inFlightRequirement.keys())) {
+    if (k === conversationId || k.endsWith(keySuffix)) {
+      inFlightRequirement.delete(k);
+    }
+  }
   for (const k of inFlightContext.keys()) {
     if (k.endsWith(keySuffix)) {
       inFlightContext.delete(k);
     }
   }
-  requirementCache.set(conversationId, {
+  const satisfiedState: ConversationDealRequirementState = {
     id: conversationId,
     pending: false,
     currentRequired: false,
     error: "",
-  });
+  };
+  requirementCache.set(conversationId, satisfiedState);
+  for (const k of Array.from(requirementCache.keys())) {
+    if (k.endsWith(keySuffix)) {
+      requirementCache.set(k, satisfiedState);
+    }
+  }
   if (selectedDeal?.id) {
     for (const [k, existing] of cache.entries()) {
       if (k.endsWith(keySuffix)) {
@@ -160,14 +196,17 @@ export async function fetchDealContext(
           : data
       ) as ConversationDealContext;
       cache.set(k, resolved);
+      const reqKey = requirementKey(conversationId, tenantId, operatorId);
       if (resolved.hasCurrentDeal || resolved.gracePeriodActive) {
-        requirementCache.set(conversationId, {
+        requirementCache.set(reqKey, {
           id: conversationId,
           pending: false,
           currentRequired: false,
           gracePeriodActive: resolved.gracePeriodActive,
           error: "",
         });
+      } else {
+        requirementCache.delete(reqKey);
       }
       return resolved;
     } finally {
@@ -183,8 +222,11 @@ export async function fetchDealContext(
 
 export async function fetchDealRequirement(
   conversationId: string,
+  tenantId?: string | null,
+  operatorId?: string | null,
 ): Promise<ConversationDealRequirementState> {
-  const existingFlight = inFlightRequirement.get(conversationId);
+  const reqKey = requirementKey(conversationId, tenantId, operatorId);
+  const existingFlight = inFlightRequirement.get(reqKey);
   if (existingFlight) return existingFlight;
 
   const startEpoch = mutationEpoch.get(conversationId) || 0;
@@ -200,7 +242,7 @@ export async function fetchDealRequirement(
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Não foi possível verificar a negociação.");
       const currentEpoch = mutationEpoch.get(conversationId) || 0;
-      const existingReq = requirementCache.get(conversationId);
+      const existingReq = requirementCache.get(reqKey);
       if (currentEpoch !== startEpoch && existingReq && !existingReq.pending) {
         return existingReq;
       }
@@ -212,16 +254,16 @@ export async function fetchDealRequirement(
         gracePeriodActive: inGrace,
         error: "",
       };
-      requirementCache.set(conversationId, nextState);
+      requirementCache.set(reqKey, nextState);
       return nextState;
     } finally {
-      if (inFlightRequirement.get(conversationId) === promise) {
-        inFlightRequirement.delete(conversationId);
+      if (inFlightRequirement.get(reqKey) === promise) {
+        inFlightRequirement.delete(reqKey);
       }
     }
   })();
 
-  inFlightRequirement.set(conversationId, promise);
+  inFlightRequirement.set(reqKey, promise);
   return promise;
 }
 

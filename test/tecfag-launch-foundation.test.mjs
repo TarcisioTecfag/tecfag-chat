@@ -312,6 +312,7 @@ function uploadRoute() {
   const post = loadAccessSource("src/routes/api/whatsapp/send.ts", {
     "@tanstack/react-router": routeStub,
     "../../../lib/crm/deal-associations": { syncConversationDeals: async () => true },
+    "../../../lib/crm/conversation-deal-context": { resolveOutboundDealAccess: async () => ({ allowed: true, activeDealId: null, graceDealId: null }) },
     "../../../lib/whatsapp/outbound": { outboundQueue: { enqueueAndSend: async (payload) => { sent.push(payload); return { success: true, status: "accepted", messageId: "uploaded-message" }; } } },
     "../../../lib/whatsapp/dispatch": { storedResult: (row) => ({ success: true, status: row.status, messageId: row.id }) },
     "../../../lib/auth-session": { requireSession: async () => ({ session: principal() }) },

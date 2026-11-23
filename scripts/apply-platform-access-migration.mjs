@@ -306,6 +306,13 @@ const migrations = [
       import.meta.url,
     ),
   },
+  {
+    name: "0066_crm_deal_closed_by_operator",
+    url: new URL(
+      "../src/db/migrations/0066_crm_deal_closed_by_operator.sql",
+      import.meta.url,
+    ),
+  },
 ];
 const databaseUrl = process.env.DATABASE_URL;
 

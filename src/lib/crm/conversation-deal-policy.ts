@@ -6,23 +6,31 @@ export type DealContextState = {
 };
 
 /**
- * Período de carência de 24 horas após uma negociação ser marcada como Vendida ('won') ou Perdida ('lost').
- * Durante essas 24 horas, o operador pode continuar conversando no chat correlacionado sem ser obrigado
- * a vincular ou selecionar outra negociação em andamento.
+ * Período de carência de 30 dias após uma negociação ser marcada como Vendida ('won') ou Perdida ('lost').
+ * Durante esses 30 dias, APENAS o mesmo operador que executou a ação (vender/perder) pode continuar
+ * conversando e respondendo o cliente no chat correlacionado sem ter uma negociação ativa vinculada.
  */
-export const DEAL_POST_CLOSE_GRACE_MS = 24 * 60 * 60 * 1000;
+export const DEAL_POST_CLOSE_GRACE_DAYS = 30;
+export const DEAL_POST_CLOSE_GRACE_MS = DEAL_POST_CLOSE_GRACE_DAYS * 24 * 60 * 60 * 1000;
+
+export type PostCloseGraceDealCandidate = {
+  status: string;
+  isLinked?: boolean;
+  closedAt?: string | Date | null;
+  closedByOperatorId?: string | null;
+};
 
 export function isDealWithinPostCloseGrace(
-  deal: {
-    status: string;
-    isLinked?: boolean;
-    closedAt?: string | Date | null;
-  },
+  deal: PostCloseGraceDealCandidate,
   nowMs: number = Date.now(),
+  operatorId?: string | null,
 ): boolean {
   if (deal.isLinked === false) return false;
   if (deal.status !== "won" && deal.status !== "lost") return false;
   if (!deal.closedAt) return false;
+  if (!operatorId || !deal.closedByOperatorId || deal.closedByOperatorId !== operatorId) {
+    return false;
+  }
   const closedTime = new Date(deal.closedAt).getTime();
   if (!Number.isFinite(closedTime) || closedTime <= 0) return false;
   const elapsed = nowMs - closedTime;
@@ -30,40 +38,35 @@ export function isDealWithinPostCloseGrace(
 }
 
 export function getDealPostCloseGraceExpiresAt(
-  deal:
-    | {
-        status: string;
-        isLinked?: boolean;
-        closedAt?: string | Date | null;
-      }
-    | null
-    | undefined,
+  deal: PostCloseGraceDealCandidate | null | undefined,
   nowMs: number = Date.now(),
+  operatorId?: string | null,
 ): string | null {
-  if (!deal || !isDealWithinPostCloseGrace(deal, nowMs)) return null;
+  if (!deal || !isDealWithinPostCloseGrace(deal, nowMs, operatorId)) return null;
   const closedTime = new Date(deal.closedAt!).getTime();
   return new Date(closedTime + DEAL_POST_CLOSE_GRACE_MS).toISOString();
 }
 
 export function findActiveGraceDeal<
-  T extends {
+  T extends PostCloseGraceDealCandidate & {
     id: string;
-    status: string;
-    isLinked?: boolean;
-    closedAt?: string | Date | null;
   },
 >(
   deals: readonly T[],
   preferredDealIds: Array<string | null | undefined> = [],
   nowMs: number = Date.now(),
+  operatorId?: string | null,
 ): T | null {
+  if (!operatorId) return null;
   for (const prefId of preferredDealIds) {
     if (!prefId) continue;
-    const matched = deals.find((d) => d.id === prefId && isDealWithinPostCloseGrace(d, nowMs));
+    const matched = deals.find(
+      (d) => d.id === prefId && isDealWithinPostCloseGrace(d, nowMs, operatorId),
+    );
     if (matched) return matched;
   }
   const candidates = deals
-    .filter((d) => isDealWithinPostCloseGrace(d, nowMs))
+    .filter((d) => isDealWithinPostCloseGrace(d, nowMs, operatorId))
     .sort((a, b) => {
       const timeA = a.closedAt ? new Date(a.closedAt).getTime() || 0 : 0;
       const timeB = b.closedAt ? new Date(b.closedAt).getTime() || 0 : 0;

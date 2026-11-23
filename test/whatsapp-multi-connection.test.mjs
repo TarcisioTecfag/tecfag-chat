@@ -827,6 +827,7 @@ test("sending a saved attachment requires visibility of its original number's co
     "../../../lib/whatsapp/connections": connectionService,
     "../../../lib/access-control/conversation-access": access,
     "../../../lib/crm/deal-associations": { syncConversationDeals: async () => true },
+    "../../../lib/crm/conversation-deal-context": { resolveOutboundDealAccess: async () => ({ allowed: true, activeDealId: null, graceDealId: null }) },
     "../../../lib/whatsapp/outbound": {
       outboundQueue: {
         enqueueAndSend: async () => {

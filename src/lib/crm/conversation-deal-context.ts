@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import {
   conversationDealContexts,
   conversations,
@@ -20,6 +20,7 @@ import {
   findActiveGraceDeal,
   getDealPostCloseGraceExpiresAt,
   isDealWithinPostCloseGrace,
+  DEAL_POST_CLOSE_GRACE_DAYS,
   DEAL_POST_CLOSE_GRACE_MS,
 } from "./conversation-deal-policy";
 
@@ -30,6 +31,7 @@ export {
   findActiveGraceDeal,
   getDealPostCloseGraceExpiresAt,
   isDealWithinPostCloseGrace,
+  DEAL_POST_CLOSE_GRACE_DAYS,
   DEAL_POST_CLOSE_GRACE_MS,
 } from "./conversation-deal-policy";
 
@@ -110,6 +112,7 @@ export async function getDealContext(
       rdDealId,
       isLinked,
       closedAt,
+      closedByOperatorId,
     }) => ({
       id,
       title,
@@ -123,8 +126,63 @@ export async function getDealContext(
       rdDealId,
       isLinked,
       closedAt,
+      closedByOperatorId: closedByOperatorId ?? null,
     }),
   );
+
+  // Fallback seguro para cards encerrados antes da coluna closed_by_operator_id:
+  // resolve o autor da última transição para won/lost a partir de crm_deal_events.
+  const dealsMissingCloser = deals.filter(
+    (d) =>
+      (d.status === "won" || d.status === "lost") &&
+      d.isLinked &&
+      d.closedAt &&
+      !d.closedByOperatorId,
+  );
+  if (dealsMissingCloser.length > 0) {
+    try {
+      const missingIds = dealsMissingCloser.map((d) => d.id);
+      const closeEvents = await tx
+        .select({
+          dealId: crmDealEvents.dealId,
+          eventType: crmDealEvents.eventType,
+          toStatus: crmDealEvents.toStatus,
+          metadata: crmDealEvents.metadata,
+          operatorId: crmDealEvents.operatorId,
+        })
+        .from(crmDealEvents)
+        .where(
+          and(
+            eq(crmDealEvents.tenantId, tenantId),
+            inArray(crmDealEvents.dealId, missingIds),
+            inArray(crmDealEvents.eventType, ["status_changed", "bulk_updated"]),
+          ),
+        )
+        .orderBy(desc(crmDealEvents.createdAt));
+
+      const closerByDeal = new Map<string, string>();
+      for (const evt of closeEvents) {
+        if (!evt.operatorId || closerByDeal.has(evt.dealId)) continue;
+        const meta = (evt.metadata || {}) as Record<string, unknown>;
+        const targetStatus =
+          evt.eventType === "status_changed"
+            ? evt.toStatus || (typeof meta.toStatus === "string" ? meta.toStatus : null)
+            : typeof meta.newStatus === "string"
+              ? meta.newStatus
+              : null;
+        if (targetStatus === "won" || targetStatus === "lost") {
+          closerByDeal.set(evt.dealId, evt.operatorId);
+        }
+      }
+      for (const d of deals) {
+        if (!d.closedByOperatorId && closerByDeal.has(d.id)) {
+          d.closedByOperatorId = closerByDeal.get(d.id)!;
+        }
+      }
+    } catch {
+      // Em mocks unitários parciais, mantém closedByOperatorId como está.
+    }
+  }
   // Conversas encerradas só conservam a sugestão histórica, nunca o destino ativo.
   const openDealIds = deals.filter((d) => d.status === "open" && d.isLinked).map((d) => d.id);
   const pausedDealIds = deals.filter((d) => d.status === "paused" && d.isLinked).map((d) => d.id);
@@ -380,4 +438,65 @@ export async function endDealContext(
         eq(conversationDealContexts.conversationId, conversationId),
       ),
     );
+}
+
+/**
+ * Valida se o operador pode enviar mensagens externas na conversa:
+ * - Permitido se houver uma negociação atual ativa (em andamento ou pausada);
+ * - Permitido se o PRÓPRIO operador estiver dentro da carência de 30 dias após marcar
+ *   como vendida ('won') ou perdida ('lost') uma negociação vinculada a esta conversa;
+ * - Caso contrário, bloqueia exigindo seleção de negociação disponível ou criação/vínculo.
+ */
+export async function resolveOutboundDealAccess(
+  tx: DealTransaction,
+  tenantId: string,
+  conversationId: string,
+  operatorId: string,
+  nowMs: number = Date.now(),
+): Promise<{
+  allowed: boolean;
+  activeDealId: string | null;
+  graceDealId: string | null;
+  code?: "DEAL_REQUIRED" | "DEAL_CONTEXT_REQUIRED";
+  error?: string;
+}> {
+  const state = await getDealContext(tx, tenantId, conversationId, operatorId);
+  if (state.context.currentDealId) {
+    return {
+      allowed: true,
+      activeDealId: state.context.currentDealId,
+      graceDealId: null,
+    };
+  }
+  const graceDeal = findActiveGraceDeal(
+    state.deals,
+    [state.context.currentDealId, state.context.previousDealId],
+    nowMs,
+    operatorId,
+  );
+  if (graceDeal) {
+    return {
+      allowed: true,
+      activeDealId: null,
+      graceDealId: graceDeal.id,
+    };
+  }
+  const hasEligible = state.deals.some(isCurrentDealEligible);
+  if (hasEligible) {
+    return {
+      allowed: false,
+      activeDealId: null,
+      graceDealId: null,
+      code: "DEAL_CONTEXT_REQUIRED",
+      error: "Selecione a negociação deste atendimento antes de enviar mensagens.",
+    };
+  }
+  return {
+    allowed: false,
+    activeDealId: null,
+    graceDealId: null,
+    code: "DEAL_REQUIRED",
+    error:
+      "Todo contato e atendimento precisa de uma negociação. Vincule uma existente ou crie uma para continuar.",
+  };
 }

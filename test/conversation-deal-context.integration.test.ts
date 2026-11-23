@@ -8,6 +8,7 @@ import {
   selectDealContext,
   recordConversationAction,
   endDealContext,
+  resolveOutboundDealAccess,
 } from "../src/lib/crm/conversation-deal-context";
 import { DEFAULT_ADMIN_PERMISSIONS } from "../src/lib/rbac";
 import { readFile } from "node:fs/promises";
@@ -19,32 +20,47 @@ import {
   isDealWithinPostCloseGrace,
   getDealPostCloseGraceExpiresAt,
   findActiveGraceDeal,
+  DEAL_POST_CLOSE_GRACE_DAYS,
   DEAL_POST_CLOSE_GRACE_MS,
 } from "../src/lib/crm/conversation-deal-policy";
 
-describe("Política de carência de 24h pós-venda e pós-perda", () => {
-  test("reconhece negociação vendida ou perdida dentro de 24h e expira após 24h", () => {
-    const now = new Date("2026-10-30T15:00:00.000Z").getTime();
+describe("Política de carência de 30 dias pós-venda e pós-perda (exclusiva por usuário)", () => {
+  test("concede carência de 30 dias apenas ao operador que vendeu/perdeu e expira após 30 dias", () => {
+    expect(DEAL_POST_CLOSE_GRACE_DAYS).toBe(30);
+    expect(DEAL_POST_CLOSE_GRACE_MS).toBe(30 * 24 * 60 * 60 * 1000);
+
+    const now = new Date("2026-11-30T15:00:00.000Z").getTime();
     const wonRecent = {
       id: "deal-won-recent",
       title: "Seladora Automática",
       status: "won",
       isLinked: true,
-      closedAt: new Date(now - 2 * 60 * 60 * 1000).toISOString(),
+      closedAt: new Date(now - 5 * 24 * 60 * 60 * 1000).toISOString(), // 5 dias atrás
+      closedByOperatorId: "op-a",
     };
     const lostRecent = {
       id: "deal-lost-recent",
       title: "Envasadora Linear",
       status: "lost",
       isLinked: true,
-      closedAt: new Date(now - 23 * 60 * 60 * 1000).toISOString(),
+      closedAt: new Date(now - 29 * 24 * 60 * 60 * 1000).toISOString(), // 29 dias atrás
+      closedByOperatorId: "op-a",
     };
     const wonExpired = {
       id: "deal-won-expired",
       title: "Datador Antigo",
       status: "won",
       isLinked: true,
-      closedAt: new Date(now - DEAL_POST_CLOSE_GRACE_MS - 1000).toISOString(),
+      closedAt: new Date(now - DEAL_POST_CLOSE_GRACE_MS - 1000).toISOString(), // 30d + 1s
+      closedByOperatorId: "op-a",
+    };
+    const wonNoCloser = {
+      id: "deal-won-no-closer",
+      title: "Sem Autor",
+      status: "won",
+      isLinked: true,
+      closedAt: new Date(now - 1000).toISOString(),
+      closedByOperatorId: null,
     };
     const pausedRecent = {
       id: "deal-paused",
@@ -52,6 +68,7 @@ describe("Política de carência de 24h pós-venda e pós-perda", () => {
       status: "paused",
       isLinked: true,
       closedAt: new Date(now - 1000).toISOString(),
+      closedByOperatorId: "op-a",
     };
     const unlinkedWon = {
       id: "deal-unlinked",
@@ -59,24 +76,39 @@ describe("Política de carência de 24h pós-venda e pós-perda", () => {
       status: "won",
       isLinked: false,
       closedAt: new Date(now - 1000).toISOString(),
+      closedByOperatorId: "op-a",
     };
 
-    expect(isDealWithinPostCloseGrace(wonRecent, now)).toBe(true);
-    expect(isDealWithinPostCloseGrace(lostRecent, now)).toBe(true);
-    expect(isDealWithinPostCloseGrace(wonExpired, now)).toBe(false);
-    expect(isDealWithinPostCloseGrace(pausedRecent, now)).toBe(false);
-    expect(isDealWithinPostCloseGrace(unlinkedWon, now)).toBe(false);
+    // Mesmo operador que realizou a ação dentro de 30 dias -> permitido
+    expect(isDealWithinPostCloseGrace(wonRecent, now, "op-a")).toBe(true);
+    expect(isDealWithinPostCloseGrace(lostRecent, now, "op-a")).toBe(true);
+    // Outro operador -> negado mesmo dentro dos 30 dias
+    expect(isDealWithinPostCloseGrace(wonRecent, now, "op-b")).toBe(false);
+    expect(isDealWithinPostCloseGrace(lostRecent, now, "op-b")).toBe(false);
+    // Sem operador informado ou sem autor registrado -> negado
+    expect(isDealWithinPostCloseGrace(wonRecent, now, null)).toBe(false);
+    expect(isDealWithinPostCloseGrace(wonNoCloser, now, "op-a")).toBe(false);
+    // Expirado (> 30 dias), pausado ou desvinculado -> negado mesmo para o próprio operador
+    expect(isDealWithinPostCloseGrace(wonExpired, now, "op-a")).toBe(false);
+    expect(isDealWithinPostCloseGrace(pausedRecent, now, "op-a")).toBe(false);
+    expect(isDealWithinPostCloseGrace(unlinkedWon, now, "op-a")).toBe(false);
 
-    // Prioriza o previousDealId quando está dentro da janela de 24h
+    // Prioriza o previousDealId quando está dentro da janela de 30 dias para o mesmo operador
     const chosen = findActiveGraceDeal(
       [wonRecent, lostRecent, wonExpired],
       ["deal-lost-recent"],
       now,
+      "op-a",
     );
     expect(chosen?.id).toBe("deal-lost-recent");
-    expect(getDealPostCloseGraceExpiresAt(chosen, now)).toBe(
+    expect(getDealPostCloseGraceExpiresAt(chosen, now, "op-a")).toBe(
       new Date(new Date(lostRecent.closedAt).getTime() + DEAL_POST_CLOSE_GRACE_MS).toISOString(),
     );
+    // Outro operador não recebe carência nem data de expiração
+    expect(
+      findActiveGraceDeal([wonRecent, lostRecent], ["deal-lost-recent"], now, "op-b"),
+    ).toBeNull();
+    expect(getDealPostCloseGraceExpiresAt(chosen, now, "op-b")).toBeNull();
   });
 });
 
@@ -256,6 +288,12 @@ describe.skipIf(!process.env.PGLITE_TEST_MODULE)("Negociação atual: PostgreSQL
     );
     await pg.exec(pausedDealMigration);
     await pg.exec(pausedDealMigration);
+    const closedByMigration = await readFile(
+      new URL("../src/db/migrations/0066_crm_deal_closed_by_operator.sql", import.meta.url),
+      "utf8",
+    );
+    await pg.exec(closedByMigration);
+    await pg.exec(closedByMigration);
     mock.module("../src/db", () => ({
       db,
       client: () => {
@@ -1409,95 +1447,336 @@ describe.skipIf(!process.env.PGLITE_TEST_MODULE)("Negociação atual: PostgreSQL
       );
     expect(conversation).toMatchObject({ queueState: "meus", version: 1 });
   });
-  test("carência de 24h pós-venda ou pós-perda dispensa vínculo de negociação atual e expira após 24h", async () => {
-    for (const closedStatus of ["won", "lost"] as const) {
-      const f = await fixture(2);
-      const initial = await state(f.id);
-      await db.transaction((tx: any) =>
-        selectDealContext(tx, "context-a", f.id, f.deals[0], "op-a", initial.context.version),
-      );
-      const recentClosedAt = new Date(Date.now() - 2 * 60 * 60 * 1000); // 2h atrás (dentro de 24h)
+  test("carência de 30 dias pós-venda ou pós-perda vale apenas para o operador que fechou o card e expira após 30 dias", async () => {
+    const savedOperator = { ...session.operator };
+    try {
+      for (const closedStatus of ["won", "lost"] as const) {
+        // 1. Cenário com 2 cards (1 fechado por op-a há 15 dias, 1 aberto disponível)
+        const f = await fixture(2);
+        const initial = await state(f.id);
+        await db.transaction((tx: any) =>
+          selectDealContext(tx, "context-a", f.id, f.deals[0], "op-a", initial.context.version),
+        );
+        const within30DaysClosedAt = new Date(Date.now() - 15 * 24 * 60 * 60 * 1000); // 15 dias atrás
+        await db
+          .update(schema.crmDeals)
+          .set({
+            status: closedStatus,
+            closedAt: within30DaysClosedAt,
+            closedByOperatorId: "op-a",
+          })
+          .where(
+            and(eq(schema.crmDeals.tenantId, "context-a"), eq(schema.crmDeals.id, f.deals[0])),
+          );
+
+        // Mesmo operador (op-a) dentro de 30 dias -> carência ativa
+        session.operator = { ...savedOperator };
+        const statusRes = await dealsApi.GET({
+          params: { conversationId: f.id },
+          request: new Request("http://localhost/api/chats/" + f.id + "/deals?statusOnly=1"),
+        });
+        const statusJson = await statusRes.json();
+        expect(statusJson).toMatchObject({
+          dealRequired: false,
+          currentDealRequired: false,
+          gracePeriodActive: true,
+          graceDeal: {
+            id: f.deals[0],
+            status: closedStatus,
+            closedByOperatorId: "op-a",
+          },
+        });
+        expect(typeof statusJson.graceExpiresAt).toBe("string");
+
+        const ctxRes = await contextApi.GET({
+          params: { conversationId: f.id },
+          request: new Request("http://localhost"),
+        });
+        const ctxJson = await ctxRes.json();
+        expect(ctxJson).toMatchObject({
+          hasCurrentDeal: false,
+          selectionRequired: false,
+          gracePeriodActive: true,
+          graceDeal: {
+            id: f.deals[0],
+            status: closedStatus,
+            closedByOperatorId: "op-a",
+          },
+        });
+
+        // Durante os 30 dias, op-a pode enviar mensagens externas e notas sem selecionar outro card
+        const outboundOpA = await db.transaction((tx: any) =>
+          resolveOutboundDealAccess(tx, "context-a", f.id, "op-a"),
+        );
+        expect(outboundOpA).toMatchObject({ allowed: true, graceDealId: f.deals[0] });
+
+        const noteRes = await notes(
+          request(f.id, {
+            conversationId: f.id,
+            content: `Nota em carência 30d (${closedStatus})`,
+            isInternalNote: true,
+            expectedContextVersion: ctxJson.version,
+          }),
+        );
+        expect(noteRes.status).toBe(200);
+
+        // Outro operador (op-b) NÃO herda a carência de 30 dias
+        await db
+          .update(schema.conversations)
+          .set({ operatorId: "op-b" })
+          .where(and(eq(schema.conversations.tenantId, "context-a"), eq(schema.conversations.id, f.id)));
+        session.operator = { id: "op-b", name: "Operador B", role: "admin" };
+
+        const opBStatusRes = await dealsApi.GET({
+          params: { conversationId: f.id },
+          request: new Request("http://localhost/api/chats/" + f.id + "/deals?statusOnly=1"),
+        });
+        expect(await opBStatusRes.json()).toMatchObject({
+          dealRequired: false,
+          currentDealRequired: true,
+          gracePeriodActive: false,
+          graceDeal: null,
+        });
+
+        const opBCtxRes = await contextApi.GET({
+          params: { conversationId: f.id },
+          request: new Request("http://localhost"),
+        });
+        expect(await opBCtxRes.json()).toMatchObject({
+          hasCurrentDeal: false,
+          selectionRequired: true,
+          gracePeriodActive: false,
+          graceDeal: null,
+        });
+
+        const outboundOpB = await db.transaction((tx: any) =>
+          resolveOutboundDealAccess(tx, "context-a", f.id, "op-b"),
+        );
+        expect(outboundOpB).toMatchObject({ allowed: false, code: "DEAL_CONTEXT_REQUIRED" });
+
+        // Volta a conversa para op-a e expira os 30 dias (31 dias atrás) -> volta a exigir seleção
+        await db
+          .update(schema.conversations)
+          .set({ operatorId: "op-a" })
+          .where(and(eq(schema.conversations.tenantId, "context-a"), eq(schema.conversations.id, f.id)));
+        session.operator = { ...savedOperator };
+
+        const expiredClosedAt = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000);
+        await db
+          .update(schema.crmDeals)
+          .set({ closedAt: expiredClosedAt })
+          .where(
+            and(eq(schema.crmDeals.tenantId, "context-a"), eq(schema.crmDeals.id, f.deals[0])),
+          );
+
+        const expiredStatusRes = await dealsApi.GET({
+          params: { conversationId: f.id },
+          request: new Request("http://localhost/api/chats/" + f.id + "/deals?statusOnly=1"),
+        });
+        expect(await expiredStatusRes.json()).toMatchObject({
+          dealRequired: false,
+          currentDealRequired: true,
+          gracePeriodActive: false,
+          graceDeal: null,
+        });
+
+        const expiredCtxRes = await contextApi.GET({
+          params: { conversationId: f.id },
+          request: new Request("http://localhost"),
+        });
+        expect(await expiredCtxRes.json()).toMatchObject({
+          hasCurrentDeal: false,
+          selectionRequired: true,
+          gracePeriodActive: false,
+          graceDeal: null,
+        });
+
+        const outboundOpAExpired = await db.transaction((tx: any) =>
+          resolveOutboundDealAccess(tx, "context-a", f.id, "op-a"),
+        );
+        expect(outboundOpAExpired).toMatchObject({ allowed: false, code: "DEAL_CONTEXT_REQUIRED" });
+
+        // 2. Cenário sem nenhuma outra negociação ativa (apenas o único card fechado por op-a)
+        const fSingle = await fixture(1);
+        await state(fSingle.id);
+        await db
+          .update(schema.crmDeals)
+          .set({
+            status: closedStatus,
+            closedAt: new Date(Date.now() - 25 * 24 * 60 * 60 * 1000), // 25 dias atrás
+            closedByOperatorId: "op-a",
+          })
+          .where(
+            and(
+              eq(schema.crmDeals.tenantId, "context-a"),
+              eq(schema.crmDeals.id, fSingle.deals[0]),
+            ),
+          );
+
+        // op-a (quem vendeu/perdeu) pode responder mesmo sem nenhuma negociação ativa vinculada
+        const singleOpAStatus = await dealsApi.GET({
+          params: { conversationId: fSingle.id },
+          request: new Request("http://localhost/api/chats/" + fSingle.id + "/deals?statusOnly=1"),
+        });
+        expect(await singleOpAStatus.json()).toMatchObject({
+          dealRequired: false,
+          currentDealRequired: false,
+          gracePeriodActive: true,
+          graceDeal: { id: fSingle.deals[0], status: closedStatus, closedByOperatorId: "op-a" },
+        });
+        const singleOutboundOpA = await db.transaction((tx: any) =>
+          resolveOutboundDealAccess(tx, "context-a", fSingle.id, "op-a"),
+        );
+        expect(singleOutboundOpA).toMatchObject({ allowed: true, graceDealId: fSingle.deals[0] });
+
+        // op-b assumindo o mesmo atendimento sem negociação ativa -> BLOQUEADO (DEAL_REQUIRED)
+        await db
+          .update(schema.conversations)
+          .set({ operatorId: "op-b" })
+          .where(
+            and(eq(schema.conversations.tenantId, "context-a"), eq(schema.conversations.id, fSingle.id)),
+          );
+        session.operator = { id: "op-b", name: "Operador B", role: "admin" };
+        const singleOpBStatus = await dealsApi.GET({
+          params: { conversationId: fSingle.id },
+          request: new Request("http://localhost/api/chats/" + fSingle.id + "/deals?statusOnly=1"),
+        });
+        expect(await singleOpBStatus.json()).toMatchObject({
+          dealRequired: true,
+          currentDealRequired: false,
+          gracePeriodActive: false,
+          graceDeal: null,
+        });
+        const singleOutboundOpB = await db.transaction((tx: any) =>
+          resolveOutboundDealAccess(tx, "context-a", fSingle.id, "op-b"),
+        );
+        expect(singleOutboundOpB).toMatchObject({ allowed: false, code: "DEAL_REQUIRED" });
+
+        // op-a após 31 dias sem negociação ativa -> BLOQUEADO (DEAL_REQUIRED)
+        await db
+          .update(schema.conversations)
+          .set({ operatorId: "op-a" })
+          .where(
+            and(eq(schema.conversations.tenantId, "context-a"), eq(schema.conversations.id, fSingle.id)),
+          );
+        await db
+          .update(schema.crmDeals)
+          .set({ closedAt: new Date(Date.now() - 31 * 24 * 60 * 60 * 1000) })
+          .where(
+            and(
+              eq(schema.crmDeals.tenantId, "context-a"),
+              eq(schema.crmDeals.id, fSingle.deals[0]),
+            ),
+          );
+        session.operator = { ...savedOperator };
+        const singleOpAExpiredStatus = await dealsApi.GET({
+          params: { conversationId: fSingle.id },
+          request: new Request("http://localhost/api/chats/" + fSingle.id + "/deals?statusOnly=1"),
+        });
+        expect(await singleOpAExpiredStatus.json()).toMatchObject({
+          dealRequired: true,
+          currentDealRequired: false,
+          gracePeriodActive: false,
+          graceDeal: null,
+        });
+        const singleOutboundOpAExpired = await db.transaction((tx: any) =>
+          resolveOutboundDealAccess(tx, "context-a", fSingle.id, "op-a"),
+        );
+        expect(singleOutboundOpAExpired).toMatchObject({ allowed: false, code: "DEAL_REQUIRED" });
+      }
+
+      // 3. Fallback legado via crm_deal_events quando closedByOperatorId ainda é NULL
+      const fLegacy = await fixture(1);
+      await state(fLegacy.id);
       await db
         .update(schema.crmDeals)
-        .set({ status: closedStatus, closedAt: recentClosedAt })
+        .set({
+          status: "won",
+          closedAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000),
+          closedByOperatorId: null,
+        })
         .where(
-          and(eq(schema.crmDeals.tenantId, "context-a"), eq(schema.crmDeals.id, f.deals[0])),
+          and(
+            eq(schema.crmDeals.tenantId, "context-a"),
+            eq(schema.crmDeals.id, fLegacy.deals[0]),
+          ),
         );
-
-      const statusRes = await dealsApi.GET({
-        params: { conversationId: f.id },
-        request: new Request("http://localhost/api/chats/" + f.id + "/deals?statusOnly=1"),
-      });
-      const statusJson = await statusRes.json();
-      expect(statusJson).toMatchObject({
-        dealRequired: false,
-        currentDealRequired: false,
-        gracePeriodActive: true,
-        graceDeal: {
-          id: f.deals[0],
-          status: closedStatus,
-        },
-      });
-      expect(typeof statusJson.graceExpiresAt).toBe("string");
-
-      const ctxRes = await contextApi.GET({
-        params: { conversationId: f.id },
-        request: new Request("http://localhost"),
-      });
-      const ctxJson = await ctxRes.json();
-      expect(ctxJson).toMatchObject({
-        hasCurrentDeal: false,
-        selectionRequired: false,
-        gracePeriodActive: true,
-        graceDeal: {
-          id: f.deals[0],
-          status: closedStatus,
-        },
+      await db.insert(schema.crmDealEvents).values({
+        id: `evt-legacy-win-${crypto.randomUUID()}`,
+        tenantId: "context-a",
+        dealId: fLegacy.deals[0],
+        eventType: "status_changed",
+        fromStatus: "open",
+        toStatus: "won",
+        operatorId: "op-a",
+        metadata: { fromStatus: "open", toStatus: "won" },
       });
 
-      // Durante a carência de 24h, notas internas e encerramento funcionam sem selecionar outro card
-      const noteRes = await notes(
-        request(f.id, {
-          conversationId: f.id,
-          content: `Nota em carência (${closedStatus})`,
-          isInternalNote: true,
-          expectedContextVersion: ctxJson.version,
-        }),
+      session.operator = { ...savedOperator };
+      const legacyOpA = await db.transaction((tx: any) =>
+        resolveOutboundDealAccess(tx, "context-a", fLegacy.id, "op-a"),
       );
-      expect(noteRes.status).toBe(200);
+      expect(legacyOpA).toMatchObject({ allowed: true, graceDealId: fLegacy.deals[0] });
+      const legacyOpB = await db.transaction((tx: any) =>
+        resolveOutboundDealAccess(tx, "context-a", fLegacy.id, "op-b"),
+      );
+      expect(legacyOpB).toMatchObject({ allowed: false, code: "DEAL_REQUIRED" });
 
-      // Após expirar 24h (ex: 25h atrás), volta a exigir seleção de negociação atual
-      const expiredClosedAt = new Date(Date.now() - 25 * 60 * 60 * 1000);
-      await db
-        .update(schema.crmDeals)
-        .set({ closedAt: expiredClosedAt })
-        .where(
-          and(eq(schema.crmDeals.tenantId, "context-a"), eq(schema.crmDeals.id, f.deals[0])),
-        );
+      // 4. Fluxo ponta-a-ponta via crmService.updateDeal: vender/perder grava closedByOperatorId e reabrir limpa
+      const { crmService } = await import("../src/lib/crm/crm-service");
+      const fReal = await fixture(1);
+      await db.insert(schema.crmDealContacts).values({
+        id: `dc-${crypto.randomUUID()}`,
+        tenantId: "context-a",
+        dealId: fReal.deals[0],
+        contactId: fReal.id,
+        role: "buyer",
+        isPrimary: true,
+      });
+      await state(fReal.id);
+      const wonDeal = await crmService.updateDeal("context-a", fReal.deals[0], "op-a", {
+        status: "won",
+      });
+      expect(wonDeal.status).toBe("won");
+      expect(wonDeal.closedByOperatorId).toBe("op-a");
 
-      const expiredStatusRes = await dealsApi.GET({
-        params: { conversationId: f.id },
-        request: new Request("http://localhost/api/chats/" + f.id + "/deals?statusOnly=1"),
-      });
-      expect(await expiredStatusRes.json()).toMatchObject({
-        dealRequired: false,
-        currentDealRequired: true,
-        gracePeriodActive: false,
-        graceDeal: null,
-      });
+      // op-a (quem marcou venda) pode conversar; op-b é bloqueado
+      expect(
+        await db.transaction((tx: any) =>
+          resolveOutboundDealAccess(tx, "context-a", fReal.id, "op-a"),
+        ),
+      ).toMatchObject({ allowed: true, graceDealId: fReal.deals[0] });
+      expect(
+        await db.transaction((tx: any) =>
+          resolveOutboundDealAccess(tx, "context-a", fReal.id, "op-b"),
+        ),
+      ).toMatchObject({ allowed: false, code: "DEAL_REQUIRED" });
 
-      const expiredCtxRes = await contextApi.GET({
-        params: { conversationId: f.id },
-        request: new Request("http://localhost"),
+      // Reabrir limpa closedByOperatorId; depois op-b marca como perdida -> carência passa a ser exclusiva de op-b
+      const reopened = await crmService.updateDeal("context-a", fReal.deals[0], "op-a", {
+        status: "open",
       });
-      expect(await expiredCtxRes.json()).toMatchObject({
-        hasCurrentDeal: false,
-        selectionRequired: true,
-        gracePeriodActive: false,
-        graceDeal: null,
+      expect(reopened.closedByOperatorId).toBeNull();
+      const lostByOpB = await crmService.updateDeal("context-a", fReal.deals[0], "op-b", {
+        status: "lost",
+        lossReason: "Preço",
       });
+      expect(lostByOpB.status).toBe("lost");
+      expect(lostByOpB.closedByOperatorId).toBe("op-b");
+      expect(
+        await db.transaction((tx: any) =>
+          resolveOutboundDealAccess(tx, "context-a", fReal.id, "op-b"),
+        ),
+      ).toMatchObject({ allowed: true, graceDealId: fReal.deals[0] });
+      expect(
+        await db.transaction((tx: any) =>
+          resolveOutboundDealAccess(tx, "context-a", fReal.id, "op-a"),
+        ),
+      ).toMatchObject({ allowed: false, code: "DEAL_REQUIRED" });
+    } finally {
+      session.operator = savedOperator;
     }
-  });
+  }, 20000);
 
   test("negociação pausada permite atendimento completo, auto-seleção sem aberta, troca manual e edição livre sem alterar status", async () => {
     // 1. Contato com 0 abertas, 1 pausada e 1 perdida antiga -> auto-seleciona a pausada e libera atendimento

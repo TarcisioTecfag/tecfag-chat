@@ -55,10 +55,12 @@ export const Route = createFileRoute("/api/chats/tag-task")({
             const pausedLinkedDeals = state.deals.filter((d) => d.status === "paused" && d.isLinked);
             const deal =
               state.deals.find((d) => d.id === state.context.currentDealId) ||
-              findActiveGraceDeal(state.deals, [
-                state.context.currentDealId,
-                state.context.previousDealId,
-              ]) ||
+              findActiveGraceDeal(
+                state.deals,
+                [state.context.currentDealId, state.context.previousDealId],
+                Date.now(),
+                session.operator.id,
+              ) ||
               (state.conversation.queueState === "finalizados" && state.context.previousDealId
                 ? state.deals.find((d) => d.id === state.context.previousDealId && d.isLinked)
                 : null) ||

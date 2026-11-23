@@ -1494,7 +1494,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     const activeDealId =
       overrideDealId !== undefined
         ? overrideDealId
-        : (dealContext.data?.currentDeal?.id ?? null);
+        : (dealContext.data?.currentDeal?.id ?? dealContext.data?.graceDeal?.id ?? null);
     setMetaTemplatesLoading(true);
     try {
       const qs = new URLSearchParams({

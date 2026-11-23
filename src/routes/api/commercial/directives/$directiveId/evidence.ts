@@ -450,6 +450,7 @@ export const Route = createFileRoute("/api/commercial/directives/$directiveId/ev
                   status: "won",
                   value: updatedValue,
                   closedAt: now,
+                  closedByOperatorId: session.operator.id,
                   updatedAt: now,
                 })
                 .where(and(eq(crmDeals.tenantId, tenantId), eq(crmDeals.id, directive.dealId)));
@@ -478,6 +479,7 @@ export const Route = createFileRoute("/api/commercial/directives/$directiveId/ev
                   status: "lost",
                   lossReason: finalLossReason,
                   closedAt: now,
+                  closedByOperatorId: session.operator.id,
                   updatedAt: now,
                 })
                 .where(and(eq(crmDeals.tenantId, tenantId), eq(crmDeals.id, directive.dealId)));

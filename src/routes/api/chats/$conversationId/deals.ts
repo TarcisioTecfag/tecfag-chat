@@ -63,13 +63,28 @@ export const Route = createFileRoute("/api/chats/$conversationId/deals")({
             const readableDeals = state.deals.filter(deal => canReadCrmDeal(session, deal));
             const eligibleCount = readableDeals.filter(isCurrentDealEligible).length;
             const hasLinkedInState = state.deals.some(deal => deal.isLinked);
+            const nowMs = Date.now();
             const graceDeal = !state.context.currentDealId
-              ? findActiveGraceDeal(readableDeals, [state.context.currentDealId, state.context.previousDealId])
+              ? findActiveGraceDeal(
+                  readableDeals,
+                  [state.context.currentDealId, state.context.previousDealId],
+                  nowMs,
+                  session.operator.id,
+                )
               : null;
             const gracePeriodActive = Boolean(graceDeal);
+            const isOwnerInMeus = conv.queueState === "meus" && conv.operatorId === session.operator.id;
+            const hasActiveCurrentDeal = Boolean(state.context.currentDealId);
+            const dealRequired = gracePeriodActive || hasActiveCurrentDeal
+              ? false
+              : isOwnerInMeus && eligibleCount === 0
+                ? true
+                : hasLinkedInState
+                  ? false
+                  : !await conversationHasDeal(db, tenantId, conversationId, conv.contactId);
             return Response.json({
-              dealRequired: (hasLinkedInState || gracePeriodActive) ? false : !await conversationHasDeal(db, tenantId, conversationId, conv.contactId),
-              currentDealRequired: !gracePeriodActive && !state.context.currentDealId && eligibleCount > 0 && conv.queueState === "meus" && conv.operatorId === session.operator.id,
+              dealRequired,
+              currentDealRequired: !gracePeriodActive && !hasActiveCurrentDeal && eligibleCount > 0 && isOwnerInMeus,
               eligibleCount,
               gracePeriodActive,
               graceDeal: graceDeal
@@ -78,9 +93,10 @@ export const Route = createFileRoute("/api/chats/$conversationId/deals")({
                     title: graceDeal.title,
                     status: graceDeal.status,
                     closedAt: graceDeal.closedAt ?? null,
+                    closedByOperatorId: graceDeal.closedByOperatorId ?? null,
                   }
                 : null,
-              graceExpiresAt: getDealPostCloseGraceExpiresAt(graceDeal),
+              graceExpiresAt: getDealPostCloseGraceExpiresAt(graceDeal, nowMs, session.operator.id),
             }, { headers: { "Cache-Control": "no-store" } });
           }
           const permError = requireCrmPermission(session, "canViewCrm");

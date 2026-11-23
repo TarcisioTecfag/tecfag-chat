@@ -315,7 +315,7 @@ export const Route = createFileRoute("/api/chats")({
               }
             }
             const state = isInternalNote ? await getDealContext(tx, session.tenantId, conversationId, session.operator.id) : null;
-            const graceDeal = state && !state.context.currentDealId ? findActiveGraceDeal(state.deals, [state.context.currentDealId, state.context.previousDealId]) : null;
+            const graceDeal = state && !state.context.currentDealId ? findActiveGraceDeal(state.deals, [state.context.currentDealId, state.context.previousDealId], Date.now(), session.operator.id) : null;
             const generalNote = body.noteScope === "general" || !isCurrentOwner;
             if (state && senderType !== "system") {
               if (isCurrentOwner || body.expectedContextVersion !== undefined) {

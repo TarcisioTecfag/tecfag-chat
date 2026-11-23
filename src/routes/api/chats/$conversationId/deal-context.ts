@@ -45,8 +45,14 @@ export const Route = createFileRoute("/api/chats/$conversationId/deal-context")(
             state.conversation.queueState === "meus" &&
             state.conversation.operatorId === session.operator.id;
           const currentDeal = visible.find((d) => d.id === state.context.currentDealId) || null;
+          const nowMs = Date.now();
           const graceDeal = !currentDeal
-            ? findActiveGraceDeal(visible, [state.context.currentDealId, state.context.previousDealId])
+            ? findActiveGraceDeal(
+                visible,
+                [state.context.currentDealId, state.context.previousDealId],
+                nowMs,
+                session.operator.id,
+              )
             : null;
           const gracePeriodActive = Boolean(graceDeal);
           return Response.json(
@@ -63,9 +69,10 @@ export const Route = createFileRoute("/api/chats/$conversationId/deal-context")(
                     title: graceDeal.title,
                     status: graceDeal.status,
                     closedAt: graceDeal.closedAt ?? null,
+                    closedByOperatorId: graceDeal.closedByOperatorId ?? null,
                   }
                 : null,
-              graceExpiresAt: getDealPostCloseGraceExpiresAt(graceDeal),
+              graceExpiresAt: getDealPostCloseGraceExpiresAt(graceDeal, nowMs, session.operator.id),
               editable,
               deals: visible,
               contactId: state.conversation.contactId,

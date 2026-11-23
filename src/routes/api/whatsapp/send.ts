@@ -1,4 +1,5 @@
 import { syncConversationDeals, DEAL_REQUIRED_MESSAGE } from "../../../lib/crm/deal-associations";
+import { resolveOutboundDealAccess } from "../../../lib/crm/conversation-deal-context";
 import { createFileRoute } from "@tanstack/react-router";
 import { outboundQueue } from "../../../lib/whatsapp/outbound";
 import { storedResult } from "../../../lib/whatsapp/dispatch";
@@ -218,6 +219,23 @@ export const Route = createFileRoute("/api/whatsapp/send")({
           const hasDeal = await db.transaction((tx) => syncConversationDeals(tx, session.tenantId, conv.id, conv.contactId, session.operator.id));
           if (!hasDeal) return Response.json({ error: DEAL_REQUIRED_MESSAGE, code: "DEAL_REQUIRED", conversationId: conv.id }, { status: 409 });
 
+          let outboundDealAccess: Awaited<ReturnType<typeof resolveOutboundDealAccess>> | null = null;
+          if (!isInternalNote && typeof resolveOutboundDealAccess === "function") {
+            outboundDealAccess = await db.transaction((tx) =>
+              resolveOutboundDealAccess(tx, session.tenantId, conv.id, session.operator.id),
+            );
+            if (!outboundDealAccess.allowed) {
+              return Response.json(
+                {
+                  error: outboundDealAccess.error || DEAL_REQUIRED_MESSAGE,
+                  code: outboundDealAccess.code || "DEAL_REQUIRED",
+                  conversationId: conv.id,
+                },
+                { status: 409 },
+              );
+            }
+          }
+
           // Persistir anexos apenas depois de validar tenant e responsável.
           if (clientMessageId) {
             const [existing] = await db.select().from(messages).where(and(eq(messages.tenantId, session.tenantId), eq(messages.idempotencyKey, clientMessageId)));
@@ -390,7 +408,13 @@ export const Route = createFileRoute("/api/whatsapp/send")({
                 );
               }
               if (restrictByStage) {
-                const dealStage = await resolveConversationActiveDealStage(session.tenantId, conv.id);
+                const preferredStageDealId =
+                  outboundDealAccess?.activeDealId || outboundDealAccess?.graceDealId || null;
+                const dealStage = await resolveConversationActiveDealStage(
+                  session.tenantId,
+                  conv.id,
+                  preferredStageDealId,
+                );
                 if (!dealStage.hasActiveDeal) {
                   return Response.json(
                     { error: DEAL_REQUIRED_MESSAGE, code: "DEAL_REQUIRED", conversationId: conv.id },

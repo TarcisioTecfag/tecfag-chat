@@ -6,6 +6,7 @@ import {
   InlineChatNoteComposer,
 } from "@/components/chat/InlineChatNoteComposer";
 import { usePermissions } from "@/hooks/usePermissions";
+import { useChat } from "@/hooks/useChatState";
 import {
   cachedDealRequirement,
   fetchDealRequirement,
@@ -13,9 +14,10 @@ import {
 } from "@/lib/crm/conversation-deal-client";
 
 export function useConversationDealRequirement(conversationId?: string) {
+  const { tenant, currentOperatorId } = useChat();
   const [state, setState] = useState<ConversationDealRequirementState>(
     () =>
-      cachedDealRequirement(conversationId) || {
+      cachedDealRequirement(conversationId, tenant, currentOperatorId) || {
         id: "",
         pending: false,
         currentRequired: false,
@@ -25,23 +27,23 @@ export function useConversationDealRequirement(conversationId?: string) {
   useEffect(() => {
     if (!conversationId || conversationId === "valentina") return;
     let cancelled = false;
-    const cached = cachedDealRequirement(conversationId);
+    const cached = cachedDealRequirement(conversationId, tenant, currentOperatorId);
     if (cached) {
       setState(cached);
     }
     const refresh = async () => {
-      const latestCached = cachedDealRequirement(conversationId);
+      const latestCached = cachedDealRequirement(conversationId, tenant, currentOperatorId);
       if (latestCached && !cancelled) {
         setState(latestCached);
       }
       try {
-        const nextState = await fetchDealRequirement(conversationId);
+        const nextState = await fetchDealRequirement(conversationId, tenant, currentOperatorId);
         if (!cancelled) {
           setState(nextState);
         }
       } catch (e) {
         if (!cancelled) {
-          const fallback = cachedDealRequirement(conversationId);
+          const fallback = cachedDealRequirement(conversationId, tenant, currentOperatorId);
           if (fallback && !fallback.pending) {
             setState(fallback);
           } else {
@@ -65,12 +67,13 @@ export function useConversationDealRequirement(conversationId?: string) {
       window.removeEventListener("crm-deals-changed", refresh);
       window.removeEventListener("conversation-deal-context-changed", refresh);
     };
-  }, [conversationId]);
+  }, [conversationId, tenant, currentOperatorId]);
   if (!conversationId || conversationId === "valentina")
     return { pending: false, currentRequired: false, error: "" };
-  if (state.id === conversationId) return state;
-  const cached = cachedDealRequirement(conversationId);
+  const cached = cachedDealRequirement(conversationId, tenant, currentOperatorId);
+  if (state.id === conversationId && (!cached || cached === state)) return state;
   if (cached) return cached;
+  if (state.id === conversationId) return state;
   return { pending: false, currentRequired: false, error: "" };
 }
 

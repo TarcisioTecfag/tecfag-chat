@@ -139,6 +139,7 @@ describe("site: publica somente depois do commit", () => {
       "../../../lib/auth-session": { requireSession: async () => ({ session: { tenantId, operator: { id: "operator-a", name: "Operador" }, permissions: { chat: {} } } }) },
       "../../../lib/access-control/conversation-access": { requireConversationWriteAccess: async () => null },
       "../../../lib/crm/deal-associations": { syncConversationDeals: async () => true },
+      "../../../lib/crm/conversation-deal-context": { resolveOutboundDealAccess: async () => ({ allowed: true, activeDealId: null, graceDealId: null }) },
       "../../../lib/whatsapp/dispatch": { storedResult() { assert.fail("Site retry must not shortcut"); } },
       "../../../lib/whatsapp/outbound": { outboundQueue: { enqueueAndSend() { assert.fail("No WhatsApp send"); } } },
       "../../../lib/whatsapp/adapters/meta": {}, "../../../lib/whatsapp/meta-template-common": {}, "../../../lib/whatsapp/audio-convert": {},
