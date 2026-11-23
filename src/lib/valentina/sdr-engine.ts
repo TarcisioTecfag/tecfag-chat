@@ -2029,6 +2029,11 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         }
 
         let imageUrlsToSend = rawImageUrlsToSend.filter((imgUrl) => {
+          // No modo industrial (Fagner), bloqueia [SEND_IMAGE:URL] inventado ou não presente no contexto deste turno
+          // quando o cliente não pediu foto explicitamente.
+          if (industrialTriage && !isExplicitClientPhotoReq && !knowledgeContext.includes(imgUrl)) {
+            return false;
+          }
           if (isExplicitClientPhotoReq) return true;
           const lowerUrl = imgUrl.toLowerCase();
           if (alreadySentUrlsAndKeysIn24h.has(lowerUrl)) return false;
@@ -2052,6 +2057,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
               const pairedPhotos = await resolveMatchingCatalogPhotos(tenantId, {
                 userText: combinedBatchText,
                 aiReplyText: aiResult.messagesToSend.join("\n"),
+                allowedContextText: industrialTriage ? knowledgeContext : undefined,
                 recentHistoryMessages: [...historyMsgs]
                   .reverse()
                   .slice(0, 8)

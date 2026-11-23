@@ -1,6 +1,7 @@
 import { db } from "../../db";
 import { vertexAi } from "../vertex-ai";
 import { getAiPersona } from "../ai-persona";
+import { invalidateKnowledgeCache } from "../valentina/knowledge-service";
 import {
   industrialSettingsChoices,
   readIndustrialSettings,
@@ -27,6 +28,7 @@ async function readOrHydrateIndustrialSettings(tenantId: string) {
         true,
       );
       await saveIndustrialSettings(db, tenantId, 0, hydrated, "system");
+      invalidateKnowledgeCache(tenantId);
       return await readIndustrialSettings(db, tenantId);
     } catch {
       return current;

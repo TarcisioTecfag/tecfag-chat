@@ -9,6 +9,7 @@ import {
   industrialSettingsChoices,
   IndustrialSettingsError,
 } from "../../../lib/triage/industrial-settings-store";
+import { invalidateKnowledgeCache } from "../../../lib/valentina/knowledge-service";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -83,6 +84,7 @@ export const Route = createFileRoute("/api/valentina/industrial-settings")({
             body.settings,
             auth.session.operator.id,
           );
+          invalidateKnowledgeCache(tenantId);
           return json(saved);
         } catch (error) {
           return failure(error);

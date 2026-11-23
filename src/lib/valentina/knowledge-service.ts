@@ -1,5 +1,5 @@
 import { db } from "../../db";
-import { knowledgeFiles, knowledgeFolders } from "../../db/schema";
+import { agentConfigs, knowledgeFiles, knowledgeFolders } from "../../db/schema";
 import { eq, and, inArray, sql } from "drizzle-orm";
 import fs from "node:fs";
 import path from "node:path";
@@ -72,12 +72,34 @@ interface IndexedCatalogPhotoItem {
   modelRegex: RegExp | null;
 }
 
+export interface CatalogEntry {
+  id: string;
+  name: string;
+  sku?: string;
+  code?: string;
+  line?: string;
+  production?: string;
+  description?: string;
+  aliases?: string[];
+  active?: boolean;
+}
+
+export interface BlockedFamilyEntry {
+  id: string;
+  name: string;
+  terms: string[];
+  reason: string;
+}
+
 // Cache leve em memória para evitar re-leitura repetitiva a cada mensagem da IA (TTL: 60s)
 interface CachedKnowledgeData {
   timestamp: number;
   totalActiveChars: number;
   indexedDocs: IndexedKnowledgeDoc[];
   realMediaItems: IndexedCatalogPhotoItem[];
+  industrialCatalog: CatalogEntry[];
+  industrialBlockedFamilies: BlockedFamilyEntry[];
+  industrialCatalogSource: "database" | "default" | "none";
 }
 const knowledgeCacheByTenant = new Map<string, CachedKnowledgeData>();
 const KNOWLEDGE_CACHE_TTL_MS = 60_000;
@@ -605,22 +627,88 @@ function buildSmartManualExcerpt(
   return `${headPart}\n\n[... Trechos adicionais relevantes do manual ...]\n\n${chosenSlices.join("\n\n[...]\n\n")}`;
 }
 
-interface CatalogEntry {
-  id: string;
-  name: string;
-  sku?: string;
-  code?: string;
-  line?: string;
-  production?: string;
-  description?: string;
-  aliases?: string[];
-  active?: boolean;
+// Termos genéricos comerciais/operacionais que NÃO identificam um tipo de máquina específica
+// (evita falsos positivos no catálogo como "produção de bolinhas de paintball" casando com "LINHA DE PRODUÇÃO DE SABONETES").
+const CATALOG_GENERIC_STOPWORDS = new Set([
+  "producao", "producoes", "produzir", "produz", "produzem",
+  "fabricacao", "fabricar", "fabrica", "fabricam", "confeccao", "confeccionar",
+  "solucao", "solucoes", "venda", "vendas", "vender", "vendem", "vende", "vendemos",
+  "linha", "linhas", "industrial", "industriais", "personnalite", "personalite",
+  "semi", "semiautomatica", "semiautomatico", "automatica", "automatico",
+  "projeto", "projetos", "aplicacao", "aplicacoes", "processo", "processos",
+  "produto", "produtos", "material", "materiais", "trabalho", "trabalham", "trabalha",
+  "comercializa", "comercializam", "atende", "atendem", "faz", "fazer", "fazem",
+  "vcs", "vc", "tipo", "tipos", "porte", "pequeno", "pequena", "medio", "media",
+  "grande", "alta", "alto", "baixa", "baixo", "capacidade", "ideal", "sistema", "sistemas",
+  "base", "nivel", "padrao", "completo", "completa", "conjunto", "precisa", "precisamos",
+  "busco", "procuro", "interesse", "interessado", "interessada", "duvida", "duvidas",
+  "conhecer", "funciona", "funcionar", "serve", "servir", "usar", "uso",
+  "viabilidade", "estudo", "montar", "abrir", "negocio", "negocios",
+  "comprar", "compra", "cotacao", "cotar", "preco", "valor",
+]);
+
+function normalizeBoundaryText(str: string): string {
+  return normalizeSearchText(str)
+    .replace(/[^a-z0-9 ]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
-function searchTecfagCatalogEntries(queryHint: string, maxItems = 10): string {
-  if (!queryHint || !queryHint.trim()) return "";
-  const catalog = (defaultTecfagCatalog as CatalogEntry[]).filter((item) => item && item.active !== false);
-  if (catalog.length === 0) return "";
+export function matchBlockedFamiliesInText(
+  queryHint: string,
+  blockedFamilies: readonly BlockedFamilyEntry[],
+): BlockedFamilyEntry[] {
+  if (!queryHint || !Array.isArray(blockedFamilies) || blockedFamilies.length === 0) return [];
+  const paddedQuery = ` ${normalizeBoundaryText(queryHint)} `;
+  if (!paddedQuery.trim()) return [];
+  return blockedFamilies.filter((family) =>
+    Array.isArray(family?.terms) &&
+    family.terms.some((term) => {
+      const normTerm = normalizeBoundaryText(term);
+      return Boolean(normTerm) && paddedQuery.includes(` ${normTerm} `);
+    }),
+  );
+}
+
+export function searchIndustrialCatalogEntries(
+  queryHint: string,
+  catalogSource?: readonly CatalogEntry[],
+  blockedFamilies: readonly BlockedFamilyEntry[] = [],
+  maxItems = 10,
+): string {
+  const effectiveCatalog = Array.isArray(catalogSource)
+    ? catalogSource
+    : (defaultTecfagCatalog as CatalogEntry[]);
+  const activeCatalog = effectiveCatalog.filter((item) => item && item.active !== false);
+  const sections: string[] = [];
+
+  // 1. Famílias explicitamente cadastradas como NÃO COMERCIALIZADAS no banco do tenant
+  const matchedBlocked = matchBlockedFamiliesInText(queryHint || "", blockedFamilies);
+  if (matchedBlocked.length > 0) {
+    const blockedLines = matchedBlocked.map(
+      (fam) =>
+        `• Família bloqueada: "${fam.name}" (termos: ${fam.terms.join(", ")})${fam.reason ? ` — Motivo/Orientação: ${fam.reason}` : ""}`,
+    );
+    sections.push(
+      `🚫 FAMÍLIA / EQUIPAMENTO NÃO COMERCIALIZADO DETECTADO NO CATÁLOGO:\n${blockedLines.join("\n")}\n⚠️ REGRA OBRIGATÓRIA: Informe com educação e transparência que NÃO comercializamos essa família de equipamento e NÃO sugira máquinas substitutas incompatíveis.`,
+    );
+  } else if (Array.isArray(blockedFamilies) && blockedFamilies.length > 0) {
+    const names = blockedFamilies
+      .map((fam) => fam?.name)
+      .filter(Boolean)
+      .slice(0, 30)
+      .join(", ");
+    if (names) {
+      sections.push(`🚫 FAMÍLIAS CADASTRADAS COMO NÃO COMERCIALIZADAS: ${names}.`);
+    }
+  }
+
+  if (!queryHint || !queryHint.trim() || activeCatalog.length === 0) {
+    return sections.join("\n\n");
+  }
+
+  const semiCount = activeCatalog.filter((m) => String(m.line || "").toUpperCase().includes("SEMI")).length;
+  const personnaliteCount = activeCatalog.filter((m) => String(m.line || "").toUpperCase().includes("PERSON")).length;
 
   const codeToModelMap = getInternalCodeToModelMap();
   const normQuery = normalizeSearchText(queryHint);
@@ -630,16 +718,22 @@ function searchTecfagCatalogEntries(queryHint: string, maxItems = 10): string {
     .map((c) => c.replace(/[^a-z0-9]/g, ""))
     .filter((c) => c.length >= 3);
 
-  const queryTerms = normQuery
-    .split(/[^a-z0-9]+/)
-    .map((t) => t.trim())
-    .filter((t) => t.length >= 2 && !RAG_STOPWORDS.has(t));
+  const queryTerms = Array.from(
+    new Set(
+      normQuery
+        .split(/[^a-z0-9]+/)
+        .map((t) => t.trim())
+        .filter((t) => t.length >= 2 && !RAG_STOPWORDS.has(t) && !CATALOG_GENERIC_STOPWORDS.has(t)),
+    ),
+  );
 
-  if (queryTerms.length === 0 && compactQueryCodes.length === 0) return "";
+  if (queryTerms.length === 0 && compactQueryCodes.length === 0) {
+    return sections.join("\n\n");
+  }
 
   const scored: Array<{ item: CatalogEntry; mappedModel: string; score: number }> = [];
 
-  for (const item of catalog) {
+  for (const item of activeCatalog) {
     const normCode = normalizeSearchText(item.code || "").replace(/[^a-z0-9]/g, "");
     const mappedModel = normCode ? codeToModelMap.get(normCode) || "" : "";
     const normMappedModel = normalizeSearchText(mappedModel);
@@ -687,7 +781,7 @@ function searchTecfagCatalogEntries(queryHint: string, maxItems = 10): string {
       }
     }
 
-    // 3. Match por termos da consulta
+    // 3. Match por termos específicos da consulta (já filtrados de palavras genéricas como "produção" / "soluções")
     for (const term of queryTerms) {
       const hasDigits = /\d/.test(term);
       if (normName.includes(term) || compactName.includes(term)) {
@@ -706,7 +800,12 @@ function searchTecfagCatalogEntries(queryHint: string, maxItems = 10): string {
 
   scored.sort((a, b) => b.score - a.score);
   const top = scored.slice(0, maxItems);
-  if (top.length === 0) return "";
+  if (top.length === 0) {
+    sections.push(
+      `⚠️ CATÁLOGO OFICIAL (${activeCatalog.length} máquinas ativas — ${semiCount} Semi-Industrial, ${personnaliteCount} Personnalité): NENHUMA máquina do catálogo oficial correspondeu aos termos específicos desta consulta (${queryTerms.slice(0, 8).join(", ") || compactQueryCodes.slice(0, 4).join(", ")}). NÃO invente modelo, NÃO deduza compatibilidade por memória externa e NÃO afirme que temos máquina para esta aplicação — informe com transparência que precisa validar a viabilidade técnica com o time especialista.`,
+    );
+    return sections.join("\n\n");
+  }
 
   const lines = top.map(({ item, mappedModel }) => {
     const cleanName = (item.name || "").replace(/\s+/g, " ").trim();
@@ -726,7 +825,10 @@ function searchTecfagCatalogEntries(queryHint: string, maxItems = 10): string {
     return parts.join(" | ");
   });
 
-  return `🏭 EQUIPAMENTOS ENCONTRADOS NO CATÁLOGO OFICIAL TECFAG (${top.length} referência(s) direta(s)):\n${lines.join("\n")}`;
+  sections.push(
+    `🏭 EQUIPAMENTOS ENCONTRADOS NO CATÁLOGO OFICIAL (${top.length} referência(s) direta(s) de ${activeCatalog.length} ativas — ${semiCount} Semi-Industrial, ${personnaliteCount} Personnalité):\n${lines.join("\n")}\n(Somente os modelos acima foram retornados do Catálogo Oficial para esta consulta. NÃO cite modelos de memória fora desta lista e NÃO confirme aplicações não descritas acima sem validação do especialista.)`,
+  );
+  return sections.join("\n\n");
 }
 
 async function getOrLoadTenantKnowledgeCache(tenantId: string): Promise<CachedKnowledgeData> {
@@ -834,13 +936,55 @@ async function getOrLoadTenantKnowledgeCache(tenantId: string): Promise<CachedKn
     }
     enrichCatalogPhotoAliasKeys(realMediaItems);
 
+    // Carrega o catálogo industrial (Semi vs. Personnalité) e famílias bloqueadas direto do banco (`industrial_triage`),
+    // respeitando estritamente o tenantId e usando o catálogo padrão somente como fallback quando ainda não salvo no DB.
+    let industrialCatalog: CatalogEntry[] = [];
+    let industrialBlockedFamilies: BlockedFamilyEntry[] = [];
+    let industrialCatalogSource: "database" | "default" | "none" = "none";
+
+    if (getAiPersona(tenantId).triagePolicy === "industrial") {
+      try {
+        const [indRow] = await db
+          .select({ config: agentConfigs.config })
+          .from(agentConfigs)
+          .where(
+            and(
+              eq(agentConfigs.tenantId, tenantId),
+              eq(agentConfigs.agentType, "industrial_triage"),
+            ),
+          )
+          .limit(1);
+        const rawSettings = (indRow?.config as Record<string, any> | null)?.settings;
+        if (rawSettings && Array.isArray(rawSettings.catalog) && rawSettings.catalog.length > 0) {
+          industrialCatalog = rawSettings.catalog as CatalogEntry[];
+          industrialCatalogSource = "database";
+        } else {
+          industrialCatalog = defaultTecfagCatalog as CatalogEntry[];
+          industrialCatalogSource = "default";
+        }
+        if (rawSettings && Array.isArray(rawSettings.blockedFamilies)) {
+          industrialBlockedFamilies = rawSettings.blockedFamilies as BlockedFamilyEntry[];
+        }
+      } catch (indErr: any) {
+        console.warn(
+          "[knowledge-service] Aviso ao carregar catálogo industrial do banco (usando fallback padrão):",
+          indErr?.message,
+        );
+        industrialCatalog = defaultTecfagCatalog as CatalogEntry[];
+        industrialCatalogSource = "default";
+      }
+    }
+
     cached = {
       timestamp: Date.now(),
       totalActiveChars,
       indexedDocs,
       realMediaItems,
+      industrialCatalog,
+      industrialBlockedFamilies,
+      industrialCatalogSource,
     };
-    if (files.length > 0 || indexedDocs.length > 0) {
+    if (files.length > 0 || indexedDocs.length > 0 || industrialCatalog.length > 0) {
       knowledgeCacheByTenant.set(tenantId, cached);
     }
   }
@@ -1030,21 +1174,34 @@ export async function getKnowledgeBaseContext(tenantId: string, queryHint?: stri
       }
     }
 
-    // ── 2. Catálogo Estruturado de Máquinas Tecfag (1.037 itens) ───────────────
-    const tecfagCatalogSection =
-      tenantId === "tecfag" && queryHint ? searchTecfagCatalogEntries(queryHint, 10) : "";
+    // ── 2. Catálogo Estruturado de Máquinas (Banco `industrial_triage` + famílias bloqueadas) ──
+    const industrialCatalogSection =
+      persona.triagePolicy === "industrial" && queryHint
+        ? searchIndustrialCatalogEntries(
+            queryHint,
+            cached.industrialCatalog,
+            cached.industrialBlockedFamilies,
+            10,
+          )
+        : "";
 
     // ── 3. Seleção Contextual de Fotos Reais (Formato Real) ────────────────────
     const MAX_PROMPT_PHOTOS = 40;
+    const isIndustrialPolicy = persona.triagePolicy === "industrial";
     let selectedPhotos = cached.realMediaItems;
-    if (selectedPhotos.length > MAX_PROMPT_PHOTOS) {
+    if (selectedPhotos.length > MAX_PROMPT_PHOTOS || (isIndustrialPolicy && queryHint && queryHint.trim().length >= 2)) {
       if (queryHint && queryHint.trim().length >= 2) {
         const expandedHint = expandInternalCatalogCodesInText(queryHint);
         const normHint = normalizeSearchText(expandedHint);
         const compactHint = normHint.replace(/[^a-z0-9]/g, "");
         const terms = normHint
           .split(/[^a-z0-9]+/)
-          .filter((t) => t.length >= 2 && !RAG_STOPWORDS.has(t));
+          .filter(
+            (t) =>
+              t.length >= 2 &&
+              !RAG_STOPWORDS.has(t) &&
+              (!isIndustrialPolicy || !CATALOG_GENERIC_STOPWORDS.has(t)),
+          );
         if (terms.length > 0 || compactHint.length >= 3) {
           const scored = selectedPhotos
             .map((item) => {
@@ -1066,9 +1223,11 @@ export async function getKnowledgeBaseContext(tenantId: string, queryHint?: stri
           selectedPhotos =
             scored.length > 0
               ? scored.slice(0, MAX_PROMPT_PHOTOS).map((s) => s.item)
-              : selectedPhotos.slice(0, MAX_PROMPT_PHOTOS);
+              : isIndustrialPolicy
+                ? []
+                : selectedPhotos.slice(0, MAX_PROMPT_PHOTOS);
         } else {
-          selectedPhotos = selectedPhotos.slice(0, MAX_PROMPT_PHOTOS);
+          selectedPhotos = isIndustrialPolicy ? [] : selectedPhotos.slice(0, MAX_PROMPT_PHOTOS);
         }
       } else {
         selectedPhotos = selectedPhotos.slice(0, MAX_PROMPT_PHOTOS);
@@ -1093,14 +1252,14 @@ ${realMediaLines.join("\n")}`
 
     return `\n\n📚 BASE DE CONHECIMENTO & DIRETRIZES (${persona.company}):
 ${corePolicies}
-${tecfagCatalogSection ? `\n${tecfagCatalogSection}\n` : ""}
+${industrialCatalogSection ? `\n${industrialCatalogSection}\n` : ""}
 ${activeDocsText ? `\nDOCUMENTOS E MANUAIS TÉCNICOS DA BASE (RAG ATIVO):\n${activeDocsText}\n` : ""}
 ${realMediaSection}
 
 DIRETRIZ CRÍTICA DE USO DA BASE DE CONHECIMENTO E SINCERIDADE TÉCNICA (ANTI-ALUCINAÇÃO):
 1. QUANDO A INFORMAÇÃO CONSTAR NOS MANUAIS OU NO CATÁLOGO ACIMA: Você tem autoridade total para usar as especificações técnicas, parâmetros de operação, faixas de dosagem/produção, requisitos pneumáticos/elétricos e regras dos MANUAIS TÉCNICOS e do CATÁLOGO OFICIAL acima para responder com precisão e segurança. NUNCA diga que um equipamento presente no Catálogo Oficial ou nos Manuais Técnicos acima "não foi encontrado".
-2. QUANDO A INFORMAÇÃO NÃO CONSTAR (PROIBIÇÃO ABSOLUTA DE ALUCINAR OU INVENTAR): Uma coisa é funcionar muito bem com os dados reais da base; outra completamente diferente é inventar coisas por não saber. Se o operador perguntar sobre um modelo que NÃO está nos manuais/catálogo acima, ou pedir um dado técnico específico (ex: consumo de ar, peso exato, dimensão, potência, velocidade, peça específica, ajuste elétrico) que NÃO esteja escrito no manual ou na ficha do catálogo acima, NUNCA chute, NUNCA deduza e NUNCA invente números ou especificações!
-3. SINCERIDADE OBRIGATÓRIA: Quando não souber ou o dado específico não constar no manual/catálogo da base, seja 100% sincero e transparente: passe apenas os dados reais que constam no documento (se houver) e diga claramente que aquela informação específica não consta no manual/catálogo da base e que não vai inventar para não induzir a erro.`;
+2. QUANDO A INFORMAÇÃO NÃO CONSTAR (PROIBIÇÃO ABSOLUTA DE ALUCINAR, DEDUZIR COMPATIBILIDADE OU INVENTAR): NUNCA cite, recomende ou confirme um modelo de máquina que NÃO esteja listado na seção "🏭 EQUIPAMENTOS ENCONTRADOS NO CATÁLOGO OFICIAL" ou nos "📖 MANUAIS TÉCNICOS" acima! Também NUNCA deduza por conta própria que uma máquina serve para uma aplicação diferente da que está descrita na ficha acima (por exemplo, não presuma que uma encapsuladora softgel farmacêutica fabrica bolinhas de paintball). Se o cliente perguntar sobre uma aplicação ou modelo que NÃO consta nos documentos/catálogo retornados acima, NUNCA chute nem afirme "sim, temos" — seja 100% sincero e transparente e informe que precisa validar a viabilidade técnica com o time especialista.
+3. SINCERIDADE OBRIGATÓRIA: Quando não souber ou o dado específico não constar no manual/catálogo da base, seja 100% sincero e transparente: passe apenas os dados reais que constam no documento (se houver) e diga claramente que aquela informação específica precisa ser confirmada com o especialista técnico para não induzir a erro.`;
   } catch (err: any) {
     console.warn("[knowledge-service] Aviso ao carregar contexto da base de conhecimento:", err?.message);
     return `\n\n📚 BASE DE CONHECIMENTO (${persona.company}):\n${corePolicies}`;
@@ -1776,12 +1935,65 @@ export interface ResolveCatalogPhotosOptions {
   userText?: string;
   attachedFileName?: string;
   aiReplyText?: string;
+  /** Contexto recuperado da base (catálogo/manuais) neste turno — impede envio de foto de modelo alucinado fora do contexto. */
+  allowedContextText?: string;
   recentHistoryMessages?: string[];
   isExplicitPhotoRequest?: boolean;
   isExplicitRequest?: boolean;
   includeFamilyMatches?: boolean;
   alreadySentPhotoKeysInWindow?: Set<string> | string[];
   maxPhotos?: number;
+}
+
+/**
+ * Verifica se um equipamento/foto realmente consta nas evidências recuperadas da base
+ * (Catálogo Oficial ou Manuais Técnicos RAG, ignorando a listagem genérica de fallback de fotos).
+ */
+export function isPhotoGroundedInContext(
+  photo: {
+    mediaUrl?: string;
+    rawImageUrl?: string;
+    displayName?: string;
+    sku?: string;
+    compactModel?: string;
+    internalCode?: string;
+    aliasKeys?: string[];
+  },
+  contextText: string,
+): boolean {
+  if (!contextText || !contextText.trim()) return false;
+  // Considera apenas as evidências textuais (Catálogo Oficial e Manuais) antes da lista genérica de fotos.
+  const photoListMarkerIdx = contextText.indexOf("📸 FOTOS REAIS DISPONÍVEIS PARA ENVIO");
+  const evidenceText =
+    photoListMarkerIdx >= 0 ? contextText.slice(0, photoListMarkerIdx) : contextText;
+  if (!evidenceText.trim()) return false;
+
+  const normEvidence = normalizeSearchText(evidenceText);
+  const compactEvidence = normEvidence.replace(/[^a-z0-9]/g, "");
+
+  if (photo.internalCode) {
+    const cleanCode = normalizeSearchText(photo.internalCode).replace(/[^a-z0-9]/g, "");
+    if (cleanCode.length >= 4 && compactEvidence.includes(cleanCode)) return true;
+  }
+  if (photo.compactModel && photo.compactModel.length >= 3 && compactEvidence.includes(photo.compactModel)) {
+    return true;
+  }
+  if (photo.sku) {
+    const cleanSku = normalizeSearchText(photo.sku).replace(/[^a-z0-9]/g, "");
+    if (cleanSku.length >= 3 && compactEvidence.includes(cleanSku)) return true;
+  }
+  if (Array.isArray(photo.aliasKeys)) {
+    for (const alias of photo.aliasKeys) {
+      if (!alias || alias.startsWith("kf-") || alias.startsWith("/knowledge-media/")) continue;
+      const cleanAlias = normalizeSearchText(alias).replace(/[^a-z0-9]/g, "");
+      if (cleanAlias.length >= 4 && compactEvidence.includes(cleanAlias)) return true;
+    }
+  }
+  if (photo.displayName) {
+    const normDisplay = normalizeSearchText(photo.displayName);
+    if (normDisplay.length >= 6 && normEvidence.includes(normDisplay)) return true;
+  }
+  return false;
 }
 
 /**
@@ -1805,6 +2017,7 @@ export async function resolveMatchingCatalogPhotos(
   const userQuery = normalizedParams.userQuery ?? normalizedParams.userText ?? "";
   const attachedFileName = normalizedParams.attachedFileName ?? "";
   const aiReplyText = normalizedParams.aiReplyText ?? "";
+  const allowedContextText = normalizedParams.allowedContextText;
   const recentHistoryMessages = normalizedParams.recentHistoryMessages ?? [];
   const isExplicitPhotoRequest =
     normalizedParams.isExplicitPhotoRequest ?? normalizedParams.isExplicitRequest ?? false;
@@ -1899,8 +2112,14 @@ export async function resolveMatchingCatalogPhotos(
   }
 
   // 3. Prioridade 3: Máquina apresentada/explicada na própria resposta atual do Fagner
+  // Quando `allowedContextText` é informado, só aceita candidatos que realmente apareceram no catálogo/manuais
+  // recuperados para este turno (bloqueia envio automático de foto de modelo alucinado por memória externa).
   if (aiReplyText.trim()) {
-    const replyCandidates = findCatalogPhotosMentionedInText(aiReplyText, allPhotos);
+    const rawReplyCandidates = findCatalogPhotosMentionedInText(aiReplyText, allPhotos);
+    const replyCandidates =
+      typeof allowedContextText === "string"
+        ? rawReplyCandidates.filter((photo) => isPhotoGroundedInContext(photo, allowedContextText))
+        : rawReplyCandidates;
     if (candidates.length === 0) {
       candidates = replyCandidates;
     } else if (includeFamilyMatches && replyCandidates.length > 0) {
@@ -2182,8 +2401,12 @@ export async function resolveKnowledgeSourcesForMessage(
       const matchedFamilyTokens = new Set<string>();
       const matchedPamqCodesCompact = new Set<string>();
 
-      if (tenantId === "tecfag") {
-        const catalog = (defaultTecfagCatalog as CatalogEntry[]).filter((item) => item && item.active !== false);
+      if (getAiPersona(tenantId).triagePolicy === "industrial") {
+        const catalogSource =
+          cached.industrialCatalog.length > 0
+            ? cached.industrialCatalog
+            : (defaultTecfagCatalog as CatalogEntry[]);
+        const catalog = catalogSource.filter((item) => item && item.active !== false);
         const codeMap = getInternalCodeToModelMap();
 
         for (const item of catalog) {
