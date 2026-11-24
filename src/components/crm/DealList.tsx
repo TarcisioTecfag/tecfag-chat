@@ -30,6 +30,12 @@ import { SystemTooltip } from "@/components/ui/tooltip";
 import { BulkActionsSuite } from "./BulkActionsSuite";
 import { prefetchDealDetail } from "@/lib/crm/deal-prefetch";
 import { getDealStatusMeta } from "./deal-status-config";
+import {
+  AppNavLink,
+  handleMiddleClickAuxOpen,
+  handleMiddleClickMouseDown,
+  handleModifiedNewTabClick,
+} from "@/components/ui/AppNavLink";
 
 interface DealListProps {
   deals: DealCardData[];
@@ -368,11 +374,17 @@ export function DealList({
                     year: "numeric",
                   });
                   const nextTask = (deal as any).nextTask;
+                  const dealHref = `/crm/deals/${encodeURIComponent(deal.id)}`;
 
                   return (
                     <div
                       key={deal.id}
-                      onClick={() => onDealClick(deal)}
+                      onMouseDown={(e) => handleMiddleClickMouseDown(e, dealHref)}
+                      onAuxClick={(e) => handleMiddleClickAuxOpen(e, dealHref)}
+                      onClick={(e) => {
+                        if (handleModifiedNewTabClick(e, dealHref)) return;
+                        onDealClick(deal);
+                      }}
                       onPointerDown={() => prefetchDealDetail(deal.id, deal)}
                       className={`p-3.5 transition-colors cursor-pointer ${
                         isSelected ? "bg-primary/5 dark:bg-primary/10" : "hover:bg-muted/30"
@@ -580,11 +592,17 @@ export function DealList({
 
                   // Próxima Tarefa Badge
                   const nextTask = (deal as any).nextTask;
+                  const dealHref = `/crm/deals/${encodeURIComponent(deal.id)}`;
 
                   return (
                     <tr
                       key={deal.id}
-                      onClick={() => onDealClick(deal)}
+                      onMouseDown={(e) => handleMiddleClickMouseDown(e, dealHref)}
+                      onAuxClick={(e) => handleMiddleClickAuxOpen(e, dealHref)}
+                      onClick={(e) => {
+                        if (handleModifiedNewTabClick(e, dealHref)) return;
+                        onDealClick(deal);
+                      }}
                       onPointerDown={() => prefetchDealDetail(deal.id, deal)}
                       onMouseEnter={() => prefetchDealDetail(deal.id, deal)}
                       className={`content-visibility-auto transition-colors cursor-pointer group ${
@@ -730,16 +748,17 @@ export function DealList({
                       {/* Ações */}
                       <td className="py-3 px-2 text-center">
                         <SystemTooltip content="Ver detalhes">
-                          <button
-                            type="button"
-                            onClick={(e) => {
+                          <AppNavLink
+                            href={dealHref}
+                            onClick={(e) => e.stopPropagation()}
+                            onNavigate={(e) => {
                               e.stopPropagation();
                               onDealClick(deal);
                             }}
                             className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer"
                           >
                             <ChevronRight className="h-4 w-4" />
-                          </button>
+                          </AppNavLink>
                         </SystemTooltip>
                       </td>
                     </tr>

@@ -25,7 +25,8 @@ import { getAiPersona } from "@/lib/ai-persona";
 import { RdMarketingSettings } from "./RdMarketingSettings";
 import { SystemTooltip } from "@/components/ui/tooltip";
 import { motion } from "framer-motion";
-import { getInitialTabFromUrl, parseAppRoute, useSyncModuleTabWithUrl } from "@/lib/app-routes";
+import { buildAppRoutePath, getInitialTabFromUrl, parseAppRoute, useSyncModuleTabWithUrl } from "@/lib/app-routes";
+import { AppNavLink } from "@/components/ui/AppNavLink";
 
 type SettingsTab = "whatsapp" | "voz" | "rd" | "crm" | "email" | "livechat" | "mcp" | "api" | "intelipost" | "webhook";
 const SETTINGS_TABS: readonly SettingsTab[] = ["whatsapp", "voz", "rd", "crm", "email", "livechat", "mcp", "api", "intelipost", "webhook"];
@@ -670,8 +671,9 @@ export function SettingsView() {
               activeTab === tab.id || (tab.id === "mcp" && activeTab === "api");
             return (
               <SystemTooltip key={tab.id} content={`Acessar parâmetros de ${tab.label}`}>
-                <button
-                  onClick={() => setActiveTab(tab.id as SettingsTab)}
+                <AppNavLink
+                  href={buildAppRoutePath("settings", { tabId: tab.id })}
+                  onNavigate={() => setActiveTab(tab.id as SettingsTab)}
                   className={`shrink-0 flex items-center gap-2 px-3.5 md:px-4 py-2 md:py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap active:scale-[0.98] ${
                     isActive
                       ? "bg-primary text-primary-foreground shadow-soft"
@@ -680,7 +682,7 @@ export function SettingsView() {
                 >
                   <Icon className="h-4 w-4 shrink-0" />
                   {tab.label}
-                </button>
+                </AppNavLink>
               </SystemTooltip>
             );
           })}

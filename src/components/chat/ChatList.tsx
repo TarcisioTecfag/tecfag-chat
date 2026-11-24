@@ -26,6 +26,9 @@ import {
 import { ContactPhoneTypeBadge } from "@/components/crm/ContactPhonesEditor";
 import { buildPhoneQueryPlan, matchesPhoneSearchQuery } from "@/lib/utils";
 import { analyzeMetaUnsupportedMessage } from "@/lib/whatsapp/meta-message-text";
+import { buildChatQueuePath } from "@/lib/app-routes";
+import { getChatLinkKey } from "@/lib/chat-link";
+import { AppNavLink } from "@/components/ui/AppNavLink";
 
 /** Converte conteúdo de mídia em label legível para o preview da lista */
 function formatLastMessage(text: string): { mediaType?: "document" | "image" | "video" | "audio" | "sticker"; label: string } {
@@ -807,10 +810,11 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
         {queues.map((q) => {
           const isActive = activeQueue === q.id;
           return (
-            <button
+            <AppNavLink
               key={q.id}
+              href={buildChatQueuePath(q.id)}
               data-tour={q.tourKey}
-              onClick={() => {
+              onNavigate={() => {
                 setActiveQueue(q.id as QueueType);
                 setSelectedChatId(null);
                 if (!embedded) setActiveView("chat");
@@ -829,7 +833,7 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
                 />
               )}
               {q.label}
-            </button>
+            </AppNavLink>
           );
         })}
       </div>
@@ -855,9 +859,10 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
               setContextMenu({ chatId: "valentina", x: e.clientX, y: e.clientY });
             }}
           >
-            <button
+            <AppNavLink
+              href="/chat/assistente"
               data-tour="chat.fagner-assistant-row"
-              onClick={() => {
+              onNavigate={() => {
                 setSelectedChatId("valentina");
                 if (!embedded) setActiveView("chat");
                 if (!onboarding?.isDemoMode) {
@@ -923,7 +928,7 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
                   )}
                 </div>
               </div>
-            </button>
+            </AppNavLink>
           </motion.div>
 
           {!chatListReady ? (
@@ -964,8 +969,9 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
                       setContextMenu({ chatId: c.id, x: e.clientX, y: e.clientY });
                     }}
                   >
-                    <button
-                      onClick={() => {
+                    <AppNavLink
+                      href={`/chat/${encodeURIComponent(getChatLinkKey(c, conversations))}`}
+                      onNavigate={() => {
                         setSelectedChatId(c.id);
                         if (!embedded) setActiveView("chat");
                         markAsRead(c.id);
@@ -1130,7 +1136,7 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
                           );
                         })()}
                       </div>
-                    </button>
+                    </AppNavLink>
                   </motion.div>
                 );
               })

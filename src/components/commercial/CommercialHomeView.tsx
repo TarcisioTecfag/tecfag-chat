@@ -280,7 +280,8 @@ function StatCard({
   );
 }
 
-import { getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
+import { buildAppRoutePath, getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
+import { MotionAppNavLink } from "@/components/ui/AppNavLink";
 
 const HOME_FILTER_TABS: readonly Filter[] = ["Todas", "Atrasadas", "Alta", "Hoje", "Concluídas"];
 
@@ -1596,12 +1597,13 @@ export function CommercialHomeView({
                         const isAtrasadas = item === "Atrasadas";
                         const isConcluidas = item === "Concluídas";
                         return (
-                          <motion.button
+                          <MotionAppNavLink
                             key={item}
+                            href={buildAppRoutePath("commercialHome", { tabId: item })}
                             whileHover={{ scale: 1.05, y: -1 }}
                             whileTap={{ scale: 0.95 }}
                             transition={{ duration: 0.15 }}
-                            onClick={() => setFilter(item)}
+                            onNavigate={() => setFilter(item)}
                             className={`border px-3 py-1 text-[11px] font-bold cursor-pointer rounded-[4px] transition-all shadow-sm ${
                               isActive
                                 ? isAtrasadas
@@ -1622,7 +1624,7 @@ export function CommercialHomeView({
                               : item === "Concluídas"
                                 ? `(${completedDirectives.length})`
                                 : ""}
-                          </motion.button>
+                          </MotionAppNavLink>
                         );
                       })}
                     </div>

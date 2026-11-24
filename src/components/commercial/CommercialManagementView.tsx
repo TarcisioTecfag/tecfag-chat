@@ -142,7 +142,8 @@ async function getOpenCommercialDeals(): Promise<Deal[]> {
   return deals;
 }
 
-import { getInitialTabFromUrl, parseAppRoute, useSyncModuleTabWithUrl } from "@/lib/app-routes";
+import { buildAppRoutePath, getInitialTabFromUrl, parseAppRoute, useSyncModuleTabWithUrl } from "@/lib/app-routes";
+import { AppNavLink } from "@/components/ui/AppNavLink";
 
 export function CommercialManagementView() {
   const { setActiveView, operators } = useChat();
@@ -382,13 +383,14 @@ export function CommercialManagementView() {
         </div>
         <div className="flex items-center gap-2">
           <SystemTooltip content="Abrir cockpit executivo do War Room">
-            <button
-              onClick={() => setActiveView("commercialBi")}
+            <AppNavLink
+              href={buildAppRoutePath("commercialBi")}
+              onNavigate={() => setActiveView("commercialBi")}
               className="flex items-center gap-1.5 px-3.5 py-2 rounded-[4px] bg-primary text-primary-foreground text-xs font-bold hover:brightness-110 transition shadow-sm cursor-pointer"
             >
               <BarChart2 className="h-3.5 w-3.5" />
               <span>Abrir War Room</span>
-            </button>
+            </AppNavLink>
           </SystemTooltip>
 
           <SystemTooltip content="Atualizar dados agora">
@@ -411,8 +413,9 @@ export function CommercialManagementView() {
           const isActive = tab === t.id;
           return (
             <SystemTooltip key={t.id} content={`Acessar aba ${t.label}`}>
-              <button
-                onClick={() => setTab(t.id)}
+              <AppNavLink
+                href={buildAppRoutePath("commercialManagement", { tabId: t.id })}
+                onNavigate={() => setTab(t.id)}
                 className={`relative flex items-center gap-2 px-3 py-1.5 rounded-[4px] text-xs font-bold transition-all cursor-pointer whitespace-nowrap border shadow-sm ${
                   isActive
                     ? "border-primary bg-primary text-primary-foreground"
@@ -421,7 +424,7 @@ export function CommercialManagementView() {
               >
                 <Icon className="h-3.5 w-3.5" />
                 {t.label}
-              </button>
+              </AppNavLink>
             </SystemTooltip>
           );
         })}

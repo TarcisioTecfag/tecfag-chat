@@ -2059,9 +2059,9 @@ function AlertsTab({
                 {/* 5. Rodapé de Ações Executivas */}
                 <div className="flex flex-wrap items-center justify-between gap-2 pt-2.5 border-t border-line/60">
                   <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
+                    <AppNavLink
+                      href={`/chat/${encodeURIComponent(alert.conversationId)}`}
+                      onNavigate={() => {
                         setSelectedChatId(alert.conversationId);
                         setActiveView("chat");
                       }}
@@ -2069,7 +2069,7 @@ function AlertsTab({
                     >
                       <MessageSquare className="h-3.5 w-3.5" />
                       Abrir no Chat
-                    </button>
+                    </AppNavLink>
 
                     <button
                       type="button"
@@ -7865,11 +7865,11 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
 
                   {/* Se estiver em triagem com a IA, botão adicional para abrir no módulo da IA */}
                   {selectedConv.queueState === "automacao" && (
-                    <motion.button
-                      type="button"
+                    <MotionAppNavLink
+                      href={buildAppRoutePath("valentina", { tabId: "sdr" })}
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.97 }}
-                      onClick={() => {
+                      onNavigate={() => {
                         setSelectedChatId(selectedConv.id);
                         setActiveView("valentina");
                       }}
@@ -7877,15 +7877,15 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
                     >
                       <Bot className="h-3.5 w-3.5 text-primary" />
                       Ver n{aiPersona.gender === "female" ? "a" : "o"} {aiPersona.name}
-                    </motion.button>
+                    </MotionAppNavLink>
                   )}
 
                   {/* Botão Abrir Conversa no Chat */}
-                  <motion.button
-                    type="button"
+                  <MotionAppNavLink
+                    href={`/chat/${encodeURIComponent(selectedConv.id)}`}
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.97 }}
-                    onClick={() => {
+                    onNavigate={() => {
                       setSelectedChatId(selectedConv.id);
                       setActiveView("chat");
                     }}
@@ -7893,7 +7893,7 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
                   >
                     <ExternalLink className="h-3.5 w-3.5" />
                     Abrir Conversa
-                  </motion.button>
+                  </MotionAppNavLink>
 
                   {/* Badge AO VIVO */}
                   <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-primary/10 border border-primary/20 text-primary text-[10px] font-bold">
@@ -13028,7 +13028,8 @@ export function CostsTab({
   );
 }
 
-import { getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
+import { buildAppRoutePath, getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
+import { AppNavLink, MotionAppNavLink } from "@/components/ui/AppNavLink";
 
 // ── Componente Principal ─────────────────────────────────────────────────────
 export function MonitorView() {
@@ -13198,9 +13199,10 @@ export function MonitorView() {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
           return (
-            <button
+            <AppNavLink
               key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
+              href={buildAppRoutePath("monitor", { tabId: tab.id })}
+              onNavigate={() => setActiveTab(tab.id)}
               className={`relative flex items-center gap-1.5 px-3 md:px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer shrink-0 whitespace-nowrap ${
                 isActive
                   ? "bg-primary text-primary-foreground shadow-soft"
@@ -13216,7 +13218,7 @@ export function MonitorView() {
                   {tab.badge}
                 </span>
               )}
-            </button>
+            </AppNavLink>
           );
         })}
       </div>

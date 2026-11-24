@@ -41,7 +41,8 @@ const VOICE_SCORE_TABS: Array<{ id: VoiceTab; label: string; icon: React.Compone
   { id: "voice_ligacao", label: "Análise da Ligação", icon: Headphones, screen: "call" },
 ];
 
-import { getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
+import { buildAppRoutePath, getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
+import { AppNavLink } from "@/components/ui/AppNavLink";
 
 export function LigacoesView() {
   const { canAccessLigacoesTab, canTriggerTestCall } = usePermissions();
@@ -122,9 +123,10 @@ export function LigacoesView() {
             const isActive = activeTab === tab.id;
 
             return (
-              <button
+              <AppNavLink
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
+                href={buildAppRoutePath("ligacoes", { tabId: tab.id })}
+                onNavigate={() => setActiveTab(tab.id)}
                 className={`relative flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
                   isActive
                     ? "bg-primary text-primary-foreground shadow-soft font-bold"
@@ -133,7 +135,7 @@ export function LigacoesView() {
               >
                 <Icon className="h-4 w-4" />
                 {tab.label}
-              </button>
+              </AppNavLink>
             );
           })}
         </div>
@@ -150,9 +152,10 @@ export function LigacoesView() {
             const isActive = activeTab === tab.id;
 
             return (
-              <button
+              <AppNavLink
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id as VoiceTab)}
+                href={buildAppRoutePath("ligacoes", { tabId: tab.id })}
+                onNavigate={() => setActiveTab(tab.id as VoiceTab)}
                 className={`relative flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
                   isActive
                     ? "bg-primary text-primary-foreground shadow-soft font-bold"
@@ -161,7 +164,7 @@ export function LigacoesView() {
               >
                 <Icon className="h-4 w-4" />
                 {tab.label}
-              </button>
+              </AppNavLink>
             );
           })}
         </div>

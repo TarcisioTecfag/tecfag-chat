@@ -28,7 +28,8 @@ import {
 } from "@/components/chat/ContactsAnalyticsTab";
 import { CrmAnalyticsTab } from "@/components/chat/CrmAnalyticsTab";
 import { usePermissions } from "@/hooks/usePermissions";
-import { getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
+import { buildAppRoutePath, getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
+import { AppNavLink } from "@/components/ui/AppNavLink";
 import { useEnhancedAvatarSrc } from "@/lib/avatar-image";
 import { getAiPersona } from "@/lib/ai-persona";
 import {
@@ -3328,9 +3329,10 @@ export function AnalyticsView() {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
           return (
-            <button
+            <AppNavLink
               key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
+              href={buildAppRoutePath("analytics", { tabId: tab.id })}
+              onNavigate={() => setActiveTab(tab.id)}
               className={`shrink-0 whitespace-nowrap relative flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                 isActive
                   ? "bg-primary text-primary-foreground shadow-soft"
@@ -3339,7 +3341,7 @@ export function AnalyticsView() {
             >
               <Icon className="h-3.5 w-3.5 shrink-0" />
               {tab.label}
-            </button>
+            </AppNavLink>
           );
         })}
       </div>

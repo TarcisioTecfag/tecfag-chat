@@ -19,7 +19,8 @@ import { MetaTemplatesManager } from "./MetaTemplatesManager";
 import { getAiPersona } from "@/lib/ai-persona";
 import { compressAvatarFile } from "@/lib/avatar-image";
 import { usePermissions } from "@/hooks/usePermissions";
-import { getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
+import { buildAppRoutePath, getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
+import { AppNavLink } from "@/components/ui/AppNavLink";
 import {
   getDefaultSectorCopilotConfig,
   interpolateCopilotWelcomeMessage,
@@ -1299,9 +1300,10 @@ export function GroupsView() {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
           return (
-            <button
+            <AppNavLink
               key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
+              href={buildAppRoutePath("groups", { tabId: tab.id })}
+              onNavigate={() => setActiveTab(tab.id)}
               className={`shrink-0 whitespace-nowrap flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                 isActive
                   ? "bg-primary text-primary-foreground shadow-soft"
@@ -1310,7 +1312,7 @@ export function GroupsView() {
             >
               <Icon className="h-3.5 w-3.5 shrink-0" />
               {tab.label}
-            </button>
+            </AppNavLink>
           );
         })}
       </div>
@@ -1795,14 +1797,14 @@ export function GroupsView() {
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("sectors")}
+                  <AppNavLink
+                    href={buildAppRoutePath("groups", { tabId: "sectors" })}
+                    onNavigate={() => setActiveTab("sectors")}
                     className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-border bg-card hover:bg-muted px-3.5 text-xs font-bold text-foreground shadow-xs cursor-pointer transition"
                   >
                     <FolderPlus className="h-3.5 w-3.5 text-primary" />
                     Gerenciar Setores
-                  </button>
+                  </AppNavLink>
                   <button
                     type="button"
                     onClick={() => setShowOpForm(!showOpForm)}

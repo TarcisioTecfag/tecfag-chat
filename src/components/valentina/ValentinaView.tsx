@@ -41,7 +41,8 @@ import { useChat } from "@/hooks/useChatState";
 import { getAiPersona } from "@/lib/ai-persona";
 import { ValentinaFeed } from "@/components/mobile/ValentinaFeed";
 import { toast } from "sonner";
-import { getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
+import { buildAppRoutePath, getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
+import { AppNavLink } from "@/components/ui/AppNavLink";
 import { parseSdrTargetFromSearch, type SdrTargetLookup } from "@/lib/rodizio-external-links";
 import { isSiteConversationId } from "@/lib/livechat/site-channel-policy";
 
@@ -618,10 +619,10 @@ export function ValentinaView() {
           const Icon = tab.icon;
           const isActive = !showMobileFeed && activeTab === tab.id;
           return (
-            <button
+            <AppNavLink
               key={tab.id}
-              type="button"
-              onClick={() => {
+              href={buildAppRoutePath("valentina", { tabId: tab.id })}
+              onNavigate={() => {
                 setShowMobileFeed(false);
                 setActiveTab(tab.id);
               }}
@@ -633,7 +634,7 @@ export function ValentinaView() {
             >
               <Icon className="h-3.5 w-3.5 shrink-0" />
               {tab.label}
-            </button>
+            </AppNavLink>
           );
         })}
         <button

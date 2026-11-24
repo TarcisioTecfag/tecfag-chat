@@ -246,7 +246,8 @@ export const LiveClockHeader = memo(function LiveClockHeader() {
   );
 });
 
-import { getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
+import { buildAppRoutePath, getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
+import { MotionAppNavLink } from "@/components/ui/AppNavLink";
 
 const WAR_ROOM_SLIDE_IDS = [0, 1, 2, 3, 4, 5, 6, 7, 8] as const;
 
@@ -823,19 +824,20 @@ export function CommercialBiView() {
           {/* Botões de Ação */}
           <div className="flex items-center gap-1">
             {/* Slide Anterior */}
-            <motion.button
-              type="button"
+            <MotionAppNavLink
+              href={buildAppRoutePath("commercialBi", {
+                tabId: String(module === 0 ? TOTAL_SLIDES - 1 : module - 1),
+              })}
               whileHover={{ scale: 1.08 }}
               whileTap={{ scale: 0.92 }}
-              onClick={() => {
+              onNavigate={() => {
                 setModule((current) => (current === 0 ? TOTAL_SLIDES - 1 : current - 1));
               }}
               className="rounded-[2px] border border-slate-200 dark:border-zinc-800 bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900 dark:bg-zinc-900 dark:hover:bg-zinc-800 dark:text-zinc-400 dark:hover:text-white p-1 transition-colors cursor-pointer"
-              title="Slide Anterior"
               aria-label="Slide Anterior"
             >
               <ChevronLeft className="h-3.5 w-3.5" />
-            </motion.button>
+            </MotionAppNavLink>
 
             {/* Play / Pause */}
             <motion.button
@@ -848,7 +850,6 @@ export function CommercialBiView() {
                   ? "border-emerald-500/50 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-400 dark:hover:bg-emerald-900/40 dark:hover:text-emerald-300 shadow-[0_0_10px_rgba(16,185,129,0.15)]"
                   : "border-slate-200 dark:border-zinc-800 bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900 dark:bg-zinc-900 dark:hover:bg-zinc-800 dark:text-zinc-400 dark:hover:text-white"
               }`}
-              title={rotating ? "Pausar rotação automática" : "Iniciar rotação automática"}
               aria-label={rotating ? "Pausar rotação" : "Iniciar rotação"}
             >
               {rotating ? (
@@ -859,19 +860,20 @@ export function CommercialBiView() {
             </motion.button>
 
             {/* Próximo Slide */}
-            <motion.button
-              type="button"
+            <MotionAppNavLink
+              href={buildAppRoutePath("commercialBi", {
+                tabId: String((module + 1) % TOTAL_SLIDES),
+              })}
               whileHover={{ scale: 1.08 }}
               whileTap={{ scale: 0.92 }}
-              onClick={() => {
+              onNavigate={() => {
                 setModule((current) => (current + 1) % TOTAL_SLIDES);
               }}
               className="rounded-[2px] border border-slate-200 dark:border-zinc-800 bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900 dark:bg-zinc-900 dark:hover:bg-zinc-800 dark:text-zinc-400 dark:hover:text-white p-1 transition-colors cursor-pointer"
-              title="Próximo Slide"
               aria-label="Próximo Slide"
             >
               <ChevronRight className="h-3.5 w-3.5" />
-            </motion.button>
+            </MotionAppNavLink>
 
             {/* Tela Cheia */}
             <motion.button
@@ -916,21 +918,20 @@ export function CommercialBiView() {
             {Array.from({ length: TOTAL_SLIDES }, (_, idx) => {
               const isActive = module === idx;
               return (
-                <motion.button
+                <MotionAppNavLink
                   key={idx}
-                  type="button"
+                  href={buildAppRoutePath("commercialBi", { tabId: String(idx) })}
                   whileHover={{ scale: 1.15 }}
                   whileTap={{ scale: 0.9 }}
                   transition={{ duration: 0.15 }}
-                  onClick={() => {
+                  onNavigate={() => {
                     setModule(idx);
                   }}
-                  className={`transition-all duration-200 cursor-pointer ${
+                  className={`block transition-all duration-200 cursor-pointer ${
                     isActive
                       ? "h-1.5 w-5 rounded-[2px] bg-[#df3d3d] shadow-sm"
                       : "h-1.5 w-2 rounded-[2px] bg-slate-300 hover:bg-slate-400 dark:bg-zinc-800 dark:hover:bg-zinc-600"
                   }`}
-                  title={`Slide ${idx + 1}`}
                   aria-label={`Ir para Slide ${idx + 1}`}
                 />
               );

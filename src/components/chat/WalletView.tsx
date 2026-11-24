@@ -43,7 +43,8 @@ import { toast } from "sonner";
 import { getAiPersona } from "@/lib/ai-persona";
 import { AiAvatar } from "@/components/ui/AiAvatar";
 
-import { getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
+import { buildAppRoutePath, getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
+import { MotionAppNavLink } from "@/components/ui/AppNavLink";
 
 const WALLET_TABS = ["wallet", "templates"] as const;
 
@@ -313,9 +314,10 @@ export function WalletView() {
 
           {/* Tab Toggle */}
           <div className="flex items-center gap-1 rounded-2xl bg-muted/60 p-1 border border-border self-start sm:self-auto">
-            <motion.button
+            <MotionAppNavLink
+              href={buildAppRoutePath("wallet", { tabId: "wallet" })}
               whileTap={{ scale: 0.95 }}
-              onClick={() => setActiveTab("wallet")}
+              onNavigate={() => setActiveTab("wallet")}
               className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold transition-all cursor-pointer ${
                 activeTab === "wallet"
                   ? "bg-card text-foreground shadow-soft"
@@ -324,11 +326,12 @@ export function WalletView() {
             >
               <Briefcase className="h-4 w-4" />
               Clientes da Carteira
-            </motion.button>
-            <motion.button
+            </MotionAppNavLink>
+            <MotionAppNavLink
+              href={buildAppRoutePath("wallet", { tabId: "templates" })}
               data-tour="profile.personal-templates-tab"
               whileTap={{ scale: 0.95 }}
-              onClick={() => setActiveTab("templates")}
+              onNavigate={() => setActiveTab("templates")}
               className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold transition-all cursor-pointer ${
                 activeTab === "templates"
                   ? "bg-card text-foreground shadow-soft"
@@ -337,7 +340,7 @@ export function WalletView() {
             >
               <LayoutTemplate className="h-4 w-4" />
               Meus Templates
-            </motion.button>
+            </MotionAppNavLink>
           </div>
         </div>
 

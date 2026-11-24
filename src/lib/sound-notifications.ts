@@ -3,6 +3,32 @@
  * Gera um chime harmônico cristalino e moderno sem depender de arquivos de áudio externos ou rede.
  */
 
+const SOUND_DEDUPE_STORAGE_KEY = "valem_sound_notification_last_ts";
+const SOUND_DEDUPE_WINDOW_MS = 1200;
+
+/**
+ * Garante que múltiplas guias abertas simultaneamente não toquem o mesmo alerta sonoro em coro.
+ * Retorna `true` se esta guia conquistou a janela de reprodução; `false` se outra guia acabou de tocar.
+ */
+export function tryAcquireCrossTabSoundSlot(
+  nowMs: number = Date.now(),
+  storage: Pick<Storage, "getItem" | "setItem"> | null =
+    typeof window !== "undefined" ? window.localStorage : null,
+): boolean {
+  if (!storage) return true;
+  try {
+    const raw = storage.getItem(SOUND_DEDUPE_STORAGE_KEY);
+    const lastTs = raw ? Number(raw) : 0;
+    if (Number.isFinite(lastTs) && lastTs > 0 && nowMs - lastTs < SOUND_DEDUPE_WINDOW_MS) {
+      return false;
+    }
+    storage.setItem(SOUND_DEDUPE_STORAGE_KEY, String(nowMs));
+    return true;
+  } catch {
+    return true;
+  }
+}
+
 class SoundNotificationService {
   private ctx: AudioContext | null = null;
   private hasInteracted = false;
@@ -42,9 +68,11 @@ class SoundNotificationService {
 
   /**
    * Toca o chime suave de notificação (Dó maior elegante C5 - E5 - G5).
+   * Deduplica automaticamente entre múltiplas guias abertas do mesmo navegador.
    */
   playNotificationSound() {
     try {
+      if (!tryAcquireCrossTabSoundSlot()) return;
       const ctx = this.initContext();
       if (!ctx) return;
 

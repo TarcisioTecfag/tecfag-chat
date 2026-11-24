@@ -23,6 +23,12 @@ import {
 import { toast } from "sonner";
 import { invalidateDealCache, prefetchDealDetail, seedDealPreview } from "@/lib/crm/deal-prefetch";
 import { getDealStatusMeta } from "./deal-status-config";
+import {
+  AppNavLink,
+  handleMiddleClickAuxOpen,
+  handleMiddleClickMouseDown,
+  handleModifiedNewTabClick,
+} from "@/components/ui/AppNavLink";
 
 // Singleton de formatação monetária (evita instanciar Intl.NumberFormat centenas de vezes por render)
 const BRL_CURRENCY_FORMATTER = new Intl.NumberFormat("pt-BR", {
@@ -384,6 +390,8 @@ export const DealCard = React.memo(function DealCard({
     }
   };
 
+  const dealHref = `/crm/deals/${encodeURIComponent(deal.id)}`;
+
   // Pointer Down para Drag customizado fluido sem disparar requisição HTTP no início do gesto
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     hideSharedCardTooltip();
@@ -392,7 +400,7 @@ export const DealCard = React.memo(function DealCard({
       hoverPrefetchTimerRef.current = null;
     }
     if (isOverlay || isDragging || isEditingValue) return;
-    if (e.button !== 0) return; // apenas clique esquerdo
+    if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return; // apenas clique esquerdo sem modificador de nova guia
     const target = e.target as HTMLElement;
     // Não iniciar drag se clicou em botões, links ou menus internos
     if (target.closest('button, a, input, select, textarea, [role="button"], [data-no-drag]')) {
@@ -404,8 +412,9 @@ export const DealCard = React.memo(function DealCard({
     }
   };
 
-  const handleCardClick = () => {
+  const handleCardClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (isOverlay || isDragging || isEditingValue) return;
+    if (handleModifiedNewTabClick(e, dealHref)) return;
     seedDealPreview(deal);
     if (!onStartDrag && onClick) {
       onClick(deal);
@@ -532,6 +541,8 @@ export const DealCard = React.memo(function DealCard({
       data-tour="crm.deal-card"
       data-stage-id={deal.stageId}
       onPointerDown={handlePointerDown}
+      onMouseDown={(e) => handleMiddleClickMouseDown(e, dealHref)}
+      onAuxClick={(e) => handleMiddleClickAuxOpen(e, dealHref)}
       onClick={handleCardClick}
       onMouseEnter={handleCardMouseEnter}
       onMouseLeave={handleCardMouseLeave}
@@ -595,9 +606,9 @@ export const DealCard = React.memo(function DealCard({
                 onClick={(e) => e.stopPropagation()}
                 className="absolute right-0 top-6 z-30 w-48 rounded-xl border border-border bg-popover p-1.5 shadow-xl text-[11px] font-medium text-popover-foreground animate-in fade-in zoom-in-95"
               >
-                <button
-                  type="button"
-                  onClick={() => {
+                <AppNavLink
+                  href={dealHref}
+                  onNavigate={() => {
                     setShowQuickMenu(false);
                     onClick?.(deal);
                   }}
@@ -605,7 +616,7 @@ export const DealCard = React.memo(function DealCard({
                 >
                   <Pencil className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                   <span>Editar Negociação</span>
-                </button>
+                </AppNavLink>
 
                 <button
                   type="button"

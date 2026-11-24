@@ -339,6 +339,7 @@ export const MODULE_ROUTE_SPECS: Record<ViewId, ModuleRouteSpec> = {
       mcp: "mcp",
       api: "api",
       intelipost: "intelipost",
+      webhook: "webhook",
     },
     slugToTab: {
       whatsapp: "whatsapp",
@@ -356,6 +357,8 @@ export const MODULE_ROUTE_SPECS: Record<ViewId, ModuleRouteSpec> = {
       "documentacao-api": "api",
       intelipost: "intelipost",
       frete: "intelipost",
+      webhook: "webhook",
+      webhooks: "webhook",
     },
   },
 };
@@ -371,6 +374,55 @@ for (const spec of Object.values(MODULE_ROUTE_SPECS)) {
 }
 
 const CHAT_AI_SLUGS = new Set(["assistente", "ia", "fagner", "valentina"]);
+
+export const CHAT_QUEUE_SLUGS = ["meus", "fila", "automacao", "todos", "finalizados"] as const;
+export type ChatQueueSlug = (typeof CHAT_QUEUE_SLUGS)[number];
+const CHAT_QUEUE_SLUG_SET = new Set<string>(CHAT_QUEUE_SLUGS);
+
+/**
+ * Lê a fila de atendimento (`?queue=fila`, `?queue=automacao`, etc.) a partir da query string.
+ */
+export function parseChatQueueFromSearch(search: string | undefined | null): ChatQueueSlug | null {
+  if (!search) return null;
+  try {
+    const raw = search.startsWith("?") ? search.slice(1) : search;
+    const params = new URLSearchParams(raw);
+    const value = params.get("queue")?.trim().toLowerCase();
+    if (value && CHAT_QUEUE_SLUG_SET.has(value)) {
+      return value as ChatQueueSlug;
+    }
+  } catch {
+    // ignore malformed search strings
+  }
+  return null;
+}
+
+/**
+ * Monta a URL canônica para uma fila do módulo Chat (ex.: /chat?queue=fila).
+ */
+export function buildChatQueuePath(queue: string): string {
+  const normalized = queue.trim().toLowerCase();
+  if (CHAT_QUEUE_SLUG_SET.has(normalized)) {
+    return `/chat?queue=${encodeURIComponent(normalized)}`;
+  }
+  return "/chat";
+}
+
+/**
+ * Detecta cliques que o usuário fez com intenção de abrir em nova guia/janela
+ * (Ctrl+Click, Cmd+Click, Shift+Click, Alt+Click ou botão do meio/scroll).
+ */
+export function isOpenInNewTabModifier(
+  event: Pick<MouseEvent, "button" | "ctrlKey" | "metaKey" | "shiftKey" | "altKey">,
+): boolean {
+  return (
+    event.button !== 0 ||
+    event.ctrlKey ||
+    event.metaKey ||
+    event.shiftKey ||
+    event.altKey
+  );
+}
 
 /** Memory + localStorage cache of the last visited tab per module so returning or reloading restores its last tab */
 const lastActiveTabByView: Partial<Record<ViewId, string>> = {};

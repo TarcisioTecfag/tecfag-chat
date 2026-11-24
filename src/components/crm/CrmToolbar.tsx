@@ -18,6 +18,8 @@ import {
 import { useNavigate } from "@tanstack/react-router";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useChat } from "@/hooks/useChatState";
+import { buildAppRoutePath } from "@/lib/app-routes";
+import { AppNavLink } from "@/components/ui/AppNavLink";
 import { OperatorFilterPopover } from "./OperatorFilterPopover";
 import {
   AdvancedFiltersState,
@@ -404,16 +406,16 @@ export function CrmToolbar({
                   key={mode}
                   content={mode === "kanban" ? "Visualização em Quadro Kanban" : "Visualização em Lista"}
                 >
-                  <button
-                    type="button"
+                  <AppNavLink
+                    href={buildAppRoutePath("crm", { tabId: mode })}
                     data-tour={mode === "kanban" ? "crm.view-board" : "crm.view-list"}
-                    aria-pressed={viewMode === mode}
-                    onClick={() => onViewModeChange(mode)}
+                    aria-current={viewMode === mode ? "page" : undefined}
+                    onNavigate={() => onViewModeChange(mode)}
                     className={`flex h-8 items-center gap-1.5 sm:gap-2 rounded-md px-2.5 sm:px-3 text-xs sm:text-sm font-medium transition-all duration-200 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${viewMode === mode ? "bg-card text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"}`}
                   >
                     <Icon className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                     {mode === "kanban" ? "Quadro" : "Lista"}
-                  </button>
+                  </AppNavLink>
                 </SystemTooltip>
               );
             })}

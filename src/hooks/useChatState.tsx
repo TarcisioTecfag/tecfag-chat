@@ -12,7 +12,7 @@ import {
   OperatorTemplate,
 } from "@/lib/mockData";
 import { GroupPermissions, DEFAULT_ADMIN_PERMISSIONS, normalizeGroupPermissions } from "@/lib/rbac";
-import { parseAppRoute } from "@/lib/app-routes";
+import { parseAppRoute, parseChatQueueFromSearch } from "@/lib/app-routes";
 import { clearWhatsappConnectionsCache } from "./useWhatsappConnections";
 import { getAiPersona } from "@/lib/ai-persona";
 import { sortAlphabeticallyByName } from "@/lib/operator-initial-navigation";
@@ -654,13 +654,20 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
   const [availableTenants, setAvailableTenants] = useState<("tecfag" | "valem")[]>([]);
   const switchingTenantRef = useRef(false);
-  const [activeQueue, setActiveQueue] = useState<QueueType>("meus");
+  const [activeQueue, setActiveQueue] = useState<QueueType>(() => {
+    if (typeof window !== "undefined") {
+      const urlQueue = parseChatQueueFromSearch(window.location.search);
+      if (urlQueue) return urlQueue as QueueType;
+    }
+    return "meus";
+  });
   const [selectedChatId, setSelectedChatId] = useState<string | null>(() => {
     if (typeof window !== "undefined") {
       const parsed = parseAppRoute(window.location.pathname);
       if (parsed.viewId === "chat") {
         if (parsed.isAiAssistantChat) return "valentina";
         if (parsed.chatKey) return null;
+        if (parseChatQueueFromSearch(window.location.search)) return null;
       }
       return localStorage.getItem("chat_selected_id");
     }
@@ -818,7 +825,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         localStorage.removeItem("chat_active_queue");
       } catch {}
-      setActiveQueue("meus");
+      const initialUrlQueue = parseChatQueueFromSearch(window.location.search);
+      setActiveQueue((initialUrlQueue || "meus") as QueueType);
 
       const parsedUrlRoute = parseAppRoute(window.location.pathname);
       if (parsedUrlRoute.viewId) {
@@ -826,7 +834,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (parsedUrlRoute.viewId === "chat") {
           if (parsedUrlRoute.isAiAssistantChat) {
             setSelectedChatId("valentina");
-          } else if (parsedUrlRoute.chatKey) {
+          } else if (parsedUrlRoute.chatKey || initialUrlQueue) {
             setSelectedChatId(null);
           }
         }

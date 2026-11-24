@@ -13,8 +13,10 @@ import { useChat } from "@/hooks/useChatState";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useTheme } from "@/hooks/useTheme";
 import { getMobileNavigationModules } from "@/lib/module-catalog";
+import { buildAppRoutePath } from "@/lib/app-routes";
 import type { ViewId } from "@/lib/rbac";
 import { AnimatePresence, motion } from "framer-motion";
+import { AppNavLink, MotionAppNavLink } from "@/components/ui/AppNavLink";
 
 export const MobileBottomNav: React.FC = () => {
   const {
@@ -279,11 +281,11 @@ export const MobileBottomNav: React.FC = () => {
                         const Icon = item.icon;
                         const isActive = activeView === item.id;
                         return (
-                          <button
+                          <AppNavLink
                             key={item.id}
+                            href={buildAppRoutePath(item.id as ViewId)}
                             data-tour={`nav.${item.id}`}
-                            type="button"
-                            onClick={() => handleTabClick(item.id)}
+                            onNavigate={() => handleTabClick(item.id)}
                             className={`flex flex-col items-center justify-center gap-1.5 rounded-2xl p-3 border text-center transition cursor-pointer ${
                               isActive
                                 ? "bg-primary/10 border-primary/30 text-primary font-bold"
@@ -294,7 +296,7 @@ export const MobileBottomNav: React.FC = () => {
                             <span className="text-[11px] leading-tight line-clamp-1">
                               {item.label}
                             </span>
-                          </button>
+                          </AppNavLink>
                         );
                       })}
                     </div>
@@ -312,10 +314,10 @@ export const MobileBottomNav: React.FC = () => {
                         const Icon = item.icon;
                         const isActive = activeView === item.id;
                         return (
-                          <button
+                          <AppNavLink
                             key={item.id}
-                            type="button"
-                            onClick={() => handleTabClick(item.id)}
+                            href={buildAppRoutePath(item.id as ViewId)}
+                            onNavigate={() => handleTabClick(item.id)}
                             className={`flex flex-col items-center justify-center gap-1.5 rounded-2xl p-3 border text-center transition cursor-pointer ${
                               isActive
                                 ? "bg-primary/10 border-primary/30 text-primary font-bold"
@@ -326,7 +328,7 @@ export const MobileBottomNav: React.FC = () => {
                             <span className="text-[11px] leading-tight line-clamp-1">
                               {item.label}
                             </span>
-                          </button>
+                          </AppNavLink>
                         );
                       })}
                     </div>
@@ -363,11 +365,11 @@ export const MobileBottomNav: React.FC = () => {
           const Icon = item.icon;
           const isActive = activeView === item.id && !drawerOpen;
           return (
-            <motion.button
+            <MotionAppNavLink
               key={item.id}
+              href={buildAppRoutePath(item.id as ViewId)}
               data-tour={`nav.${item.id}`}
-              type="button"
-              onClick={() => handleTabClick(item.id)}
+              onNavigate={() => handleTabClick(item.id)}
               whileTap={{ scale: 0.9 }}
               whileHover={{ scale: 1.04 }}
               transition={{ type: "spring", stiffness: 400, damping: 25 }}
@@ -396,7 +398,7 @@ export const MobileBottomNav: React.FC = () => {
               >
                 {item.shortLabel}
               </span>
-            </motion.button>
+            </MotionAppNavLink>
           );
         })}
 

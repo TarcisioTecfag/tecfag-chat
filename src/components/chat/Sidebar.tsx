@@ -27,6 +27,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import { getAiPersona } from "@/lib/ai-persona";
 import { ProfilePopover } from "@/components/chat/ProfileModal";
 import { getDesktopSidebarModules, resolveAuthorizedActiveView } from "@/lib/module-catalog";
+import { buildAppRoutePath } from "@/lib/app-routes";
+import { MotionAppNavLink } from "@/components/ui/AppNavLink";
+import type { ViewId } from "@/lib/rbac";
 
 export function Sidebar() {
   const { tenant, setTenant, availableTenants, activeView, setActiveView, setActiveQueue, operatorProfile, sessionRole, setIsProfileModalOpen, currentGroup, isCommercialConsultant } = useChat();
@@ -265,12 +268,13 @@ export function Sidebar() {
               const Icon = item.icon;
               const isActive = activeView === item.id;
               return (
-                <motion.button
+                <MotionAppNavLink
                   key={item.id}
+                  href={buildAppRoutePath(item.id as ViewId)}
                   data-tour={`nav.${item.id}`}
                   whileHover={{ scale: 1.08 }}
                   whileTap={{ scale: 0.94 }}
-                  onClick={() => navigateToView(item.id as any)}
+                  onNavigate={() => navigateToView(item.id as any)}
                   aria-label={item.label}
                   className={`relative grid ${navButtonSizeClass} place-items-center cursor-pointer group transition-colors duration-150 shrink-0 ${
                     isActive
@@ -290,7 +294,7 @@ export function Sidebar() {
                   <span className="absolute left-[calc(100%+14px)] md:left-[calc(100%+20px)] scale-0 opacity-0 rounded-xl bg-foreground px-3 py-1.5 text-xs font-semibold text-background group-hover:scale-100 group-hover:opacity-100 transition-all duration-150 ease-out whitespace-nowrap pointer-events-none shadow-lg z-50">
                     {item.label}
                   </span>
-                </motion.button>
+                </MotionAppNavLink>
               );
             })}
 
@@ -310,11 +314,12 @@ export function Sidebar() {
                   activeView === item.id ||
                   (item.id === "commercialManagement" && activeView === "commercialBi");
                 return (
-                  <motion.button
+                  <MotionAppNavLink
                     key={index}
+                    href={buildAppRoutePath(item.id as ViewId)}
                     whileHover={{ scale: 1.08 }}
                     whileTap={{ scale: 0.94 }}
-                    onClick={() => navigateToView(item.id as any)}
+                    onNavigate={() => navigateToView(item.id as any)}
                     aria-label={item.label}
                     className={`relative grid ${navButtonSizeClass} place-items-center cursor-pointer group transition-colors duration-150 shrink-0 ${
                       isActive
@@ -334,7 +339,7 @@ export function Sidebar() {
                     <span className="absolute left-[calc(100%+14px)] md:left-[calc(100%+20px)] scale-0 opacity-0 rounded-xl bg-foreground px-3 py-1.5 text-xs font-semibold text-background group-hover:scale-100 group-hover:opacity-100 transition-all duration-150 ease-out whitespace-nowrap pointer-events-none shadow-lg z-50">
                       {item.label}
                     </span>
-                  </motion.button>
+                  </MotionAppNavLink>
                 );
               }
 

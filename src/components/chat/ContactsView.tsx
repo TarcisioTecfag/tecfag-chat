@@ -209,7 +209,8 @@ function ContactAvatar({ avatar, name, initials, initialsBg, size = "h-9 w-9" }:
   );
 }
 
-import { getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
+import { buildAppRoutePath, getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
+import { AppNavLink, MotionAppNavLink } from "@/components/ui/AppNavLink";
 
 const CONTACT_CHANNEL_TABS = ["all", "whatsapp", "instagram", "messenger", "livechat", "companies"] as const;
 type ContactsViewTab = (typeof CONTACT_CHANNEL_TABS)[number];
@@ -1066,10 +1067,10 @@ export function ContactsView() {
             Conversas
           </button>
           {/* Botao Empresas (entre Conversas e Novo Contato) */}
-          <button
-            type="button"
+          <AppNavLink
+            href={buildAppRoutePath("contacts", { tabId: isCompaniesView ? "all" : "companies" })}
             data-tour="contacts.tab-companies"
-            onClick={() => setChannelFilter((prev) => (prev === "companies" ? "all" : "companies"))}
+            onNavigate={() => setChannelFilter((prev) => (prev === "companies" ? "all" : "companies"))}
             className={`inline-flex h-9 sm:h-10 flex-1 sm:flex-none items-center justify-center gap-1.5 sm:gap-2 rounded-xl border px-2.5 sm:px-5 text-xs sm:text-sm font-semibold transition cursor-pointer shadow-soft whitespace-nowrap ${
               isCompaniesView
                 ? "border-primary bg-primary/15 text-primary ring-1 ring-primary/30"
@@ -1078,7 +1079,7 @@ export function ContactsView() {
           >
             <Building2 className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary shrink-0" />
             Empresas
-          </button>
+          </AppNavLink>
           {/* Botao Novo Contato */}
           {canCreateContact && (
             <button
@@ -1180,28 +1181,28 @@ export function ContactsView() {
         ) : (
           <div className="flex items-center gap-1.5 self-end sm:self-auto">
             <span className="text-xs text-muted-foreground font-semibold mr-1">Canal:</span>
-            <motion.button data-tour="contacts.tab-all" whileTap={{ scale: 0.92 }} onClick={() => setChannelFilter("all")} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition cursor-pointer ${channelFilter === "all" ? "bg-primary text-primary-foreground shadow-soft" : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"}`}>Todos</motion.button>
+            <MotionAppNavLink href={buildAppRoutePath("contacts", { tabId: "all" })} data-tour="contacts.tab-all" whileTap={{ scale: 0.92 }} onNavigate={() => setChannelFilter("all")} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition cursor-pointer ${channelFilter === "all" ? "bg-primary text-primary-foreground shadow-soft" : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"}`}>Todos</MotionAppNavLink>
             <Tooltip>
               <TooltipTrigger asChild>
-                <motion.button data-tour="contacts.tab-whatsapp" whileTap={{ scale: 0.92 }} onClick={() => setChannelFilter("whatsapp")} className={`grid h-8 w-8 place-items-center rounded-lg transition cursor-pointer ${channelFilter === "whatsapp" ? "bg-primary text-primary-foreground shadow-soft" : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"}`}><WhatsappLogo className="h-4.5 w-4.5" /></motion.button>
+                <MotionAppNavLink href={buildAppRoutePath("contacts", { tabId: "whatsapp" })} data-tour="contacts.tab-whatsapp" whileTap={{ scale: 0.92 }} onNavigate={() => setChannelFilter("whatsapp")} className={`grid h-8 w-8 place-items-center rounded-lg transition cursor-pointer ${channelFilter === "whatsapp" ? "bg-primary text-primary-foreground shadow-soft" : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"}`}><WhatsappLogo className="h-4.5 w-4.5" /></MotionAppNavLink>
               </TooltipTrigger>
               <TooltipContent side="top">Apenas WhatsApp</TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
-                <motion.button data-tour="contacts.tab-instagram" whileTap={{ scale: 0.92 }} onClick={() => setChannelFilter("instagram")} className={`grid h-8 w-8 place-items-center rounded-lg transition cursor-pointer ${channelFilter === "instagram" ? "bg-primary text-primary-foreground shadow-soft" : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"}`}><InstagramLogo className="h-4.5 w-4.5" /></motion.button>
+                <MotionAppNavLink href={buildAppRoutePath("contacts", { tabId: "instagram" })} data-tour="contacts.tab-instagram" whileTap={{ scale: 0.92 }} onNavigate={() => setChannelFilter("instagram")} className={`grid h-8 w-8 place-items-center rounded-lg transition cursor-pointer ${channelFilter === "instagram" ? "bg-primary text-primary-foreground shadow-soft" : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"}`}><InstagramLogo className="h-4.5 w-4.5" /></MotionAppNavLink>
               </TooltipTrigger>
               <TooltipContent side="top">Apenas Instagram</TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
-                <motion.button data-tour="contacts.tab-messenger" whileTap={{ scale: 0.92 }} onClick={() => setChannelFilter("messenger")} className={`grid h-8 w-8 place-items-center rounded-lg transition cursor-pointer ${channelFilter === "messenger" ? "bg-primary text-primary-foreground shadow-soft" : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"}`}><MessengerLogo className="h-4.5 w-4.5" /></motion.button>
+                <MotionAppNavLink href={buildAppRoutePath("contacts", { tabId: "messenger" })} data-tour="contacts.tab-messenger" whileTap={{ scale: 0.92 }} onNavigate={() => setChannelFilter("messenger")} className={`grid h-8 w-8 place-items-center rounded-lg transition cursor-pointer ${channelFilter === "messenger" ? "bg-primary text-primary-foreground shadow-soft" : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"}`}><MessengerLogo className="h-4.5 w-4.5" /></MotionAppNavLink>
               </TooltipTrigger>
               <TooltipContent side="top">Apenas Messenger</TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
-                <motion.button data-tour="contacts.tab-site" whileTap={{ scale: 0.92 }} onClick={() => setChannelFilter("livechat")} className={`grid h-8 w-8 place-items-center rounded-lg transition cursor-pointer ${channelFilter === "livechat" ? "bg-primary text-primary-foreground shadow-soft" : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"}`}><SiteLogo className="h-4.5 w-4.5" /></motion.button>
+                <MotionAppNavLink href={buildAppRoutePath("contacts", { tabId: "livechat" })} data-tour="contacts.tab-site" whileTap={{ scale: 0.92 }} onNavigate={() => setChannelFilter("livechat")} className={`grid h-8 w-8 place-items-center rounded-lg transition cursor-pointer ${channelFilter === "livechat" ? "bg-primary text-primary-foreground shadow-soft" : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"}`}><SiteLogo className="h-4.5 w-4.5" /></MotionAppNavLink>
               </TooltipTrigger>
               <TooltipContent side="top">Apenas Site (Live Chat)</TooltipContent>
             </Tooltip>

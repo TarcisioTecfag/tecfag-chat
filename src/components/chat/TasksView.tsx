@@ -53,7 +53,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePermissions } from "@/hooks/usePermissions";
 import { toast } from "sonner";
-import { getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
+import { buildAppRoutePath, getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
+import { AppNavLink } from "@/components/ui/AppNavLink";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -1495,9 +1496,9 @@ export function TasksView() {
 
           {/* 2. Seletor de Modo de Visualização: Mês / Semana / Dia */}
           <div className="flex bg-muted rounded-xl p-1 shrink-0 border border-border/60">
-            <button
-              type="button"
-              onClick={() => setViewMode("month")}
+            <AppNavLink
+              href={buildAppRoutePath("tasks", { tabId: "month" })}
+              onNavigate={() => setViewMode("month")}
               className={`flex items-center gap-1.5 px-2.5 md:px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
                 viewMode === "month"
                   ? "bg-card text-foreground shadow-xs"
@@ -1506,10 +1507,10 @@ export function TasksView() {
             >
               <Calendar className="h-3.5 w-3.5" />
               Mês
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode("week")}
+            </AppNavLink>
+            <AppNavLink
+              href={buildAppRoutePath("tasks", { tabId: "week" })}
+              onNavigate={() => setViewMode("week")}
               className={`flex items-center gap-1.5 px-2.5 md:px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
                 viewMode === "week"
                   ? "bg-card text-foreground shadow-xs"
@@ -1518,10 +1519,10 @@ export function TasksView() {
             >
               <Columns3 className="h-3.5 w-3.5" />
               Semana
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode("day")}
+            </AppNavLink>
+            <AppNavLink
+              href={buildAppRoutePath("tasks", { tabId: "day" })}
+              onNavigate={() => setViewMode("day")}
               className={`flex items-center gap-1.5 px-2.5 md:px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
                 viewMode === "day"
                   ? "bg-card text-foreground shadow-xs"
@@ -1530,7 +1531,7 @@ export function TasksView() {
             >
               <ListTodo className="h-3.5 w-3.5" />
               Dia
-            </button>
+            </AppNavLink>
           </div>
 
           {/* 3. Seletor de Equipe / Operador (ao lado de Todas, para quem tem permissão) */}
