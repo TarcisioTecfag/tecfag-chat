@@ -31,7 +31,7 @@ import type { ContactPhoneInput, ContactPhoneItem } from "@/lib/contact-phone-ty
 import type { CrmAccountDTO } from "@/lib/crm/crm-types";
 import { WhatsappLogo, InstagramLogo, MessengerLogo, SiteLogo } from "./ChatList";
 import { CustomerJourneyModal } from "./CustomerJourneyModal";
-import { formatPhoneNumber, formatCPF, formatCNPJ, maskCPF, maskCNPJ } from "@/lib/utils";
+import { cn, formatPhoneNumber, formatCPF, formatCNPJ, maskCPF, maskCNPJ } from "@/lib/utils";
 import { PhoneCountryInput } from "@/components/ui/phone-country-input";
 import { formatSystemAnnotation } from "@/lib/triage/format-system-annotation";
 import { motion } from "framer-motion";
