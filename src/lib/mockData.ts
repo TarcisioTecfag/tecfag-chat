@@ -77,7 +77,7 @@ export type Message = {
   errorMessage?: string | null;
   mediaInterpretation?: string | null;
   isWarning?: boolean;
-  warningType?: "delay" | "new_lead" | "overload";
+  warningType?: "delay" | "new_lead" | "overload" | "whisper";
   warningMetadata?: {
     clientId: string;
     clientName: string;
@@ -86,9 +86,18 @@ export type Message = {
     interest?: string;
     dealId?: string;
     dealTitle?: string;
+    dealPipelineName?: string;
+    dealStageName?: string;
     taskId?: string;
     taskTitle?: string;
     conversations?: RelatedConversationItem[];
+    whisperId?: string;
+    priority?: "normal" | "alta" | "urgente";
+    title?: string;
+    senderName?: string;
+    asAiOnly?: boolean;
+    acknowledgedAt?: string | null;
+    acknowledgedNote?: string | null;
   };
   relatedConversations?: RelatedConversationItem[];
   relatedDeals?: RelatedDealItem[];

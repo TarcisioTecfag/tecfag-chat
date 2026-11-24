@@ -28,7 +28,9 @@ import {
   ExternalLink,
   Copy,
   Check,
+  CheckCircle2,
   Compass,
+  Megaphone,
 } from "lucide-react";
 import { SystemTooltip } from "@/components/ui/tooltip";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -829,6 +831,7 @@ export interface ChatMessageBubbleProps {
   onMediaClick?: (type: "image" | "video", url: string) => void;
   onSaveSticker?: (messageId: string, url: string) => void;
   onOpenWarningChat?: (clientId: string, clientName?: string) => void;
+  onAcknowledgeWhisper?: (whisperId: string) => Promise<boolean> | void;
   onSendWelcomeSuggestion?: (text: string) => void;
   onUseSuggestedReply?: (replyText: string) => void;
 }
@@ -872,6 +875,7 @@ function ChatMessageBubbleComponent({
   onMediaClick,
   onSaveSticker,
   onOpenWarningChat,
+  onAcknowledgeWhisper,
   onSendWelcomeSuggestion,
   onUseSuggestedReply,
 }: ChatMessageBubbleProps) {
@@ -1402,7 +1406,13 @@ function ChatMessageBubbleComponent({
                 className={`${inR} min-w-0 max-w-full overflow-hidden break-words ${
                   m.isWarning
                     ? `bg-card border-border border-l-4 ${
-                        m.warningType === "delay"
+                        m.warningType === "whisper"
+                          ? m.warningMetadata?.priority === "urgente"
+                            ? "border-l-rose-500"
+                            : m.warningMetadata?.priority === "alta"
+                              ? "border-l-amber-500"
+                              : "border-l-primary"
+                          : m.warningType === "delay"
                           ? "border-l-amber-500"
                           : m.warningType === "overload"
                           ? "border-l-violet-500"
@@ -1419,32 +1429,59 @@ function ChatMessageBubbleComponent({
               >
                 {m.isWarning && (
                   <div
-                    className={`flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider mb-1.5 select-none ${
-                      m.warningType === "delay"
+                    className={`flex items-center justify-between gap-2 flex-wrap text-[9px] font-black uppercase tracking-wider mb-1.5 select-none ${
+                      m.warningType === "whisper"
+                        ? m.warningMetadata?.priority === "urgente"
+                          ? "text-rose-600 dark:text-rose-400"
+                          : m.warningMetadata?.priority === "alta"
+                            ? "text-amber-600 dark:text-amber-400"
+                            : "text-primary"
+                        : m.warningType === "delay"
                         ? "text-amber-600 dark:text-amber-400"
                         : m.warningType === "overload"
                         ? "text-violet-600 dark:text-violet-400"
                         : "text-primary"
                     }`}
                   >
-                    {m.warningType === "delay" ? (
-                      <Clock className="h-3 w-3 shrink-0" />
-                    ) : m.warningType === "new_lead" ? (
-                      <UserCheck className="h-3 w-3 shrink-0" />
-                    ) : m.warningType === "overload" ? (
-                      <Users className="h-3 w-3 shrink-0" />
-                    ) : (
-                      <AlertCircle className="h-3 w-3 shrink-0" />
-                    )}
-                    <span>
-                      {m.warningType === "delay"
-                        ? `Alerta de SLA · ${aiPersona.name}`
-                        : m.warningType === "new_lead"
-                        ? `Novo Lead · ${aiPersona.name}`
-                        : m.warningType === "overload"
-                        ? `Atendimentos Ativos · ${aiPersona.name}`
-                        : `Aviso de ${aiPersona.name}`}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      {m.warningType === "whisper" ? (
+                        <Megaphone className="h-3 w-3 shrink-0" />
+                      ) : m.warningType === "delay" ? (
+                        <Clock className="h-3 w-3 shrink-0" />
+                      ) : m.warningType === "new_lead" ? (
+                        <UserCheck className="h-3 w-3 shrink-0" />
+                      ) : m.warningType === "overload" ? (
+                        <Users className="h-3 w-3 shrink-0" />
+                      ) : (
+                        <AlertCircle className="h-3 w-3 shrink-0" />
+                      )}
+                      <span>
+                        {m.warningType === "whisper"
+                          ? m.warningMetadata?.asAiOnly
+                            ? `Lembrete · ${aiPersona.name}`
+                            : `Orientação / Cobrança · ${m.warningMetadata?.senderName || "Gestão Comercial"}`
+                          : m.warningType === "delay"
+                          ? `Alerta de SLA · ${aiPersona.name}`
+                          : m.warningType === "new_lead"
+                          ? `Novo Lead · ${aiPersona.name}`
+                          : m.warningType === "overload"
+                          ? `Atendimentos Ativos · ${aiPersona.name}`
+                          : `Aviso de ${aiPersona.name}`}
+                      </span>
+                    </div>
+                    {m.warningType === "whisper" &&
+                      m.warningMetadata?.priority &&
+                      m.warningMetadata.priority !== "normal" && (
+                        <span
+                          className={`px-1.5 py-0.5 rounded-md text-[8.5px] font-black uppercase border ${
+                            m.warningMetadata.priority === "urgente"
+                              ? "bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/30"
+                              : "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30"
+                          }`}
+                        >
+                          {m.warningMetadata.priority}
+                        </span>
+                      )}
                   </div>
                 )}
                 {activeChat.id === "valentina" && m.thoughtTrace && (
@@ -1480,6 +1517,98 @@ function ChatMessageBubbleComponent({
                     m.mediaInterpretation,
                     m.id,
                   )
+                )}
+
+                {/* Card interativo: Sussurro / Cobrança da Gestão */}
+                {m.isWarning && m.warningType === "whisper" && (
+                  <div
+                    className="mt-2.5 p-2.5 rounded-xl bg-muted/35 border border-border/80 flex flex-col gap-2 cursor-default text-xs"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {(m.warningMetadata?.dealTitle || m.warningMetadata?.clientName) && (
+                      <div className="flex flex-col gap-1 text-[11px]">
+                        {m.warningMetadata?.dealTitle && (
+                          <div className="flex items-center gap-1.5 text-foreground font-bold flex-wrap">
+                            <Briefcase className="h-3 w-3 text-primary shrink-0" />
+                            <span className="truncate">{m.warningMetadata.dealTitle}</span>
+                            {m.warningMetadata.dealStageName && (
+                              <span className="px-1.5 py-0.5 rounded bg-muted text-[9px] font-semibold text-muted-foreground border border-border/70">
+                                {m.warningMetadata.dealStageName}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        {m.warningMetadata?.clientName &&
+                          m.warningMetadata.clientName !== m.warningMetadata.dealTitle && (
+                            <div className="text-[10.5px] text-muted-foreground">
+                              Contato:{" "}
+                              <span className="font-semibold text-foreground">
+                                {m.warningMetadata.clientName}
+                              </span>
+                            </div>
+                          )}
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {onOpenWarningChat && m.warningMetadata?.clientId && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onOpenWarningChat(
+                              m.warningMetadata!.clientId,
+                              m.warningMetadata!.clientName || undefined,
+                            )
+                          }
+                          className="flex-1 min-w-[120px] flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-[10px] font-bold shadow-soft transition cursor-pointer border-none"
+                        >
+                          <span>Abrir Conversa</span>
+                          <ArrowRight className="h-3 w-3" />
+                        </button>
+                      )}
+                      {m.warningMetadata?.dealId && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            navigate({
+                              to: "/crm/deals/$dealId",
+                              params: { dealId: m.warningMetadata!.dealId! },
+                              search: { from: "crm" },
+                            })
+                          }
+                          className="flex items-center justify-center gap-1 py-1.5 px-2.5 rounded-lg bg-card hover:bg-muted text-foreground text-[10px] font-bold border border-border/80 transition cursor-pointer"
+                        >
+                          <Briefcase className="h-3 w-3 text-primary" />
+                          <span>Ver Negociação</span>
+                        </button>
+                      )}
+                      {m.warningMetadata?.acknowledgedAt ? (
+                        <span className="inline-flex items-center gap-1 py-1.5 px-2.5 rounded-lg bg-emerald-500/12 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 text-[10px] font-bold">
+                          <CheckCircle2 className="h-3 w-3 shrink-0" />
+                          <span>
+                            Ciente às{" "}
+                            {new Date(m.warningMetadata.acknowledgedAt).toLocaleTimeString(
+                              "pt-BR",
+                              { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" },
+                            )}
+                          </span>
+                        </span>
+                      ) : (
+                        onAcknowledgeWhisper && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void onAcknowledgeWhisper(m.warningMetadata?.whisperId || m.id)
+                            }
+                            className="inline-flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg bg-emerald-500/12 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/35 text-[10px] font-extrabold transition cursor-pointer"
+                          >
+                            <CheckCircle2 className="h-3 w-3 shrink-0" />
+                            <span>Ciente</span>
+                          </button>
+                        )
+                      )}
+                    </div>
+                  </div>
                 )}
 
                 {/* Card interativo: Atraso de Resposta */}

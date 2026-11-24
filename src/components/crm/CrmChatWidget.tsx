@@ -12,6 +12,7 @@ import {
   Briefcase,
   Check,
   CheckCheck,
+  CheckCircle2,
   ChevronDown,
   ChevronUp,
   Clock,
@@ -26,6 +27,7 @@ import {
   Loader2,
   Lock,
   Maximize2,
+  Megaphone,
   MessageCircle,
   MessageSquare,
   MessageSquareDashed,
@@ -1335,6 +1337,7 @@ export function CrmChatWidget() {
     reloadValentinaHistory,
     valentinaResetAt,
     resetValentinaChat,
+    acknowledgeWhisper,
   } = useChat();
   const {
     permissions,
@@ -3499,7 +3502,13 @@ export function CrmChatWidget() {
                                   className={`rounded-2xl rounded-bl-xs min-w-0 overflow-hidden break-words ${
                                     message.isWarning
                                       ? `w-full max-w-[90%] border border-border/80 border-l-4 ${
-                                          message.warningType === "delay"
+                                          message.warningType === "whisper"
+                                            ? message.warningMetadata?.priority === "urgente"
+                                              ? "border-l-rose-500"
+                                              : message.warningMetadata?.priority === "alta"
+                                                ? "border-l-amber-500"
+                                                : "border-l-primary"
+                                            : message.warningType === "delay"
                                             ? "border-l-amber-500"
                                             : message.warningType === "overload"
                                             ? "border-l-violet-500"
@@ -3510,32 +3519,59 @@ export function CrmChatWidget() {
                                 >
                                   {message.isWarning && (
                                     <div
-                                      className={`flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider mb-1.5 select-none ${
-                                        message.warningType === "delay"
+                                      className={`flex items-center justify-between gap-1.5 flex-wrap text-[9px] font-black uppercase tracking-wider mb-1.5 select-none ${
+                                        message.warningType === "whisper"
+                                          ? message.warningMetadata?.priority === "urgente"
+                                            ? "text-rose-600 dark:text-rose-400"
+                                            : message.warningMetadata?.priority === "alta"
+                                              ? "text-amber-600 dark:text-amber-400"
+                                              : "text-primary"
+                                          : message.warningType === "delay"
                                           ? "text-amber-600 dark:text-amber-400"
                                           : message.warningType === "overload"
                                           ? "text-violet-600 dark:text-violet-400"
                                           : "text-primary"
                                       }`}
                                     >
-                                      {message.warningType === "delay" ? (
-                                        <Clock className="h-3 w-3 shrink-0" />
-                                      ) : message.warningType === "new_lead" ? (
-                                        <UserCheck className="h-3 w-3 shrink-0" />
-                                      ) : message.warningType === "overload" ? (
-                                        <Users className="h-3 w-3 shrink-0" />
-                                      ) : (
-                                        <AlertCircle className="h-3 w-3 shrink-0" />
-                                      )}
-                                      <span>
-                                        {message.warningType === "delay"
-                                          ? `Alerta de SLA · ${aiPersona.name}`
-                                          : message.warningType === "new_lead"
-                                          ? `Novo Lead · ${aiPersona.name}`
-                                          : message.warningType === "overload"
-                                          ? `Atendimentos Ativos · ${aiPersona.name}`
-                                          : `Aviso de ${aiPersona.name}`}
-                                      </span>
+                                      <div className="flex items-center gap-1.5">
+                                        {message.warningType === "whisper" ? (
+                                          <Megaphone className="h-3 w-3 shrink-0" />
+                                        ) : message.warningType === "delay" ? (
+                                          <Clock className="h-3 w-3 shrink-0" />
+                                        ) : message.warningType === "new_lead" ? (
+                                          <UserCheck className="h-3 w-3 shrink-0" />
+                                        ) : message.warningType === "overload" ? (
+                                          <Users className="h-3 w-3 shrink-0" />
+                                        ) : (
+                                          <AlertCircle className="h-3 w-3 shrink-0" />
+                                        )}
+                                        <span>
+                                          {message.warningType === "whisper"
+                                            ? message.warningMetadata?.asAiOnly
+                                              ? `Lembrete · ${aiPersona.name}`
+                                              : `Orientação · ${message.warningMetadata?.senderName || "Gestão Comercial"}`
+                                            : message.warningType === "delay"
+                                            ? `Alerta de SLA · ${aiPersona.name}`
+                                            : message.warningType === "new_lead"
+                                            ? `Novo Lead · ${aiPersona.name}`
+                                            : message.warningType === "overload"
+                                            ? `Atendimentos Ativos · ${aiPersona.name}`
+                                            : `Aviso de ${aiPersona.name}`}
+                                        </span>
+                                      </div>
+                                      {message.warningType === "whisper" &&
+                                        message.warningMetadata?.priority &&
+                                        message.warningMetadata.priority !== "normal" && (
+                                          <span
+                                            className={`px-1.5 py-0.5 rounded-md text-[8px] font-black uppercase border ${
+                                              message.warningMetadata.priority === "urgente"
+                                                ? "bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/30"
+                                                : "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30"
+                                            }`}
+                                          >
+                                            {message.warningMetadata.priority}
+                                          </span>
+                                        )}
                                     </div>
                                   )}
 
@@ -3717,6 +3753,71 @@ export function CrmChatWidget() {
                                         </div>
                                       </div>
                                     )}
+
+                                  {/* Card interativo: Sussurro / Cobrança da Gestão */}
+                                  {message.isWarning && message.warningType === "whisper" && (
+                                    <div
+                                      className="mt-2 p-2.5 rounded-xl bg-muted/35 border border-border/80 flex flex-col gap-1.5 text-xs"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      {message.warningMetadata?.dealTitle && (
+                                        <div className="flex items-center gap-1.5 text-[10.5px] font-bold text-foreground">
+                                          <Briefcase className="h-3 w-3 text-primary shrink-0" />
+                                          <span className="truncate">{message.warningMetadata.dealTitle}</span>
+                                        </div>
+                                      )}
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        {message.warningMetadata?.clientId && (
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setSelectedChatId(message.warningMetadata!.clientId);
+                                              markAsRead(message.warningMetadata!.clientId);
+                                            }}
+                                            className="flex-1 min-w-[100px] flex items-center justify-center gap-1 py-1.5 px-2.5 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-[10px] font-bold transition cursor-pointer"
+                                          >
+                                            <span>Abrir Conversa</span>
+                                            <ArrowRight className="h-3 w-3" />
+                                          </button>
+                                        )}
+                                        {message.warningMetadata?.dealId && (
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              navigate({
+                                                to: "/crm/deals/$dealId",
+                                                params: { dealId: message.warningMetadata!.dealId! },
+                                                search: { from: "crm" },
+                                              })
+                                            }
+                                            className="flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg bg-card hover:bg-muted text-foreground text-[10px] font-bold border border-border/80 transition cursor-pointer"
+                                          >
+                                            <Briefcase className="h-3 w-3 text-primary" />
+                                            <span>Ver Lead</span>
+                                          </button>
+                                        )}
+                                        {message.warningMetadata?.acknowledgedAt ? (
+                                          <span className="inline-flex items-center gap-1 py-1 px-2 rounded-lg bg-emerald-500/12 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 text-[10px] font-bold">
+                                            <CheckCircle2 className="h-3 w-3" />
+                                            <span>Ciente</span>
+                                          </span>
+                                        ) : (
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              void acknowledgeWhisper(
+                                                message.warningMetadata?.whisperId || message.id,
+                                              )
+                                            }
+                                            className="inline-flex items-center gap-1 py-1.5 px-2.5 rounded-lg bg-emerald-500/12 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/35 text-[10px] font-extrabold transition cursor-pointer"
+                                          >
+                                            <CheckCircle2 className="h-3 w-3" />
+                                            <span>Ciente</span>
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )}
 
                                   {/* Card interativo: Preview Oficial de Máquina na Loja VTEX */}
                                   {message.vtexProductPreview && (

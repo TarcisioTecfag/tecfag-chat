@@ -118,6 +118,12 @@ import {
   executeSiteChannelMcpTool,
   isSiteChannelMcpTool,
 } from "./valem-tecfag-mcp-site-channel-tools";
+import {
+  MCP_WHISPER_TOOLS,
+  MCP_WHISPER_TOOL_LABELS_PT,
+  executeWhisperMcpTool,
+  isWhisperMcpTool,
+} from "./valem-tecfag-mcp-whisper-tools";
 
 export type McpToolAccessKind = "read" | "write";
 
@@ -1113,6 +1119,7 @@ export const MCP_EXTENDED_TOOLS: McpToolDefinition[] = [
   ...MCP_SDR_ORCHESTRATOR_TOOLS,
   ...MCP_RD_MARKETING_TOOLS,
   ...MCP_SITE_CHANNEL_TOOLS,
+  ...MCP_WHISPER_TOOLS,
 ];
 
 export const MCP_EXTENDED_TOOL_LABELS_PT: Record<string, string> = {
@@ -1156,6 +1163,7 @@ export const MCP_EXTENDED_TOOL_LABELS_PT: Record<string, string> = {
   ...MCP_SDR_ORCHESTRATOR_TOOL_LABELS_PT,
   ...MCP_RD_MARKETING_TOOL_LABELS_PT,
   ...MCP_SITE_CHANNEL_TOOL_LABELS_PT,
+  ...MCP_WHISPER_TOOL_LABELS_PT,
 };
 
 const EXTENDED_TOOL_NAMES = new Set(MCP_EXTENDED_TOOLS.map((t) => t.name));
@@ -4038,6 +4046,9 @@ export async function executeExtendedMcpTool(
       }
       if (isSiteChannelMcpTool(name)) {
         return executeSiteChannelMcpTool(name, args, tenantId);
+      }
+      if (isWhisperMcpTool(name)) {
+        return executeWhisperMcpTool(name, args, tenantId, actor);
       }
       throw new Error(`Ferramenta estendida desconhecida: '${name}'.`);
   }

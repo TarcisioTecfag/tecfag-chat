@@ -62,12 +62,14 @@ import {
   ImageIcon,
   UserPlus,
   Lock,
+  Megaphone,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { DealAddContactDrawer, formatContactRoleLabel } from "./DealAddContactDrawer";
 import { ContactPhoneTypeBadge } from "./ContactPhonesEditor";
 import { DealLinkAccountDrawer } from "./DealLinkAccountDrawer";
+import { SupervisorWhisperModal } from "../chat/SupervisorWhisperModal";
 import { DealStatusBadge } from "./deal-status-config";
 import { AudioWithSpeed } from "@/components/ui/audio-with-speed";
 import { useChat } from "@/hooks/useChatState";
@@ -836,6 +838,15 @@ export function DealDetailModal({
     // Fallback gracioso caso renderizado fora do ChatProvider
   }
   const operatorProfile = chatContext?.operatorProfile;
+  const canSendSupervisorWhisper = Boolean(
+    chatContext?.sessionRole === "admin" ||
+      (chatContext?.sessionPermissions?.views?.monitor === true &&
+        (chatContext?.sessionPermissions?.monitor?.canAccessLive === true ||
+          chatContext?.sessionPermissions?.monitor?.canAccessAlerts === true ||
+          chatContext?.sessionPermissions?.monitor?.canAccessAudits === true ||
+          chatContext?.sessionPermissions?.monitor?.canAccessTasks === true)),
+  );
+  const [isWhisperModalOpen, setIsWhisperModalOpen] = useState(false);
   const operators = React.useMemo(() => {
     const merged = new Map<string, any>();
     if (Array.isArray(chatContext?.operators)) {
@@ -3921,6 +3932,18 @@ export function DealDetailModal({
                     </button>
                   )}
                 </>
+              )}
+              {canSendSupervisorWhisper && deal?.id && (
+                <SystemTooltip content="Enviar sussurro / cobrança ao vendedor sobre esta negociação">
+                  <button
+                    type="button"
+                    onClick={() => setIsWhisperModalOpen(true)}
+                    className="flex h-8 items-center gap-1.5 rounded-full border border-primary/35 bg-primary/10 px-3 text-xs font-bold text-primary hover:bg-primary/20 transition-colors cursor-pointer"
+                  >
+                    <Megaphone className="h-3.5 w-3.5" />
+                    <span>Sussurrar</span>
+                  </button>
+                </SystemTooltip>
               )}
             </div>
           </div>
@@ -8463,6 +8486,21 @@ export function DealDetailModal({
             if (!savingHiddenTransfer) setPendingHiddenTransfer(null);
           }}
           onConfirm={handleConfirmHiddenTransfer}
+        />
+      )}
+
+      {canSendSupervisorWhisper && deal && (
+        <SupervisorWhisperModal
+          open={isWhisperModalOpen}
+          onClose={() => setIsWhisperModalOpen(false)}
+          source="ui_crm"
+          defaultOperatorId={deal.operatorId || null}
+          defaultDeal={{
+            id: deal.id,
+            title: deal.title || "Negociação",
+            stageName: deal.stage?.name || null,
+            operatorId: deal.operatorId || null,
+          }}
         />
       )}
     </div>

@@ -52,6 +52,7 @@ import { Route as ApiWhatsappMetaStateRouteImport } from './routes/api/whatsapp/
 import { Route as ApiWhatsappContactHistoryRouteImport } from './routes/api/whatsapp/contact-history'
 import { Route as ApiWhatsappConnectionsRouteImport } from './routes/api/whatsapp/connections'
 import { Route as ApiWebhooksMetaRouteImport } from './routes/api/webhooks/meta'
+import { Route as ApiValentinaWhisperAckRouteImport } from './routes/api/valentina/whisper-ack'
 import { Route as ApiValentinaTriageReviewRouteImport } from './routes/api/valentina/triage-review'
 import { Route as ApiValentinaTriageHistoryRouteImport } from './routes/api/valentina/triage-history'
 import { Route as ApiValentinaTriageApprovalRouteImport } from './routes/api/valentina/triage-approval'
@@ -83,6 +84,7 @@ import { Route as ApiLivechatMetricsRouteImport } from './routes/api/livechat/me
 import { Route as ApiLivechatJourneyRouteImport } from './routes/api/livechat/journey'
 import { Route as ApiLivechatCatalogMediaRouteImport } from './routes/api/livechat/catalog-media'
 import { Route as ApiGroupsWhatsappConnectionsRouteImport } from './routes/api/groups/whatsapp-connections'
+import { Route as ApiGestaoWhispersRouteImport } from './routes/api/gestao/whispers'
 import { Route as ApiGestaoTasksRouteImport } from './routes/api/gestao/tasks'
 import { Route as ApiGestaoSlaRouteImport } from './routes/api/gestao/sla'
 import { Route as ApiGestaoReportsV2RouteImport } from './routes/api/gestao/reports-v2'
@@ -428,6 +430,11 @@ const ApiWebhooksMetaRoute = ApiWebhooksMetaRouteImport.update({
   path: '/api/webhooks/meta',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiValentinaWhisperAckRoute = ApiValentinaWhisperAckRouteImport.update({
+  id: '/api/valentina/whisper-ack',
+  path: '/api/valentina/whisper-ack',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiValentinaTriageReviewRoute =
   ApiValentinaTriageReviewRouteImport.update({
     id: '/api/valentina/triage-review',
@@ -589,6 +596,11 @@ const ApiGroupsWhatsappConnectionsRoute =
     path: '/whatsapp-connections',
     getParentRoute: () => ApiGroupsRoute,
   } as any)
+const ApiGestaoWhispersRoute = ApiGestaoWhispersRouteImport.update({
+  id: '/api/gestao/whispers',
+  path: '/api/gestao/whispers',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiGestaoTasksRoute = ApiGestaoTasksRouteImport.update({
   id: '/api/gestao/tasks',
   path: '/api/gestao/tasks',
@@ -1370,6 +1382,7 @@ export interface FileRoutesByFullPath {
   '/api/gestao/reports-v2': typeof ApiGestaoReportsV2Route
   '/api/gestao/sla': typeof ApiGestaoSlaRoute
   '/api/gestao/tasks': typeof ApiGestaoTasksRoute
+  '/api/gestao/whispers': typeof ApiGestaoWhispersRoute
   '/api/groups/whatsapp-connections': typeof ApiGroupsWhatsappConnectionsRoute
   '/api/livechat/catalog-media': typeof ApiLivechatCatalogMediaRoute
   '/api/livechat/journey': typeof ApiLivechatJourneyRoute
@@ -1401,6 +1414,7 @@ export interface FileRoutesByFullPath {
   '/api/valentina/triage-approval': typeof ApiValentinaTriageApprovalRoute
   '/api/valentina/triage-history': typeof ApiValentinaTriageHistoryRoute
   '/api/valentina/triage-review': typeof ApiValentinaTriageReviewRoute
+  '/api/valentina/whisper-ack': typeof ApiValentinaWhisperAckRoute
   '/api/webhooks/meta': typeof ApiWebhooksMetaRoute
   '/api/whatsapp/connections': typeof ApiWhatsappConnectionsRoute
   '/api/whatsapp/contact-history': typeof ApiWhatsappContactHistoryRoute
@@ -1572,6 +1586,7 @@ export interface FileRoutesByTo {
   '/api/gestao/reports-v2': typeof ApiGestaoReportsV2Route
   '/api/gestao/sla': typeof ApiGestaoSlaRoute
   '/api/gestao/tasks': typeof ApiGestaoTasksRoute
+  '/api/gestao/whispers': typeof ApiGestaoWhispersRoute
   '/api/groups/whatsapp-connections': typeof ApiGroupsWhatsappConnectionsRoute
   '/api/livechat/catalog-media': typeof ApiLivechatCatalogMediaRoute
   '/api/livechat/journey': typeof ApiLivechatJourneyRoute
@@ -1603,6 +1618,7 @@ export interface FileRoutesByTo {
   '/api/valentina/triage-approval': typeof ApiValentinaTriageApprovalRoute
   '/api/valentina/triage-history': typeof ApiValentinaTriageHistoryRoute
   '/api/valentina/triage-review': typeof ApiValentinaTriageReviewRoute
+  '/api/valentina/whisper-ack': typeof ApiValentinaWhisperAckRoute
   '/api/webhooks/meta': typeof ApiWebhooksMetaRoute
   '/api/whatsapp/connections': typeof ApiWhatsappConnectionsRoute
   '/api/whatsapp/contact-history': typeof ApiWhatsappContactHistoryRoute
@@ -1775,6 +1791,7 @@ export interface FileRoutesById {
   '/api/gestao/reports-v2': typeof ApiGestaoReportsV2Route
   '/api/gestao/sla': typeof ApiGestaoSlaRoute
   '/api/gestao/tasks': typeof ApiGestaoTasksRoute
+  '/api/gestao/whispers': typeof ApiGestaoWhispersRoute
   '/api/groups/whatsapp-connections': typeof ApiGroupsWhatsappConnectionsRoute
   '/api/livechat/catalog-media': typeof ApiLivechatCatalogMediaRoute
   '/api/livechat/journey': typeof ApiLivechatJourneyRoute
@@ -1806,6 +1823,7 @@ export interface FileRoutesById {
   '/api/valentina/triage-approval': typeof ApiValentinaTriageApprovalRoute
   '/api/valentina/triage-history': typeof ApiValentinaTriageHistoryRoute
   '/api/valentina/triage-review': typeof ApiValentinaTriageReviewRoute
+  '/api/valentina/whisper-ack': typeof ApiValentinaWhisperAckRoute
   '/api/webhooks/meta': typeof ApiWebhooksMetaRoute
   '/api/whatsapp/connections': typeof ApiWhatsappConnectionsRoute
   '/api/whatsapp/contact-history': typeof ApiWhatsappContactHistoryRoute
@@ -1979,6 +1997,7 @@ export interface FileRouteTypes {
     | '/api/gestao/reports-v2'
     | '/api/gestao/sla'
     | '/api/gestao/tasks'
+    | '/api/gestao/whispers'
     | '/api/groups/whatsapp-connections'
     | '/api/livechat/catalog-media'
     | '/api/livechat/journey'
@@ -2010,6 +2029,7 @@ export interface FileRouteTypes {
     | '/api/valentina/triage-approval'
     | '/api/valentina/triage-history'
     | '/api/valentina/triage-review'
+    | '/api/valentina/whisper-ack'
     | '/api/webhooks/meta'
     | '/api/whatsapp/connections'
     | '/api/whatsapp/contact-history'
@@ -2181,6 +2201,7 @@ export interface FileRouteTypes {
     | '/api/gestao/reports-v2'
     | '/api/gestao/sla'
     | '/api/gestao/tasks'
+    | '/api/gestao/whispers'
     | '/api/groups/whatsapp-connections'
     | '/api/livechat/catalog-media'
     | '/api/livechat/journey'
@@ -2212,6 +2233,7 @@ export interface FileRouteTypes {
     | '/api/valentina/triage-approval'
     | '/api/valentina/triage-history'
     | '/api/valentina/triage-review'
+    | '/api/valentina/whisper-ack'
     | '/api/webhooks/meta'
     | '/api/whatsapp/connections'
     | '/api/whatsapp/contact-history'
@@ -2383,6 +2405,7 @@ export interface FileRouteTypes {
     | '/api/gestao/reports-v2'
     | '/api/gestao/sla'
     | '/api/gestao/tasks'
+    | '/api/gestao/whispers'
     | '/api/groups/whatsapp-connections'
     | '/api/livechat/catalog-media'
     | '/api/livechat/journey'
@@ -2414,6 +2437,7 @@ export interface FileRouteTypes {
     | '/api/valentina/triage-approval'
     | '/api/valentina/triage-history'
     | '/api/valentina/triage-review'
+    | '/api/valentina/whisper-ack'
     | '/api/webhooks/meta'
     | '/api/whatsapp/connections'
     | '/api/whatsapp/contact-history'
@@ -2577,6 +2601,7 @@ export interface RootRouteChildren {
   ApiGestaoReportsV2Route: typeof ApiGestaoReportsV2Route
   ApiGestaoSlaRoute: typeof ApiGestaoSlaRoute
   ApiGestaoTasksRoute: typeof ApiGestaoTasksRoute
+  ApiGestaoWhispersRoute: typeof ApiGestaoWhispersRoute
   ApiLivechatCatalogMediaRoute: typeof ApiLivechatCatalogMediaRoute
   ApiLivechatJourneyRoute: typeof ApiLivechatJourneyRoute
   ApiLivechatMetricsRoute: typeof ApiLivechatMetricsRoute
@@ -2605,6 +2630,7 @@ export interface RootRouteChildren {
   ApiValentinaTriageApprovalRoute: typeof ApiValentinaTriageApprovalRoute
   ApiValentinaTriageHistoryRoute: typeof ApiValentinaTriageHistoryRoute
   ApiValentinaTriageReviewRoute: typeof ApiValentinaTriageReviewRoute
+  ApiValentinaWhisperAckRoute: typeof ApiValentinaWhisperAckRoute
   ApiWebhooksMetaRoute: typeof ApiWebhooksMetaRoute
   ApiWhatsappConnectionsRoute: typeof ApiWhatsappConnectionsRoute
   ApiWhatsappContactHistoryRoute: typeof ApiWhatsappContactHistoryRoute
@@ -2936,6 +2962,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiWebhooksMetaRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/valentina/whisper-ack': {
+      id: '/api/valentina/whisper-ack'
+      path: '/api/valentina/whisper-ack'
+      fullPath: '/api/valentina/whisper-ack'
+      preLoaderRoute: typeof ApiValentinaWhisperAckRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/valentina/triage-review': {
       id: '/api/valentina/triage-review'
       path: '/api/valentina/triage-review'
@@ -3152,6 +3185,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/api/groups/whatsapp-connections'
       preLoaderRoute: typeof ApiGroupsWhatsappConnectionsRouteImport
       parentRoute: typeof ApiGroupsRoute
+    }
+    '/api/gestao/whispers': {
+      id: '/api/gestao/whispers'
+      path: '/api/gestao/whispers'
+      fullPath: '/api/gestao/whispers'
+      preLoaderRoute: typeof ApiGestaoWhispersRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/gestao/tasks': {
       id: '/api/gestao/tasks'
@@ -4482,6 +4522,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiGestaoReportsV2Route: ApiGestaoReportsV2Route,
   ApiGestaoSlaRoute: ApiGestaoSlaRoute,
   ApiGestaoTasksRoute: ApiGestaoTasksRoute,
+  ApiGestaoWhispersRoute: ApiGestaoWhispersRoute,
   ApiLivechatCatalogMediaRoute: ApiLivechatCatalogMediaRoute,
   ApiLivechatJourneyRoute: ApiLivechatJourneyRoute,
   ApiLivechatMetricsRoute: ApiLivechatMetricsRoute,
@@ -4510,6 +4551,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiValentinaTriageApprovalRoute: ApiValentinaTriageApprovalRoute,
   ApiValentinaTriageHistoryRoute: ApiValentinaTriageHistoryRoute,
   ApiValentinaTriageReviewRoute: ApiValentinaTriageReviewRoute,
+  ApiValentinaWhisperAckRoute: ApiValentinaWhisperAckRoute,
   ApiWebhooksMetaRoute: ApiWebhooksMetaRoute,
   ApiWhatsappConnectionsRoute: ApiWhatsappConnectionsRoute,
   ApiWhatsappContactHistoryRoute: ApiWhatsappContactHistoryRoute,

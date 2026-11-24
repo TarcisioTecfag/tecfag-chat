@@ -108,6 +108,7 @@ export const Route = createFileRoute("/api/valentina/supervisor")({
               questionsAnswered: sql<number>`COUNT(*) FILTER (WHERE ${internalMessages.direction} = 'to_agent' AND ${internalMessages.agentType} IN ('supervisor', 'valentina', 'fagner'))`.mapWith(Number),
               slaAlerts:         sql<number>`COUNT(*) FILTER (WHERE ${internalMessages.metadata}->>'type' IN ('sla_alert', 'no_response'))`.mapWith(Number),
               leadsTransferred:  sql<number>`COUNT(*) FILTER (WHERE ${internalMessages.metadata}->>'type' = 'lead_transfer')`.mapWith(Number),
+              whispersSent:      sql<number>`COUNT(*) FILTER (WHERE ${internalMessages.metadata}->>'type' = 'supervisor_whisper')`.mapWith(Number),
             })
             .from(internalMessages)
             .where(and(...baseConditions));
@@ -117,6 +118,7 @@ export const Route = createFileRoute("/api/valentina/supervisor")({
             questionsAnswered:  kpisResult[0]?.questionsAnswered || 0,
             slaAlerts:          kpisResult[0]?.slaAlerts || 0,
             leadsTransferred:   kpisResult[0]?.leadsTransferred || 0,
+            whispersSent:       kpisResult[0]?.whispersSent || 0,
           };
 
           const allowedTypes = typeFilter ? typeFilter.split(",").map(t => t.trim()) : null;
@@ -162,6 +164,12 @@ export const Route = createFileRoute("/api/valentina/supervisor")({
               priority:       meta.priority || "medium",
               conversationId: meta.conversationId || meta.clientId || null,
               contactName:    meta.contactName || meta.clientName || null,
+              dealId:         meta.dealId || null,
+              dealTitle:      meta.dealTitle || null,
+              senderName:     meta.auditSenderName || meta.senderName || null,
+              asAiOnly:       Boolean(meta.asAiOnly),
+              source:         meta.source || null,
+              acknowledgedAt: typeof meta.acknowledgedAt === "string" ? meta.acknowledgedAt : null,
               waitMinutes:    typeof meta.waitMinutes === "number" ? meta.waitMinutes : null,
               repeatCount:    n.repeatCount ?? 1,
               lastFiredAt:    n.lastFiredAt ? n.lastFiredAt.toISOString() : n.createdAt.toISOString(),

@@ -3420,7 +3420,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
                     AND (
                       ${internalMessages.metadata}->>'type' IS NULL
                       OR ${internalMessages.metadata}->>'isChat' = 'true'
-                      OR ${internalMessages.metadata}->>'type' IN ('lead_transfer', 'sla_alert', 'no_response', 'operator_overload', 'sentiment_alert')
+                      OR ${internalMessages.metadata}->>'type' IN ('lead_transfer', 'sla_alert', 'no_response', 'operator_overload', 'sentiment_alert', 'supervisor_whisper')
                     )
                   )
                 )`;

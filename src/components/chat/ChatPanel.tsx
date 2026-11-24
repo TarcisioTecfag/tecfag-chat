@@ -1221,6 +1221,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     reloadValentinaHistory,
     valentinaResetAt,
     resetValentinaChat,
+    acknowledgeWhisper,
     toggleReaction,
     syncConversationMessages,
     updateClientInfo,
@@ -4731,6 +4732,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                 onMediaClick={handleMediaClick}
                 onSaveSticker={handleSaveSticker}
                 onOpenWarningChat={handleOpenWarningChat}
+                onAcknowledgeWhisper={acknowledgeWhisper}
                 onSendWelcomeSuggestion={handleSendWelcomeSuggestion}
                 onUseSuggestedReply={canUseUnsupportedReply ? handleApplyUnsupportedReply : undefined}
               />

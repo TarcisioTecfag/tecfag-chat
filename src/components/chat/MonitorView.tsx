@@ -22,7 +22,7 @@ import {
   CornerUpLeft, Check, CheckCheck, LayoutDashboard, Flame, ArrowLeft,
   ArrowRightLeft, RotateCcw, Image as ImageIcon, Video as VideoIcon,
   Tag, Paperclip, PenTool, Timer, User, UserCheck,
-  Utensils, MapPin, Columns3, ListTodo, Pencil, Trash2, Ban, CalendarClock, Plus, Target
+  Utensils, MapPin, Columns3, ListTodo, Pencil, Trash2, Ban, CalendarClock, Plus, Target, Megaphone
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
@@ -33,6 +33,7 @@ import { formatMetaErrorMessagePt } from "@/lib/whatsapp/meta-template-common";
 import { analyzeMetaUnsupportedMessage } from "@/lib/whatsapp/meta-message-text";
 import { MetaUnsupportedNoticeCard } from "@/components/chat/MetaUnsupportedNoticeCard";
 import { DealDetailModal } from "@/components/crm/DealDetailModal";
+import { SupervisorWhisperModal } from "@/components/chat/SupervisorWhisperModal";
 import { CreateTaskModal, type EditingTaskData } from "@/components/crm/CreateTaskModal";
 import { CrmDatePicker } from "@/components/crm/CrmDatePicker";
 import { SystemDateTimePicker } from "@/components/ui/system-date-time-picker";
@@ -13031,8 +13032,9 @@ import { getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes"
 
 // ── Componente Principal ─────────────────────────────────────────────────────
 export function MonitorView() {
-  const { tenant } = useChat();
+  const { tenant, sessionRole } = useChat();
   const { canAccessMonitorTab } = usePermissions();
+  const [whisperModalOpen, setWhisperModalOpen] = useState(false);
   const [overview, setOverview] = useState<OverviewData | null>(null);
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [alertsSummary, setAlertsSummary] = useState<AlertsExecutiveSummary | null>(null);
@@ -13159,18 +13161,35 @@ export function MonitorView() {
           </h1>
           <p className="text-[11px] text-muted-foreground capitalize mt-0.5">{today}</p>
         </div>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={fetchData}
-              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition cursor-pointer"
+        <div className="flex items-center gap-2.5">
+          {(sessionRole === "admin" ||
+            allowedTabs.some((t) => ["live", "alerts", "audits", "tasks"].includes(t.id))) && (
+            <SystemTooltip
+              content={`Enviar cobrança ou orientação via ${getAiPersona(tenant || "valem").name} para vendedor, equipe ou lead`}
             >
-              <RefreshCw className="h-3.5 w-3.5" />
-              {lastRefresh.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="top">Atualizar agora</TooltipContent>
-        </Tooltip>
+              <button
+                type="button"
+                onClick={() => setWhisperModalOpen(true)}
+                className="inline-flex items-center gap-1.5 h-8 px-3 rounded-xl bg-primary/12 hover:bg-primary/20 text-primary border border-primary/30 text-xs font-extrabold transition cursor-pointer shadow-2xs"
+              >
+                <Megaphone className="h-3.5 w-3.5" />
+                <span>Sussurrar / Cobrar</span>
+              </button>
+            </SystemTooltip>
+          )}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={fetchData}
+                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition cursor-pointer"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                {lastRefresh.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top">Atualizar agora</TooltipContent>
+          </Tooltip>
+        </div>
       </div>
 
       {/* Internal Tab Bar */}
@@ -13268,6 +13287,11 @@ export function MonitorView() {
           />
         )}
       </AnimatePresence>
+      <SupervisorWhisperModal
+        open={whisperModalOpen}
+        onClose={() => setWhisperModalOpen(false)}
+        source="ui_monitor"
+      />
     </div>
   );
 }

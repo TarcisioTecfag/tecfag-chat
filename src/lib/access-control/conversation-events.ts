@@ -26,8 +26,41 @@ export async function filterConversationEvent(session: AuthSessionContext, event
       (permissions?.views?.chat === true || permissions?.views?.valentina === true) &&
       permissions?.valentina?.canAccessChat === true;
     if (event.operatorId !== session.operator.id || !canReceiveOperatorAi) return null;
-    const conversationId = event.message?.warningMetadata?.conversationId ?? event.notification?.warningMetadata?.conversationId;
-    if (conversationId && await requireConversationAccess(session, conversationId)) return null;
+    const rawMsg = event.message || event.notification;
+    const isSupervisorWhisper =
+      rawMsg?.metadata?.type === "supervisor_whisper" || rawMsg?.warningType === "whisper";
+    const conversationId =
+      event.message?.warningMetadata?.conversationId ??
+      event.notification?.warningMetadata?.conversationId;
+    if (conversationId && (await requireConversationAccess(session, conversationId))) {
+      if (!isSupervisorWhisper) return null;
+      // Sussurro direcionado explicitamente ao operador: entrega a orientação mesmo sem acesso direto à conversa,
+      // removendo apenas o deep-link para a conversa restrita.
+      const stripConv = (payload: any) =>
+        payload && typeof payload === "object"
+          ? {
+              ...payload,
+              metadata: payload.metadata
+                ? { ...payload.metadata, conversationId: null, clientId: null }
+                : payload.metadata,
+              warningMetadata: payload.warningMetadata
+                ? { ...payload.warningMetadata, conversationId: null, clientId: "" }
+                : payload.warningMetadata,
+            }
+          : payload;
+      return {
+        ...event,
+        message: stripConv(event.message),
+        notification: stripConv(event.notification),
+      };
+    }
+    return event;
+  }
+  if (event.type === "operator_whisper_acknowledged") {
+    const isOwn = event.operatorId === session.operator.id;
+    const isMonitorSupervisor =
+      session.operator.role === "admin" || permissions?.views?.monitor === true;
+    if (!isOwn && !isMonitorSupervisor) return null;
     return event;
   }
   if (event.type === "valentina_thought_progress") {

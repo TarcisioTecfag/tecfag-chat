@@ -37,6 +37,9 @@ import {
   Search,
   RefreshCw,
   ShieldAlert,
+  Megaphone,
+  CheckCircle2,
+  Briefcase,
 } from "lucide-react";
 import { useChat } from "@/hooks/useChatState";
 import { getAiPersona } from "@/lib/ai-persona";
@@ -61,6 +64,12 @@ interface Notification {
   priority: string;
   conversationId: string | null;
   contactName: string | null;
+  dealId?: string | null;
+  dealTitle?: string | null;
+  senderName?: string | null;
+  asAiOnly?: boolean;
+  source?: string | null;
+  acknowledgedAt?: string | null;
   waitMinutes?: number | null;
   repeatCount?: number;
   lastFiredAt?: string;
@@ -100,6 +109,7 @@ interface SupervisorApiData {
 
 const ALERT_TYPES = [
   { value: "all", label: "Todos" },
+  { value: "supervisor_whisper", label: "Sussurros / Cobranças" },
   { value: "sla_alert", label: "SLA em Risco" },
   { value: "no_response", label: "Sem Resposta" },
   { value: "operator_overload", label: "Sobrecarga" },
@@ -280,6 +290,23 @@ function SupervisorOperatorAvatar({
 
 function getNotifVisual(type: string, priority: string) {
   switch (type) {
+    case "supervisor_whisper":
+      return {
+        icon: Megaphone,
+        label: "Sussurro",
+        boxClass:
+          priority === "urgente"
+            ? "bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/35"
+            : priority === "alta"
+              ? "bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/35"
+              : "bg-primary/15 text-primary border border-primary/30",
+        badgeClass:
+          priority === "urgente"
+            ? "bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/30"
+            : priority === "alta"
+              ? "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30"
+              : "bg-primary/15 text-primary border-primary/30",
+      };
     case "sla_alert":
     case "no_response":
       return {
@@ -1200,6 +1227,39 @@ export function SupervisorTab() {
                                   ) : (
                                     <ChevronDown className="h-2.5 w-2.5" />
                                   )}
+                                </button>
+                              </SystemTooltip>
+                            )}
+
+                            {/* Status de ciência para sussurros */}
+                            {notif.type === "supervisor_whisper" && (
+                              notif.acknowledgedAt ? (
+                                <SystemTooltip content={`Vendedor confirmou ciência em ${formatDateTime(notif.acknowledgedAt)}`}>
+                                  <span className="shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-500/12 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 text-[9px] font-extrabold">
+                                    <CheckCircle2 className="h-2.5 w-2.5" />
+                                    Ciente
+                                  </span>
+                                </SystemTooltip>
+                              ) : (
+                                <span className="shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/25 text-[9px] font-extrabold">
+                                  <Clock className="h-2.5 w-2.5" />
+                                  Pendente ciência
+                                </span>
+                              )
+                            )}
+
+                            {/* Botão "Ver Lead" quando há dealId */}
+                            {notif.dealId && (
+                              <SystemTooltip content={`Abrir negociação ${notif.dealTitle || notif.dealId} no CRM`}>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    window.location.href = `/crm/deals/${encodeURIComponent(notif.dealId!)}?from=crm`;
+                                  }}
+                                  className="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-lg bg-card hover:bg-muted text-foreground border border-border text-[9px] font-extrabold transition cursor-pointer shadow-2xs"
+                                >
+                                  <Briefcase className="h-2.5 w-2.5 text-primary" />
+                                  Abrir Lead
                                 </button>
                               </SystemTooltip>
                             )}

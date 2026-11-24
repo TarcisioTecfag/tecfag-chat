@@ -40,6 +40,9 @@ import {
   Users,
   ArrowRight,
   Bell,
+  Megaphone,
+  CheckCircle2,
+  Briefcase,
 } from "lucide-react";
 
 export type MetaConfig = {
@@ -316,6 +319,7 @@ type ChatContextType = {
   valentinaResetAt: string | null;
   reloadValentinaHistory: (limit?: number) => Promise<void>;
   resetValentinaChat: () => Promise<void>;
+  acknowledgeWhisper: (whisperId: string, note?: string) => Promise<boolean>;
   disconnectBaileys: () => void;
   connectBaileys: (forceNew?: boolean) => void;
 
@@ -2305,6 +2309,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           ? r.content.replace(/\[object Object\]/gi, "").trim()
           : "";
       const isLeadTransfer = meta.type === "lead_transfer" || meta.warningType === "new_lead";
+      const isWhisper = meta.type === "supervisor_whisper" || meta.warningType === "whisper" || r.warningType === "whisper";
       const isSlaDelay =
         meta.type === "sla_alert" ||
         meta.type === "no_response" ||
@@ -2312,8 +2317,12 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         /^\*?SLA\s+(?:Estourado|em\s+risco)/i.test(rawContent.trim());
       const isOverload =
         meta.type === "operator_overload" || meta.warningType === "overload";
-      const isWarning = Boolean(r.isWarning || meta.isWarning || isLeadTransfer || isSlaDelay || isOverload);
-      const warningType: "delay" | "new_lead" | "overload" | undefined = isLeadTransfer
+      const isWarning = Boolean(
+        r.isWarning || meta.isWarning || isLeadTransfer || isWhisper || isSlaDelay || isOverload
+      );
+      const warningType: "delay" | "new_lead" | "overload" | "whisper" | undefined = isWhisper
+        ? "whisper"
+        : isLeadTransfer
         ? "new_lead"
         : isSlaDelay
         ? "delay"
@@ -2343,7 +2352,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         : undefined;
       const warningMetadata =
         warningType &&
-        (targetClientId ||
+        (isWhisper ||
+          targetClientId ||
           extractedClientName ||
           (conversationsList && conversationsList.length > 0))
           ? {
@@ -2351,15 +2361,42 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               clientName:
                 extractedClientName ||
                 conversationsList?.[0]?.clientName ||
-                "Cliente",
+                (isWhisper ? "" : "Cliente"),
               lastMessage: meta.lastMessage || r.warningMetadata?.lastMessage || undefined,
               interest: meta.interest || r.warningMetadata?.interest || undefined,
               temperature: meta.temperature || r.warningMetadata?.temperature || undefined,
               dealId: meta.dealId || r.warningMetadata?.dealId || undefined,
               dealTitle: meta.dealTitle || r.warningMetadata?.dealTitle || undefined,
+              dealPipelineName: meta.dealPipelineName || r.warningMetadata?.dealPipelineName || undefined,
+              dealStageName: meta.dealStageName || r.warningMetadata?.dealStageName || undefined,
               taskId: meta.taskId || r.warningMetadata?.taskId || undefined,
               taskTitle: meta.taskTitle || r.warningMetadata?.taskTitle || undefined,
               conversations: conversationsList,
+              ...(isWhisper
+                ? {
+                    whisperId: r.id || r.warningMetadata?.whisperId || undefined,
+                    priority:
+                      (meta.priority || r.warningMetadata?.priority || "normal") as
+                        | "normal"
+                        | "alta"
+                        | "urgente",
+                    title: meta.customTitle || meta.title || r.warningMetadata?.title || undefined,
+                    senderName: meta.senderName || r.warningMetadata?.senderName || undefined,
+                    asAiOnly: Boolean(meta.asAiOnly ?? r.warningMetadata?.asAiOnly),
+                    acknowledgedAt:
+                      typeof meta.acknowledgedAt === "string"
+                        ? meta.acknowledgedAt
+                        : typeof r.warningMetadata?.acknowledgedAt === "string"
+                          ? r.warningMetadata.acknowledgedAt
+                          : null,
+                    acknowledgedNote:
+                      typeof meta.acknowledgedNote === "string"
+                        ? meta.acknowledgedNote
+                        : typeof r.warningMetadata?.acknowledgedNote === "string"
+                          ? r.warningMetadata.acknowledgedNote
+                          : null,
+                  }
+                : {}),
             }
           : undefined;
       const relatedConversations =
@@ -2657,6 +2694,74 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     toast.success(`Conversa com ${personaName} arquivada para anteriores.`);
   }, [tenant, currentOperatorId, setConversations]);
+
+  const acknowledgeWhisper = useCallback(
+    async (whisperId: string, note?: string): Promise<boolean> => {
+      const cleanId = String(whisperId || "").trim();
+      if (!cleanId) return false;
+      const optimisticIso = new Date().toISOString();
+
+      const applyAck = (list: Message[]) =>
+        list.map((m) =>
+          m.id === cleanId || m.warningMetadata?.whisperId === cleanId
+            ? {
+                ...m,
+                warningMetadata: {
+                  ...(m.warningMetadata || { clientId: "", clientName: "" }),
+                  whisperId: cleanId,
+                  acknowledgedAt: optimisticIso,
+                  ...(note ? { acknowledgedNote: note } : {}),
+                },
+              }
+            : m,
+        );
+
+      valentinaHistoryRef.current = applyAck(valentinaHistoryRef.current);
+      setConversations((prev) =>
+        prev.map((c) => (c.id === "valentina" ? { ...c, messages: applyAck(c.messages) } : c)),
+      );
+
+      try {
+        const res = await fetch("/api/valentina/whisper-ack", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ whisperId: cleanId, note: note || null }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || "Não foi possível confirmar ciência.");
+        }
+        const data = await res.json().catch(() => ({}));
+        const confirmedAt =
+          typeof data.acknowledgedAt === "string" ? data.acknowledgedAt : optimisticIso;
+        const applyConfirmed = (list: Message[]) =>
+          list.map((m) =>
+            m.id === cleanId || m.warningMetadata?.whisperId === cleanId
+              ? {
+                  ...m,
+                  warningMetadata: {
+                    ...(m.warningMetadata || { clientId: "", clientName: "" }),
+                    whisperId: cleanId,
+                    acknowledgedAt: confirmedAt,
+                  },
+                }
+              : m,
+          );
+        valentinaHistoryRef.current = applyConfirmed(valentinaHistoryRef.current);
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.id === "valentina" ? { ...c, messages: applyConfirmed(c.messages) } : c,
+          ),
+        );
+        return true;
+      } catch (err: any) {
+        toast.error(err?.message || "Erro ao confirmar ciência do sussurro.");
+        return false;
+      }
+    },
+    [setConversations],
+  );
 
   // Carrega histórico do chat individual do operador com Valentina/Fagner (scope=operator + alertas proativos)
   useEffect(() => {
@@ -4921,7 +5026,16 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const shouldNotify = isAssignedToMe || isInMyWallet;
           const isCurrentOpen = isCurrentlyViewingConversation(message.conversationId);
 
-          if (isSupervisorWhisper && isWhisperTargetedToMe && !isSentByMe) {
+          const isPairedWithInternalWhisper = Boolean(
+            message.metaDetails?.pairedWithInternalWhisper,
+          );
+
+          if (
+            isSupervisorWhisper &&
+            isWhisperTargetedToMe &&
+            !isSentByMe &&
+            !isPairedWithInternalWhisper
+          ) {
             playNotificationSound();
 
             const clientName =
@@ -5574,15 +5688,30 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const meta = rawNotif.metadata || rawNotif.warningMetadata || {};
           const targetConvId =
             meta.conversationId || meta.clientId || aiMsg.warningMetadata?.clientId;
+          const targetDealId = meta.dealId || aiMsg.warningMetadata?.dealId || null;
+          const targetDealTitle = meta.dealTitle || aiMsg.warningMetadata?.dealTitle || null;
           const persona = getAiPersona(tenantRef.current || "valem");
+          const isWhisper =
+            meta.type === "supervisor_whisper" ||
+            rawNotif.warningType === "whisper" ||
+            aiMsg.warningType === "whisper";
           const isLead =
-            meta.type === "lead_transfer" ||
-            rawNotif.warningType === "new_lead" ||
-            aiMsg.warningType === "new_lead";
+            !isWhisper &&
+            (meta.type === "lead_transfer" ||
+              rawNotif.warningType === "new_lead" ||
+              aiMsg.warningType === "new_lead");
           const isOverload =
-            meta.type === "operator_overload" ||
-            rawNotif.warningType === "overload" ||
-            aiMsg.warningType === "overload";
+            !isWhisper &&
+            (meta.type === "operator_overload" ||
+              rawNotif.warningType === "overload" ||
+              aiMsg.warningType === "overload");
+          const whisperPriority = (meta.priority || aiMsg.warningMetadata?.priority || "normal") as
+            | "normal"
+            | "alta"
+            | "urgente";
+          const whisperAsAiOnly = Boolean(meta.asAiOnly ?? aiMsg.warningMetadata?.asAiOnly);
+          const whisperSender =
+            meta.senderName || aiMsg.warningMetadata?.senderName || "Gestão Comercial";
           const clientName =
             meta.clientName ||
             meta.contactName ||
@@ -5590,18 +5719,23 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             "Cliente";
           const waitMinutes = Number(meta.waitMinutes) || 0;
           const isHighSla =
+            !isWhisper &&
             !isLead &&
             !isOverload &&
             (meta.priority === "high" || meta.type === "no_response" || waitMinutes >= 15);
 
           const waitBadge =
-            !isLead && !isOverload && waitMinutes > 0
+            !isWhisper && !isLead && !isOverload && waitMinutes > 0
               ? waitMinutes >= 60
                 ? `${Math.floor(waitMinutes / 60)}h${waitMinutes % 60 > 0 ? ` ${waitMinutes % 60}m` : ""}`
                 : `${waitMinutes} min`
               : null;
 
-          const badgeLabel = isLead
+          const badgeLabel = isWhisper
+            ? whisperAsAiOnly
+              ? `${persona.name} · Lembrete`
+              : `${persona.name} · ${whisperSender}`
+            : isLead
             ? `${persona.name} · Novo Lead`
             : isOverload
             ? `${persona.name} · Atendimentos Ativos`
@@ -5609,7 +5743,12 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             ? `${persona.name} · SLA Crítico`
             : `${persona.name} · Alerta de SLA`;
 
-          const primaryHeading = isLead
+          const primaryHeading = isWhisper
+            ? meta.customTitle ||
+              meta.title ||
+              targetDealTitle ||
+              (targetConvId ? clientName : whisperAsAiOnly ? `Recado de ${persona.name}` : `Orientação de ${whisperSender}`)
+            : isLead
             ? clientName
             : isOverload
             ? meta.activeCount
@@ -5617,7 +5756,13 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               : "Resumo de Atendimentos"
             : clientName;
 
-          const accentBorderClass = isLead
+          const accentBorderClass = isWhisper
+            ? whisperPriority === "urgente"
+              ? "border-l-rose-500"
+              : whisperPriority === "alta"
+                ? "border-l-amber-500"
+                : "border-l-primary"
+            : isLead
             ? "border-l-primary"
             : isOverload
             ? "border-l-violet-500"
@@ -5625,7 +5770,13 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             ? "border-l-rose-500"
             : "border-l-amber-500";
 
-          const iconBoxClass = isLead
+          const iconBoxClass = isWhisper
+            ? whisperPriority === "urgente"
+              ? "bg-rose-500/12 text-rose-600 dark:text-rose-400 border-rose-500/25"
+              : whisperPriority === "alta"
+                ? "bg-amber-500/12 text-amber-600 dark:text-amber-400 border-amber-500/25"
+                : "bg-primary/12 text-primary border-primary/25"
+            : isLead
             ? "bg-primary/12 text-primary border-primary/25"
             : isOverload
             ? "bg-violet-500/12 text-violet-600 dark:text-violet-400 border-violet-500/25"
@@ -5633,7 +5784,13 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             ? "bg-rose-500/12 text-rose-600 dark:text-rose-400 border-rose-500/25"
             : "bg-amber-500/12 text-amber-600 dark:text-amber-400 border-amber-500/25";
 
-          const badgeTextClass = isLead
+          const badgeTextClass = isWhisper
+            ? whisperPriority === "urgente"
+              ? "text-rose-600 dark:text-rose-400"
+              : whisperPriority === "alta"
+                ? "text-amber-600 dark:text-amber-400"
+                : "text-primary"
+            : isLead
             ? "text-primary"
             : isOverload
             ? "text-violet-600 dark:text-violet-400"
@@ -5645,7 +5802,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             ? "bg-rose-500/12 text-rose-600 dark:text-rose-400 border-rose-500/25"
             : "bg-amber-500/12 text-amber-600 dark:text-amber-400 border-amber-500/25";
 
-          const notifToastId = isOverload
+          const notifToastId = isWhisper
+            ? `ai-whisper-${aiMsg.id}`
+            : isOverload
             ? "ai-notif-overload"
             : targetConvId
             ? `ai-notif-${isLead ? "lead" : "sla"}-${targetConvId}`
@@ -5655,19 +5814,53 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             ? isLead
               ? "Abrir Atendimento"
               : "Abrir Conversa"
-            : `Ver no ${persona.name}`;
+            : targetDealId
+              ? "Abrir Negociação"
+              : `Ver no ${persona.name}`;
+
+          if (
+            isWhisper &&
+            typeof window !== "undefined" &&
+            "Notification" in window &&
+            Notification.permission === "granted" &&
+            document.hidden
+          ) {
+            try {
+              const isTecfag = tenantRef.current === "tecfag";
+              const n = new Notification(`${badgeLabel} · ${primaryHeading}`, {
+                body: cleanPlainNotificationText(String(rawNotif.content || ""), { maxLength: 180 }),
+                icon: isTecfag ? "/logo_tecfag.png" : "/logo_valem.jpg",
+                tag: `whisper-${aiMsg.id}`,
+              });
+              n.onclick = () => {
+                window.focus();
+                if (targetConvId) {
+                  setSelectedChatId(targetConvId);
+                  setActiveView("chat");
+                  markAsRead(targetConvId);
+                } else {
+                  setSelectedChatId("valentina");
+                  setActiveView("chat");
+                  markAsRead("valentina");
+                }
+                n.close();
+              };
+            } catch {}
+          }
 
           toast.custom(
             (t) => (
               <div
-                className={`flex flex-col gap-2.5 w-[396px] max-w-[calc(100vw-2rem)] bg-card/95 backdrop-blur-xl border border-border rounded-2xl p-3.5 shadow-card animate-in slide-in-from-top-3 duration-200 border-l-[4px] ${accentBorderClass} text-foreground`}
+                className={`flex flex-col gap-2.5 w-[408px] max-w-[calc(100vw-2rem)] bg-card/95 backdrop-blur-xl border border-border rounded-2xl p-3.5 shadow-card animate-in slide-in-from-top-3 duration-200 border-l-[4px] ${accentBorderClass} text-foreground`}
               >
                 <div className="flex items-start gap-3">
                   {/* Ícone SVG Semântico */}
                   <div
                     className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl border ${iconBoxClass} shadow-2xs mt-0.5`}
                   >
-                    {isLead ? (
+                    {isWhisper ? (
+                      <Megaphone className="h-4 w-4" />
+                    ) : isLead ? (
                       <UserCheck className="h-4 w-4" />
                     ) : isOverload ? (
                       <Users className="h-4 w-4" />
@@ -5687,6 +5880,17 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                         >
                           {badgeLabel}
                         </span>
+                        {isWhisper && whisperPriority !== "normal" && (
+                          <span
+                            className={`inline-flex items-center px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider border ${
+                              whisperPriority === "urgente"
+                                ? "bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/30"
+                                : "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30"
+                            }`}
+                          >
+                            {whisperPriority}
+                          </span>
+                        )}
                         {waitBadge && (
                           <span
                             className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold tabular-nums border ${pillClass}`}
@@ -5700,8 +5904,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                       <button
                         type="button"
                         onClick={() => toast.dismiss(t)}
+                        aria-label="Fechar notificação"
                         className="h-6 w-6 grid place-items-center rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer shrink-0 -mr-1 -mt-0.5"
-                        title="Fechar notificação"
                       >
                         <X className="h-3.5 w-3.5" />
                       </button>
@@ -5713,48 +5917,119 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
                     <p className="text-[11px] text-muted-foreground leading-relaxed mt-1 line-clamp-3">
                       {renderFormattedNotificationText(String(rawNotif.content || ""), {
-                        stripEmojis: true,
-                        stripRedundantPrefix: !isLead && !isOverload,
-                        maxLength: 165,
+                        stripEmojis: !isWhisper,
+                        stripRedundantPrefix: !isWhisper && !isLead && !isOverload,
+                        maxLength: 185,
                       })}
                     </p>
                   </div>
                 </div>
 
                 {/* Rodapé de Ação */}
-                <div className="flex items-center justify-between gap-2 pt-2 border-t border-border/60">
-                  <span className="text-[10px] text-muted-foreground truncate">
-                    {isLead
-                      ? "Transferido para Meus Atendimentos"
-                      : isOverload
-                      ? `${meta.waitingCount || 0} aguardando resposta`
-                      : "Aguardando retorno no chat"}
-                  </span>
+                <div className="flex items-center justify-between gap-2 pt-2 border-t border-border/60 flex-wrap">
+                  {isWhisper ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void acknowledgeWhisper(aiMsg.id);
+                        toast.dismiss(t);
+                      }}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-emerald-500/12 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 transition cursor-pointer"
+                    >
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      <span>Ciente</span>
+                    </button>
+                  ) : (
+                    <span className="text-[10px] text-muted-foreground truncate">
+                      {isLead
+                        ? "Transferido para Meus Atendimentos"
+                        : isOverload
+                        ? `${meta.waitingCount || 0} aguardando resposta`
+                        : "Aguardando retorno no chat"}
+                    </span>
+                  )}
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (targetConvId) {
-                        setSelectedChatId(targetConvId);
-                        setActiveView("chat");
-                        markAsRead(targetConvId);
-                      } else {
-                        setSelectedChatId("valentina");
-                        setActiveView("chat");
-                        markAsRead("valentina");
-                      }
-                      toast.dismiss(t);
-                    }}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-primary hover:bg-primary/90 text-primary-foreground shadow-2xs transition cursor-pointer shrink-0"
-                  >
-                    <span>{actionLabel}</span>
-                    <ArrowRight className="h-3.5 w-3.5" />
-                  </button>
+                  <div className="flex items-center gap-1.5 ml-auto">
+                    {isWhisper && targetDealId && targetConvId && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (typeof window !== "undefined") {
+                            window.location.href = `/crm/deals/${encodeURIComponent(targetDealId)}?from=crm`;
+                          }
+                          toast.dismiss(t);
+                        }}
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-muted hover:bg-muted/80 text-foreground border border-border/80 transition cursor-pointer shrink-0"
+                      >
+                        <Briefcase className="h-3 w-3 text-primary" />
+                        <span>Lead</span>
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (targetConvId) {
+                          setSelectedChatId(targetConvId);
+                          setActiveView("chat");
+                          markAsRead(targetConvId);
+                        } else if (isWhisper && targetDealId) {
+                          if (typeof window !== "undefined") {
+                            window.location.href = `/crm/deals/${encodeURIComponent(targetDealId)}?from=crm`;
+                          }
+                        } else {
+                          setSelectedChatId("valentina");
+                          setActiveView("chat");
+                          markAsRead("valentina");
+                        }
+                        toast.dismiss(t);
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-primary hover:bg-primary/90 text-primary-foreground shadow-2xs transition cursor-pointer shrink-0"
+                    >
+                      <span>{actionLabel}</span>
+                      <ArrowRight className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 </div>
               </div>
             ),
-            { id: notifToastId, duration: 9000, position: "top-right" },
+            { id: notifToastId, duration: isWhisper ? 14000 : 9000, position: "top-right" },
           );
+        } else if (data.type === "operator_whisper_acknowledged" && data.whisperId) {
+          if (data.operatorId && data.operatorId === currentOperatorIdRef.current) {
+            const wId = String(data.whisperId);
+            const ackAt =
+              typeof data.acknowledgedAt === "string"
+                ? data.acknowledgedAt
+                : new Date().toISOString();
+            const patchAck = (list: Message[]) =>
+              list.map((m) =>
+                m.id === wId || m.warningMetadata?.whisperId === wId
+                  ? {
+                      ...m,
+                      warningMetadata: {
+                        ...(m.warningMetadata || { clientId: "", clientName: "" }),
+                        whisperId: wId,
+                        acknowledgedAt: ackAt,
+                        ...(data.acknowledgedNote
+                          ? { acknowledgedNote: String(data.acknowledgedNote) }
+                          : {}),
+                      },
+                    }
+                  : m,
+              );
+            valentinaHistoryRef.current = patchAck(valentinaHistoryRef.current);
+            setConversations((prev) =>
+              prev.map((c) =>
+                c.id === "valentina" ? { ...c, messages: patchAck(c.messages) } : c,
+              ),
+            );
+          }
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(
+              new CustomEvent("operator_whisper_acknowledged", { detail: data }),
+            );
+          }
         } else if (data.type === "sdr_approval_pending") {
           const canAccessSdr =
             sessionRoleRef.current === "admin" ||
@@ -6377,6 +6652,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         reloadValentinaHistory,
         valentinaResetAt,
         resetValentinaChat,
+        acknowledgeWhisper,
         disconnectBaileys,
         connectBaileys,
 
