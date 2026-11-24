@@ -1753,6 +1753,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       const now = new Date();
       let industrialHandoff: IndustrialHandoffResult = { status: "collecting", operator: null, deal: null };
       let industrialHandoffPersisted = false;
+      let siteWhatsappHandoffMessage: string | null = null;
       let industrialHandoffStoreRef: ReturnType<typeof createIndustrialHandoffStore> | null = null;
       let industrialHandoffKeyRef: { tenantId: string; conversationId: string; flowId: string; cycle: string } | null = null;
 
@@ -1788,53 +1789,104 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
               localCrmResult = null;
             } else {
               // ── MODO HUMAN-IN-THE-LOOP (TECFAG / FAGNER) ────────────────────────
-              // O Fagner conclui a triagem, sugere destino + próximo operador do rodízio
-              // (sem consumir slot nem transferir), garante card no FUNIL CWR em CONTATANDO,
-              // envia mensagem neutra ao cliente e aguarda aprovação do SDR humano.
-              const { prepareIndustrialApproval, notifySdrTeamApprovalPending } = await import(
-                "../triage/industrial-approval-store"
-              );
-              const key = {
-                tenantId,
-                conversationId,
-                flowId: flowState.id,
-                cycle: flowState.startedAt.toISOString(),
-              };
-              const approvalPrep = await prepareIndustrialApproval(db, key, {
-                route: industrialRoute,
-                data: updatedCollectedData,
-                clientName,
-                companyName: company,
-                contactId: convCheck?.contactId || null,
-                machineDecision,
-                siteContext,
-              });
-              if (!approvalPrep.prepared || !approvalPrep.suggestion) return false;
+              // Canal Site (`conv-lc-*`): ao concluir a triagem no site, dispara automaticamente
+              // o template oficial no WhatsApp, cria o card no funil correspondente (CWR p/ comercial
+              // ou funil próprio p/ Pós-Venda/Suporte/Financeiro) e coloca o WhatsApp em Aprovação SDR
+              // herdando 100% da triagem. Se o template ainda não estiver configurado ou falhar,
+              // mantém fallback seguro em `awaiting_approval` no site SEM criar card no CWR.
+              let handledBySiteWhatsappHandoff = false;
+              if (isSiteConversationId(conversationId)) {
+                const { dispatchSiteTriageToWhatsApp } = await import(
+                  "../livechat/site-whatsapp-handoff"
+                );
+                const siteWaRes = await dispatchSiteTriageToWhatsApp(db, {
+                  tenantId,
+                  siteConversationId: conversationId,
+                  siteFlowId: flowState.id,
+                  cycle: flowState.startedAt.toISOString(),
+                  route: industrialRoute,
+                  data: updatedCollectedData,
+                  clientName,
+                  companyName: company,
+                  contactId: convCheck?.contactId || null,
+                  machineDecision,
+                  siteContext,
+                });
+                if (siteWaRes.handedOff) {
+                  handledBySiteWhatsappHandoff = true;
+                  siteWhatsappHandoffMessage = siteWaRes.closingMessageForSite || null;
+                  industrialHandoff = {
+                    status: "transferred",
+                    operator: null,
+                    deal: siteWaRes.dealId
+                      ? {
+                          dealId: siteWaRes.dealId,
+                          dealTitle: siteWaRes.dealTitle || clientName,
+                          action: "created_new",
+                          funnelId: siteWaRes.pipelineId || "",
+                          stageId: siteWaRes.stageId || "",
+                        }
+                      : null,
+                  };
+                  industrialHandoffPersisted = true;
+                  allocatedOp = null;
+                  localCrmResult = industrialHandoff.deal;
+                } else {
+                  console.warn(
+                    `[SdrEngine] Ponte Site→WhatsApp não disparada para ${conversationId} (${siteWaRes.reason || "erro"}); mantendo fallback em awaiting_approval no site sem criar card CWR.`,
+                  );
+                }
+              }
 
-              industrialHandoff = {
-                status: "awaiting_approval",
-                operator: null,
-                deal: approvalPrep.suggestion.dealId
-                  ? {
-                      dealId: approvalPrep.suggestion.dealId,
-                      dealTitle: clientName,
-                      action: "reused_within_3h",
-                      funnelId: approvalPrep.suggestion.suggestedPipelineId || "",
-                      stageId: approvalPrep.suggestion.suggestedStageId || "",
-                    }
-                  : null,
-              };
-              industrialHandoffPersisted = true;
-              allocatedOp = null;
-              localCrmResult = industrialHandoff.deal;
+              if (!handledBySiteWhatsappHandoff) {
+                // O Fagner conclui a triagem, sugere destino + próximo operador do rodízio
+                // (sem consumir slot nem transferir), garante card no FUNIL CWR em CONTATANDO (apenas WhatsApp),
+                // envia mensagem neutra ao cliente e aguarda aprovação do SDR humano.
+                const { prepareIndustrialApproval, notifySdrTeamApprovalPending } = await import(
+                  "../triage/industrial-approval-store"
+                );
+                const key = {
+                  tenantId,
+                  conversationId,
+                  flowId: flowState.id,
+                  cycle: flowState.startedAt.toISOString(),
+                };
+                const approvalPrep = await prepareIndustrialApproval(db, key, {
+                  route: industrialRoute,
+                  data: updatedCollectedData,
+                  clientName,
+                  companyName: company,
+                  contactId: convCheck?.contactId || null,
+                  machineDecision,
+                  siteContext,
+                });
+                if (!approvalPrep.prepared || !approvalPrep.suggestion) return false;
 
-              void notifySdrTeamApprovalPending(db, {
-                tenantId,
-                conversationId,
-                suggestion: approvalPrep.suggestion,
-              }).catch((err: any) =>
-                console.warn("[SdrEngine] Aviso ao notificar setor SDR sobre aprovação pendente:", err?.message),
-              );
+                industrialHandoff = {
+                  status: "awaiting_approval",
+                  operator: null,
+                  deal: approvalPrep.suggestion.dealId
+                    ? {
+                        dealId: approvalPrep.suggestion.dealId,
+                        dealTitle: clientName,
+                        action: "reused_within_3h",
+                        funnelId: approvalPrep.suggestion.suggestedPipelineId || "",
+                        stageId: approvalPrep.suggestion.suggestedStageId || "",
+                      }
+                    : null,
+                };
+                industrialHandoffPersisted = true;
+                allocatedOp = null;
+                localCrmResult = industrialHandoff.deal;
+
+                void notifySdrTeamApprovalPending(db, {
+                  tenantId,
+                  conversationId,
+                  suggestion: approvalPrep.suggestion,
+                }).catch((err: any) =>
+                  console.warn("[SdrEngine] Aviso ao notificar setor SDR sobre aprovação pendente:", err?.message),
+                );
+              }
             }
           } else {
             // ══════════════════════════════════════════════════════════════════
@@ -1955,7 +2007,9 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         : isCompleted ? (wasAlreadyCompleted ? flowState?.outcome : "transferred") : "in_progress";
       const flowIsFinished = flowOutcome === "transferred" || flowOutcome === "completed";
       if (industrialTriage && industrialRoute) {
-        aiResult.messagesToSend = industrialClientMessages({ result: industrialHandoff, route: industrialRoute, data: updatedCollectedData, messages: aiResult.messagesToSend });
+        aiResult.messagesToSend = siteWhatsappHandoffMessage
+          ? [siteWhatsappHandoffMessage]
+          : industrialClientMessages({ result: industrialHandoff, route: industrialRoute, data: updatedCollectedData, messages: aiResult.messagesToSend });
         if (industrialHandoff.status === "transferred") {
           const scheduleCfg = parseIndustrialScheduleConfig(configData);
           if (scheduleCfg.enabled && !isWithinIndustrialSchedule(now, scheduleCfg)) {
@@ -2563,14 +2617,21 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
           // Ciclo de vida FUNIL CWR: assim que o Fagner responde ao cliente comercial no WhatsApp,
           // garante o card no FUNIL CWR e move de CONTATAR -> CONTATANDO automaticamente.
-          // Não cria card comercial para desfechos não-comerciais (currículos, fornecedores, desistências).
+          // Não cria card no CWR para conversas do canal Site (`conv-lc-*`) — no site o card só é
+          // criado quando o Fagner conclui a triagem e prossegue para o WhatsApp.
+          // Também não cria card comercial para desfechos não-comerciais (currículos, fornecedores, desistências).
           const isNonCommercialOutcome =
             isClientDeclinedTurn ||
             isCordialBotClosingTurn ||
             industrialReadiness?.action === "inform" ||
             industrialRoute?.subflow === "5B_CURRICULO" ||
             industrialRoute?.subflow === "5C_COMPRAS";
-          if (industrialTriage && !industrialHandoffPersisted && !isNonCommercialOutcome) {
+          if (
+            industrialTriage &&
+            !isSiteConversationId(conversationId) &&
+            !industrialHandoffPersisted &&
+            !isNonCommercialOutcome
+          ) {
             void import("../triage/industrial-cwr-crm")
               .then(({ ensureCwrDealOnContacting }) =>
                 ensureCwrDealOnContacting(db, {

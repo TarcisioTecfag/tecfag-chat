@@ -39,6 +39,8 @@ export interface SiteChannelSettings {
   allowedOrigins: string[];
   /** WhatsApp da empresa para continuar o atendimento do site; vazio = recurso indisponível. */
   whatsappNumber: string;
+  /** ID ou nome do template oficial Meta aprovado para o Fagner chamar o cliente no WhatsApp pós-triagem no site. */
+  whatsappTemplateId: string;
 }
 
 function normalizeOrigin(raw: string): string | null {
@@ -61,13 +63,39 @@ export function parseSiteChannelSettings(
 ): SiteChannelSettings {
   const raw = config || {};
   const origins = Array.isArray(raw.siteAllowedOrigins) ? raw.siteAllowedOrigins : [];
+  const rawTemplate = typeof raw.siteWhatsappTemplateId === "string" ? raw.siteWhatsappTemplateId.trim() : "";
   return {
     enabled: sdrEnabled && raw.siteChannelEnabled === true,
     allowedOrigins: Array.from(
       new Set(origins.filter((o): o is string => typeof o === "string").map(normalizeOrigin).filter((o): o is string => Boolean(o))),
     ),
     whatsappNumber: normalizeWhatsappNumber(raw.siteWhatsappNumber),
+    whatsappTemplateId: rawTemplate.slice(0, 160),
   };
+}
+
+/**
+ * Destinos operacionais com funil próprio (Pós-Venda, Assistência/Suporte Técnico, Financeiro)
+ * criam card diretamente no funil do setor ao prosseguir no WhatsApp — sem poluir o FUNIL CWR.
+ * Destinos comerciais (Máquinas, Personnalité, Peças, Projetos, Análise SDR) nascem no FUNIL CWR (CONTATANDO).
+ */
+export function isCommercialSiteDestination(destinationKey?: string | null): boolean {
+  const key = String(destinationKey || "").trim().toUpperCase();
+  if (!key) return true;
+  if (key === "FINANCEIRO" || key === "3_AT" || key === "POS_VENDA") return false;
+  return true;
+}
+
+/** Mensagem limpa exibida no chat do site após o disparo confirmado do template oficial no WhatsApp. */
+export function buildSiteToWhatsappClosingMessage(clientName?: string | null): string {
+  const clean = (clientName || "").trim();
+  const isGeneric =
+    !clean ||
+    /^(cliente|contato|visitante|lead|whatsapp|sem nome)/i.test(clean) ||
+    /^\+?\d{6,20}$/.test(clean.replace(/[\s().-]/g, ""));
+  const first = !isGeneric ? clean.split(/\s+/)[0]?.replace(/[^\p{L}'-]/gu, "") || "" : "";
+  const greeting = first.length >= 2 ? `Perfeito, ${first}!` : "Perfeito!";
+  return `${greeting} Já reuni as informações do seu atendimento e acabei de te enviar uma mensagem no seu WhatsApp para darmos continuidade por lá com a nossa equipe.`;
 }
 
 /** Origem ausente só é aceita quando não há lista configurada. */

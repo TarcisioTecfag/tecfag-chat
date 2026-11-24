@@ -22,6 +22,7 @@ import { notifyOperatorLeadTransferred } from "../valentina/operator-notificatio
 import { sendSdrChannelText } from "../valentina/sdr-channel-sender";
 import { SdrDebouncer } from "../valentina/sdr-debouncer";
 import { getBrtTodayYmd, isOperatorOnLeaveToday } from "../valentina/rodizio-types";
+import { isSiteConversationId } from "../livechat/site-channel-policy";
 import { ensureCwrDealOnContacting, moveDealOnSdrApproval } from "./industrial-cwr-crm";
 import type { MachineDecision } from "./industrial-decisor";
 import { industrialHandoffMessage } from "./industrial-handoff";
@@ -419,15 +420,18 @@ export async function prepareIndustrialApproval(
       return { prepared: false, suggestion: null };
     }
 
-    // Garantir card no FUNIL CWR em CONTATANDO antes de aguardar aprovação
-    const cwrResult = await ensureCwrDealOnContacting(tx, {
-      tenantId: key.tenantId,
-      conversationId: key.conversationId,
-      contactId: input.contactId || conv.contactId,
-      clientName: input.clientName,
-      companyName: input.companyName,
-      actorName: getAiPersona(key.tenantId).name,
-    });
+    // Garantir card no FUNIL CWR em CONTATANDO antes de aguardar aprovação —
+    // EXCETO para o canal Site (`conv-lc-*`), onde nenhum card é criado no CRM antes de prosseguir no WhatsApp.
+    const cwrResult = isSiteConversationId(key.conversationId)
+      ? { ok: true, action: "skipped" as const, dealId: undefined, dealTitle: undefined }
+      : await ensureCwrDealOnContacting(tx, {
+          tenantId: key.tenantId,
+          conversationId: key.conversationId,
+          contactId: input.contactId || conv.contactId,
+          clientName: input.clientName,
+          companyName: input.companyName,
+          actorName: getAiPersona(key.tenantId).name,
+        });
 
     const suggestion = await computePendingApprovalSuggestion(tx, {
       tenantId: key.tenantId,

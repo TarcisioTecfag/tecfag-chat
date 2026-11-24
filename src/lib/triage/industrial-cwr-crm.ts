@@ -176,6 +176,8 @@ export async function ensureCwrDealOnContacting(
     companyName?: string | null;
     dealIdHint?: string | null;
     actorName?: string | null;
+    entryChannelOverride?: string | null;
+    sourceOverride?: string | null;
   },
 ): Promise<EnsureCwrContactingResult> {
   const runInTx = async (
@@ -371,8 +373,8 @@ export async function ensureCwrDealOnContacting(
       originalPipelineId: cwr.pipelineId,
       status: "open",
       operatorId: null,
-      entryChannel: contactRow?.entryChannel || "whatsapp",
-      source: contactRow?.firstSource || "WhatsApp",
+      entryChannel: params.entryChannelOverride || contactRow?.entryChannel || "whatsapp",
+      source: params.sourceOverride || contactRow?.firstSource || "WhatsApp",
       campaign: contactRow?.firstCampaign || null,
       utmSource: contactRow?.utmSource || null,
       utmMedium: contactRow?.utmMedium || null,
@@ -889,4 +891,205 @@ export async function findActiveDealsByConversationIds(
     }
   }
   return map;
+}
+
+/**
+ * Cria ou reutiliza o card no CRM exclusivamente quando o Fagner conclui a triagem no Site
+ * e prossegue para o WhatsApp (disparo de template oficial Meta):
+ * - Triagens comerciais (Máquinas, Personnalité, Peças, Análise SDR): cria/move no `FUNIL CWR → CONTATANDO`.
+ * - Triagens de setores operacionais (Pós-Venda, Assistência/Suporte Técnico, Financeiro):
+ *   cria/reutiliza diretamente no funil e etapa do respectivo setor (sem poluir o `FUNIL CWR`).
+ */
+export async function ensureSiteDealOnWhatsappHandoff(
+  tx: IndustrialTransaction,
+  params: {
+    tenantId: string;
+    whatsappConversationId: string;
+    siteConversationId: string;
+    contactId: string | null;
+    destinationKey: string | null;
+    targetPipelineId: string | null;
+    targetStageId: string | null;
+    clientName?: string | null;
+    companyName?: string | null;
+    actorName?: string | null;
+  },
+): Promise<EnsureCwrContactingResult> {
+  const {
+    tenantId,
+    whatsappConversationId,
+    siteConversationId,
+    contactId,
+    destinationKey,
+    targetPipelineId,
+    targetStageId,
+  } = params;
+
+  const normalizedKey = String(destinationKey || "").trim().toUpperCase();
+  const isOperationalOwnFunnel =
+    (normalizedKey === "FINANCEIRO" || normalizedKey === "3_AT" || normalizedKey === "POS_VENDA") &&
+    Boolean(targetPipelineId && targetStageId);
+
+  if (!isOperationalOwnFunnel) {
+    const cwrResult = await ensureCwrDealOnContacting(tx, {
+      tenantId,
+      conversationId: whatsappConversationId,
+      contactId,
+      clientName: params.clientName,
+      companyName: params.companyName,
+      actorName: params.actorName,
+      entryChannelOverride: "livechat",
+      sourceOverride: "Chat Site",
+    });
+    if (cwrResult.dealId && siteConversationId) {
+      await ensureConversationDealLinkInTx(tx, tenantId, siteConversationId, cwrResult.dealId, "auto_sdr");
+    }
+    return cwrResult;
+  }
+
+  await acquireCwrContactLock(tx, tenantId, contactId);
+  const now = new Date();
+  const persona = getAiPersona(tenantId);
+  const actorName = params.actorName || persona.name;
+
+  // Verifica se já existe card aberto nesse funil operacional para o contato/conversa
+  let existingDeal: typeof crmDeals.$inferSelect | null = null;
+  if (contactId) {
+    const [byContact] = await tx
+      .select({ deal: crmDeals })
+      .from(crmDealContacts)
+      .innerJoin(
+        crmDeals,
+        and(eq(crmDeals.id, crmDealContacts.dealId), eq(crmDeals.tenantId, tenantId)),
+      )
+      .where(
+        and(
+          eq(crmDealContacts.tenantId, tenantId),
+          eq(crmDealContacts.contactId, contactId),
+          eq(crmDeals.pipelineId, targetPipelineId!),
+          eq(crmDeals.status, "open"),
+        ),
+      )
+      .orderBy(desc(crmDeals.updatedAt), desc(crmDeals.createdAt))
+      .limit(1);
+    existingDeal = byContact?.deal || null;
+  }
+
+  if (existingDeal) {
+    await ensureConversationDealLinkInTx(tx, tenantId, whatsappConversationId, existingDeal.id, "auto_sdr");
+    if (siteConversationId) {
+      await ensureConversationDealLinkInTx(tx, tenantId, siteConversationId, existingDeal.id, "auto_sdr");
+    }
+    if (contactId) {
+      await ensureDealContactLinkInTx(tx, tenantId, existingDeal.id, contactId);
+    }
+    return {
+      ok: true,
+      action: "already_contacting",
+      dealId: existingDeal.id,
+      dealTitle: existingDeal.title,
+      pipelineId: existingDeal.pipelineId,
+      stageId: existingDeal.stageId,
+    };
+  }
+
+  let contactRow: typeof contacts.$inferSelect | null = null;
+  if (contactId) {
+    const [found] = await tx
+      .select()
+      .from(contacts)
+      .where(and(eq(contacts.tenantId, tenantId), eq(contacts.id, contactId)))
+      .limit(1);
+    contactRow = found || null;
+  }
+
+  const resolvedName =
+    (!isPlaceholderName(params.clientName) ? params.clientName?.trim() : null) ||
+    (!isPlaceholderName(contactRow?.name) ? contactRow?.name?.trim() : null) ||
+    contactRow?.phone ||
+    "Lead Site";
+  const resolvedCompany =
+    params.companyName && !isPlaceholderName(params.companyName) ? params.companyName.trim() : null;
+  const dealTitle = resolvedCompany ? `${resolvedName} - ${resolvedCompany}` : resolvedName;
+  const newDealId = `deal-${Date.now()}-${crypto.randomUUID().slice(0, 6)}`;
+
+  const sectorCtx = await loadDealSectorResolutionContext(tx, tenantId);
+  const resolvedSector = resolveDealCurrentSector(
+    {
+      pipelineId: targetPipelineId!,
+      originalPipelineId: targetPipelineId!,
+      operatorId: null,
+      sectorOrigin: null,
+      sectorCurrent: null,
+      customFields: {},
+      isTest: isTestEntityTitle(dealTitle),
+      title: dealTitle,
+    },
+    sectorCtx,
+  );
+
+  await tx.insert(crmDeals).values({
+    id: newDealId,
+    tenantId,
+    title: dealTitle,
+    accountId: contactRow?.accountId || null,
+    pipelineId: targetPipelineId!,
+    stageId: targetStageId!,
+    originalPipelineId: targetPipelineId!,
+    status: "open",
+    operatorId: null,
+    entryChannel: "livechat",
+    source: contactRow?.firstSource || "Chat Site",
+    campaign: contactRow?.firstCampaign || null,
+    utmSource: contactRow?.utmSource || null,
+    utmMedium: contactRow?.utmMedium || null,
+    utmCampaign: contactRow?.utmCampaign || null,
+    utmContent: contactRow?.utmContent || null,
+    utmTerm: contactRow?.utmTerm || null,
+    clickId: contactRow?.clickId || null,
+    landingPage: contactRow?.landingPage || null,
+    sectorOrigin: resolvedSector || "pos_venda",
+    sectorCurrent: resolvedSector || "pos_venda",
+    isTest: isTestEntityTitle(dealTitle),
+    lastActivityAt: now,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  if (contactId) {
+    await ensureDealContactLinkInTx(tx, tenantId, newDealId, contactId);
+  }
+  await ensureConversationDealLinkInTx(tx, tenantId, whatsappConversationId, newDealId, "auto_sdr");
+  if (siteConversationId) {
+    await ensureConversationDealLinkInTx(tx, tenantId, siteConversationId, newDealId, "auto_sdr");
+  }
+
+  await tx.insert(crmDealEvents).values({
+    id: `ev-site-wa-${Date.now()}-${crypto.randomUUID().slice(0, 6)}`,
+    tenantId,
+    dealId: newDealId,
+    eventType: "created",
+    toStageId: targetStageId!,
+    toStatus: "open",
+    operatorId: null,
+    metadata: {
+      origin: "auto_site_whatsapp_handoff",
+      actorName,
+      actorType: "ai_sdr",
+      siteConversationId,
+      conversationId: whatsappConversationId,
+      destinationKey: normalizedKey,
+      pipelineId: targetPipelineId!,
+    },
+    createdAt: now,
+  });
+
+  return {
+    ok: true,
+    action: "created_in_contacting",
+    dealId: newDealId,
+    dealTitle,
+    pipelineId: targetPipelineId!,
+    stageId: targetStageId!,
+  };
 }

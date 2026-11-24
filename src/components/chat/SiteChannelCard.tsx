@@ -15,12 +15,23 @@ import {
 import { toast } from "sonner";
 import { SystemTooltip } from "@/components/ui/tooltip";
 
+interface ApprovedMetaTemplateOption {
+  id: string;
+  metaTemplateId: string;
+  name: string;
+  language: string;
+  category: string;
+  bodyText: string;
+}
+
 interface SiteChannelState {
   sdrConfigured: boolean;
   sdrEnabled: boolean;
   siteChannelEnabled: boolean;
   siteAllowedOrigins: string[];
   siteWhatsappNumber?: string;
+  siteWhatsappTemplateId?: string;
+  approvedTemplates?: ApprovedMetaTemplateOption[];
 }
 
 export function SiteChannelCard({ personaName, backendUrl }: { personaName: string; backendUrl: string }) {
@@ -28,6 +39,7 @@ export function SiteChannelCard({ personaName, backendUrl }: { personaName: stri
   const [enabled, setEnabled] = useState(false);
   const [originsText, setOriginsText] = useState("");
   const [whatsappNumber, setWhatsappNumber] = useState("");
+  const [whatsappTemplateId, setWhatsappTemplateId] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -46,6 +58,7 @@ export function SiteChannelCard({ personaName, backendUrl }: { personaName: stri
         setEnabled(Boolean(data.siteChannelEnabled));
         setOriginsText((data.siteAllowedOrigins || []).join("\n"));
         setWhatsappNumber(data.siteWhatsappNumber || "");
+        setWhatsappTemplateId(data.siteWhatsappTemplateId || "");
       } catch {
         if (!cancelled) setLoadError("Erro de comunicação com o servidor.");
       }
@@ -65,7 +78,12 @@ export function SiteChannelCard({ personaName, backendUrl }: { personaName: stri
       const res = await fetch(`${backendUrl}/api/valentina/site-channel`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ siteChannelEnabled: enabled, siteAllowedOrigins, siteWhatsappNumber: whatsappNumber }),
+        body: JSON.stringify({
+          siteChannelEnabled: enabled,
+          siteAllowedOrigins,
+          siteWhatsappNumber: whatsappNumber,
+          siteWhatsappTemplateId: whatsappTemplateId,
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -75,6 +93,7 @@ export function SiteChannelCard({ personaName, backendUrl }: { personaName: stri
       setState((prev) => (prev ? { ...prev, ...data } : prev));
       setOriginsText((data.siteAllowedOrigins || []).join("\n"));
       setWhatsappNumber(data.siteWhatsappNumber || "");
+      setWhatsappTemplateId(data.siteWhatsappTemplateId || "");
       toast.success(enabled ? `Canal do site ativado para o ${personaName}.` : "Canal do site desativado.");
     } catch {
       toast.error("Erro de comunicação com o servidor.");
@@ -303,6 +322,57 @@ export function SiteChannelCard({ personaName, backendUrl }: { personaName: stri
                 O visitante recebe um token temporário (30 min) que transfere automaticamente histórico, resumo e consultor responsável para o WhatsApp.
               </p>
             </div>
+          </div>
+
+          {/* Template Meta Pós-Triagem (Site -> WhatsApp) */}
+          <div className="rounded-xl border border-border bg-muted/15 p-4 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <label className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+                <Sparkles className="h-3.5 w-3.5 text-emerald-600" />
+                Template WhatsApp Pós-Triagem do Site (Disparo Automático)
+              </label>
+              <span
+                className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold border ${
+                  whatsappTemplateId
+                    ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/25"
+                    : "bg-amber-500/10 text-amber-600 border-amber-500/25"
+                }`}
+              >
+                {whatsappTemplateId ? "Disparo WhatsApp Ativo" : "Aguardando Template"}
+              </span>
+            </div>
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              Enquanto o visitante conversa no site, <strong>nenhum card é criado no CRM</strong> (evitando poluição no FUNIL CWR). Assim que o {personaName} concluir a triagem, ele dispara automaticamente este template aprovado na Meta para o WhatsApp do cliente, cria o card no funil correspondente (CWR p/ comercial ou funil do setor p/ Pós-Venda/Suporte/Financeiro) e coloca o atendimento no WhatsApp para Aprovação SDR herdando 100% das informações.
+            </p>
+            <select
+              value={whatsappTemplateId}
+              onChange={(e) => setWhatsappTemplateId(e.target.value)}
+              className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+            >
+              <option value="">Nenhum template selecionado (mantém triagem apenas no site)</option>
+              {(state.approvedTemplates || []).map((tpl) => {
+                const value = tpl.metaTemplateId || tpl.name;
+                return (
+                  <option key={tpl.id} value={value}>
+                    {tpl.name} ({tpl.category} · {tpl.language})
+                  </option>
+                );
+              })}
+            </select>
+            {(() => {
+              const selectedTpl = (state.approvedTemplates || []).find(
+                (t) => t.metaTemplateId === whatsappTemplateId || t.name === whatsappTemplateId || t.id === whatsappTemplateId,
+              );
+              if (!selectedTpl) return null;
+              return (
+                <div className="rounded-lg border border-border/70 bg-background/80 px-3 py-2 text-[11px] text-muted-foreground whitespace-pre-wrap leading-relaxed">
+                  <span className="block text-[10px] font-semibold uppercase tracking-wide text-foreground/80 mb-1">
+                    Prévia do template ({selectedTpl.name})
+                  </span>
+                  {selectedTpl.bodyText}
+                </div>
+              );
+            })()}
           </div>
 
           {/* Rodapé de Ação */}
