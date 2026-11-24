@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { FileText, X, ExternalLink, Download, UserCheck, Code } from "lucide-react";
-import { BACKEND_URL } from "../../config";
+import { BACKEND_URL, TENANT_ID } from "../../config";
 
 export interface Attachment {
   id: string;
@@ -77,7 +77,11 @@ function extractInlineAttachments(text: string): {
     const lower = rawUrl.toLowerCase();
     const isPdf = lower.endsWith(".pdf");
     const mimeType = isPdf ? "application/pdf" : "image/jpeg";
-    const name = decodeURIComponent(rawUrl.split("/").pop()?.split("?")[0] || (isPdf ? "Manual.pdf" : "Imagem"));
+    const rawSegment = decodeURIComponent(rawUrl.split("/").pop()?.split("?")[0] || (isPdf ? "Manual.pdf" : "Imagem"));
+    const name =
+      rawSegment === "catalog-media" || /^kf-[a-z0-9-]+(?:\.[a-z0-9]+)?$/i.test(rawSegment)
+        ? "Foto do equipamento"
+        : rawSegment;
     inlineAttachments.push({ url: rawUrl, name, mimeType });
   }
   const cleaned = text.replace(rx, "").trim();
@@ -833,11 +837,19 @@ export const ChatBubble: React.FC<ChatBubbleProps> = (props) => {
           {agentAttachments && agentAttachments.length > 0 && (
             <div style={{ marginBottom: 8, display: "flex", flexDirection: "column", gap: 8 }}>
               {agentAttachments.map((att, idx) => {
-                const fullUrl = att.url.startsWith("/") ? `${BACKEND_URL}${att.url}` : att.url;
+                const normalizedAttUrl = att.url.startsWith("/knowledge-media/")
+                  ? `/api/livechat/catalog-media?tenantId=${encodeURIComponent(TENANT_ID)}&file=${encodeURIComponent(att.url.replace(/^\/+knowledge-media\//i, "").split("?")[0])}`
+                  : att.url;
+                const fullUrl = normalizedAttUrl.startsWith("/")
+                  ? `${BACKEND_URL}${normalizedAttUrl}`
+                  : normalizedAttUrl;
                 const isImage = att.mimeType.startsWith("image/");
                 const isVideo = att.mimeType.startsWith("video/");
                 const isPdf = att.mimeType === "application/pdf";
-                const cleanName = att.name.replace(/^\d+-/, "").replace(/_/g, " ");
+                const rawCleanName = att.name.replace(/^\d+-/, "").replace(/_/g, " ");
+                const cleanName = /^kf-[a-z0-9-]+(?:\.[a-z0-9]+)?$/i.test(rawCleanName)
+                  ? "Foto do equipamento"
+                  : rawCleanName;
 
                 if (isImage) {
                   return (
@@ -855,7 +867,8 @@ export const ChatBubble: React.FC<ChatBubbleProps> = (props) => {
                       }}
                       onClick={() => setLightboxSrc(fullUrl)}
                       onError={(e) => {
-                        (e.target as HTMLImageElement).style.opacity = "0.4";
+                        const imgEl = e.currentTarget as HTMLImageElement;
+                        imgEl.style.display = "none";
                       }}
                     />
                   );

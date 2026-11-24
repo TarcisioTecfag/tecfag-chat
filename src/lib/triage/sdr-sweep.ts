@@ -3,8 +3,101 @@ import { agentFlowStates, contacts, conversations, messages, operators } from ".
 import type { IndustrialDatabase } from "./industrial-rodizio-store";
 import { getAiPersona } from "../ai-persona";
 import { projectIndustrialMonitoring } from "./industrial-monitor";
-import { normalizeIndustrialFunnel } from "./industrial-policy";
+import {
+  isPostCloseCourtesyOnlyMessage,
+  normalizeIndustrialFunnel,
+} from "./industrial-policy";
+import { isBotClosingOrInformativeMessage } from "./industrial-silence-policy";
 import { isSiteConversationId } from "../livechat/site-channel-policy";
+
+const SWEEP_CLOSED_INFORMATIVE_STEPS = new Set([
+  "concluido (informativo)",
+  "encerrado (sem interesse)",
+  "ignorado (ura/bot externo)",
+]);
+
+const SWEEP_BOT_WAITING_CLIENT_RE =
+  /\?|conseguiu ver minha [uú]ltima mensagem|vou deixar nosso atendimento em aberto/i;
+
+export type SweepPendingBucket =
+  | "skip_closed_informative"
+  | "awaiting_ai_handoff_stuck"
+  | "awaiting_ai_client_waiting"
+  | "awaiting_client";
+
+/**
+ * Classifica com precisão uma triagem ainda em `automacao` (fora de `awaiting_approval`)
+ * evitando falsos positivos de `awaiting_ai` quando:
+ * - o fluxo já é informativo/encerrado (`5B_CURRICULO`, `5C_COMPRAS`, `Concluído (Informativo)`,
+ *   `Encerrado (Sem interesse)`) ou o cliente apenas enviou cortesia final ("👍🙏", "ok");
+ * - o estado está em `ready`, porém a última mensagem foi do próprio bot fazendo uma pergunta
+ *   de confirmação ("Sua empresa é a X, certo?") ou follow-up de silêncio (aguarda o cliente!).
+ */
+export function classifySweepPendingBucket(params: {
+  monitoringState?: string | null;
+  currentStep?: string | null;
+  subflow?: string | null;
+  lastMessageSender?: "client" | "bot" | "agent" | null;
+  lastMessageContent?: string | null;
+}): SweepPendingBucket {
+  const stepNorm = String(params.currentStep || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+  const subflowCode = String(params.subflow || "").trim().toUpperCase();
+  const lastContent = String(params.lastMessageContent || "").trim();
+
+  const isInformativeOrClosed =
+    SWEEP_CLOSED_INFORMATIVE_STEPS.has(stepNorm) ||
+    subflowCode === "5B_CURRICULO" ||
+    subflowCode === "5C_COMPRAS";
+
+  if (isInformativeOrClosed) {
+    if (
+      params.lastMessageSender !== "client" ||
+      !lastContent ||
+      isPostCloseCourtesyOnlyMessage(lastContent)
+    ) {
+      return "skip_closed_informative";
+    }
+  }
+
+  if (
+    params.lastMessageSender === "client" &&
+    lastContent &&
+    isPostCloseCourtesyOnlyMessage(lastContent) &&
+    params.monitoringState !== "handoff_pending" &&
+    params.monitoringState !== "waiting_for_team"
+  ) {
+    return "awaiting_client";
+  }
+
+  if (
+    params.monitoringState === "handoff_pending" ||
+    params.monitoringState === "waiting_for_team"
+  ) {
+    return "awaiting_ai_handoff_stuck";
+  }
+
+  if (params.monitoringState === "ready") {
+    if (
+      params.lastMessageSender === "bot" &&
+      (SWEEP_BOT_WAITING_CLIENT_RE.test(lastContent) ||
+        isBotClosingOrInformativeMessage(lastContent))
+    ) {
+      return "awaiting_client";
+    }
+    return "awaiting_ai_handoff_stuck";
+  }
+
+  if (params.lastMessageSender === "client") {
+    return "awaiting_ai_client_waiting";
+  }
+
+  return "awaiting_client";
+}
 
 export type SdrSweepPeriod = "today" | "range" | "all";
 
@@ -495,12 +588,17 @@ export async function runSdrSweep(
       continue;
     }
 
-    const isHandoffStuck =
-      monitoring?.state === "handoff_pending" ||
-      monitoring?.state === "waiting_for_team" ||
-      monitoring?.state === "ready";
+    const pendingBucket = classifySweepPendingBucket({
+      monitoringState: monitoring?.state || null,
+      currentStep: fs.currentStep || null,
+      subflow: typeof meta?.subflow === "string" ? meta.subflow : null,
+      lastMessageSender,
+      lastMessageContent: lastMsg?.content || null,
+    });
 
-    if (isHandoffStuck) {
+    if (pendingBucket === "skip_closed_informative") {
+      stoppedCount += 1;
+    } else if (pendingBucket === "awaiting_ai_handoff_stuck") {
       awaitingFagner.push({
         ...baseItem,
         statusLabel: monitoring?.label || "Encaminhamento pendente",
@@ -509,7 +607,7 @@ export async function runSdrSweep(
             ? "Pronto para transferir, aguardando equipe disponível"
             : "Triagem pronta com encaminhamento pendente",
       });
-    } else if (lastMessageSender === "client") {
+    } else if (pendingBucket === "awaiting_ai_client_waiting") {
       awaitingFagner.push({
         ...baseItem,
         statusLabel: `Aguardando ${persona.name}`,

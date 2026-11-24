@@ -169,6 +169,6 @@ describe("Fagner — Unificação do catálogo DB, anti-alucinação e trava de 
     expect(settingsRouteSrc).toContain("invalidateKnowledgeCache(tenantId)");
     expect(decisorRuntimeSrc).toContain("invalidateKnowledgeCache(tenantId)");
     expect(sdrEngineSrc).toContain("allowedContextText: industrialTriage ? knowledgeContext : undefined");
-    expect(sdrEngineSrc).toContain("industrialTriage && !isExplicitClientPhotoReq && !knowledgeContext.includes(imgUrl)");
+    expect(sdrEngineSrc).toContain("if (!industrialPhotoAllowed) return false;");
   });
 });

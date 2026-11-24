@@ -97,7 +97,7 @@ import {
   sendSdrChannelText,
 } from "./sdr-channel-sender";
 import { getAiPersona, isSdrTenant } from "../ai-persona";
-import { isSiteConversationId } from "../livechat/site-channel-policy";
+import { buildSiteCatalogMediaUrl, isSiteConversationId } from "../livechat/site-channel-policy";
 import { pushSiteTyping } from "../livechat/site-delivery";
 import { triggerOutboundCallInternal } from "../voice/outbound-call-service";
 import { generateDynamicPttAudio } from "../voice/elevenlabs-dynamic-tts";
@@ -823,12 +823,19 @@ INSTRUÇÕES OBRIGATÓRIAS:
         });
       }
 
+      const hasPendingCompanyConfirmation = Boolean(
+        (fetchedCnpjInfo?.valid && fetchedCnpjInfo?.razaoSocial) ||
+          (knownClient && knownClientConfirmation === "pending"),
+      );
+      const isExplicitClientPhotoReqEarly = isExplicitMachinePhotoRequest(combinedBatchText);
+
       const industrialMachineSuggestionGate = industrialTriage
         ? evaluateIndustrialMachineSuggestionGate({
             currentDataSummary,
             batchSummary,
             conversationHistoryText,
             subflow: metaState.subflow || null,
+            hasPendingCompanyConfirmation,
           })
         : null;
 
@@ -836,7 +843,12 @@ INSTRUÇÕES OBRIGATÓRIAS:
         tenantId,
         `${batchSummary}\n${conversationHistoryText}`,
         industrialMachineSuggestionGate
-          ? { suppressIndustrialModelListing: industrialMachineSuggestionGate.suppressModelListing }
+          ? {
+              suppressIndustrialModelListing: industrialMachineSuggestionGate.suppressModelListing,
+              onlyExplicitMatchedModels: industrialMachineSuggestionGate.onlyExplicitMatchedModels,
+              allowIndustrialPhotoSending:
+                isExplicitClientPhotoReqEarly && !industrialMachineSuggestionGate.suppressModelListing,
+            }
           : undefined,
       );
 
@@ -1238,6 +1250,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
               siteContext,
               systemOperators,
               subflow: metaState.subflow || null,
+              hasPendingCompanyConfirmation,
             })
           : valemPromptText;
 
@@ -1731,7 +1744,6 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           isBotClosingOrInformativeMessage(aiResult.messagesToSend.join(" "));
         const implicitReadyHandoff =
           Boolean(industrialReadiness?.ready) &&
-          !hasPendingQuestion &&
           claimsIndustrialHandoffEffect(aiResult.messagesToSend);
         if (isInformativeResolution) {
           isCompleted = !useVtexDirectReply;
@@ -1745,7 +1757,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
               route: industrialRoute,
               data: updatedCollectedData,
               isCompleted: Boolean(aiResult.isCompleted) || implicitReadyHandoff,
-              hasPendingQuestion,
+              hasPendingQuestion: implicitReadyHandoff ? false : hasPendingQuestion,
             });
         }
       } else if (hasVitalInformation) {
@@ -2440,24 +2452,17 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
             industrialHandoff?.status === "resolved" ||
             industrialHandoff?.status === "transferred");
 
-        const clientMentionedSpecificMachineModel =
-          /\b(?:[a-z]{2,6}[- ]?\d{2,4}[a-z0-9-]*|pamq[a-z0-9]+|pratic\s*seal|softech\s*\d+|vsf[- ]?\d*|dz[- ]?\d+|syf[- ]?\d+|dgf[- ]?\d+)\b/i.test(
-            combinedBatchText
-          );
+        const industrialPhotoAllowed =
+          isExplicitClientPhotoReq &&
+          !isIndustrialClosingOrHandoffTurn &&
+          !industrialMachineSuggestionGate?.suppressModelListing;
 
         let imageUrlsToSend = Array.from(new Set(rawImageUrlsToSend)).filter((imgUrl) => {
-          // No modo industrial (Fagner), bloqueia [SEND_IMAGE:URL] inventado ou não presente no contexto deste turno
-          // quando o cliente não pediu foto explicitamente.
-          if (industrialTriage && !isExplicitClientPhotoReq && !knowledgeContext.includes(imgUrl)) {
-            return false;
-          }
-          // Anti-spam industrial: não envia foto não solicitada em turno de fechamento/aprovação,
-          // nem depois que o Fagner já enviou 1 foto proativa na janela de 24h, nem quando o cliente
-          // falou apenas termos genéricos sem citar modelo específico.
-          if (industrialTriage && !isExplicitClientPhotoReq) {
-            if (isIndustrialClosingOrHandoffTurn) return false;
-            if (botImagesSentIn24hCount >= 1) return false;
-            if (!clientMentionedSpecificMachineModel) return false;
+          // No modo industrial (Fagner): NUNCA envia fotos proativamente ou durante a triagem sem
+          // pedido explícito de foto/imagem do cliente (e bloqueia se ainda não há modelo específico ou coleta completa).
+          if (industrialTriage) {
+            if (!industrialPhotoAllowed) return false;
+            return true;
           }
           if (isExplicitClientPhotoReq) return true;
           const lowerUrl = imgUrl.toLowerCase();
@@ -2471,17 +2476,14 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         });
 
         if (industrialTriage) {
-          const maxIndustrialImagesPerTurn = isExplicitClientPhotoReq ? 3 : 1;
+          const maxIndustrialImagesPerTurn = industrialPhotoAllowed ? 3 : 0;
           imageUrlsToSend = imageUrlsToSend.slice(0, maxIndustrialImagesPerTurn);
         }
 
         if (imageUrlsToSend.length === 0) {
           const combinedTurnText = `${combinedBatchText}\n${aiResult.messagesToSend.join("\n")}`;
           const allowProactivePhotoFallback = industrialTriage
-            ? isExplicitClientPhotoReq ||
-              (!isIndustrialClosingOrHandoffTurn &&
-                botImagesSentIn24hCount === 0 &&
-                clientMentionedSpecificMachineModel)
+            ? industrialPhotoAllowed
             : isExplicitClientPhotoReq ||
               /\b(?:envasadora|seladora|datador|empacotadora|fechadora|tampadora|rotuladora|encapsuladora|c[aá]psula|dosadora|alimentador|esteira|t[uú]nel|m[aá]quina|equipamento)\b/i.test(
                 combinedTurnText
@@ -2559,7 +2561,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
               if (industrialTriage) {
                 industrialImageItems.push({ text: "", image: { buffer: imgBuffer, mimeType, fileName,
-                  ...(isSiteConversationId(conversationId) ? { publicUrl: imageRelUrl } : {}) } });
+                  ...(isSiteConversationId(conversationId) ? { publicUrl: buildSiteCatalogMediaUrl(tenantId, imageRelUrl) } : {}) } });
                 continue;
               }
               await sendBotPresence(tenantId, conversationId, contactPhone, "composing");

@@ -8,8 +8,20 @@ import {
 
 export interface IndustrialOutboundSample {
   senderType: string;
+  senderName?: string | null;
   sentAt: Date | string;
   isInternalNote?: boolean | null;
+}
+
+/**
+ * Identifica mensagens enviadas pelo próprio canal SDR interno (ex.: template Meta disparado
+ * como "Fagner (SDR)" / "Valentina (SDR)" em `queueState = "automacao"` sem operador atribuído),
+ * evitando falso bloqueio de `external_agent_active` quando salvas como `senderType = "agent"`.
+ */
+export function isOwnSdrOutboundSender(senderName?: string | null): boolean {
+  const trimmed = String(senderName || "").trim();
+  if (!trimmed) return false;
+  return /\(\s*sdr\s*\)$/i.test(trimmed);
 }
 
 export interface IndustrialSdrGuardInput {
@@ -202,7 +214,12 @@ export function evaluateIndustrialSdrOwnershipGuard(
   }
 
   const latest = input.latestOutbound;
-  if (latest && !latest.isInternalNote && latest.senderType === "agent") {
+  if (
+    latest &&
+    !latest.isInternalNote &&
+    latest.senderType === "agent" &&
+    !isOwnSdrOutboundSender(latest.senderName)
+  ) {
     const nowMs = (input.now || new Date()).getTime();
     const sentMs = toMillis(latest.sentAt);
     const windowMs = input.externalAgentWindowMs ?? DEFAULT_EXTERNAL_AGENT_WINDOW_MS;
@@ -248,6 +265,7 @@ export async function fetchLatestPublicOutboundMessage(
   const rows = await database
     .select({
       senderType: messages.senderType,
+      senderName: messages.senderName,
       sentAt: messages.sentAt,
       isInternalNote: messages.isInternalNote,
     })

@@ -12,7 +12,7 @@ import {
 } from "../../db/schema";
 import { getAiPersona } from "../ai-persona";
 import { siteGateway } from "../livechat/site-gateway";
-import { visitorIdFromSiteConversation } from "../livechat/site-channel-policy";
+import { buildSiteCatalogMediaUrl, visitorIdFromSiteConversation } from "../livechat/site-channel-policy";
 import { SessionManager } from "../baileys/session-manager";
 import { dispatchStored, storedResult } from "../whatsapp/dispatch";
 import { outboundEnvelope } from "../whatsapp/envelope";
@@ -195,7 +195,9 @@ async function prepareBatch(input: BotBatch) {
             quotedMessageId: item.quotedMessageId,
           }),
           industrialDelivery: identity,
-          sitePublicUrl: item.image?.publicUrl || null,
+          sitePublicUrl: item.image?.publicUrl
+            ? buildSiteCatalogMediaUrl(input.tenantId, item.image.publicUrl)
+            : null,
         },
         sentAt: new Date(now.getTime() + sequence),
         updatedAt: now,
@@ -291,10 +293,13 @@ async function dispatchSiteBot(message: typeof messages.$inferSelect) {
           status: "active",
         })
         .returning();
-    const imageUrl =
+    const rawImageUrl =
       typeof current.metaDetails.sitePublicUrl === "string"
         ? current.metaDetails.sitePublicUrl
         : null;
+    const imageUrl = rawImageUrl
+      ? buildSiteCatalogMediaUrl(current.tenantId, rawImageUrl)
+      : null;
     const widgetContent = imageUrl
       ? `[Anexo_Cliente: ${imageUrl}]`
       : String(current.metaDetails.text || current.content);
@@ -339,7 +344,13 @@ async function dispatchSiteBot(message: typeof messages.$inferSelect) {
       .limit(1);
     return latest ? storedResult(latest) : null;
   }
-  const imageUrl = saved.canonical.metaDetails.sitePublicUrl;
+  const rawSavedImageUrl =
+    typeof saved.canonical.metaDetails.sitePublicUrl === "string"
+      ? saved.canonical.metaDetails.sitePublicUrl
+      : null;
+  const imageUrl = rawSavedImageUrl
+    ? buildSiteCatalogMediaUrl(message.tenantId, rawSavedImageUrl)
+    : null;
   siteGateway.push(
     message.tenantId,
     saved.visitorId,

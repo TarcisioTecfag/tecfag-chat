@@ -10,7 +10,7 @@ import { conversations, mediaFiles, messages } from "../../db/schema";
 import { SessionManager } from "../baileys/session-manager";
 import { getOrCreateActiveChat, getVisitorById, saveMessage } from "./livechatStorage";
 import { siteGateway } from "./site-gateway";
-import { SITE_PROVIDER, visitorIdFromSiteConversation } from "./site-channel-policy";
+import { buildSiteCatalogMediaUrl, SITE_PROVIDER, visitorIdFromSiteConversation } from "./site-channel-policy";
 import { persistSiteOperatorMessage } from "./site-message-store";
 import { getAiPersona } from "../ai-persona";
 import type { IndustrialDeliveryContext } from "../valentina/industrial-delivery-context";
@@ -190,7 +190,8 @@ export async function deliverSiteCatalogImage(params: {
   expectedOperatorId?: string | null;
   deliveryContext?: IndustrialDeliveryContext;
 }) {
-  const { tenantId, conversationId, publicUrl, imgBuffer, mimeType, fileName, senderName } = params;
+  const { tenantId, conversationId, imgBuffer, mimeType, fileName, senderName } = params;
+  const publicUrl = buildSiteCatalogMediaUrl(tenantId, params.publicUrl);
   if (getAiPersona(tenantId).triagePolicy === "industrial") {
     const { sendIndustrialBotBatch } = await import("../valentina/industrial-outbound");
     const result = await sendIndustrialBotBatch({ tenantId, conversationId, scope: `site-catalog-${publicUrl}`,

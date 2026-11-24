@@ -35,7 +35,7 @@ import { getAuthSessionByToken } from "../auth-session";
 import { canMonitorAllSiteVisitors } from "../access-control/channel-permissions";
 import { isSdrTenant } from "../ai-persona";
 import { siteGateway } from "./site-gateway";
-import { clampSiteText, isSiteOriginAllowed } from "./site-channel-policy";
+import { buildSiteCatalogMediaUrl, clampSiteText, isSiteOriginAllowed } from "./site-channel-policy";
 import { captureSiteContext, mergeSiteContexts, siteProductInquiryText, type SiteContext } from "./site-context";
 import {
   applySiteIdentity,
@@ -391,7 +391,7 @@ async function handleVisitorMessage(
         if (msg.sender === "ai" || msg.sender === "operator") {
           const msgContent =
             msg.contentType === "image" && msg.mediaUrl
-              ? `[Anexo_Cliente: ${msg.mediaUrl}]`
+              ? `[Anexo_Cliente: ${buildSiteCatalogMediaUrl(tenantId, msg.mediaUrl)}]`
               : msg.content || "";
           if (!msgContent || /^\[[A-Z0-9_]+[:\]]/.test(msgContent.trim())) continue;
           send(conn.ws, {

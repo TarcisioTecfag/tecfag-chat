@@ -30,12 +30,35 @@ export async function runVtexStoreTurn(
     !policy.catalog ||
     (request.intent === "price" && !policy.price) ||
     (request.intent === "shipping" && !policy.shipping)
-  )
+  ) {
+    if (
+      input.channel === "whatsapp" &&
+      policy.catalog &&
+      (request.intent === "price" || request.intent === "shipping")
+    ) {
+      const blockedTopic =
+        request.intent === "price"
+          ? "valores, preços ou condições comerciais"
+          : "frete e prazo de entrega";
+      return {
+        messages: [blockedVtexAnswer(input.channel, request.intent)],
+        evidence: null,
+        mode: "ai_context" as const,
+        aiContext: [
+          `DIRETRIZ DE POLÍTICA COMERCIAL NO WHATSAPP (${request.intent.toUpperCase()} RESTRITO):`,
+          `- O cliente perguntou sobre ${blockedTopic}.`,
+          `- NUNCA informe, estime ou invente valores em R$, descontos, frete ou prazo de entrega.`,
+          `- Explique de forma breve, natural e humana que o especialista comercial confirma ${blockedTopic} aqui mesmo no WhatsApp assim que receber os detalhes do projeto (NUNCA repita frases robóticas idênticas se você já explicou isso em turno anterior).`,
+          `- Responda também quaisquer outras solicitações feitas na mesma mensagem (ex.: pedido de vídeo, dúvida técnica ou aplicação) e dê continuidade natural à próxima pergunta pendente da triagem.`,
+        ].join("\n"),
+      };
+    }
     return {
       messages: [blockedVtexAnswer(input.channel, request.intent)],
       evidence: null,
       mode: "direct_reply" as const,
     };
+  }
   if (!request.query)
     return {
       messages: [

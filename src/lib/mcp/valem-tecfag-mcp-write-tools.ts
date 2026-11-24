@@ -3001,6 +3001,13 @@ export async function executeExtendedMcpTool(
 
       SdrDebouncer.getInstance().clearSession(conversationId);
 
+      const effectiveOperatorId = operator?.id ?? conv.operatorId ?? null;
+      const isSdrAutomatedTemplate =
+        !effectiveOperatorId &&
+        (conv.queueState === "automacao" ||
+          /\(\s*sdr\s*\)$/i.test(senderName) ||
+          Boolean(idempotencyKey && idempotencyKey.startsWith("rd-sdr-tpl:")));
+
       const result = await outboundQueue.enqueueAndSend({
         idempotencyKey,
         tenantId,
@@ -3011,7 +3018,8 @@ export async function executeExtendedMcpTool(
         templateName: selected.name,
         templateLanguage: selected.language,
         templateComponents,
-        operatorId: operator?.id ?? conv.operatorId ?? null,
+        operatorId: effectiveOperatorId,
+        senderType: isSdrAutomatedTemplate ? "bot" : "agent",
         senderName,
         isInternalNote: false,
       });

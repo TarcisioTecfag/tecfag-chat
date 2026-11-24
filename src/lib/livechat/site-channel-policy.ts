@@ -226,3 +226,65 @@ export function stripHandoffState(metadata: Record<string, unknown> | null | und
   }
   return copy;
 }
+
+const SAFE_MEDIA_TENANT_ID_RE = /^[a-z0-9][a-z0-9_-]{1,39}$/i;
+const SAFE_CATALOG_FILE_ID_RE = /^(kf-[a-z0-9][a-z0-9_-]{2,120})(?:\.(png|jpe?g|webp|gif))?$/i;
+
+export const LIVECHAT_CATALOG_MEDIA_PATH = "/api/livechat/catalog-media";
+
+export const SITE_CATALOG_IMAGE_MIME_MAP: Record<string, string> = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+  gif: "image/gif",
+};
+
+export function isValidSiteMediaTenantId(tenantId: string | null | undefined): boolean {
+  return SAFE_MEDIA_TENANT_ID_RE.test(String(tenantId || "").trim());
+}
+
+export function parseCatalogMediaFileParam(raw: string | null | undefined): {
+  fileId: string;
+  ext: string | null;
+} | null {
+  const cleaned = String(raw || "")
+    .trim()
+    .replace(/^\/+knowledge-media\//i, "")
+    .split("?")[0]
+    .split("#")[0];
+  if (!cleaned || cleaned.includes("/") || cleaned.includes("\\") || cleaned.includes("..")) {
+    return null;
+  }
+  const match = cleaned.match(SAFE_CATALOG_FILE_ID_RE);
+  if (!match) return null;
+  return {
+    fileId: match[1],
+    ext: match[2] ? match[2].toLowerCase() : null,
+  };
+}
+
+/**
+ * Converte uma URL interna de catálogo (`/knowledge-media/kf-...png`) em URL pública
+ * servida diretamente do banco (`knowledge_files`) com isolamento por `tenantId`.
+ */
+export function buildSiteCatalogMediaUrl(tenantId: string, rawUrlOrFileName: string): string {
+  const trimmed = String(rawUrlOrFileName || "").trim();
+  if (!trimmed) return "";
+  if (trimmed.startsWith(`${LIVECHAT_CATALOG_MEDIA_PATH}?`)) {
+    return trimmed;
+  }
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+  const parsed = parseCatalogMediaFileParam(trimmed);
+  if (!parsed || !isValidSiteMediaTenantId(tenantId)) {
+    return trimmed;
+  }
+  const fileToken = parsed.ext ? `${parsed.fileId}.${parsed.ext}` : parsed.fileId;
+  const params = new URLSearchParams({
+    tenantId: tenantId.trim(),
+    file: fileToken,
+  });
+  return `${LIVECHAT_CATALOG_MEDIA_PATH}?${params.toString()}`;
+}

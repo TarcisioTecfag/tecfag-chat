@@ -99,8 +99,12 @@ export type IndustrialMachineSuggestionMode =
 export interface IndustrialMachineSuggestionGateResult {
   mode: IndustrialMachineSuggestionMode;
   suppressModelListing: boolean;
+  onlyExplicitMatchedModels: boolean;
+  hasName: boolean;
+  hasCompanyOrDocument: boolean;
   hasApplication: boolean;
   hasVolume: boolean;
+  isFullCollectionComplete: boolean;
   clientMentionedSpecificModel: boolean;
   missingPrerequisites: string[];
   directive: string;
@@ -180,22 +184,101 @@ function normalizeGateText(text: string): string {
     .toLowerCase();
 }
 
-function hasExplicitMachineModelCode(text: string): boolean {
+const NON_MODEL_CODES = new Set([
+  "nr12",
+  "nr10",
+  "nr13",
+  "nr35",
+  "iso9001",
+  "220v",
+  "380v",
+  "110v",
+  "127v",
+]);
+
+const NON_MODEL_STRICT_PREFIXES = new Set([
+  "mm",
+  "cm",
+  "kg",
+  "ml",
+  "lt",
+  "un",
+  "hr",
+  "min",
+  "seg",
+  "dia",
+  "mes",
+  "ano",
+  "qtd",
+  "pct",
+  "emb",
+  "cx",
+  "pote",
+  "saco",
+  "lote",
+  "nf",
+  "nr",
+  "rs",
+  "br",
+  "sp",
+  "rj",
+  "mg",
+  "pr",
+  "sc",
+  "ba",
+  "pe",
+  "ce",
+  "go",
+  "df",
+  "es",
+  "pa",
+  "ma",
+  "pb",
+  "rn",
+  "al",
+  "se",
+  "pi",
+  "to",
+  "ro",
+  "ac",
+  "ap",
+  "rr",
+  "am",
+  "mt",
+  "ms",
+]);
+
+export function hasExplicitMachineModelCode(text: string): boolean {
   const norm = normalizeGateText(text);
   if (!norm.trim()) return false;
-  if (/\b(?:pamq[a-z0-9]{3,}|pratic\s*seal|softech\s*\d+)\b/i.test(norm)) {
+  if (
+    /\b(?:pamq[a-z0-9]{3,}|pratic\s*seal|softech\s*\d*|diamond\s*flow|diamond\s*plus|union\s*(?:plus|pro|advance)|sensation\s*line|genius\s*\d+)\b/i.test(
+      norm,
+    )
+  ) {
     return true;
   }
   const knownPrefixRe =
-    /\b(?:vsf|dz|syf|dgf|apf|bsf|frp|frm|tcf|cf|sf|ev|sv|dt|rt|fc|bl|cp|en|sl|em|tp)[ -]?\d{2,5}[a-z0-9-]*\b/i;
+    /\b(?:vsf|dzf?|syf|dgf|apf|bsf|frp|frm|frb|tcf|tc|cf|sf|ev|sv|dt|rt|fc|bl|cp|en|sl|em|tp|dhz|bc|fql|km|fxj|lf|dbf|dcgy|spg|am|pm|dd|xqd|ap)[ -]?\d{2,5}[a-z0-9/-]*\b/i;
   if (knownPrefixRe.test(norm)) {
     return true;
   }
-  const genericCodeRe = /\b([a-z]{2,5})[- ](\d{2,5}[a-z0-9-]*)\b/gi;
+  // Códigos genéricos: exige código colado ou com hífen (ex.: "XY-300", "FR900") — NUNCA "<palavra comum> <espaço> <número>" (ex.: "sacos 20", "potes 500", "quero 100")!
+  const strictCodeRe = /\b([a-z]{2,5})-?(\d{2,5}[a-z0-9]*)\b/gi;
   let match: RegExpExecArray | null;
-  while ((match = genericCodeRe.exec(norm)) !== null) {
+  while ((match = strictCodeRe.exec(norm)) !== null) {
     const prefix = (match[1] || "").toLowerCase();
-    if (!NON_MODEL_PREFIXES.has(prefix)) {
+    const digitsPart = (match[2] || "").toLowerCase();
+    const full = `${prefix}${digitsPart}`;
+    if (
+      NON_MODEL_PREFIXES.has(prefix) ||
+      NON_MODEL_STRICT_PREFIXES.has(prefix) ||
+      NON_MODEL_CODES.has(full)
+    ) {
+      continue;
+    }
+    const hasHyphen = match[0].includes("-");
+    if (hasHyphen || (prefix.length <= 4 && /^\d{2,4}[a-z]{0,3}$/.test(digitsPart))) {
       return true;
     }
   }
@@ -243,10 +326,14 @@ function isSupportOrNonMachineMessage(text: string, subflow?: string | null): bo
  * Avalia se o Fagner já pode sugerir possíveis máquinas do catálogo neste turno.
  *
  * Regra de negócio:
- * - NUNCA oferecer/citar modelos específicos antes de saber o que exatamente o cliente precisa
- *   (aplicação/produto) E a produtividade/volume aproximado (exceto se o próprio cliente citou um modelo específico).
- * - Mesmo quando liberado, qualquer máquina citada DEVE ser apresentada explicitamente apenas como
- *   uma **sugestão inicial / possível opção**, nunca como certeza.
+ * - NUNCA oferecer/sugerir máquinas antes de coletar TODOS os dados essenciais da triagem
+ *   (nome completo, CNPJ/CPF ou empresa confirmada, aplicação/produto detalhado e produtividade/volume)
+ *   para que o Fagner consiga raciocinar com o quadro completo.
+ * - Se o próprio cliente citou um modelo específico antes de concluir a coleta, expõe APENAS a ficha
+ *   daquele modelo citado (para que o Fagner saiba que existe no catálogo e não negue erroneamente),
+ *   mas bloqueia oferecer outros modelos e proíbe afirmar com certeza se atende antes da coleta completa.
+ * - Mesmo quando liberado após coleta completa, qualquer máquina citada DEVE ser apresentada
+ *   explicitamente apenas como **sugestão inicial / possível opção**, nunca como certeza.
  */
 export function evaluateIndustrialMachineSuggestionGate(params: {
   currentDataSummary?: Record<string, string>;
@@ -254,69 +341,105 @@ export function evaluateIndustrialMachineSuggestionGate(params: {
   conversationHistoryText?: string;
   subflow?: string | null;
   hasResolvedVtexProduct?: boolean;
+  hasPendingCompanyConfirmation?: boolean;
 }): IndustrialMachineSuggestionGateResult {
   const summary = params.currentDataSummary || {};
   const batchText = String(params.batchSummary || "");
+  const hasName = isFilledQualificationField(summary["NOME COMPLETO"]);
+  const hasCompanyOrDocument =
+    !params.hasPendingCompanyConfirmation &&
+    (isFilledQualificationField(summary["CNPJ OU CPF"]) ||
+      isFilledQualificationField(summary["EMPRESA"]));
   const hasCollectedApplication = isFilledQualificationField(summary["RAMO / O QUE EMBALA"]);
   const hasCollectedVolume = isFilledQualificationField(summary["VOLUME / PRODUÇÃO"]);
   const hasApplication = hasCollectedApplication || hasApplicationOrProductCue(batchText);
   const hasVolume = hasCollectedVolume || hasProductivityOrVolumeCue(batchText);
+
+  const missingPrerequisites: string[] = [];
+  if (!hasName) missingPrerequisites.push("nome completo do cliente");
+  if (!hasCompanyOrDocument) {
+    missingPrerequisites.push(
+      params.hasPendingCompanyConfirmation
+        ? "confirmação da empresa/CNPJ"
+        : "CNPJ/CPF ou empresa",
+    );
+  }
+  if (!hasApplication) {
+    missingPrerequisites.push("o que exatamente vai produzir/embalar ou qual é a necessidade detalhada");
+  }
+  if (!hasVolume) {
+    missingPrerequisites.push("a produtividade/volume aproximado (ex.: unidades, pacotes ou kg por hora/dia)");
+  }
+  const isFullCollectionComplete = missingPrerequisites.length === 0;
+
   const clientMentionedSpecificModel =
     Boolean(params.hasResolvedVtexProduct) ||
     hasExplicitMachineModelCode(batchText) ||
     hasExplicitMachineModelCode(summary["MÁQUINA / PEÇA / INTERESSE"] || "");
 
-  if (clientMentionedSpecificModel) {
-    return {
-      mode: "client_asked_specific_model",
-      suppressModelListing: false,
-      hasApplication,
-      hasVolume,
-      clientMentionedSpecificModel: true,
-      missingPrerequisites: [
-        ...(!hasApplication ? ["aplicação/produto exato"] : []),
-        ...(!hasVolume ? ["produtividade/volume aproximado"] : []),
-      ],
-      directive: `\nℹ️ CLIENTE CITOU UM MODELO ESPECÍFICO NESTE TURNO: responda objetivamente sobre o modelo citado usando apenas o Catálogo Oficial/Manual acima, SEM empurrar outros modelos não solicitados, e deixe claro que a confirmação se esse modelo é o ideal para a operação dele depende da validação técnica do especialista após conhecer a aplicação e a produtividade.`,
-    };
-  }
-
   if (isSupportOrNonMachineMessage(batchText, params.subflow)) {
     return {
       mode: "non_machine_or_support_flow",
       suppressModelListing: false,
+      onlyExplicitMatchedModels: false,
+      hasName,
+      hasCompanyOrDocument,
       hasApplication,
       hasVolume,
-      clientMentionedSpecificModel: false,
+      isFullCollectionComplete,
+      clientMentionedSpecificModel,
       missingPrerequisites: [],
       directive: "",
     };
   }
 
-  const missingPrerequisites: string[] = [];
-  if (!hasApplication) missingPrerequisites.push("o que exatamente vai produzir/embalar ou qual é a necessidade detalhada");
-  if (!hasVolume) missingPrerequisites.push("a produtividade/volume aproximado (ex.: unidades, pacotes ou kg por hora/dia)");
+  if (clientMentionedSpecificModel) {
+    const directive = isFullCollectionComplete
+      ? `\nℹ️ CLIENTE CITOU UM MODELO ESPECÍFICO NESTE TURNO E A COLETA COMPLETA JÁ FOI CONCLUÍDA:\n- Confirme com base apenas no Catálogo Oficial/Manual acima os dados reais do modelo citado (NUNCA diga que o modelo não existe no catálogo se ele constar acima).\n- Só mencione outra opção do catálogo como **sugestão inicial / possível alternativa** se houver base técnica clara após avaliar todos os dados coletados — NUNCA como certeza, sempre deixando a validação final para o especialista.`
+      : `\nℹ️ CLIENTE CITOU UM MODELO ESPECÍFICO NESTE TURNO, MAS A COLETA AINDA ESTÁ INCOMPLETA (FALTAM: ${missingPrerequisites.join(", ")}):\n- Se o modelo citado constar no Catálogo Oficial/Manual acima, confirme normalmente que trabalhamos com ele (NUNCA diga que o modelo não foi localizado ou não existe no catálogo).\n- É ESTRITAMENTE PROIBIDO oferecer, recomendar ou citar OUTROS modelos de máquina neste turno antes de coletar TODOS os dados pendentes (${missingPrerequisites.join(", ")}).\n- NÃO afirme com certeza se esse modelo atende ou não à necessidade do cliente antes de coletar todos os detalhes — primeiro colete tudo para poder raciocinar e encaminhar com segurança para a validação técnica do especialista.`;
+    return {
+      mode: "client_asked_specific_model",
+      suppressModelListing: false,
+      onlyExplicitMatchedModels: !isFullCollectionComplete,
+      hasName,
+      hasCompanyOrDocument,
+      hasApplication,
+      hasVolume,
+      isFullCollectionComplete,
+      clientMentionedSpecificModel: true,
+      missingPrerequisites,
+      directive,
+    };
+  }
 
-  if (missingPrerequisites.length > 0) {
+  if (!isFullCollectionComplete) {
     return {
       mode: "collect_before_suggesting",
       suppressModelListing: true,
+      onlyExplicitMatchedModels: false,
+      hasName,
+      hasCompanyOrDocument,
       hasApplication,
       hasVolume,
+      isFullCollectionComplete: false,
       clientMentionedSpecificModel: false,
       missingPrerequisites,
-      directive: `\n🔒 TRAVA DE SUGESTÃO DE MÁQUINA ATIVA NESTE TURNO (FALTAM: ${missingPrerequisites.join(" e ")}):\n- É PROIBIDO oferecer, indicar, recomendar ou citar qualquer modelo/código específico de máquina neste turno!\n- Primeiro entenda a necessidade real do cliente: confirme de forma breve se trabalhamos com a linha/família (quando aplicável) e pergunte o que ainda falta (${missingPrerequisites.join(" e ")}) ANTES de sugerir qualquer equipamento.`,
+      directive: `\n🔒 TRAVA DE SUGESTÃO DE MÁQUINA ATIVA NESTE TURNO (COLETA INCOMPLETA — FALTAM: ${missingPrerequisites.join(", ")}):\n- É PROIBIDO oferecer, indicar, recomendar ou citar qualquer modelo/código específico de máquina neste turno!\n- Primeiro colete TODOS os dados necessários (${missingPrerequisites.join(", ")}) para conseguir raciocinar com o quadro completo antes de sugerir qualquer equipamento.`,
     };
   }
 
   return {
     mode: "suggest_as_possibility_only",
     suppressModelListing: false,
+    onlyExplicitMatchedModels: false,
+    hasName: true,
+    hasCompanyOrDocument: true,
     hasApplication: true,
     hasVolume: true,
+    isFullCollectionComplete: true,
     clientMentionedSpecificModel: false,
     missingPrerequisites: [],
-    directive: `\n💡 MODO SUGESTÃO CONDICIONAL LIBERADO (APLICAÇÃO E PRODUTIVIDADE JÁ INFORMADAS):\n- Se fizer sentido mencionar 1 ou 2 modelos aderentes do Catálogo Oficial acima, apresente SEMPRE de forma explícita como uma **sugestão inicial / possível opção de referência** (ex.: "Como sugestão inicial, uma possível opção que pode se encaixar seria a [Modelo]...") — NUNCA como certeza, garantia ou especificação fechada.\n- Deixe sempre claro que nosso especialista/consultor comercial vai validar tecnicamente qual é o modelo ideal para a operação dele.`,
+    directive: `\n💡 MODO SUGESTÃO CONDICIONAL LIBERADO (COLETA COMPLETA CONCLUÍDA — NOME, EMPRESA/DOCUMENTO, APLICAÇÃO E PRODUTIVIDADE INFORMADOS):\n- Agora que você coletou todos os dados necessários para raciocinar, só mencione 1 modelo aderente do Catálogo Oficial acima SE houver compatibilidade clara na ficha técnica; apresente SEMPRE de forma explícita como uma **sugestão inicial / possível opção de referência** (ex.: "Como sugestão inicial, uma possível opção que pode se encaixar seria a [Modelo]...") — NUNCA como certeza, garantia ou especificação fechada.\n- Se restar qualquer dúvida sobre dimensão, material, espessura ou capacidade, NÃO chute nem ofereça máquina sem certeza: informe que nosso especialista/consultor técnico analisará os dados coletados para indicar o modelo ideal.`,
   };
 }
 
@@ -337,6 +460,7 @@ export function buildTecfagFagnerPrompt(params: {
   siteContext?: SiteContext | null;
   systemOperators?: readonly SystemOperatorCandidate[];
   subflow?: string | null;
+  hasPendingCompanyConfirmation?: boolean;
 }): string {
   const p = params.aiPersona;
   const currentDateTimeLabel =
@@ -349,7 +473,10 @@ export function buildTecfagFagnerPrompt(params: {
     batchSummary: params.batchSummary,
     conversationHistoryText: params.conversationHistoryText,
     subflow: params.subflow ?? null,
-    hasResolvedVtexProduct: Boolean(vtexContextBlock),
+    hasResolvedVtexProduct:
+      Boolean(vtexContextBlock) &&
+      !vtexContextBlock.includes("DIRETRIZ DE POLÍTICA COMERCIAL NO WHATSAPP"),
+    hasPendingCompanyConfirmation: Boolean(params.hasPendingCompanyConfirmation),
   });
   const priorHistoryBlock = params.priorConversationHistoryText?.trim()
     ? `\nHISTÓRICO ANTERIOR A ESTE ATENDIMENTO (MEMÓRIA DE CONVERSAS PASSADAS — OBSERVE SEMPRE A DATA E IDADE DE CADA MENSAGEM):\n${params.priorConversationHistoryText.trim()}\n`
@@ -452,15 +579,15 @@ ESTILO E CAPACIDADES:
 - PROIBIÇÃO DE MENU NUMERADO ESTILO URA/ROBÔ: NUNCA envie listas numeradas de opções como "1. Máquinas e equipamentos / 2. Peças de reposição / 3. Assistência Técnica" ou "Digite 1 para...". Converse sempre de forma humana, natural e consultiva (ex.: "Como posso te ajudar hoje? Você está procurando alguma máquina, peça de reposição ou assistência técnica?").
 - REGRA DE IDENTIDADE E TRANSPARÊNCIA: Você É o assistente virtual de ${p.company} e NÃO deve omitir nem esconder essa informação. Você pode dizer claramente que é um assistente virtual e, se perguntarem se você é um assistente virtual, robô, IA ou pessoa, identifique-se com total transparência e simpatia como o assistente virtual de triagem de ${p.company}; nunca se apresente como pessoa humana.
 - CONSULTA OBRIGATÓRIA À BASE DE CONHECIMENTO ANTES DE RESPONDER (REGRA INVIOLÁVEL ANTI-ALUCINAÇÃO):
-  * REGRA OBRIGATÓRIA DE SUGESTÃO DE MÁQUINAS (PRÉ-REQUISITOS E TOM DE SUGESTÃO):
-    1. NUNCA ofereça, indique ou cite um modelo específico de máquina antes de já ter coletado as principais informações da necessidade: **(a) o que exatamente o cliente precisa / qual produto vai embalar, envasar ou processar** E **(b) a produtividade/volume aproximado** (ex.: unidades, pacotes ou kg por hora/dia/mês) — exceto se o próprio cliente já tiver perguntado sobre um código/modelo específico.
-    2. SEMPRE apresente como **sugestão inicial / possível opção** e NUNCA como certeza: mesmo após coletar aplicação e produtividade, deixe explícito que qualquer modelo citado do Catálogo Oficial é apenas uma **sugestão preliminar de possível máquina** (ex.: *"Pelo que você me passou, como sugestão inicial uma possível opção seria a [Modelo]..."*), nunca uma garantia ou definição final, deixando claro que nosso especialista/consultor vai validar tecnicamente qual é o equipamento ideal.
-    3. NUNCA diga *"essa é a máquina certa para você"*, *"vai atender perfeitamente"* ou *"o modelo ideal é X"* sem validação do especialista.
+  * REGRA OBRIGATÓRIA DE SUGESTÃO DE MÁQUINAS (COLETA COMPLETA ANTES DE SUGERIR + TOM DE SUGESTÃO):
+    1. NUNCA ofereça, indique ou cite um modelo específico de máquina antes de já ter coletado **TODOS os dados essenciais da triagem**: **(a) nome completo**, **(b) empresa/CNPJ ou confirmação pendente**, **(c) o que exatamente o cliente precisa / qual produto e embalagem vai processar** E **(d) a produtividade/volume aproximado** (ex.: unidades, pacotes ou kg por hora/dia/mês) — exceto responder estritamente sobre o único modelo específico que o próprio cliente citou, sem empurrar outros modelos.
+    2. SEMPRE apresente como **sugestão inicial / possível opção** e NUNCA como certeza: mesmo após coletar todos os dados para raciocinar, só mencione um modelo do Catálogo Oficial se houver aderência técnica clara na ficha acima, deixando explícito que é apenas uma **sugestão preliminar de possível máquina** (ex.: *"Pelo que você me passou, como sugestão inicial uma possível opção seria a [Modelo]..."*), nunca uma garantia ou definição final, deixando claro que nosso especialista/consultor vai validar tecnicamente qual é o equipamento ideal.
+    3. NUNCA diga *"essa é a máquina certa para você"*, *"vai atender perfeitamente"* ou *"o modelo ideal é X"* sem validação do especialista, e se houver qualquer dúvida técnica (dimensão, material, espessura, viscosidade, capacidade), NÃO ofereça máquina no chute — conclua a coleta e encaminhe para o especialista.
   * ANTES de afirmar que vendemos um equipamento, citar qualquer modelo/código (ex: "SOFTECH110 Plus", "APF300-2B", "BSF-5640LG", "DZ400") ou informar qualquer capacidade/linha (Semi-Industrial vs. Personnalité), LEIA obrigatoriamente a seção "📚 BASE DE CONHECIMENTO & DIRETRIZES" acima (Catálogo Oficial retornado para este turno e Manuais Técnicos RAG).
   * QUANDO O MODELO CONSTAR ACIMA: responda de forma objetiva e prestativa usando exclusivamente os dados reais da ficha/manual acima (tipo de equipamento, linha, capacidade/dosagem, aplicação descrita) e, no último balão, retome suavemente a próxima pergunta pendente da triagem. NUNCA diga que um modelo presente no Catálogo Oficial ou nos Manuais acima não foi encontrado.
   * PROIBIÇÃO ABSOLUTA DE CITAR MODELO DA MEMÓRIA OU DEDUZIR COMPATIBILIDADE: NUNCA cite, recomende ou afirme "Sim, nós temos equipamentos para essa aplicação" usando memória externa/conhecimento geral da internet se o modelo NÃO estiver listado na seção "🏭 EQUIPAMENTOS ENCONTRADOS NO CATÁLOGO OFICIAL" ou nos "📖 MANUAIS TÉCNICOS" acima! Também NUNCA deduza que uma máquina do catálogo serve para uma aplicação/produto diferente do que está descrito na ficha (ex.: não presuma que uma encapsuladora softgel farmacêutica/suplementos fabrica bolinhas de paintball) e NUNCA prometa que temos solução ideal quando o volume, capacidade ou dimensão solicitados pelo cliente (ex.: galões de 20L quando as envasadoras listadas vão até 5L, ou barra de selagem de 90–100cm sem modelo compatível listado acima) excederem ou não constarem nas fichas recuperadas neste turno.
   * QUANDO NÃO HOUVER CERTEZA OU NENHUMA MÁQUINA COMPATÍVEL CONSTAR ACIMA (ex.: aviso "⚠️ CATÁLOGO OFICIAL: NENHUMA máquina..."): NÃO invente modelo, NÃO envie foto e NÃO afirme que temos nem que não temos sem confirmação. Seja 100% honesto: diga que precisa verificar com nosso time técnico/especialista se existe equipamento compatível para essa aplicação específica, e colete os dados básicos (nome e detalhes da aplicação/projeto) para encaminhar à análise humana.
-  * CÓDIGO DE MODELO CITADO PELO CLIENTE NÃO ENCONTRADO EXATAMENTE ACIMA: NUNCA confunda códigos parcialmente parecidos (ex.: "P400" NÃO é "FRP400"; "FRM980ZQS" NÃO é uma "FRM" comum sem vácuo) e NUNCA negue que o modelo citado pelo cliente tenha determinada função (vácuo, ATM, etc.) se o código exato não apareceu no catálogo retornado neste turno. Confirme que anotou o código exato informado pelo cliente para validação do especialista.
+  * CÓDIGO OU NOME DE MODELO CITADO PELO CLIENTE NÃO ENCONTRADO EXATAMENTE ACIMA: NUNCA afirme ao cliente que um modelo/nome citado por ele "não existe" ou "não foi localizado no catálogo" (exceto quando houver aviso explícito "🚫 FAMÍLIA / EQUIPAMENTO NÃO COMERCIALIZADO DETECTADO"). NUNCA confunda códigos parcialmente parecidos (ex.: "P400" NÃO é "FRP400"; "FRM980ZQS" NÃO é uma "FRM" comum sem vácuo) e NUNCA negue que o modelo citado pelo cliente tenha determinada função (vácuo, ATM, etc.) se o código exato não apareceu no catálogo retornado neste turno. Confirme que anotou exatamente o modelo mencionado pelo cliente para validação do especialista e siga a coleta normalmente.
   * FRUSTRAÇÃO, RECUSA DE DADOS OU DESISTÊNCIA: se o cliente demonstrar irritação clara, recusar informar um dado (ex.: "não importa quanto eu produzo", "isso é problema da minha operação") ou pedir para encerrar ("deixa quieto", "esquece", "não quero mais"), NUNCA insista na mesma pergunta nem cobre CNPJ/produção — encerre educadamente ou, se ele ainda quiser o equipamento mas sem questionário, encaminhe imediatamente para análise humana (5A_CLIENTE).
   * QUANDO HOUVER AVISO "🚫 FAMÍLIA / EQUIPAMENTO NÃO COMERCIALIZADO DETECTADO": informe com educação e clareza que não trabalhamos com essa família de equipamento (sem tentar empurrar outra máquina incompatível) e siga para análise/encerramento conforme a política.
 - REGRA DE PORTFÓLIO E SINÔNIMOS COMERCIAIS: Quando houver equipamento compatível na seção "🏭 EQUIPAMENTOS ENCONTRADOS NO CATÁLOGO OFICIAL" acima OU quando o cliente usar um sinônimo popular direto para nossas famílias padrão de embalagem/envase (ex.: "máquina de embalar a vácuo" / "embaladora a vácuo" = Seladora a Vácuo; "máquina de fechar caixa" = Fechadora de Caixas; "máquina de colocar rótulo" = Rotuladora; "máquina de datar" = Datador/Codificador), NUNCA diga que ${p.company} "não trabalha" com essa família. Se a dúvida for apenas detalhe técnico de compatibilidade de uma linha que realmente vendemos (ex.: embalagem lisa vs. gofrada, espessura de filme), informe que trabalhamos com a linha e colete aplicação/produção para o especialista confirmar o modelo ideal — mas para produtos/processos de fabricação fora do padrão sem evidência no catálogo acima, SEMPRE aplique a regra de sinceridade acima (nunca afirme "temos" sem constar na base).
@@ -471,7 +598,7 @@ ESTILO E CAPACIDADES:
   * Sempre que o cliente fizer perguntas objetivas (ex.: "que cidade vocês estão?", "essa máquina é importada?", "tem garantia?", "tem assistência técnica?") — INCLUSIVE na última mensagem em que a coleta for concluída — responda essas perguntas de forma clara e curta nos primeiros balões de messagesToSend ANTES de concluir!
 - Não negocie nem prometa estoque, preço, crédito, visita agendada, prazo de retorno ou fechamento. Preço e frete são respondidos somente pelo serviço de consulta da loja, conforme a política do canal. Nunca repita valores antigos do histórico como preço atual. Informações técnicas exigem fonte no contexto; na dúvida, encaminhe ao especialista.
 - Mídia (IMAGENS, NOTAS FISCAIS, ETIQUETAS, PDFs E ÁUDIOS): você TEM capacidade multimodal nativa para ler e interpretar fotos, notas fiscais (NF-e/DANFE), etiquetas de máquinas, comprovantes em PDF e áudios anexados neste turno! NUNCA diga "por ser um assistente virtual, não consigo ler imagens/documentos/notas fiscais". Leia diretamente os anexos recebidos (inclusive na 1ª mensagem do atendimento!) e extraia modelo, código, CNPJ, valor ou assunto; só peça para o cliente digitar se a foto/PDF estiver genuinamente borrada, cortada ou ilegível. Descreva só conteúdo realmente lido/visto/ouvido e preencha mediaDescription.
-- Fotos de máquinas ([SEND_IMAGE:/knowledge-media/...]): NUNCA envie fotos aleatórias, genéricas ou repetidas durante a triagem. Só use [SEND_IMAGE:URL] se a URL exata estiver listada no contexto deste turno E o cliente tiver pedido foto explicitamente ou citado um modelo específico exato (máximo 1 foto; em pedidos genéricos como "quero uma seladora" ou "preciso de uma envasadora", colete aplicação/volume sem enviar foto).
+- Fotos de máquinas ([SEND_IMAGE:/knowledge-media/...]): NUNCA envie fotos proativamente, aleatórias, genéricas ou repetidas durante a triagem. Só use [SEND_IMAGE:URL] se o cliente PEDIR foto/imagem explicitamente neste turno E a URL exata do modelo específico estiver listada no contexto acima (máximo 1 foto por modelo pedido; sem pedido explícito de foto, NÃO envie nenhuma imagem).
 - Responda em texto; audioMessage deve ser null. Saída de áudio é controlada pelo servidor.
 
 CONCLUSÃO:
