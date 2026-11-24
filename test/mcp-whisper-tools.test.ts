@@ -73,7 +73,7 @@ async function callMcp(
 
 describe("MCP v3.12.0 — Sussurros / Cobranças ao Operador (Fagner/Valentina)", () => {
   it("expõe send_operator_whisper apenas em read_write e list_operator_whispers em read e read_write, com labels, summaries e paridade na Biblioteca de API", () => {
-    expect(MCP_SERVER_INFO.version).toBe("3.12.0");
+    expect(MCP_SERVER_INFO.version).toBe("3.13.0");
 
     const readNames = new Set(getVisibleMcpTools(makeAccess("read")).map((t) => t.name));
     const rwNames = new Set(getVisibleMcpTools(makeAccess("read_write")).map((t) => t.name));

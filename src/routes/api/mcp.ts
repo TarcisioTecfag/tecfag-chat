@@ -1,5 +1,12 @@
 import crypto from "node:crypto";
 import { createFileRoute } from "@tanstack/react-router";
+import { DB_POOL_MAX } from "../../db";
+import {
+  HEAVY_MCP_TOOLS,
+  buildMcpRateLimitedResponse,
+  defaultMcpGuard,
+  extractMcpPayloadInspection,
+} from "../../lib/mcp/mcp-guard";
 import {
   MCP_SERVER_INFO,
   attachMcpSseController,
@@ -17,7 +24,8 @@ const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
   "Access-Control-Allow-Headers":
     "Content-Type, Authorization, Accept, Mcp-Session-Id, Last-Event-ID, x-mcp-token, x-mcp-client-name",
-  "Access-Control-Expose-Headers": "Mcp-Session-Id",
+  "Access-Control-Expose-Headers":
+    "Mcp-Session-Id, X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, X-MCP-Concurrency-Limit, X-MCP-Concurrency-Active, Retry-After",
   "Cache-Control": "no-store",
 };
 
@@ -104,23 +112,39 @@ export const Route = createFileRoute("/api/mcp")({
             sessionId,
             transport: "HTTP GET (Query Direta)",
           };
-          const result = await processMcpJsonRpcPayload(
-            {
-              jsonrpc: "2.0",
-              id: `get-${Date.now()}`,
-              method: "tools/call",
-              params: {
-                name: directToolName,
-                arguments: toolArgs,
+          const guardRes = await defaultMcpGuard.acquire({
+            tenantId: defaultTenant,
+            keyId: access.keyId || "primary",
+            isHeavy: HEAVY_MCP_TOOLS.has(directToolName),
+            signal: request.signal,
+          });
+          if (!guardRes.allowed) {
+            return buildMcpRateLimitedResponse(guardRes, corsHeaders, sessionId);
+          }
+
+          let result: { status: number; body: any | null };
+          try {
+            result = await processMcpJsonRpcPayload(
+              {
+                jsonrpc: "2.0",
+                id: `get-${Date.now()}`,
+                method: "tools/call",
+                params: {
+                  name: directToolName,
+                  arguments: toolArgs,
+                },
               },
-            },
-            enrichedAccess,
-          );
+              enrichedAccess,
+            );
+          } finally {
+            guardRes.release();
+          }
 
           return new Response(JSON.stringify(result.body, null, 2), {
             status: 200,
             headers: {
               ...corsHeaders,
+              ...guardRes.headers,
               "Content-Type": "application/json; charset=utf-8",
               "Mcp-Session-Id": sessionId,
             },
@@ -215,11 +239,16 @@ export const Route = createFileRoute("/api/mcp")({
 
         // Acesso direto via navegador ou HTTP GET para conferência rápida do link
         const visibleTools = getVisibleMcpTools(access);
+        const guardSnapshot = defaultMcpGuard.getSnapshot();
         const infoBody = {
           ok: true,
           server: MCP_SERVER_INFO.name,
           version: MCP_SERVER_INFO.version,
           transport: "Streamable HTTP (POST /api/mcp) + SSE (GET /api/mcp)",
+          supportsDirectToolCall: true,
+          sessionTtlSeconds: 43200,
+          limits: guardSnapshot.limits,
+          dbPoolMax: DB_POOL_MAX,
           authMode: access.authMode,
           accessLevel: access.accessLevel || "read",
           lockedTenantId: access.lockedTenantId || "multi-tenant (default: tecfag)",
@@ -323,7 +352,38 @@ export const Route = createFileRoute("/api/mcp")({
           );
         }
 
-        const result = await processMcpJsonRpcPayload(payload, enrichedAccess);
+        const inspection = extractMcpPayloadInspection(payload);
+        const isInternalProbe = request.headers.get("x-mcp-internal-probe") === "1";
+        const effectiveTenant: "tecfag" | "valem" =
+          access.lockedTenantId || access.defaultTenantId || "tecfag";
+        const rpcId =
+          payload && typeof payload === "object" && !Array.isArray(payload)
+            ? ((payload as Record<string, unknown>).id ?? null)
+            : null;
+
+        let extraHeaders: Record<string, string> = {};
+        let releaseGuard: (() => void) | null = null;
+
+        if (!inspection.isNotificationOnly && !isInternalProbe) {
+          const guardRes = await defaultMcpGuard.acquire({
+            tenantId: effectiveTenant,
+            keyId: access.keyId || "primary",
+            isHeavy: inspection.isHeavy,
+            signal: request.signal,
+          });
+          if (!guardRes.allowed) {
+            return buildMcpRateLimitedResponse(guardRes, corsHeaders, sessionId, rpcId);
+          }
+          releaseGuard = guardRes.release;
+          extraHeaders = { ...guardRes.headers };
+        }
+
+        let result: { status: number; body: any | null };
+        try {
+          result = await processMcpJsonRpcPayload(payload, enrichedAccess);
+        } finally {
+          releaseGuard?.();
+        }
 
         if (result.body !== null && result.body !== undefined) {
           pushMcpSseMessage(sessionId, result.body);
@@ -334,6 +394,7 @@ export const Route = createFileRoute("/api/mcp")({
             status: 202,
             headers: {
               ...corsHeaders,
+              ...extraHeaders,
               "Mcp-Session-Id": sessionId,
             },
           });
@@ -343,6 +404,7 @@ export const Route = createFileRoute("/api/mcp")({
           status: 200,
           headers: {
             ...corsHeaders,
+            ...extraHeaders,
             "Content-Type": "application/json; charset=utf-8",
             "Mcp-Session-Id": sessionId,
           },

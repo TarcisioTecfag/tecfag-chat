@@ -71,7 +71,7 @@ async function callMcp(
 
 describe("MCP v3.10.0 — Ferramentas Read-Only de RD Station Marketing", () => {
   it("expõe as 4 tools read-only em leitura e escrita, com labels, summaries e 100% de paridade na Biblioteca de API", () => {
-    expect(MCP_SERVER_INFO.version).toBe("3.12.0");
+    expect(MCP_SERVER_INFO.version).toBe("3.13.0");
 
     const rdTools = [
       "list_rd_marketing_flows",

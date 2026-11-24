@@ -908,10 +908,14 @@ export function getApiLibraryCatalog(tenantId: string): ApiCatalogEntry[] {
         { name: "sectorOrigin / sectorCurrent", location: "argument", type: "string", description: "Filtra por setor de origem ou atual." },
         { name: "source / campaign / utmCampaign", location: "argument", type: "string", description: "Filtra por origem de mídia, ponto de conversão ou campanha UTM." },
         { name: "createdFrom / createdTo / wonFrom / wonTo", location: "argument", type: "YYYY-MM-DD", description: "Filtros de período de criação ou fechamento." },
-        { name: "limit", location: "argument", type: "number (1..100)", defaultValue: "25", description: "Máximo de cards retornados." },
+        { name: "updatedFrom / updatedTo", location: "argument", type: "ISO / YYYY-MM-DD", description: "Filtros incrementais por data/hora de última atualização (`crm_deals.updated_at`)." },
+        { name: "sortBy", location: "argument", type: "enum", defaultValue: "recent", description: "`recent`, `updated_desc`, `updated_asc` (ideal para sync incremental), `created_desc` ou `created_asc`." },
+        { name: "offset", location: "argument", type: "number (0..100000)", defaultValue: "0", description: "Deslocamento para paginação completa da carteira." },
+        { name: "limit", location: "argument", type: "number (1..500)", defaultValue: "25", description: "Máximo de cards retornados por página (até 500)." },
       ],
       responseFields: [
-        { name: "returnedCount", type: "integer", description: "Total de cards retornados na chamada." },
+        { name: "totalMatching / offset / limit / hasMore / nextOffset", type: "integer / boolean", description: "Metadados completos de paginação para varrer todo o funil sem duplicar chamadas." },
+        { name: "returnedCount", type: "integer", description: "Total de cards retornados nesta página." },
         { name: "deals", type: "array", description: "Lista de cards com `id`, `id_rd`, `win`, `winAt`, `sectorOrigin`, `sectorCurrent`, `deal_source_name`, `campaign_name` e `account`." },
       ],
       sampleResponsePayload: {
@@ -969,6 +973,50 @@ export function getApiLibraryCatalog(tenantId: string): ApiCatalogEntry[] {
       playgroundParams: [
         { key: "dealId", label: "dealId (obrigatório)", placeholder: "Ex: deal-...", defaultValue: "" },
       ],
+    },
+    {
+      id: "mcp-deals-batch",
+      kind: "mcp",
+      categoryLabel: "Conector MCP · Ferramentas de IA",
+      method: "MCP",
+      pathOrTool: "get_crm_deals_batch",
+      mcpToolName: "get_crm_deals_batch",
+      mcpDefaultArgs: { dealIds: ["informe_deal_id_1", "informe_deal_id_2"] },
+      title: "MCP · get_crm_deals_batch",
+      shortSummary: "Leitura 360º em lote de até 50 negociações em uma única chamada SQL otimizada (substitui chamadas card a card em sincronizações de carteira).",
+      detailedExplanation:
+        "Carrega até 50 cards do CRM simultaneamente com consultas agrupadas (`ANY($1::text[])`), trazendo card, empresa + Receita Federal, campos personalizados rotulados, contatos, produtos, propostas, atividades e conversas vinculadas. Permite desligar blocos opcionais (`includeEvents`, `includeStageHistory`, etc.) para sincronizações ultrarrápidas sem sobrecarregar o banco.",
+      useCases: [
+        "Sincronizar painéis de vendedores ou BI em lotes de 50 cards com até 60x menos queries no PostgreSQL",
+        "Combinar com `search_crm_deals(updatedFrom=..., limit=500)` para atualização incremental de carteira",
+      ],
+      params: [
+        { name: "dealIds", location: "argument", type: "string[] (1..50)", required: true, description: "Lista de IDs de negociações (`crm_deals.id`) a carregar em lote." },
+        { name: "includeContacts / includeProducts / includeProposals / includeActivities / includeConversations", location: "argument", type: "boolean", defaultValue: "true", description: "Controla quais relacionamentos carregar no lote." },
+        { name: "includeEvents / includeStageHistory", location: "argument", type: "boolean", defaultValue: "false", description: "Habilita eventos de auditoria e histórico de etapas quando necessário." },
+        { name: "activitiesLimit / eventsLimit", location: "argument", type: "number", defaultValue: "10 / 20", description: "Limite máximo de atividades (até 30) e eventos (até 50) por card." },
+      ],
+      responseFields: [
+        { name: "requestedCount / foundCount / missingDealIds", type: "integer / string[]", description: "Resumo do lote e IDs não encontrados no tenant." },
+        { name: "deals", type: "array", description: "Array na ordem exata de `dealIds`, com estrutura equivalente a `get_crm_deal_details`." },
+      ],
+      sampleResponsePayload: {
+        tenantId,
+        requestedCount: 2,
+        foundCount: 2,
+        missingDealIds: [],
+        deals: [
+          {
+            deal: { id: "deal-1794840012-x9k2", title: sampleProduct, win: true, sectorOrigin: "semi_industrial" },
+            contacts: [],
+            products: [],
+            proposals: [],
+            recentActivities: [],
+            linkedConversations: [],
+          },
+        ],
+      },
+      supportsLivePlayground: false,
     },
     {
       id: "mcp-audit-batch",

@@ -61,6 +61,30 @@ export const mcpIdempotencyRecords = pgTable("mcp_idempotency_records", {
   expiresIdx: index("idx_mcp_idempotency_expires_at").on(t.expiresAt),
 }));
 
+export const mcpAuditLogs = pgTable("mcp_audit_logs", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  keyId: text("key_id").default("primary").notNull(),
+  keyLabel: text("key_label").default("Link Principal").notNull(),
+  toolName: text("tool_name").notNull(),
+  toolLabel: text("tool_label").notNull(),
+  argumentsSummary: text("arguments_summary").default("").notNull(),
+  argumentsRaw: jsonb("arguments_raw").$type<Record<string, unknown>>().default({}).notNull(),
+  resultSummary: text("result_summary").default("").notNull(),
+  status: text("status").default("success").notNull(), // 'success' | 'error'
+  latencyMs: integer("latency_ms").default(0).notNull(),
+  eventType: text("event_type").default("query").notNull(), // 'query' | 'action' | 'connection' | 'config_change'
+  transport: text("transport"),
+  clientName: text("client_name"),
+  clientIp: text("client_ip"),
+  responseBytes: integer("response_bytes"),
+  responsePreview: text("response_preview"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => ({
+  tenantCreatedIdx: index("idx_mcp_audit_logs_tenant_created").on(t.tenantId, t.createdAt),
+  tenantKeyCreatedIdx: index("idx_mcp_audit_logs_tenant_key_created").on(t.tenantId, t.keyId, t.createdAt),
+}));
+
 // ─── 2. CONFIGURAÇÕES DE CANAL (Credenciais / Conexão) ──────────────────────
 export const channelConfigs = pgTable("channel_configs", {
   id: text("id").primaryKey(),

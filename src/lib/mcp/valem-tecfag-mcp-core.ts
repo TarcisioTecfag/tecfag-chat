@@ -47,6 +47,19 @@ import {
   normalizeCustomFieldDefinitionRow,
 } from "./valem-tecfag-mcp-account-fields";
 import { getAiPersona } from "../ai-persona";
+import {
+  clearMcpAuditLogs,
+  enqueueMcpAuditLog,
+  flushPendingMcpAuditLogs,
+  insertMcpAuditLogRow,
+  listMcpAuditLogs,
+} from "./mcp-audit-store";
+import {
+  GET_CRM_DEALS_BATCH_TOOL_SCHEMA,
+  executeGetCrmDealsBatch,
+} from "./valem-tecfag-mcp-batch-tools";
+
+export { flushPendingMcpAuditLogs };
 
 // Tokens operacionais padrão (podem ser sobrescritos via variáveis de ambiente no Railway)
 export const DEFAULT_MCP_TECFAG_TOKEN = "mcp_tf_8f4e2a9c1d7b6e3f5a0c2d4e8b1f7a3c";
@@ -55,7 +68,7 @@ export const DEFAULT_MCP_ADMIN_TOKEN = "mcp_admin_7d9e3b5c1a8f4e6d2b0c9a7e5f3d1b
 
 export const MCP_SERVER_INFO = {
   name: "valem-tecfag-mcp",
-  version: "3.12.0",
+  version: "3.13.0",
 };
 
 export type McpAccessLevel = "read" | "read_write";
@@ -253,6 +266,7 @@ export function revokeMcpSessions(
   tenantId: "tecfag" | "valem",
   keyId?: string,
 ): number {
+  invalidateMcpAuthCache(tenantId);
   let revokedCount = 0;
   for (const [id, session] of mcpSessions.entries()) {
     const sessionTenant = session.access.lockedTenantId || session.access.defaultTenantId;
@@ -278,6 +292,7 @@ const TOOL_LABELS_PT: Record<string, string> = {
   get_fagner_triage_history: "Histórico da Triagem IA",
   search_crm_deals: "Pesquisa de Negociações (CRM)",
   get_crm_deal_details: "Ficha 360º da Negociação",
+  get_crm_deals_batch: "Leitura em Lote de Negociações (até 50 Cards)",
   search_crm_accounts: "Empresas & Receita Federal",
   list_crm_custom_fields: "Campos Personalizados do CRM",
   search_contacts: "Busca de Contatos",
@@ -434,6 +449,14 @@ export function summarizeMcpToolResult(toolName: string, data: any): string {
         const title = data.deal?.title || data.deal?.id || "Card";
         const val = Number(data.deal?.value ?? 0);
         return `Card "${title}" (R$ ${val.toLocaleString("pt-BR", { minimumFractionDigits: 2 })})`;
+      }
+      case "get_crm_deals_batch": {
+        const found = Number(data.foundCount ?? data.deals?.length ?? 0);
+        const requested = Number(data.requestedCount ?? found);
+        const missing = Array.isArray(data.missingDealIds) ? data.missingDealIds.length : 0;
+        return missing > 0
+          ? `${found}/${requested} negociação(ões) carregada(s) em lote (${missing} não encontrada(s))`
+          : `${found}/${requested} negociação(ões) carregada(s) em lote`;
       }
       case "search_crm_accounts": {
         if (data.account) {
@@ -718,21 +741,323 @@ export function getDefaultPrimaryToken(tenantId: "tecfag" | "valem"): string {
   return (process.env.MCP_TECFAG_TOKEN || DEFAULT_MCP_TECFAG_TOKEN).trim();
 }
 
+export interface McpAuthSettingsSnapshot {
+  tenantId: "tecfag" | "valem";
+  enabled: boolean;
+  primaryToken: string;
+  primaryTokenUpdatedAt: string | null;
+  primaryAccessLevel: McpAccessLevel;
+  namedKeys: McpNamedKey[];
+}
+
+function resolveMcpAuthCacheTtlMs(): number {
+  const raw = Number(process.env.MCP_AUTH_CACHE_TTL_MS);
+  if (!Number.isFinite(raw) || raw < 0) return 30_000;
+  return Math.min(300_000, Math.floor(raw));
+}
+
+const mcpAuthSettingsCache = new Map<
+  "tecfag" | "valem",
+  { data: McpAuthSettingsSnapshot; expiresAt: number }
+>();
+const mcpAuthSettingsInFlight = new Map<
+  "tecfag" | "valem",
+  Promise<McpAuthSettingsSnapshot>
+>();
+
+const KEY_USAGE_FLUSH_INTERVAL_MS = 10_000;
+const pendingKeyUsage = new Map<
+  string,
+  { tenantId: "tecfag" | "valem"; keyId: string; delta: number; lastUsedAt: string }
+>();
+let keyUsageFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
+export function invalidateMcpAuthCache(tenantId?: "tecfag" | "valem"): void {
+  if (tenantId) {
+    mcpAuthSettingsCache.delete(tenantId);
+  } else {
+    mcpAuthSettingsCache.clear();
+  }
+}
+
+function parseNamedKeysFromConfig(cfg: Record<string, unknown>): McpNamedKey[] {
+  const rawKeys = Array.isArray(cfg.namedKeys) ? cfg.namedKeys : [];
+  return rawKeys
+    .filter((k): k is Record<string, unknown> => Boolean(k && typeof k === "object"))
+    .map((k) => ({
+      id: String(k.id || ""),
+      label: String(k.label || "Link de Acesso"),
+      token: String(k.token || ""),
+      createdBy: String(k.createdBy || "Admin"),
+      createdAt: String(k.createdAt || new Date().toISOString()),
+      lastUsedAt: typeof k.lastUsedAt === "string" ? k.lastUsedAt : null,
+      usageCount: Number(k.usageCount || 0),
+      active: k.active !== false,
+      accessLevel: normalizeMcpAccessLevel(k.accessLevel),
+    }))
+    .filter((k) => Boolean(k.id && k.token));
+}
+
+function parseLegacyAuditLogsFromConfig(cfg: Record<string, unknown>): McpAuditLogEntry[] {
+  const rawLogs = Array.isArray(cfg.auditLogs) ? cfg.auditLogs : [];
+  return rawLogs
+    .filter((l): l is Record<string, unknown> => Boolean(l && typeof l === "object"))
+    .map((l) => {
+      const toolName = String(l.toolName || "");
+      return {
+        id: String(l.id || ""),
+        timestamp: String(l.timestamp || new Date().toISOString()),
+        keyId: String(l.keyId || "primary"),
+        keyLabel: String(l.keyLabel || "Link Principal"),
+        toolName,
+        toolLabel: String(l.toolLabel || formatMcpToolLabel(toolName)),
+        argumentsSummary: String(l.argumentsSummary || "Consulta geral"),
+        argumentsRaw:
+          l.argumentsRaw && typeof l.argumentsRaw === "object" && !Array.isArray(l.argumentsRaw)
+            ? (l.argumentsRaw as Record<string, unknown>)
+            : {},
+        resultSummary: String(l.resultSummary || ""),
+        status: l.status === "error" ? ("error" as const) : ("success" as const),
+        latencyMs: Number(l.latencyMs || 0),
+        eventType: inferMcpAuditEventType(toolName, l.eventType),
+        transport: typeof l.transport === "string" ? l.transport : undefined,
+        clientName: typeof l.clientName === "string" ? l.clientName : undefined,
+        clientIp: typeof l.clientIp === "string" ? l.clientIp : undefined,
+        responseBytes: typeof l.responseBytes === "number" ? l.responseBytes : undefined,
+        responsePreview: typeof l.responsePreview === "string" ? l.responsePreview : undefined,
+      };
+    })
+    .filter((l) => Boolean(l.id && l.toolName));
+}
+
+function parseRawConfigObject(raw: unknown): Record<string, unknown> {
+  let parsedCfg: unknown = raw;
+  if (typeof parsedCfg === "string") {
+    try {
+      parsedCfg = JSON.parse(parsedCfg);
+    } catch {
+      parsedCfg = {};
+    }
+  }
+  return parsedCfg && typeof parsedCfg === "object" && !Array.isArray(parsedCfg)
+    ? (parsedCfg as Record<string, unknown>)
+    : {};
+}
+
+function overlayPendingKeyUsage(
+  tenantId: "tecfag" | "valem",
+  namedKeys: McpNamedKey[],
+): McpNamedKey[] {
+  if (pendingKeyUsage.size === 0) return namedKeys;
+  return namedKeys.map((k) => {
+    const pending = pendingKeyUsage.get(`${tenantId}:${k.id}`);
+    if (!pending) return k;
+    return {
+      ...k,
+      usageCount: (k.usageCount || 0) + pending.delta,
+      lastUsedAt:
+        !k.lastUsedAt || pending.lastUsedAt > k.lastUsedAt ? pending.lastUsedAt : k.lastUsedAt,
+    };
+  });
+}
+
+function trackMcpKeyUsage(
+  tenantId: "tecfag" | "valem",
+  keyId: string,
+  usedAtIso: string,
+): void {
+  if (
+    !keyId ||
+    keyId === "primary" ||
+    keyId === "admin" ||
+    keyId === "session" ||
+    keyId === "diagnostic" ||
+    keyId === "admin_panel" ||
+    keyId === "revoked"
+  ) {
+    return;
+  }
+  const mapKey = `${tenantId}:${keyId}`;
+  const existing = pendingKeyUsage.get(mapKey);
+  if (existing) {
+    existing.delta += 1;
+    existing.lastUsedAt = usedAtIso;
+  } else {
+    pendingKeyUsage.set(mapKey, { tenantId, keyId, delta: 1, lastUsedAt: usedAtIso });
+  }
+  if (!keyUsageFlushTimer) {
+    keyUsageFlushTimer = setTimeout(() => {
+      keyUsageFlushTimer = null;
+      flushPendingMcpKeyUsage().catch((err) => {
+        console.error("[MCP KeyUsage] Erro ao persistir contadores de uso:", err);
+      });
+    }, KEY_USAGE_FLUSH_INTERVAL_MS);
+    keyUsageFlushTimer.unref?.();
+  }
+}
+
+export async function flushPendingMcpKeyUsage(
+  onlyTenantId?: "tecfag" | "valem",
+): Promise<void> {
+  const entriesByTenant = new Map<
+    "tecfag" | "valem",
+    Array<{ keyId: string; delta: number; lastUsedAt: string }>
+  >();
+
+  for (const [mapKey, item] of pendingKeyUsage.entries()) {
+    if (onlyTenantId && item.tenantId !== onlyTenantId) continue;
+    const list = entriesByTenant.get(item.tenantId) || [];
+    list.push({ keyId: item.keyId, delta: item.delta, lastUsedAt: item.lastUsedAt });
+    entriesByTenant.set(item.tenantId, list);
+    pendingKeyUsage.delete(mapKey);
+  }
+
+  for (const [tenantId, updates] of entriesByTenant.entries()) {
+    if (updates.length === 0) continue;
+    await withTenantSettingsLock(tenantId, async () => {
+      try {
+        const snapshot = await getMcpAuthSettings(tenantId, { bypassCache: true });
+        const updateMap = new Map(updates.map((u) => [u.keyId, u]));
+        let changed = false;
+        const updatedKeys = snapshot.namedKeys.map((k) => {
+          const u = updateMap.get(k.id);
+          if (!u) return k;
+          changed = true;
+          return {
+            ...k,
+            usageCount: (k.usageCount || 0) + u.delta,
+            lastUsedAt: !k.lastUsedAt || u.lastUsedAt > k.lastUsedAt ? u.lastUsedAt : k.lastUsedAt,
+          };
+        });
+        if (!changed) return;
+        await persistMcpTenantSettingsUnlocked(tenantId, {
+          enabled: snapshot.enabled,
+          primaryToken: snapshot.primaryToken,
+          primaryTokenUpdatedAt: snapshot.primaryTokenUpdatedAt,
+          primaryAccessLevel: snapshot.primaryAccessLevel,
+          namedKeys: updatedKeys,
+        });
+      } catch (err) {
+        console.error(`[MCP KeyUsage] Falha no flush do tenant ${tenantId}:`, err);
+      }
+    });
+  }
+}
+
+export async function getMcpAuthSettings(
+  tenantId: "tecfag" | "valem",
+  options?: { bypassCache?: boolean; sqlClient?: any },
+): Promise<McpAuthSettingsSnapshot> {
+  const bypassCache = options?.bypassCache === true;
+  const sqlClient = options?.sqlClient || defaultSqlClient;
+  const ttlMs = resolveMcpAuthCacheTtlMs();
+  const now = Date.now();
+
+  if (!bypassCache && sqlClient === defaultSqlClient && ttlMs > 0) {
+    const cached = mcpAuthSettingsCache.get(tenantId);
+    if (cached && cached.expiresAt > now) {
+      return cached.data;
+    }
+    const inFlight = mcpAuthSettingsInFlight.get(tenantId);
+    if (inFlight) {
+      return inFlight;
+    }
+  }
+
+  const loader = (async (): Promise<McpAuthSettingsSnapshot> => {
+    const defaultToken = getDefaultPrimaryToken(tenantId);
+    try {
+      const rows = await sqlClient<
+        Array<{ enabled: number; config: Record<string, unknown> | null; updated_at: Date | string | null }>
+      >`
+        SELECT enabled, (config - 'auditLogs') AS config, updated_at
+        FROM agent_configs
+        WHERE tenant_id = ${tenantId}
+          AND agent_type = 'mcp'
+        ORDER BY updated_at DESC
+        LIMIT 1
+      `;
+      if (!rows.length) {
+        return {
+          tenantId,
+          enabled: true,
+          primaryToken: defaultToken,
+          primaryTokenUpdatedAt: null,
+          primaryAccessLevel: "read",
+          namedKeys: [],
+        };
+      }
+      const row = rows[0];
+      const cfg = parseRawConfigObject(row.config);
+      const primaryToken =
+        typeof cfg.primaryToken === "string" && cfg.primaryToken.trim()
+          ? cfg.primaryToken.trim()
+          : defaultToken;
+      const primaryTokenUpdatedAt =
+        typeof cfg.primaryTokenUpdatedAt === "string" ? cfg.primaryTokenUpdatedAt : null;
+      const primaryAccessLevel = normalizeMcpAccessLevel(cfg.primaryAccessLevel);
+      const namedKeys = parseNamedKeysFromConfig(cfg);
+
+      return {
+        tenantId,
+        enabled: row.enabled !== 0,
+        primaryToken,
+        primaryTokenUpdatedAt,
+        primaryAccessLevel,
+        namedKeys,
+      };
+    } catch (err) {
+      console.error(`[MCP Config] Erro ao carregar auth settings do tenant ${tenantId}:`, err);
+      return {
+        tenantId,
+        enabled: true,
+        primaryToken: defaultToken,
+        primaryTokenUpdatedAt: null,
+        primaryAccessLevel: "read",
+        namedKeys: [],
+      };
+    }
+  })();
+
+  if (!bypassCache && sqlClient === defaultSqlClient && ttlMs > 0) {
+    mcpAuthSettingsInFlight.set(tenantId, loader);
+    try {
+      const result = await loader;
+      mcpAuthSettingsCache.set(tenantId, {
+        data: result,
+        expiresAt: Date.now() + ttlMs,
+      });
+      return result;
+    } finally {
+      mcpAuthSettingsInFlight.delete(tenantId);
+    }
+  }
+
+  return loader;
+}
+
 export async function getMcpTenantSettings(
   tenantId: "tecfag" | "valem",
 ): Promise<McpTenantSettings> {
   const defaultToken = getDefaultPrimaryToken(tenantId);
   try {
-    const rows = await defaultSqlClient<
-      Array<{ enabled: number; config: Record<string, unknown> | null; updated_at: Date | string | null }>
-    >`
-      SELECT enabled, config, updated_at
-      FROM agent_configs
-      WHERE tenant_id = ${tenantId}
-        AND agent_type = 'mcp'
-      ORDER BY updated_at DESC
-      LIMIT 1
-    `;
+    const [rows, tableAuditLogs] = await Promise.all([
+      defaultSqlClient<
+        Array<{ enabled: number; config: Record<string, unknown> | null; updated_at: Date | string | null }>
+      >`
+        SELECT enabled, config, updated_at
+        FROM agent_configs
+        WHERE tenant_id = ${tenantId}
+          AND agent_type = 'mcp'
+        ORDER BY updated_at DESC
+        LIMIT 1
+      `,
+      listMcpAuditLogs(tenantId, MAX_AUDIT_LOGS).catch((err) => {
+        console.error(`[MCP Audit] Erro ao listar mcp_audit_logs do tenant ${tenantId}:`, err);
+        return [] as McpAuditLogEntry[];
+      }),
+    ]);
+
     if (!rows.length) {
       return {
         tenantId,
@@ -741,22 +1066,11 @@ export async function getMcpTenantSettings(
         primaryTokenUpdatedAt: null,
         primaryAccessLevel: "read",
         namedKeys: [],
-        auditLogs: [],
+        auditLogs: tableAuditLogs,
       };
     }
     const row = rows[0];
-    let parsedCfg: unknown = row.config;
-    if (typeof parsedCfg === "string") {
-      try {
-        parsedCfg = JSON.parse(parsedCfg);
-      } catch {
-        parsedCfg = {};
-      }
-    }
-    const cfg =
-      parsedCfg && typeof parsedCfg === "object" && !Array.isArray(parsedCfg)
-        ? (parsedCfg as Record<string, unknown>)
-        : {};
+    const cfg = parseRawConfigObject(row.config);
     const primaryToken =
       typeof cfg.primaryToken === "string" && cfg.primaryToken.trim()
         ? cfg.primaryToken.trim()
@@ -764,51 +1078,25 @@ export async function getMcpTenantSettings(
     const primaryTokenUpdatedAt =
       typeof cfg.primaryTokenUpdatedAt === "string" ? cfg.primaryTokenUpdatedAt : null;
     const primaryAccessLevel = normalizeMcpAccessLevel(cfg.primaryAccessLevel);
-    const rawKeys = Array.isArray(cfg.namedKeys) ? cfg.namedKeys : [];
-    const namedKeys: McpNamedKey[] = rawKeys
-      .filter((k): k is Record<string, unknown> => Boolean(k && typeof k === "object"))
-      .map((k) => ({
-        id: String(k.id || ""),
-        label: String(k.label || "Link de Acesso"),
-        token: String(k.token || ""),
-        createdBy: String(k.createdBy || "Admin"),
-        createdAt: String(k.createdAt || new Date().toISOString()),
-        lastUsedAt: typeof k.lastUsedAt === "string" ? k.lastUsedAt : null,
-        usageCount: Number(k.usageCount || 0),
-        active: k.active !== false,
-        accessLevel: normalizeMcpAccessLevel(k.accessLevel),
-      }))
-      .filter((k) => Boolean(k.id && k.token));
+    const namedKeys = overlayPendingKeyUsage(tenantId, parseNamedKeysFromConfig(cfg));
 
-    const rawLogs = Array.isArray(cfg.auditLogs) ? cfg.auditLogs : [];
-    const auditLogs: McpAuditLogEntry[] = rawLogs
-      .filter((l): l is Record<string, unknown> => Boolean(l && typeof l === "object"))
-      .map((l) => {
-        const toolName = String(l.toolName || "");
-        return {
-          id: String(l.id || ""),
-          timestamp: String(l.timestamp || new Date().toISOString()),
-          keyId: String(l.keyId || "primary"),
-          keyLabel: String(l.keyLabel || "Link Principal"),
-          toolName,
-          toolLabel: String(l.toolLabel || formatMcpToolLabel(toolName)),
-          argumentsSummary: String(l.argumentsSummary || "Consulta geral"),
-          argumentsRaw:
-            l.argumentsRaw && typeof l.argumentsRaw === "object" && !Array.isArray(l.argumentsRaw)
-              ? (l.argumentsRaw as Record<string, unknown>)
-              : {},
-          resultSummary: String(l.resultSummary || ""),
-          status: l.status === "error" ? ("error" as const) : ("success" as const),
-          latencyMs: Number(l.latencyMs || 0),
-          eventType: inferMcpAuditEventType(toolName, l.eventType),
-          transport: typeof l.transport === "string" ? l.transport : undefined,
-          clientName: typeof l.clientName === "string" ? l.clientName : undefined,
-          clientIp: typeof l.clientIp === "string" ? l.clientIp : undefined,
-          responseBytes: typeof l.responseBytes === "number" ? l.responseBytes : undefined,
-          responsePreview: typeof l.responsePreview === "string" ? l.responsePreview : undefined,
-        };
-      })
-      .filter((l) => Boolean(l.id && l.toolName));
+    // Mescla logs legados do JSONB somente se ainda houver espaço (< MAX_AUDIT_LOGS)
+    let auditLogs: McpAuditLogEntry[] = tableAuditLogs;
+    if (auditLogs.length < MAX_AUDIT_LOGS) {
+      const legacyLogs = parseLegacyAuditLogsFromConfig(cfg);
+      if (legacyLogs.length > 0) {
+        const seen = new Set(auditLogs.map((l) => l.id));
+        const merged = [...auditLogs];
+        for (const legacy of legacyLogs) {
+          if (!seen.has(legacy.id)) {
+            seen.add(legacy.id);
+            merged.push(legacy);
+          }
+          if (merged.length >= MAX_AUDIT_LOGS) break;
+        }
+        auditLogs = merged;
+      }
+    }
 
     return {
       tenantId,
@@ -842,31 +1130,31 @@ async function persistMcpTenantSettingsUnlocked(
     primaryAccessLevel?: McpAccessLevel;
     namedKeys: McpNamedKey[];
     auditLogs?: McpAuditLogEntry[];
+    appendAuditLog?: McpAuditLogEntry;
+    clearAuditLogs?: boolean;
   },
 ): Promise<McpTenantSettings> {
   const defaultRowId = `mcp-config-${tenantId}`;
   const enabledInt = settings.enabled ? 1 : 0;
-  const previousSettings =
-    !Array.isArray(settings.auditLogs) || settings.primaryAccessLevel === undefined
-      ? await getMcpTenantSettings(tenantId)
+  const previousSnapshot =
+    settings.primaryAccessLevel === undefined
+      ? await getMcpAuthSettings(tenantId, { bypassCache: true })
       : null;
-  const currentAuditLogs = Array.isArray(settings.auditLogs)
-    ? settings.auditLogs.slice(0, MAX_AUDIT_LOGS)
-    : (previousSettings?.auditLogs || []).slice(0, MAX_AUDIT_LOGS);
   const primaryAccessLevel = normalizeMcpAccessLevel(
-    settings.primaryAccessLevel ?? previousSettings?.primaryAccessLevel,
+    settings.primaryAccessLevel ?? previousSnapshot?.primaryAccessLevel,
   );
   const normalizedNamedKeys: McpNamedKey[] = settings.namedKeys.map((k) => ({
     ...k,
     accessLevel: normalizeMcpAccessLevel(k.accessLevel),
   }));
 
+  // Mantém o JSONB em agent_configs permanentemente enxuto (sem auditLogs embutidos).
   const configJson = {
     primaryToken: settings.primaryToken,
     primaryTokenUpdatedAt: settings.primaryTokenUpdatedAt,
     primaryAccessLevel,
     namedKeys: normalizedNamedKeys,
-    auditLogs: currentAuditLogs,
+    auditLogs: [],
   };
   const serializedConfig = JSON.stringify(configJson);
 
@@ -896,13 +1184,39 @@ async function persistMcpTenantSettingsUnlocked(
         updated_at = NOW()
   `;
 
+  invalidateMcpAuthCache(tenantId);
+
+  if (settings.clearAuditLogs) {
+    await clearMcpAuditLogs(tenantId).catch((err) => {
+      console.error("[MCP Audit] Erro ao limpar mcp_audit_logs:", err);
+    });
+  }
+
+  if (settings.appendAuditLog) {
+    await insertMcpAuditLogRow(tenantId, settings.appendAuditLog).catch((err) => {
+      console.error("[MCP Audit] Erro ao registrar log de configuração:", err);
+    });
+  } else if (Array.isArray(settings.auditLogs) && settings.auditLogs.length > 0) {
+    // Compatibilidade com chamadores antigos que passavam auditLogs=[novo, ...anteriores]
+    const headEntry = settings.auditLogs[0];
+    if (headEntry?.id && headEntry?.toolName) {
+      await insertMcpAuditLogRow(tenantId, headEntry).catch((err) => {
+        console.error("[MCP Audit] Erro ao persistir log compatível:", err);
+      });
+    }
+  }
+
+  const currentAuditLogs = await listMcpAuditLogs(tenantId, MAX_AUDIT_LOGS).catch(
+    () => [] as McpAuditLogEntry[],
+  );
+
   return {
     tenantId,
     enabled: settings.enabled,
     primaryToken: settings.primaryToken,
     primaryTokenUpdatedAt: settings.primaryTokenUpdatedAt,
     primaryAccessLevel,
-    namedKeys: normalizedNamedKeys,
+    namedKeys: overlayPendingKeyUsage(tenantId, normalizedNamedKeys),
     auditLogs: currentAuditLogs,
   };
 }
@@ -916,6 +1230,8 @@ export async function saveMcpTenantSettings(
     primaryAccessLevel?: McpAccessLevel;
     namedKeys: McpNamedKey[];
     auditLogs?: McpAuditLogEntry[];
+    appendAuditLog?: McpAuditLogEntry;
+    clearAuditLogs?: boolean;
   },
 ): Promise<McpTenantSettings> {
   return withTenantSettingsLock(tenantId, () =>
@@ -941,63 +1257,44 @@ export async function recordMcpToolAuditLog(params: {
   responsePreview?: string;
 }): Promise<void> {
   if (params.access?.skipAuditLog) return;
-  await withTenantSettingsLock(params.tenantId, async () => {
-    try {
-      const current = await getMcpTenantSettings(params.tenantId);
-      const nowIso = new Date().toISOString();
-      const keyId = params.access?.keyId || "primary";
-      const keyLabel =
-        params.access?.keyLabel ||
-        (params.tenantId === "valem" ? "Link Principal (Valem)" : "Link Principal (Tecfag)");
-      const eventType = inferMcpAuditEventType(params.toolName, params.eventType);
 
-      const newEntry: McpAuditLogEntry = {
-        id: `mcp-log-${crypto.randomBytes(6).toString("hex")}`,
-        timestamp: nowIso,
-        keyId,
-        keyLabel,
-        toolName: params.toolName,
-        toolLabel: params.toolLabel || formatMcpToolLabel(params.toolName),
-        argumentsSummary:
-          params.argumentsSummary || summarizeMcpToolArguments(params.toolName, params.toolArgs),
-        argumentsRaw: params.toolArgs || {},
-        resultSummary: params.resultSummary,
-        status: params.status,
-        latencyMs: params.latencyMs,
-        eventType,
-        transport: params.transport || params.access?.transport || "HTTP JSON-RPC",
-        clientName: params.clientName || params.access?.clientName || "Cliente MCP",
-        clientIp: params.clientIp || params.access?.clientIp || "direto",
-        responseBytes: params.responseBytes,
-        responsePreview: params.responsePreview,
-      };
+  const nowIso = new Date().toISOString();
+  const keyId = params.access?.keyId || "primary";
+  const keyLabel =
+    params.access?.keyLabel ||
+    (params.tenantId === "valem" ? "Link Principal (Valem)" : "Link Principal (Tecfag)");
+  const eventType = inferMcpAuditEventType(params.toolName, params.eventType);
 
-      const shouldIncrementKeyUsage =
-        eventType === "query" || eventType === "action" || params.toolName === "mcp_initialize";
-      const updatedKeys = current.namedKeys.map((k) =>
-        k.id === keyId
-          ? {
-              ...k,
-              lastUsedAt: nowIso,
-              usageCount: shouldIncrementKeyUsage ? (k.usageCount || 0) + 1 : k.usageCount || 0,
-            }
-          : k,
-      );
+  const newEntry: McpAuditLogEntry = {
+    id: `mcp-log-${crypto.randomBytes(6).toString("hex")}`,
+    timestamp: nowIso,
+    keyId,
+    keyLabel,
+    toolName: params.toolName,
+    toolLabel: params.toolLabel || formatMcpToolLabel(params.toolName),
+    argumentsSummary:
+      params.argumentsSummary || summarizeMcpToolArguments(params.toolName, params.toolArgs),
+    argumentsRaw: params.toolArgs || {},
+    resultSummary: params.resultSummary,
+    status: params.status,
+    latencyMs: params.latencyMs,
+    eventType,
+    transport: params.transport || params.access?.transport || "HTTP JSON-RPC",
+    clientName: params.clientName || params.access?.clientName || "Cliente MCP",
+    clientIp: params.clientIp || params.access?.clientIp || "direto",
+    responseBytes: params.responseBytes,
+    responsePreview: params.responsePreview,
+  };
 
-      const updatedLogs = [newEntry, ...current.auditLogs].slice(0, MAX_AUDIT_LOGS);
+  const shouldIncrementKeyUsage =
+    eventType === "query" || eventType === "action" || params.toolName === "mcp_initialize";
+  if (shouldIncrementKeyUsage) {
+    trackMcpKeyUsage(params.tenantId, keyId, nowIso);
+  }
 
-      await persistMcpTenantSettingsUnlocked(params.tenantId, {
-        enabled: current.enabled,
-        primaryToken: current.primaryToken,
-        primaryTokenUpdatedAt: current.primaryTokenUpdatedAt,
-        primaryAccessLevel: current.primaryAccessLevel,
-        namedKeys: updatedKeys,
-        auditLogs: updatedLogs,
-      });
-    } catch (err) {
-      console.error("[MCP Audit] Erro ao persistir log de auditoria:", err);
-    }
-  });
+  // Enfileiramento assíncrono em tabela dedicada (mcp_audit_logs):
+  // zero mutex serial, zero reescrita de JSONB e zero bloqueio no tempo de resposta HTTP.
+  enqueueMcpAuditLog(params.tenantId, newEntry);
 }
 
 /**
@@ -1060,77 +1357,79 @@ export async function resolveMcpAccess(request: Request): Promise<McpAccessConte
       });
     }
 
-    const [tecfagSettings, valemSettings] = await Promise.all([
-      getMcpTenantSettings("tecfag"),
-      getMcpTenantSettings("valem"),
-    ]);
-
-    if (tecfagSettings.enabled) {
-      const tecfagPrimaryCandidates = [
-        tecfagSettings.primaryToken,
-        !tecfagSettings.primaryTokenUpdatedAt ? process.env.MCP_TECFAG_TOKEN : undefined,
+    const matchTenantToken = (
+      settings: McpAuthSettingsSnapshot,
+    ): McpAccessContext | null => {
+      if (!settings.enabled) return null;
+      const envFallback =
+        settings.tenantId === "valem"
+          ? process.env.MCP_VALEM_TOKEN
+          : process.env.MCP_TECFAG_TOKEN;
+      const primaryCandidates = [
+        settings.primaryToken,
+        !settings.primaryTokenUpdatedAt ? envFallback : undefined,
       ].filter((t): t is string => Boolean(t && t.trim()));
 
-      if (tecfagPrimaryCandidates.some((expected) => safeCompareToken(candidateToken, expected))) {
+      const authMode = settings.tenantId === "valem" ? "token_valem" : "token_tecfag";
+      const primaryLabel =
+        settings.tenantId === "valem" ? "Link Principal (Valem)" : "Link Principal (Tecfag)";
+
+      if (primaryCandidates.some((expected) => safeCompareToken(candidateToken, expected))) {
         return finalizeAccess({
           authorized: true,
-          lockedTenantId: "tecfag",
-          defaultTenantId: "tecfag",
-          authMode: "token_tecfag",
-          accessLevel: tecfagSettings.primaryAccessLevel,
+          lockedTenantId: settings.tenantId,
+          defaultTenantId: settings.tenantId,
+          authMode,
+          accessLevel: settings.primaryAccessLevel,
           keyId: "primary",
-          keyLabel: "Link Principal (Tecfag)",
+          keyLabel: primaryLabel,
         });
       }
 
-      const matchedNamedKey = tecfagSettings.namedKeys.find(
+      const matchedNamedKey = settings.namedKeys.find(
         (k) => k.active && safeCompareToken(candidateToken, k.token),
       );
       if (matchedNamedKey) {
         return finalizeAccess({
           authorized: true,
-          lockedTenantId: "tecfag",
-          defaultTenantId: "tecfag",
-          authMode: "token_tecfag",
+          lockedTenantId: settings.tenantId,
+          defaultTenantId: settings.tenantId,
+          authMode,
           accessLevel: matchedNamedKey.accessLevel,
           keyId: matchedNamedKey.id,
           keyLabel: matchedNamedKey.label,
         });
       }
-    }
+      return null;
+    };
 
-    if (valemSettings.enabled) {
-      const valemPrimaryCandidates = [
-        valemSettings.primaryToken,
-        !valemSettings.primaryTokenUpdatedAt ? process.env.MCP_VALEM_TOKEN : undefined,
-      ].filter((t): t is string => Boolean(t && t.trim()));
+    // Fast-path com cache em memória (30s) e prioridade pelo prefixo do token
+    let tecfagSettings: McpAuthSettingsSnapshot | null = null;
+    let valemSettings: McpAuthSettingsSnapshot | null = null;
 
-      if (valemPrimaryCandidates.some((expected) => safeCompareToken(candidateToken, expected))) {
-        return finalizeAccess({
-          authorized: true,
-          lockedTenantId: "valem",
-          defaultTenantId: "valem",
-          authMode: "token_valem",
-          accessLevel: valemSettings.primaryAccessLevel,
-          keyId: "primary",
-          keyLabel: "Link Principal (Valem)",
-        });
-      }
-
-      const matchedNamedKey = valemSettings.namedKeys.find(
-        (k) => k.active && safeCompareToken(candidateToken, k.token),
-      );
-      if (matchedNamedKey) {
-        return finalizeAccess({
-          authorized: true,
-          lockedTenantId: "valem",
-          defaultTenantId: "valem",
-          authMode: "token_valem",
-          accessLevel: matchedNamedKey.accessLevel,
-          keyId: matchedNamedKey.id,
-          keyLabel: matchedNamedKey.label,
-        });
-      }
+    if (candidateToken.startsWith("mcp_tf_")) {
+      tecfagSettings = await getMcpAuthSettings("tecfag");
+      const matched = matchTenantToken(tecfagSettings);
+      if (matched) return matched;
+      valemSettings = await getMcpAuthSettings("valem");
+      const fallbackMatched = matchTenantToken(valemSettings);
+      if (fallbackMatched) return fallbackMatched;
+    } else if (candidateToken.startsWith("mcp_vl_")) {
+      valemSettings = await getMcpAuthSettings("valem");
+      const matched = matchTenantToken(valemSettings);
+      if (matched) return matched;
+      tecfagSettings = await getMcpAuthSettings("tecfag");
+      const fallbackMatched = matchTenantToken(tecfagSettings);
+      if (fallbackMatched) return fallbackMatched;
+    } else {
+      [tecfagSettings, valemSettings] = await Promise.all([
+        getMcpAuthSettings("tecfag"),
+        getMcpAuthSettings("valem"),
+      ]);
+      const matchedTecfag = matchTenantToken(tecfagSettings);
+      if (matchedTecfag) return matchedTecfag;
+      const matchedValem = matchTenantToken(valemSettings);
+      if (matchedValem) return matchedValem;
     }
 
     // Token fornecido não é mais válido (revogado, rotacionado, pausado ou incorreto):
@@ -1138,7 +1437,7 @@ export async function resolveMcpAccess(request: Request): Promise<McpAccessConte
     const rejectedTenant: "tecfag" | "valem" = candidateToken.startsWith("mcp_vl_")
       ? "valem"
       : "tecfag";
-    const targetSettings = rejectedTenant === "valem" ? valemSettings : tecfagSettings;
+    const targetSettings = rejectedTenant === "valem" ? valemSettings! : tecfagSettings!;
     const pausedKey = targetSettings.namedKeys.find(
       (k) => !k.active && safeCompareToken(candidateToken, k.token),
     );
@@ -1214,7 +1513,7 @@ export async function resolveMcpAccess(request: Request): Promise<McpAccessConte
   if (!candidateToken && existingSession?.access.authorized) {
     const sessionTenant =
       existingSession.access.lockedTenantId || existingSession.access.defaultTenantId || "tecfag";
-    const liveSettings = await getMcpTenantSettings(sessionTenant);
+    const liveSettings = await getMcpAuthSettings(sessionTenant);
     const keyId = existingSession.access.keyId;
     const liveNamedKey = liveSettings.namedKeys.find((k) => k.id === keyId && k.active);
     const isStillValid =
@@ -1357,10 +1656,15 @@ const MCP_READ_CORE_TOOLS_RAW = [
           type: "string",
           description: "Filtra pelo nome do operador/vendedor responsável pela conversa.",
         },
+        offset: {
+          type: "number",
+          default: 0,
+          description: "Deslocamento para paginação (padrão 0).",
+        },
         limit: {
           type: "number",
           default: 20,
-          description: "Quantidade máxima de conversas retornadas (padrão 20, máx 100).",
+          description: "Quantidade máxima de conversas retornadas (padrão 20, máx 250).",
         },
       },
     },
@@ -1550,6 +1854,23 @@ const MCP_READ_CORE_TOOLS_RAW = [
           type: "string",
           description: "Data final de ganho/fechamento (YYYY-MM-DD ou ISO).",
         },
+        updatedFrom: {
+          type: "string",
+          description:
+            "Data/hora inicial de atualização do card (YYYY-MM-DD ou ISO) para sincronização incremental (filtra crm_deals.updated_at >= updatedFrom).",
+        },
+        updatedTo: {
+          type: "string",
+          description:
+            "Data/hora final de atualização do card (YYYY-MM-DD ou ISO) (filtra crm_deals.updated_at <= updatedTo).",
+        },
+        sortBy: {
+          type: "string",
+          enum: ["recent", "updated_desc", "updated_asc", "created_desc", "created_asc"],
+          default: "recent",
+          description:
+            "Ordenação dos resultados: 'recent' (padrão: won/closed/updated/created DESC), 'updated_desc', 'updated_asc' (ideal para sync incremental), 'created_desc' ou 'created_asc'.",
+        },
         includeTests: {
           type: "boolean",
           default: false,
@@ -1560,10 +1881,15 @@ const MCP_READ_CORE_TOOLS_RAW = [
           default: true,
           description: "Se false, oculta os cards históricos arquivados do RD (is_legacy=true). Padrão: true.",
         },
+        offset: {
+          type: "number",
+          default: 0,
+          description: "Deslocamento para paginação (padrão 0, máx 100000).",
+        },
         limit: {
           type: "number",
           default: 25,
-          description: "Quantidade máxima de negociações (padrão 25, máx 100).",
+          description: "Quantidade máxima de negociações por página (padrão 25, máx 500).",
         },
       },
     },
@@ -1588,6 +1914,7 @@ const MCP_READ_CORE_TOOLS_RAW = [
       },
     },
   },
+  GET_CRM_DEALS_BATCH_TOOL_SCHEMA,
   {
     name: "search_crm_accounts",
     description:
@@ -1639,7 +1966,7 @@ const MCP_READ_CORE_TOOLS_RAW = [
         limit: {
           type: "number",
           default: 25,
-          description: "Quantidade máxima de registros por página (padrão: 25, máx: 100).",
+          description: "Quantidade máxima de registros por página (padrão: 25, máx: 250).",
         },
       },
     },
@@ -1661,9 +1988,15 @@ const MCP_READ_CORE_TOOLS_RAW = [
           type: "string",
           description: "Nome, telefone, CNPJ/CPF ou e-mail do contato.",
         },
+        offset: {
+          type: "number",
+          default: 0,
+          description: "Deslocamento para paginação (padrão: 0).",
+        },
         limit: {
           type: "number",
           default: 25,
+          description: "Quantidade máxima de contatos por página (padrão: 25, máx: 250).",
         },
       },
     },
@@ -1809,7 +2142,9 @@ export async function executeMcpTool(
 
   switch (toolName) {
     case "search_conversations": {
-      const limit = clampLimit(args.limit, 20, 100);
+      const limit = clampLimit(args.limit, 20, 250);
+      const rawOffset = Number(args.offset ?? 0);
+      const offset = Number.isFinite(rawOffset) && rawOffset > 0 ? Math.min(Math.floor(rawOffset), 100_000) : 0;
       const query = String(args.query || "").trim();
       const queueState = args.queueState ? String(args.queueState).trim() : null;
       const operatorName = args.operatorName ? String(args.operatorName).trim() : null;
@@ -1837,68 +2172,87 @@ export async function executeMcpTool(
         idx === 0 ? curr : sql`${acc} AND ${curr}`,
       );
 
-      const rows = await sql`
-        SELECT
-          conv.id AS conversation_id,
-          conv.whatsapp_connection_id,
-          conv.queue_state,
-          conv.unread_count,
-          conv.last_message_text,
-          conv.last_message_time,
-          conv.created_at,
-          c.id AS contact_id,
-          c.name AS contact_name,
-          c.phone AS contact_phone,
-          c.email AS contact_email,
-          c.main_channel,
-          c.wallet_operator_id,
-          c.responsible_name,
-          c.account_id,
-          acc.name AS account_name,
-          acc.trade_name AS account_trade_name,
-          acc.document AS account_document,
-          op.id AS operator_id,
-          op.name AS operator_name,
-          s.id AS sector_id,
-          s.name AS sector_name,
-          (
-            SELECT jsonb_agg(jsonb_build_object(
-              'dealId', d.id,
-              'title', d.title,
-              'value', d.value,
-              'status', d.status
-            ))
-            FROM crm_conversation_deals cd
-            JOIN crm_deals d ON d.id = cd.deal_id AND d.tenant_id = conv.tenant_id
-            WHERE cd.conversation_id = conv.id
-              AND cd.tenant_id = conv.tenant_id
-              AND cd.is_active = true
-          ) AS linked_deals
-        FROM conversations conv
-        JOIN contacts c ON c.id = conv.contact_id AND c.tenant_id = conv.tenant_id
-        LEFT JOIN crm_accounts acc ON acc.id = c.account_id AND acc.tenant_id = conv.tenant_id
-        LEFT JOIN operators op ON op.id = conv.operator_id AND op.tenant_id = conv.tenant_id
-        LEFT JOIN sectors s ON s.id = conv.sector_id AND s.tenant_id = conv.tenant_id
-        WHERE ${whereClause}
-        ORDER BY conv.last_message_time DESC NULLS LAST
-        LIMIT ${limit}
-      `;
+      const [rows, countRows, queueSummaryRows] = await Promise.all([
+        sql`
+          SELECT
+            conv.id AS conversation_id,
+            conv.whatsapp_connection_id,
+            conv.queue_state,
+            conv.unread_count,
+            conv.last_message_text,
+            conv.last_message_time,
+            conv.created_at,
+            c.id AS contact_id,
+            c.name AS contact_name,
+            c.phone AS contact_phone,
+            c.email AS contact_email,
+            c.main_channel,
+            c.wallet_operator_id,
+            c.responsible_name,
+            c.account_id,
+            acc.name AS account_name,
+            acc.trade_name AS account_trade_name,
+            acc.document AS account_document,
+            op.id AS operator_id,
+            op.name AS operator_name,
+            s.id AS sector_id,
+            s.name AS sector_name,
+            (
+              SELECT jsonb_agg(jsonb_build_object(
+                'dealId', d.id,
+                'title', d.title,
+                'value', d.value,
+                'status', d.status
+              ))
+              FROM crm_conversation_deals cd
+              JOIN crm_deals d ON d.id = cd.deal_id AND d.tenant_id = conv.tenant_id
+              WHERE cd.conversation_id = conv.id
+                AND cd.tenant_id = conv.tenant_id
+                AND cd.is_active = true
+            ) AS linked_deals
+          FROM conversations conv
+          JOIN contacts c ON c.id = conv.contact_id AND c.tenant_id = conv.tenant_id
+          LEFT JOIN crm_accounts acc ON acc.id = c.account_id AND acc.tenant_id = conv.tenant_id
+          LEFT JOIN operators op ON op.id = conv.operator_id AND op.tenant_id = conv.tenant_id
+          LEFT JOIN sectors s ON s.id = conv.sector_id AND s.tenant_id = conv.tenant_id
+          WHERE ${whereClause}
+          ORDER BY conv.last_message_time DESC NULLS LAST, conv.id DESC
+          LIMIT ${limit}
+          OFFSET ${offset}
+        `,
+        sql`
+          SELECT COUNT(*)::int AS total
+          FROM conversations conv
+          JOIN contacts c ON c.id = conv.contact_id AND c.tenant_id = conv.tenant_id
+          LEFT JOIN crm_accounts acc ON acc.id = c.account_id AND acc.tenant_id = conv.tenant_id
+          LEFT JOIN operators op ON op.id = conv.operator_id AND op.tenant_id = conv.tenant_id
+          WHERE ${whereClause}
+        `,
+        sql`
+          SELECT
+            COUNT(*)::int AS total,
+            COUNT(*) FILTER (WHERE queue_state = 'automacao')::int AS automacao,
+            COUNT(*) FILTER (WHERE queue_state = 'fila')::int AS fila,
+            COUNT(*) FILTER (WHERE queue_state = 'meus')::int AS meus,
+            COUNT(*) FILTER (WHERE queue_state = 'finalizados')::int AS finalizados
+          FROM conversations
+          WHERE tenant_id = ${tenantId}
+        `,
+      ]);
 
-      const [queueSummary] = await sql`
-        SELECT
-          COUNT(*)::int AS total,
-          COUNT(*) FILTER (WHERE queue_state = 'automacao')::int AS automacao,
-          COUNT(*) FILTER (WHERE queue_state = 'fila')::int AS fila,
-          COUNT(*) FILTER (WHERE queue_state = 'meus')::int AS meus,
-          COUNT(*) FILTER (WHERE queue_state = 'finalizados')::int AS finalizados
-        FROM conversations
-        WHERE tenant_id = ${tenantId}
-      `;
+      const totalMatching = Number(countRows[0]?.total ?? rows.length);
+      const queueSummary = queueSummaryRows[0];
+      const hasMore = offset + rows.length < totalMatching;
 
       return {
         tenantId,
         queueSummary,
+        totalMatching,
+        offset,
+        limit,
         returnedCount: rows.length,
+        hasMore,
+        nextOffset: hasMore ? offset + rows.length : null,
         conversations: rows.map((r: any) => ({
           conversationId: r.conversation_id,
           channel: isSiteConversationId(r.conversation_id)
@@ -2311,7 +2665,10 @@ export async function executeMcpTool(
     }
 
     case "search_crm_deals": {
-      const limit = clampLimit(args.limit, 25, 100);
+      const limit = clampLimit(args.limit, 25, 500);
+      const rawOffset = Number(args.offset ?? 0);
+      const offset = Number.isFinite(rawOffset) && rawOffset > 0 ? Math.min(Math.floor(rawOffset), 100_000) : 0;
+      const sortBy = String(args.sortBy || "recent").trim().toLowerCase();
       const query = String(args.query || "").trim();
       const idRd = args.idRd ? String(args.idRd).trim() : null;
       const pipelineName = args.pipelineName ? String(args.pipelineName).trim() : null;
@@ -2381,6 +2738,16 @@ export async function executeMcpTool(
       if (wonFrom) conditions.push(sql`COALESCE(d.won_at, d.closed_at) >= ${wonFrom}::timestamp`);
       const wonTo = parseFlexibleDateBound(args.wonTo ? String(args.wonTo) : null, "end");
       if (wonTo) conditions.push(sql`COALESCE(d.won_at, d.closed_at) <= ${wonTo}::timestamp`);
+      const updatedFrom = parseFlexibleDateBound(
+        args.updatedFrom ? String(args.updatedFrom) : null,
+        "start",
+      );
+      if (updatedFrom) conditions.push(sql`d.updated_at >= ${updatedFrom}::timestamp`);
+      const updatedTo = parseFlexibleDateBound(
+        args.updatedTo ? String(args.updatedTo) : null,
+        "end",
+      );
+      if (updatedTo) conditions.push(sql`d.updated_at <= ${updatedTo}::timestamp`);
 
       if (query) {
         const qPattern = `%${query}%`;
@@ -2398,65 +2765,96 @@ export async function executeMcpTool(
         idx === 0 ? curr : sql`${acc} AND ${curr}`,
       );
 
-      const rows = await sql`
-        SELECT
-          d.id,
-          d.rd_deal_id,
-          d.rd_deal_url,
-          d.title,
-          d.value,
-          d.currency,
-          d.status,
-          d.loss_reason,
-          d.paused_reason,
-          d.entry_channel,
-          d.source,
-          d.campaign,
-          d.utm_source,
-          d.utm_medium,
-          d.utm_campaign,
-          d.utm_content,
-          d.utm_term,
-          d.click_id,
-          d.original_pipeline_id,
-          d.sector_origin,
-          d.sector_current,
-          d.rating,
-          d.ai_priority_score,
-          d.ai_priority_level,
-          d.expected_close_date,
-          d.won_at,
-          d.lost_at,
-          d.closed_at,
-          d.is_legacy,
-          d.is_test,
-          d.created_at,
-          d.updated_at,
-          p.id AS pipeline_id,
-          p.name AS pipeline_name,
-          st.id AS stage_id,
-          st.name AS stage_name,
-          st.is_win_stage,
-          st.is_loss_stage,
-          op.id AS operator_id,
-          op.name AS operator_name,
-          acc.id AS account_id,
-          acc.name AS account_name,
-          acc.trade_name AS account_trade_name,
-          acc.document AS account_document
-        FROM crm_deals d
-        JOIN crm_pipelines p ON p.id = d.pipeline_id AND p.tenant_id = d.tenant_id
-        JOIN crm_stages st ON st.id = d.stage_id AND st.tenant_id = d.tenant_id
-        LEFT JOIN operators op ON op.id = d.operator_id AND op.tenant_id = d.tenant_id
-        LEFT JOIN crm_accounts acc ON acc.id = d.account_id AND acc.tenant_id = d.tenant_id
-        WHERE ${whereClause}
-        ORDER BY COALESCE(d.won_at, d.closed_at, d.updated_at, d.created_at) DESC
-        LIMIT ${limit}
-      `;
+      const orderByClause =
+        sortBy === "updated_desc"
+          ? sql`d.updated_at DESC NULLS LAST, d.id DESC`
+          : sortBy === "updated_asc"
+            ? sql`d.updated_at ASC NULLS LAST, d.id ASC`
+            : sortBy === "created_desc"
+              ? sql`d.created_at DESC NULLS LAST, d.id DESC`
+              : sortBy === "created_asc"
+                ? sql`d.created_at ASC NULLS LAST, d.id ASC`
+                : sql`COALESCE(d.won_at, d.closed_at, d.updated_at, d.created_at) DESC, d.id DESC`;
+
+      const [rows, countRows] = await Promise.all([
+        sql`
+          SELECT
+            d.id,
+            d.rd_deal_id,
+            d.rd_deal_url,
+            d.title,
+            d.value,
+            d.currency,
+            d.status,
+            d.loss_reason,
+            d.paused_reason,
+            d.entry_channel,
+            d.source,
+            d.campaign,
+            d.utm_source,
+            d.utm_medium,
+            d.utm_campaign,
+            d.utm_content,
+            d.utm_term,
+            d.click_id,
+            d.original_pipeline_id,
+            d.sector_origin,
+            d.sector_current,
+            d.rating,
+            d.ai_priority_score,
+            d.ai_priority_level,
+            d.expected_close_date,
+            d.won_at,
+            d.lost_at,
+            d.closed_at,
+            d.is_legacy,
+            d.is_test,
+            d.created_at,
+            d.updated_at,
+            p.id AS pipeline_id,
+            p.name AS pipeline_name,
+            st.id AS stage_id,
+            st.name AS stage_name,
+            st.is_win_stage,
+            st.is_loss_stage,
+            op.id AS operator_id,
+            op.name AS operator_name,
+            acc.id AS account_id,
+            acc.name AS account_name,
+            acc.trade_name AS account_trade_name,
+            acc.document AS account_document
+          FROM crm_deals d
+          JOIN crm_pipelines p ON p.id = d.pipeline_id AND p.tenant_id = d.tenant_id
+          JOIN crm_stages st ON st.id = d.stage_id AND st.tenant_id = d.tenant_id
+          LEFT JOIN operators op ON op.id = d.operator_id AND op.tenant_id = d.tenant_id
+          LEFT JOIN crm_accounts acc ON acc.id = d.account_id AND acc.tenant_id = d.tenant_id
+          WHERE ${whereClause}
+          ORDER BY ${orderByClause}
+          LIMIT ${limit}
+          OFFSET ${offset}
+        `,
+        sql`
+          SELECT COUNT(*)::int AS total
+          FROM crm_deals d
+          JOIN crm_pipelines p ON p.id = d.pipeline_id AND p.tenant_id = d.tenant_id
+          JOIN crm_stages st ON st.id = d.stage_id AND st.tenant_id = d.tenant_id
+          LEFT JOIN operators op ON op.id = d.operator_id AND op.tenant_id = d.tenant_id
+          LEFT JOIN crm_accounts acc ON acc.id = d.account_id AND acc.tenant_id = d.tenant_id
+          WHERE ${whereClause}
+        `,
+      ]);
+
+      const totalMatching = Number(countRows[0]?.total ?? rows.length);
+      const hasMore = offset + rows.length < totalMatching;
 
       return {
         tenantId,
+        totalMatching,
+        offset,
+        limit,
         returnedCount: rows.length,
+        hasMore,
+        nextOffset: hasMore ? offset + rows.length : null,
         deals: rows.map((r: any) => {
           const effectiveWon = isEffectiveCommercialWin({
             status: r.status,
@@ -2776,6 +3174,10 @@ export async function executeMcpTool(
       };
     }
 
+    case "get_crm_deals_batch": {
+      return await executeGetCrmDealsBatch(args, tenantId, sql);
+    }
+
     case "search_crm_accounts": {
       const accountId = args.accountId ? String(args.accountId).trim() : null;
       const query = String(args.query || "").trim();
@@ -2786,7 +3188,7 @@ export async function executeMcpTool(
       const includeEmpty = args.includeEmpty === true;
       const rawOffset = Number(args.offset ?? 0);
       const offset = Number.isFinite(rawOffset) && rawOffset > 0 ? Math.floor(rawOffset) : 0;
-      const limit = clampLimit(args.limit, 25, 100);
+      const limit = clampLimit(args.limit, 25, 250);
 
       const companyFieldDefRows = await sql`
         SELECT
@@ -3014,58 +3416,79 @@ export async function executeMcpTool(
 
     case "search_contacts": {
       const query = String(args.query || "").trim();
-      const limit = clampLimit(args.limit, 25, 100);
+      const limit = clampLimit(args.limit, 25, 250);
+      const rawOffset = Number(args.offset ?? 0);
+      const offset = Number.isFinite(rawOffset) && rawOffset > 0 ? Math.min(Math.floor(rawOffset), 100_000) : 0;
       const pattern = `%${query}%`;
 
-      const rows = await sql`
-        SELECT
-          c.id,
-          c.name,
-          c.phone,
-          c.email,
-          c.custom_fields,
-          c.cnpj,
-          c.cpf,
-          c.main_channel,
-          c.responsible_name,
-          c.tags,
-          c.account_id,
-          acc.name AS account_name,
-          acc.trade_name AS account_trade_name,
-          acc.document AS account_document,
-          conv.id AS conversation_id,
-          conv.queue_state,
-          conv.last_message_time
-        FROM contacts c
-        LEFT JOIN crm_accounts acc ON acc.id = c.account_id AND acc.tenant_id = c.tenant_id
-        LEFT JOIN conversations conv ON conv.contact_id = c.id AND conv.tenant_id = c.tenant_id
-        WHERE c.tenant_id = ${tenantId}
-          ${
-            query
-              ? sql`AND (
-                  c.name ILIKE ${pattern}
-                  OR COALESCE(c.phone, '') ILIKE ${pattern}
-                  OR COALESCE(c.email, '') ILIKE ${pattern}
-                  OR (
-                    jsonb_typeof(c.custom_fields->'secondaryEmails') = 'array'
-                    AND EXISTS (
-                      SELECT 1
-                      FROM jsonb_array_elements_text(c.custom_fields->'secondaryEmails') AS se(val)
-                      WHERE se.val ILIKE ${pattern}
-                    )
-                  )
-                  OR COALESCE(c.cnpj, '') ILIKE ${pattern}
-                  OR COALESCE(acc.name, '') ILIKE ${pattern}
-                )`
-              : sql``
-          }
-        ORDER BY COALESCE(conv.last_message_time, c.created_at) DESC
-        LIMIT ${limit}
-      `;
+      const whereContactFilter = query
+        ? sql`AND (
+            c.name ILIKE ${pattern}
+            OR COALESCE(c.phone, '') ILIKE ${pattern}
+            OR COALESCE(c.email, '') ILIKE ${pattern}
+            OR (
+              jsonb_typeof(c.custom_fields->'secondaryEmails') = 'array'
+              AND EXISTS (
+                SELECT 1
+                FROM jsonb_array_elements_text(c.custom_fields->'secondaryEmails') AS se(val)
+                WHERE se.val ILIKE ${pattern}
+              )
+            )
+            OR COALESCE(c.cnpj, '') ILIKE ${pattern}
+            OR COALESCE(acc.name, '') ILIKE ${pattern}
+          )`
+        : sql``;
+
+      const [rows, countRows] = await Promise.all([
+        sql`
+          SELECT
+            c.id,
+            c.name,
+            c.phone,
+            c.email,
+            c.custom_fields,
+            c.cnpj,
+            c.cpf,
+            c.main_channel,
+            c.responsible_name,
+            c.tags,
+            c.account_id,
+            acc.name AS account_name,
+            acc.trade_name AS account_trade_name,
+            acc.document AS account_document,
+            conv.id AS conversation_id,
+            conv.queue_state,
+            conv.last_message_time
+          FROM contacts c
+          LEFT JOIN crm_accounts acc ON acc.id = c.account_id AND acc.tenant_id = c.tenant_id
+          LEFT JOIN conversations conv ON conv.contact_id = c.id AND conv.tenant_id = c.tenant_id
+          WHERE c.tenant_id = ${tenantId}
+            ${whereContactFilter}
+          ORDER BY COALESCE(conv.last_message_time, c.created_at) DESC, c.id DESC
+          LIMIT ${limit}
+          OFFSET ${offset}
+        `,
+        sql`
+          SELECT COUNT(*)::int AS total
+          FROM contacts c
+          LEFT JOIN crm_accounts acc ON acc.id = c.account_id AND acc.tenant_id = c.tenant_id
+          LEFT JOIN conversations conv ON conv.contact_id = c.id AND conv.tenant_id = c.tenant_id
+          WHERE c.tenant_id = ${tenantId}
+            ${whereContactFilter}
+        `,
+      ]);
+
+      const totalMatching = Number(countRows[0]?.total ?? rows.length);
+      const hasMore = offset + rows.length < totalMatching;
 
       return {
         tenantId,
+        totalMatching,
+        offset,
+        limit,
         returnedCount: rows.length,
+        hasMore,
+        nextOffset: hasMore ? offset + rows.length : null,
         contacts: rows.map((r: any) => {
           const cf = (r.custom_fields && typeof r.custom_fields === "object" ? r.custom_fields : {}) as Record<string, unknown>;
           const secondaryEmails = Array.isArray(cf.secondaryEmails)

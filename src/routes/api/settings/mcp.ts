@@ -5,6 +5,7 @@ import {
   MCP_SERVER_INFO,
   MCP_TOOLS,
   extractRequestClientIp,
+  flushPendingMcpAuditLogs,
   generateMcpTokenForTenant,
   getDefaultPrimaryToken,
   getMcpTenantSettings,
@@ -165,6 +166,7 @@ export const Route = createFileRoute("/api/settings/mcp")({
             sampleOverview = null;
           }
 
+          await flushPendingMcpAuditLogs();
           const refreshed = await getMcpTenantSettings(tenantId);
 
           return jsonResponse({
@@ -213,7 +215,8 @@ export const Route = createFileRoute("/api/settings/mcp")({
           const updated = await saveMcpTenantSettings(tenantId, {
             ...current,
             enabled,
-            auditLogs: [logEntry, ...current.auditLogs],
+            auditLogs: undefined,
+            appendAuditLog: logEntry,
           });
           return jsonResponse({
             ok: true,
@@ -245,7 +248,8 @@ export const Route = createFileRoute("/api/settings/mcp")({
             ...current,
             primaryToken: newToken,
             primaryTokenUpdatedAt: nowIso,
-            auditLogs: [logEntry, ...current.auditLogs],
+            auditLogs: undefined,
+            appendAuditLog: logEntry,
           });
           return jsonResponse({
             ok: true,
@@ -276,7 +280,8 @@ export const Route = createFileRoute("/api/settings/mcp")({
             ...current,
             primaryToken: defaultToken,
             primaryTokenUpdatedAt: nowIso,
-            auditLogs: [logEntry, ...current.auditLogs],
+            auditLogs: undefined,
+            appendAuditLog: logEntry,
           });
           return jsonResponse({
             ok: true,
@@ -326,7 +331,8 @@ export const Route = createFileRoute("/api/settings/mcp")({
           const updated = await saveMcpTenantSettings(tenantId, {
             ...current,
             namedKeys: [newKey, ...current.namedKeys],
-            auditLogs: [logEntry, ...current.auditLogs],
+            auditLogs: undefined,
+            appendAuditLog: logEntry,
           });
           return jsonResponse({
             ok: true,
@@ -363,7 +369,8 @@ export const Route = createFileRoute("/api/settings/mcp")({
           const updated = await saveMcpTenantSettings(tenantId, {
             ...current,
             primaryAccessLevel: accessLevel,
-            auditLogs: [logEntry, ...current.auditLogs],
+            auditLogs: undefined,
+            appendAuditLog: logEntry,
           });
           return jsonResponse({
             ok: true,
@@ -411,7 +418,8 @@ export const Route = createFileRoute("/api/settings/mcp")({
           const updated = await saveMcpTenantSettings(tenantId, {
             ...current,
             namedKeys: updatedKeys,
-            auditLogs: [logEntry, ...current.auditLogs],
+            auditLogs: undefined,
+            appendAuditLog: logEntry,
           });
           return jsonResponse({
             ok: true,
@@ -448,7 +456,8 @@ export const Route = createFileRoute("/api/settings/mcp")({
           const updated = await saveMcpTenantSettings(tenantId, {
             ...current,
             namedKeys: updatedKeys,
-            auditLogs: [logEntry, ...current.auditLogs],
+            auditLogs: undefined,
+            appendAuditLog: logEntry,
           });
           return jsonResponse({
             ok: true,
@@ -482,7 +491,8 @@ export const Route = createFileRoute("/api/settings/mcp")({
           const updated = await saveMcpTenantSettings(tenantId, {
             ...current,
             namedKeys: updatedKeys,
-            auditLogs: [logEntry, ...current.auditLogs],
+            auditLogs: undefined,
+            appendAuditLog: logEntry,
           });
           return jsonResponse({
             ok: true,
@@ -509,7 +519,9 @@ export const Route = createFileRoute("/api/settings/mcp")({
           });
           const updated = await saveMcpTenantSettings(tenantId, {
             ...current,
-            auditLogs: [logEntry],
+            auditLogs: undefined,
+            clearAuditLogs: true,
+            appendAuditLog: logEntry,
           });
           return jsonResponse({
             ok: true,

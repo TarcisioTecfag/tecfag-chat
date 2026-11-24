@@ -16,9 +16,19 @@ const isLocalDatabase = ["localhost", "127.0.0.1", "::1"].includes(new URL(conne
 
 const isCloud = connectionString.includes("railway") || connectionString.includes("neon") || connectionString.includes("supabase") || connectionString.includes("render") || process.env.NODE_ENV === "production";
 
+export function resolveDbPoolMax(raw = process.env.DB_POOL_MAX): number {
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 25;
+  return Math.max(5, Math.min(50, Math.floor(parsed)));
+}
+
+export const DB_POOL_MAX = resolveDbPoolMax();
+
 // Client do PostgreSQL (pool principal exportado para inspeções e testes)
 export const client = postgres(connectionString, {
-  max: 10,
+  max: DB_POOL_MAX,
+  idle_timeout: 20,
+  connect_timeout: 15,
   prepare: false,
   ssl: isCloud && !isLocalDatabase ? { rejectUnauthorized: false } : false,
 });
@@ -475,6 +485,30 @@ export async function verifyDatabaseCompatibility(): Promise<void> {
       ALTER TABLE crm_deals ADD COLUMN IF NOT EXISTS is_legacy BOOLEAN NOT NULL DEFAULT FALSE;
       ALTER TABLE crm_deals ADD COLUMN IF NOT EXISTS is_test BOOLEAN NOT NULL DEFAULT FALSE;
       ALTER TABLE IF EXISTS rd_marketing_flows ADD COLUMN IF NOT EXISTS token_encrypted TEXT;
+      CREATE TABLE IF NOT EXISTS mcp_audit_logs (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+        key_id TEXT NOT NULL DEFAULT 'primary',
+        key_label TEXT NOT NULL DEFAULT 'Link Principal',
+        tool_name TEXT NOT NULL,
+        tool_label TEXT NOT NULL,
+        arguments_summary TEXT NOT NULL DEFAULT '',
+        arguments_raw JSONB NOT NULL DEFAULT '{}'::jsonb,
+        result_summary TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'success',
+        latency_ms INTEGER NOT NULL DEFAULT 0,
+        event_type TEXT NOT NULL DEFAULT 'query',
+        transport TEXT,
+        client_name TEXT,
+        client_ip TEXT,
+        response_bytes INTEGER,
+        response_preview TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_mcp_audit_logs_tenant_created
+        ON mcp_audit_logs (tenant_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_mcp_audit_logs_tenant_key_created
+        ON mcp_audit_logs (tenant_id, key_id, created_at DESC);
     `);
     console.log("[db] ✓ Compatibilidade do schema verificada com sucesso.");
   } catch (e: any) {
