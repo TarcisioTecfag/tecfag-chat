@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { and, desc, eq, lt, or } from "drizzle-orm";
+import { and, desc, eq, isNull, lt, notLike, or } from "drizzle-orm";
 import { db } from "../../../db";
 import { contacts, conversations, messages, whatsappConnections } from "../../../db/schema";
 import { requireSession } from "../../../lib/auth-session";
@@ -24,18 +24,35 @@ export const Route = createFileRoute("/api/whatsapp/contact-history")({
         const denied = await requireConversationAccess(session, conversationId);
         if (denied) return denied;
         const [origin] = await db
-          .select({ contactId: conversations.contactId })
+          .select({
+            contactId: conversations.contactId,
+            whatsappConnectionId: conversations.whatsappConnectionId,
+          })
           .from(conversations)
           .where(
             and(eq(conversations.tenantId, session.tenantId), eq(conversations.id, conversationId)),
           )
           .limit(1);
         if (!origin) return Response.json({ error: "Conversa não encontrada." }, { status: 404 });
+        // Quando o operador abre uma conversa Baileys autorizada deste contato, inclui sempre
+        // o histórico corporativo oficial (somente leitura) no feed unificado — mesmo quando a
+        // conversa oficial foi encerrada na transferência ou o grupo restringe a aba Finalizados.
+        const historyVisibilityCondition = origin.whatsappConnectionId
+          ? or(
+              conversationReadCondition(session),
+              and(
+                eq(conversations.tenantId, session.tenantId),
+                eq(conversations.contactId, origin.contactId),
+                isNull(conversations.whatsappConnectionId),
+                notLike(conversations.id, "conv-lc-%"),
+              ),
+            )!
+          : conversationReadCondition(session);
         const conditions = [
           eq(messages.tenantId, session.tenantId),
           eq(conversations.tenantId, session.tenantId),
           eq(conversations.contactId, origin.contactId),
-          conversationReadCondition(session),
+          historyVisibilityCondition,
         ];
         const cursor = url.searchParams.get("before");
         if (cursor) {
@@ -97,7 +114,7 @@ export const Route = createFileRoute("/api/whatsapp/contact-history")({
             and(
               eq(conversations.tenantId, session.tenantId),
               eq(conversations.contactId, origin.contactId),
-              conversationReadCondition(session),
+              historyVisibilityCondition,
             ),
           );
         return Response.json(

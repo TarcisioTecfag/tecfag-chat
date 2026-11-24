@@ -31,10 +31,12 @@ import {
   contacts,
   operators,
   rdMarketingReceipts,
+  whatsappConnectionContacts,
 } from "../../../../../db/schema";
 import { isNull, eq, and, desc, asc, notLike, or, sql } from "drizzle-orm";
 import { setAttendanceActor } from "../../../../../lib/attendance-events";
 import { isSiteConversationId } from "../../../../../lib/livechat/site-channel-policy";
+import { isStrictDedicatedBaileysOperator } from "../../../../../lib/whatsapp/dedicated-routing";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -263,6 +265,17 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
               requestedContactId || requestedContactPhoneId || requestedPhone,
             );
 
+            const dedicatedStatus = await isStrictDedicatedBaileysOperator(
+              db,
+              tenantId,
+              session.operator.id,
+              session.operator.role,
+            );
+            const preferredConnectionId =
+              dedicatedStatus.dedicated && dedicatedStatus.connection
+                ? dedicatedStatus.connection.id
+                : null;
+
             const result = await db.transaction(async (tx) => {
               let targetConv: typeof conversations.$inferSelect | null = null;
               let targetContactId: string | null = requestedContactId;
@@ -287,6 +300,9 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
                       eq(crmConversationDeals.tenantId, tenantId),
                       eq(crmConversationDeals.dealId, dealId),
                       eq(crmConversationDeals.isActive, true),
+                      preferredConnectionId
+                        ? eq(conversations.whatsappConnectionId, preferredConnectionId)
+                        : undefined,
                     ),
                   )
                   .orderBy(
@@ -427,12 +443,12 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
                   tenantId,
                   targetContactId,
                   targetPhoneItem,
-                  null,
+                  preferredConnectionId,
                 );
 
                 if (existingConv) {
                   targetConv = existingConv;
-                } else if (!targetPhoneItem || targetPhoneItem.isPrimary) {
+                } else if (!preferredConnectionId && (!targetPhoneItem || targetPhoneItem.isPrimary)) {
                   const [contactObj] = await tx
                     .select()
                     .from(contacts)
@@ -509,6 +525,7 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
                     session.operator.id,
                   );
                   const now = new Date();
+                  const assignDedicatedOrAuto = autoCapture || Boolean(preferredConnectionId);
                   const [insertedConv] = await tx
                     .insert(conversations)
                     .values({
@@ -517,8 +534,9 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
                       contactId: targetContactId,
                       contactPhoneId: targetPhoneItem?.id || null,
                       contactPhone: targetPhoneItem?.phone || null,
-                      operatorId: autoCapture ? session.operator.id : null,
-                      queueState: autoCapture ? "meus" : "fila",
+                      whatsappConnectionId: preferredConnectionId,
+                      operatorId: assignDedicatedOrAuto ? session.operator.id : null,
+                      queueState: assignDedicatedOrAuto ? "meus" : "fila",
                       unreadCount: 0,
                       lastMessageText: "Atendimento iniciado pelo CRM",
                       lastMessageTime: now,
@@ -526,6 +544,17 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
                       updatedAt: now,
                     })
                     .returning();
+                  if (preferredConnectionId) {
+                    await tx
+                      .insert(whatsappConnectionContacts)
+                      .values({
+                        id: crypto.randomUUID(),
+                        tenantId,
+                        connectionId: preferredConnectionId,
+                        contactId: targetContactId,
+                      })
+                      .onConflictDoNothing();
+                  }
                   targetConv = insertedConv;
                   created = true;
                 }

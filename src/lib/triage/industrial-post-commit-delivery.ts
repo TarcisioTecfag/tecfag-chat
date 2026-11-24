@@ -25,7 +25,7 @@ export async function deliverIndustrialPostCommit(
     if (!item.needOperatorNotification || !result.operator) return false;
     return dependencies.notifyOperator({
       tenantId: key.tenantId,
-      conversationId: key.conversationId,
+      conversationId: result.targetConversationId || key.conversationId,
       operatorId: result.operator.id,
       operatorName: result.operator.name,
       clientName: request?.clientName,

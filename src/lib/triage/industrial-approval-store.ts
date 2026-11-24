@@ -59,6 +59,12 @@ import {
 } from "./industrial-silence-policy";
 import { appendIndustrialJournal } from "./industrial-triage-journal-store";
 import { isSdrAnalysisFlowOperator } from "./sdr-disabled-routing";
+import {
+  handoffConversationAcrossChannels,
+  listDedicatedConnectionsByOperator,
+  resolveOperatorDedicatedConnection,
+  type DedicatedConnectionInfo,
+} from "../whatsapp/dedicated-routing";
 
 export class IndustrialApprovalError extends Error {
   constructor(
@@ -596,6 +602,7 @@ export async function loadIndustrialApprovalOptions(
     tenantPipelines,
     tenantStages,
     activeChatsRows,
+    dedicatedConnectionsByOp,
   ] = await Promise.all([
     readIndustrialSettings(database, tenantId).catch(() => ({
       row: undefined,
@@ -657,6 +664,9 @@ export async function loadIndustrialApprovalOptions(
         ),
       )
       .groupBy(conversations.operatorId),
+    listDedicatedConnectionsByOperator(database as any, tenantId).catch(
+      () => new Map<string, DedicatedConnectionInfo>(),
+    ),
   ]);
 
   const activeChatsByOp = new Map<string, number>();
@@ -700,6 +710,7 @@ export async function loadIndustrialApprovalOptions(
     })),
     operators: tenantOperators.map((op) => {
       const fOp = flowById.get(op.id);
+      const dedicatedConn = dedicatedConnectionsByOp.get(op.id) || null;
       return {
         id: op.id,
         name: op.name,
@@ -713,6 +724,15 @@ export async function loadIndustrialApprovalOptions(
         leadsReceivedCount: Number(fOp?.leadsReceivedCount || 0),
         compensation: Number(fOp?.compensation || 0),
         activeChatsNow: activeChatsByOp.get(op.id) || 0,
+        dedicatedConnection: dedicatedConn
+          ? {
+              id: dedicatedConn.id,
+              name: dedicatedConn.name,
+              phone: dedicatedConn.pairedPhone,
+              status: dedicatedConn.status,
+              isConnectedLive: dedicatedConn.isConnectedLive,
+            }
+          : null,
       };
     }),
     pipelines: tenantPipelines,
@@ -901,29 +921,89 @@ export async function approveIndustrialTriage(
     }
 
     // 2. Transferir conversa para o operador aprovado em "meus"
+    // Se o operador aprovado possuir WhatsApp Baileys dedicado, direciona diretamente para a thread dele
+    // e encerra a conversa corporativa Meta preservando o histórico unificado e o vínculo CRM.
     const now = new Date();
     await setAttendanceActor(tx, tenantId, `${actor.name} (Aprovação ${persona.name})`, actor.id);
 
-    const [updatedConv] = await tx
-      .update(conversations)
-      .set({
-        operatorId: targetOp.id,
-        sectorId: resolvedSectorId,
-        queueState: "meus",
-        version: sql`${conversations.version} + 1`,
-        updatedAt: now,
-      })
-      .where(and(eq(conversations.tenantId, tenantId), eq(conversations.id, conversationId)))
-      .returning();
+    const targetDedicatedConn = !isSiteConversationId(conversationId)
+      ? await resolveOperatorDedicatedConnection(tx as any, tenantId, targetOp.id)
+      : null;
+    const willRedirectDedicated = Boolean(
+      targetDedicatedConn && (conv.whatsappConnectionId ?? null) !== targetDedicatedConn.id,
+    );
 
-    if (contact) {
-      await tx
-        .update(contacts)
+    let updatedConv: typeof conversations.$inferSelect;
+    let closedSourceConv: typeof conversations.$inferSelect | null = null;
+    let redirectedDedicated = false;
+    const sysText = `Triagem do ${persona.name} aprovada por ${actor.name} e encaminhada para ${targetOp.name}${targetFunnel ? ` (${targetFunnel})` : ""}.`;
+
+    if (willRedirectDedicated && targetDedicatedConn) {
+      const handoff = await handoffConversationAcrossChannels(tx as any, {
+        tenantId,
+        sourceConversation: conv,
+        targetConnectionId: targetDedicatedConn.id,
+        targetConnectionInfo: targetDedicatedConn,
+        targetQueueState: "meus",
+        targetOperatorId: targetOp.id,
+        targetOperatorName: targetOp.name,
+        targetSectorId: resolvedSectorId,
+        targetSectorName: resolvedSectorName,
+        actorOperatorId: actor.id,
+        actorName: `${actor.name} (Aprovação ${persona.name})`,
+        preferredDealId: dealResult?.dealId || pending?.dealId || flowMeta.localCrmDealId || null,
+        sourceSystemMessageText: `${sysText} Atendimento direcionado automaticamente para o WhatsApp dedicado (${targetDedicatedConn.name}).`,
+        targetSystemMessageText: `${sysText} Atendimento aberto diretamente no seu WhatsApp dedicado (${targetDedicatedConn.name}).${
+          !targetDedicatedConn.isConnectedLive
+            ? " Atenção: seu WhatsApp dedicado está desconectado — reconecte o QR Code para enviar mensagens."
+            : ""
+        }`,
+        sourceMetaDetails: {
+          sdrHumanApproval: true,
+          approvedByOperatorId: actor.id,
+          approvedByOperatorName: actor.name,
+          allocatedOperatorId: targetOp.id,
+          allocatedOperatorName: targetOp.name,
+          targetFunnel,
+        },
+        targetMetaDetails: {
+          sdrHumanApproval: true,
+          approvedByOperatorId: actor.id,
+          approvedByOperatorName: actor.name,
+          allocatedOperatorId: targetOp.id,
+          allocatedOperatorName: targetOp.name,
+          targetFunnel,
+        },
+        preserveSourceOperatorId: targetOp.id,
+        updateContactWallet: true,
+        now,
+      });
+      updatedConv = handoff.targetConversation;
+      closedSourceConv = handoff.sourceConversation;
+      redirectedDedicated = handoff.redirected;
+    } else {
+      const [directUpdated] = await tx
+        .update(conversations)
         .set({
-          walletOperatorId: targetOp.id,
-          responsibleName: targetOp.name,
+          operatorId: targetOp.id,
+          sectorId: resolvedSectorId,
+          queueState: "meus",
+          version: sql`${conversations.version} + 1`,
+          updatedAt: now,
         })
-        .where(and(eq(contacts.tenantId, tenantId), eq(contacts.id, contact.id)));
+        .where(and(eq(conversations.tenantId, tenantId), eq(conversations.id, conversationId)))
+        .returning();
+      updatedConv = directUpdated;
+
+      if (contact) {
+        await tx
+          .update(contacts)
+          .set({
+            walletOperatorId: targetOp.id,
+            responsibleName: targetOp.name,
+          })
+          .where(and(eq(contacts.tenantId, tenantId), eq(contacts.id, contact.id)));
+      }
     }
 
     // 3. Consumir o slot do rodízio APENAS AGORA (na aprovação humana!)
@@ -946,7 +1026,7 @@ export async function approveIndustrialTriage(
               leadsReceivedCount: Number(op.leadsReceivedCount || 0) + 1,
               recentLeads: [
                 {
-                  chatId: conversationId,
+                  chatId: updatedConv.id,
                   clientName,
                   receivedAt: now.toISOString(),
                 },
@@ -1023,6 +1103,12 @@ export async function approveIndustrialTriage(
               : null,
             conversationVersion: updatedConv.version,
             sectorId: resolvedSectorId || undefined,
+            ...(redirectedDedicated
+              ? {
+                  targetConversationId: updatedConv.id,
+                  targetWhatsappConnectionId: updatedConv.whatsappConnectionId ?? null,
+                }
+              : {}),
           },
         },
         handoffOutbox: {
@@ -1054,34 +1140,39 @@ export async function approveIndustrialTriage(
       }
     }
 
-    // 6. Registrar nota de sistema na conversa
-    const sysText = `Triagem do ${persona.name} aprovada por ${actor.name} e encaminhada para ${targetOp.name}${targetFunnel ? ` (${targetFunnel})` : ""}.`;
-    await tx.insert(messages).values({
-      id: `sys-appr-${Date.now()}-${crypto.randomUUID().slice(0, 6)}`,
-      tenantId,
-      conversationId,
-      senderType: "system",
-      senderName: "Sistema",
-      content: sysText,
-      isInternalNote: true,
-      direction: "outbound",
-      provider: "system",
-      status: "accepted",
-      metaDetails: {
-        attendanceSkip: true,
-        sdrHumanApproval: true,
-        approvedByOperatorId: actor.id,
-        approvedByOperatorName: actor.name,
-        allocatedOperatorId: targetOp.id,
-        allocatedOperatorName: targetOp.name,
-        targetFunnel,
-      },
-      sentAt: now,
-      updatedAt: now,
-    });
+    // 6. Registrar nota de sistema na conversa (quando não redirecionada — o handoff já grava nas duas threads)
+    if (!redirectedDedicated) {
+      await tx.insert(messages).values({
+        id: `sys-appr-${Date.now()}-${crypto.randomUUID().slice(0, 6)}`,
+        tenantId,
+        conversationId,
+        whatsappConnectionId: updatedConv.whatsappConnectionId ?? null,
+        senderType: "system",
+        senderName: "Sistema",
+        content: sysText,
+        isInternalNote: true,
+        direction: "outbound",
+        provider: "system",
+        status: "accepted",
+        metaDetails: {
+          attendanceSkip: true,
+          sdrHumanApproval: true,
+          approvedByOperatorId: actor.id,
+          approvedByOperatorName: actor.name,
+          allocatedOperatorId: targetOp.id,
+          allocatedOperatorName: targetOp.name,
+          targetFunnel,
+        },
+        sentAt: now,
+        updatedAt: now,
+      });
+    }
 
     return {
       conversation: updatedConv,
+      closedSourceConversation: closedSourceConv,
+      redirectedDedicated,
+      targetDedicatedConn,
       operator: targetOp,
       sectorId: resolvedSectorId,
       targetFunnel,
@@ -1098,14 +1189,32 @@ export async function approveIndustrialTriage(
   });
 
   // ── PÓS-COMMIT ──────────────────────────────────────────────────────────────
+  const deliveredConversationId = committed.conversation.id;
   SdrDebouncer.getInstance().clearSession(conversationId);
+  if (deliveredConversationId !== conversationId) {
+    SdrDebouncer.getInstance().clearSession(deliveredConversationId);
+  }
 
   try {
     const sm = SessionManager.getInstance();
+    if (committed.redirectedDedicated && committed.closedSourceConversation) {
+      sm.notifyPublic(tenantId, {
+        type: "queue_update",
+        conversationId: committed.closedSourceConversation.id,
+        contactId: committed.contactId || undefined,
+        contactName: committed.clientName,
+        queueState: "finalizados",
+        operatorId: committed.closedSourceConversation.operatorId,
+        walletOperatorId: committed.operator.id,
+        sectorId: committed.closedSourceConversation.sectorId,
+        responsibleName: committed.operator.name,
+        version: committed.closedSourceConversation.version,
+      });
+    }
     sm.notifyPublic(tenantId, {
       type: "chat_updated",
       chat: {
-        id: conversationId,
+        id: deliveredConversationId,
         contactId: committed.contactId,
         queue: "meus",
         operatorId: committed.operator.id,
@@ -1113,11 +1222,12 @@ export async function approveIndustrialTriage(
         responsibleName: committed.operator.name,
         version: committed.conversation.version,
         sectorId: committed.sectorId,
+        whatsappConnectionId: committed.conversation.whatsappConnectionId ?? null,
       },
     });
     sm.notifyPublic(tenantId, {
       type: "queue_update",
-      conversationId,
+      conversationId: deliveredConversationId,
       contactId: committed.contactId || undefined,
       contactName: committed.clientName,
       queueState: "meus",
@@ -1164,7 +1274,7 @@ export async function approveIndustrialTriage(
       tenantId,
       operatorId: committed.operator.id,
       operatorName: committed.operator.name,
-      conversationId,
+      conversationId: deliveredConversationId,
       clientName: committed.clientName,
       company: committed.companyName,
       targetFunnel: committed.targetFunnel,
@@ -1207,7 +1317,14 @@ export async function approveIndustrialTriage(
 
   return {
     success: true,
-    conversationId,
+    conversationId: deliveredConversationId,
+    sourceConversationId: conversationId,
+    redirected: committed.redirectedDedicated,
+    whatsappConnectionId: committed.conversation.whatsappConnectionId ?? null,
+    targetConnectionName: committed.targetDedicatedConn?.name ?? null,
+    targetConnectionDisconnected: Boolean(
+      committed.targetDedicatedConn && !committed.targetDedicatedConn.isConnectedLive,
+    ),
     operator: committed.operator,
     sectorId: committed.sectorId,
     deal: committed.dealResult,

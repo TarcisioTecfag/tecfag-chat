@@ -3926,11 +3926,20 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error(error.error || `HTTP ${res.status}`);
       }
       const updated = await res.json();
+      const targetConvId = updated.conversationId || id;
+      const redirected = Boolean(updated.redirected && targetConvId !== id);
       const capturedContactId = updated.contactId || previousState?.contactId;
       const nextWalletOpId = updated.walletOperatorId ?? updated.operatorId ?? currentOperatorId;
       setConversations((prev) =>
         prev.map((c) => {
-          if (c.id === id) {
+          if (redirected && c.id === id) {
+            return {
+              ...c,
+              queue: "finalizados",
+              walletOperatorId: nextWalletOpId,
+            };
+          }
+          if (c.id === targetConvId) {
             return {
               ...c,
               queue: updated.queueState,
@@ -3947,8 +3956,22 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }),
       );
       setActiveQueue("meus");
-      setSelectedChatId(id);
-      void refreshConversations(id).catch((error) => console.warn("Atendimento capturado; falha ao atualizar detalhes:", error));
+      if (redirected) {
+        await refreshConversations(targetConvId).catch((error) =>
+          console.warn("Atendimento redirecionado para número dedicado; falha ao recarregar:", error),
+        );
+        setSelectedChatId(targetConvId);
+        if (updated.targetConnectionDisconnected) {
+          toast.warning(
+            `Atendimento aberto no seu WhatsApp dedicado (${updated.targetConnectionName || "Baileys"}), mas ele está desconectado. Reconecte o QR Code para enviar.`,
+          );
+        } else if (updated.targetConnectionName) {
+          toast.success(`Atendimento aberto no seu WhatsApp dedicado (${updated.targetConnectionName}).`);
+        }
+      } else {
+        setSelectedChatId(targetConvId);
+        void refreshConversations(targetConvId).catch((error) => console.warn("Atendimento capturado; falha ao atualizar detalhes:", error));
+      }
     } catch (err) {
       console.error("[captureChat] Erro ao assumir atendimento:", err);
       toast.error(err instanceof Error ? err.message : "Não foi possível assumir o atendimento.");
@@ -4011,6 +4034,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error(error.error || `HTTP ${res.status}`);
       }
       const updated = await res.json();
+      const targetConvId = updated.conversationId || id;
+      const redirected = Boolean(updated.redirected && targetConvId !== id);
       const transferredContactId = updated.contactId || previousState?.contactId;
       const nextTransferWalletId =
         updated.walletOperatorId !== undefined
@@ -4020,7 +4045,14 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             : undefined;
       setConversations((prev) =>
         prev.map((chat) => {
-          if (chat.id === id) {
+          if (redirected && chat.id === id) {
+            return {
+              ...chat,
+              queue: "finalizados",
+              ...(nextTransferWalletId !== undefined ? { walletOperatorId: nextTransferWalletId } : {}),
+            };
+          }
+          if (chat.id === targetConvId) {
             return {
               ...chat,
               queue: updated.queueState,
@@ -4044,9 +4076,28 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }),
       );
       setActiveQueue("todos");
-      setSelectedChatId(id);
-      void refreshConversations(id).catch((error) => console.warn("Atendimento transferido; falha ao recarregar o histórico:", error));
-      toast.success(targetOp ? `Atendimento transferido para ${targetOp.name}.` : "Atendimento enviado para a fila.");
+      setSelectedChatId(redirected ? (updated.whatsappConnectionId && targetOp?.id !== currentOperatorId ? id : targetConvId) : id);
+      void refreshConversations(redirected ? targetConvId : id).catch((error) => console.warn("Atendimento transferido; falha ao recarregar o histórico:", error));
+      if (targetOp) {
+        const channelSuffix = updated.targetConnectionName
+          ? ` (WhatsApp dedicado: ${updated.targetConnectionName})`
+          : redirected
+            ? " (WhatsApp Oficial)"
+            : "";
+        if (updated.targetConnectionDisconnected) {
+          toast.warning(
+            `Atendimento transferido para ${targetOp.name}${channelSuffix}. Atenção: o WhatsApp dedicado do destino está desconectado no momento.`,
+          );
+        } else {
+          toast.success(`Atendimento transferido para ${targetOp.name}${channelSuffix}.`);
+        }
+      } else {
+        toast.success(
+          redirected
+            ? "Atendimento enviado para a fila no WhatsApp Oficial."
+            : "Atendimento enviado para a fila.",
+        );
+      }
       window.dispatchEvent(new Event("conversation-deal-context-changed"));
       return true;
     } catch (err) {

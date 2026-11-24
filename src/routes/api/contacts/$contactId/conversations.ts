@@ -17,12 +17,14 @@ import {
   crmDealContacts,
   crmDeals,
   rdMarketingReceipts,
+  whatsappConnectionContacts,
 } from "../../../../db/schema";
 import { requireSession } from "../../../../lib/auth-session";
 import { buildPhoneSearchTerms } from "../../../../lib/utils";
 import { conversationReadCondition } from "../../../../lib/access-control/conversation-access";
 import { canReadConversation } from "../../../../lib/access-control/conversation-policy";
 import { setAttendanceActor } from "../../../../lib/attendance-events";
+import { isStrictDedicatedBaileysOperator } from "../../../../lib/whatsapp/dedicated-routing";
 
 export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
   server: {
@@ -59,6 +61,16 @@ export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
             .limit(1);
           const requiresExplicitCapture = channel?.activeProvider === "meta";
           const canCapture = session.permissions?.chat?.canCaptureChat === true;
+          const dedicatedStatus = await isStrictDedicatedBaileysOperator(
+            db,
+            tenantId,
+            session.operator.id,
+            session.operator.role,
+          );
+          const preferredConnectionId =
+            dedicatedStatus.dedicated && dedicatedStatus.connection
+              ? dedicatedStatus.connection.id
+              : null;
 
           const result = await db.transaction(async (tx) => {
             await tx.execute(
@@ -109,7 +121,7 @@ export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
               tenantId,
               contactId,
               targetPhoneItem,
-              null,
+              preferredConnectionId,
             );
 
             let targetConv = existingConv
@@ -122,7 +134,7 @@ export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
               : null;
 
             // Somente faz busca por histórico de outro contato legado se for o número principal e sem conversa própria
-            if (!targetConv && (!targetPhoneItem || targetPhoneItem.isPrimary)) {
+            if (!preferredConnectionId && !targetConv && (!targetPhoneItem || targetPhoneItem.isPrimary)) {
               const effectivePhone = targetPhoneItem?.phone || contact.phone || "";
               const normalizedPhone = effectivePhone.replace(/\D/g, "");
               if (normalizedPhone.length >= 8) {
@@ -181,7 +193,9 @@ export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
                   and(
                     eq(conversations.id, targetConv.id),
                     eq(conversations.tenantId, tenantId),
-                    isNull(conversations.whatsappConnectionId),
+                    preferredConnectionId
+                      ? eq(conversations.whatsappConnectionId, preferredConnectionId)
+                      : isNull(conversations.whatsappConnectionId),
                     conversationReadCondition(session),
                   ),
                 )
@@ -230,8 +244,7 @@ export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
 
               const shouldAssignToCurrentOperator =
                 !isOwnedByAnotherOperator &&
-                canCapture &&
-                (!requiresExplicitCapture || autoCapture);
+                (Boolean(preferredConnectionId) || (canCapture && (!requiresExplicitCapture || autoCapture)));
 
               if (!shouldAssignToCurrentOperator) {
                 await syncConversationWithDeals(targetConv.id, targetConv.contactId);
@@ -260,9 +273,22 @@ export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
                   and(
                     eq(conversations.id, targetConv.id),
                     eq(conversations.tenantId, tenantId),
-                    isNull(conversations.whatsappConnectionId),
+                    preferredConnectionId
+                      ? eq(conversations.whatsappConnectionId, preferredConnectionId)
+                      : isNull(conversations.whatsappConnectionId),
                   ),
                 );
+              if (preferredConnectionId) {
+                await tx
+                  .insert(whatsappConnectionContacts)
+                  .values({
+                    id: crypto.randomUUID(),
+                    tenantId,
+                    connectionId: preferredConnectionId,
+                    contactId: targetConv.contactId,
+                  })
+                  .onConflictDoNothing();
+              }
 
               await tx
                 .update(contacts)
@@ -283,13 +309,16 @@ export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
               };
             }
 
-            const assignNewConv = canCapture && (!requiresExplicitCapture || autoCapture);
+            const assignNewConv =
+              Boolean(preferredConnectionId) || (canCapture && (!requiresExplicitCapture || autoCapture));
             if (
               !canReadConversation(session, {
                 tenantId,
                 operatorId: assignNewConv ? session.operator.id : null,
                 queueState: assignNewConv ? "meus" : "fila",
                 mainChannel: contact.mainChannel === "livechat" ? "whatsapp" : contact.mainChannel,
+                whatsappConnectionId: preferredConnectionId,
+                connectionOwnerOperatorId: preferredConnectionId ? session.operator.id : null,
               })
             ) {
               throw Object.assign(
@@ -326,6 +355,7 @@ export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
               contactId,
               contactPhoneId: targetPhoneItem?.id || null,
               contactPhone: targetPhoneItem?.phone || contact.phone || null,
+              whatsappConnectionId: preferredConnectionId,
               operatorId: assignNewConv ? session.operator.id : null,
               queueState: assignNewConv ? "meus" : "fila",
               lastMessageText: "Atendimento iniciado.",
@@ -333,6 +363,17 @@ export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
               createdAt: now,
               updatedAt: now,
             });
+            if (preferredConnectionId) {
+              await tx
+                .insert(whatsappConnectionContacts)
+                .values({
+                  id: crypto.randomUUID(),
+                  tenantId,
+                  connectionId: preferredConnectionId,
+                  contactId,
+                })
+                .onConflictDoNothing();
+            }
 
             if (assignNewConv) {
               await tx

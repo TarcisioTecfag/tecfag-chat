@@ -37,7 +37,12 @@ const fail = (message: string, code: string, status = 409): never => {
 /** Saves an uncaptured thread for the chosen number. Never rewrites a thread's transport. */
 export async function prepareWhatsappConversation(
   session: AuthSessionContext,
-  input: { sourceConversationId: string; expectedVersion: number; connectionId: string | null },
+  input: {
+    sourceConversationId: string;
+    expectedVersion: number;
+    connectionId: string | null;
+    allowDisconnectedOwner?: boolean;
+  },
 ) {
   const tenantId = session.tenantId;
   const master = session.operator.role === "admin";
@@ -142,14 +147,36 @@ export async function prepareWhatsappConversation(
         .limit(1);
       if (connection && !master && connection.ownerOperatorId !== session.operator.id)
         fail("Somente o titular pode usar este número.", "CONNECTION_SEND_FORBIDDEN", 403);
-      if (
-        !connection?.enabled ||
-        connection.status !== "connected" ||
-        !connection.leaseUntil ||
-        connection.leaseUntil.getTime() <= Date.now()
-      )
+      const isOwnEnabledConnection =
+        Boolean(connection?.enabled) && connection?.ownerOperatorId === session.operator.id;
+      const isLiveConnected =
+        Boolean(connection?.enabled) &&
+        connection?.status === "connected" &&
+        Boolean(connection?.leaseUntil && connection.leaseUntil.getTime() > Date.now());
+      if (!isLiveConnected && !(input.allowDisconnectedOwner && isOwnEnabledConnection))
         fail("Este número não está conectado. Atualize a lista.", "CONNECTION_UNAVAILABLE");
     } else {
+      if (!master) {
+        const [ownDedicated] = await tx
+          .select({ id: whatsappConnections.id, name: whatsappConnections.name })
+          .from(whatsappConnections)
+          .where(
+            and(
+              eq(whatsappConnections.tenantId, tenantId),
+              eq(whatsappConnections.ownerOperatorId, session.operator.id),
+              eq(whatsappConnections.provider, "baileys"),
+              eq(whatsappConnections.enabled, true),
+            ),
+          )
+          .limit(1);
+        if (ownDedicated) {
+          fail(
+            `Seu usuário opera exclusivamente pelo WhatsApp dedicado (${ownDedicated.name}).`,
+            "DEDICATED_BAILEYS_ONLY",
+            403,
+          );
+        }
+      }
       const [corporate] = await tx
         .select({ status: channelConfigs.connectionStatus })
         .from(channelConfigs)

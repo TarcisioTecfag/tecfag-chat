@@ -6,7 +6,10 @@ import { requireSession } from "../../../lib/auth-session";
 import { applyOperatorReaction } from "../../../lib/whatsapp/meta-reactions";
 import { metaAdapter } from "../../../lib/whatsapp/adapters/meta";
 import { baileysAdapter } from "../../../lib/whatsapp/adapters/baileys";
-import { requireConversationWriteAccess } from "../../../lib/access-control/conversation-access";
+import {
+  requireConversationWriteAccess,
+  requireDedicatedChannelSendCompliance,
+} from "../../../lib/access-control/conversation-access";
 import { resolveConversationConnection } from "../../../lib/whatsapp/connections";
 import { connectionPeerJid } from "../../../lib/whatsapp/connection-contacts";
 
@@ -36,6 +39,10 @@ export const Route = createFileRoute("/api/whatsapp/react")({
           }
           const denied = await requireConversationWriteAccess(session, conversationId);
           if (denied) return denied;
+          if (typeof requireDedicatedChannelSendCompliance === "function") {
+            const dedicatedDenied = await requireDedicatedChannelSendCompliance(session, conversationId);
+            if (dedicatedDenied) return dedicatedDenied;
+          }
 
           // 1. Busca conversa e valida tenant estritamente
           const [conv] = await db

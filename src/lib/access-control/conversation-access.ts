@@ -195,3 +195,63 @@ export async function requireConversationWriteAccess(
         { status: 403 },
       );
 }
+
+/**
+ * Bloqueia envio externo pelo canal corporativo oficial (whatsappConnectionId IS NULL)
+ * para operadores não-admin que possuem uma conexão Baileys pessoal habilitada.
+ * Notas internas e conversas do canal Site (`conv-lc-*`) não são afetadas.
+ */
+export async function requireDedicatedChannelSendCompliance(
+  session: ConversationPrincipal,
+  conversationId: string,
+): Promise<Response | null> {
+  if (session.operator.role === "admin") return null;
+  if (conversationId.startsWith("conv-lc-")) return null;
+  const enabledTenants = (process.env.WHATSAPP_MULTI_CONNECTION_TENANTS || "")
+    .split(",")
+    .map((s) => s.trim());
+  if (!enabledTenants.includes(session.tenantId)) return null;
+
+  const [conv] = await db
+    .select({
+      id: conversations.id,
+      whatsappConnectionId: conversations.whatsappConnectionId,
+    })
+    .from(conversations)
+    .where(
+      and(
+        eq(conversations.id, conversationId),
+        eq(conversations.tenantId, session.tenantId),
+      ),
+    )
+    .limit(1);
+  if (!conv || conv.whatsappConnectionId) return null;
+
+  const [dedicatedConn] = await db
+    .select({
+      id: whatsappConnections.id,
+      name: whatsappConnections.name,
+    })
+    .from(whatsappConnections)
+    .where(
+      and(
+        eq(whatsappConnections.tenantId, session.tenantId),
+        eq(whatsappConnections.ownerOperatorId, session.operator.id),
+        eq(whatsappConnections.provider, "baileys"),
+        eq(whatsappConnections.enabled, true),
+      ),
+    )
+    .limit(1);
+
+  if (!dedicatedConn) return null;
+
+  return Response.json(
+    {
+      error: `Seu usuário opera exclusivamente pelo WhatsApp dedicado (${dedicatedConn.name}). Responda pela conversa do seu número pessoal.`,
+      code: "DEDICATED_BAILEYS_ONLY",
+      dedicatedConnectionId: dedicatedConn.id,
+      dedicatedConnectionName: dedicatedConn.name,
+    },
+    { status: 403 },
+  );
+}

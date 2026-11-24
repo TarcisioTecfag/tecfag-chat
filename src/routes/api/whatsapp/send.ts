@@ -31,7 +31,11 @@ import {
 import { isSiteConversationId, SITE_PROVIDER } from "../../../lib/livechat/site-channel-policy";
 import { sendSiteOperatorText } from "../../../lib/livechat/site-delivery";
 import { SdrDebouncer } from "../../../lib/valentina/sdr-debouncer";
-import { requireConversationWriteAccess, requireConversationAccess } from "../../../lib/access-control/conversation-access";
+import {
+  requireConversationWriteAccess,
+  requireConversationAccess,
+  requireDedicatedChannelSendCompliance,
+} from "../../../lib/access-control/conversation-access";
 import fs from "fs";
 import path from "path";
 import { resolveConversationConnection } from "../../../lib/whatsapp/connections";
@@ -146,6 +150,10 @@ export const Route = createFileRoute("/api/whatsapp/send")({
           if (templateName && isInternalNote) return Response.json({ error: "Template oficial não pode ser nota interna." }, { status: 400 });
           const denied = await requireConversationWriteAccess(session, conversationId);
           if (denied) return denied;
+          if (!isInternalNote && typeof requireDedicatedChannelSendCompliance === "function") {
+            const dedicatedDenied = await requireDedicatedChannelSendCompliance(session, conversationId);
+            if (dedicatedDenied) return dedicatedDenied;
+          }
 
           // Verificar se o canal está em transição ('switching') de provedor
           if (!isInternalNote) {

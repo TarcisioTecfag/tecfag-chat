@@ -2300,6 +2300,73 @@ export async function executeExtendedMcpTool(
 
       const nextQueueState = targetOp ? "meus" : "fila";
       const now = new Date();
+      const actorLabel = buildActorDisplayName(undefined, undefined, actor);
+      const { isSiteConversationId } = await import("../livechat/site-channel-policy");
+      const {
+        handoffConversationAcrossChannels,
+        resolveTargetConnectionForTransfer,
+      } = await import("../whatsapp/dedicated-routing");
+      const resolvedChannel = !isSiteConversationId(conv.id)
+        ? await resolveTargetConnectionForTransfer(db, tenantId, nextQueueState, targetOp?.id ?? null)
+        : { connectionId: conv.whatsappConnectionId ?? null, connectionInfo: null };
+      const needsChannelRedirect =
+        !isSiteConversationId(conv.id) &&
+        (conv.whatsappConnectionId ?? null) !== (resolvedChannel.connectionId ?? null);
+
+      if (needsChannelRedirect) {
+        const handoff = await db.transaction((tx) =>
+          handoffConversationAcrossChannels(tx, {
+            tenantId,
+            sourceConversation: conv,
+            targetConnectionId: resolvedChannel.connectionId,
+            targetConnectionInfo: resolvedChannel.connectionInfo,
+            targetQueueState: nextQueueState,
+            targetOperatorId: targetOp ? targetOp.id : null,
+            targetOperatorName: targetOp?.name ?? null,
+            targetSectorId: targetSector ? targetSector.id : undefined,
+            targetSectorName: targetSector?.name ?? null,
+            actorName: actorLabel,
+            now,
+          }),
+        );
+
+        emitSseSafe(tenantId, {
+          type: "queue_update",
+          conversationId: handoff.sourceConversation.id,
+          queueState: "finalizados",
+          operatorId: handoff.sourceConversation.operatorId,
+          sectorId: handoff.sourceConversation.sectorId,
+          version: handoff.sourceConversation.version,
+        });
+        emitSseSafe(tenantId, {
+          type: "queue_update",
+          conversationId: handoff.targetConversation.id,
+          queueState: handoff.targetConversation.queueState,
+          operatorId: handoff.targetConversation.operatorId,
+          sectorId: handoff.targetConversation.sectorId,
+          version: handoff.targetConversation.version,
+        });
+
+        return {
+          success: true,
+          tenantId,
+          conversationId: handoff.targetConversation.id,
+          sourceConversationId: handoff.sourceConversation.id,
+          redirected: true,
+          whatsappConnectionId: handoff.targetConversation.whatsappConnectionId ?? null,
+          targetConnectionName: handoff.targetConnection?.name ?? null,
+          targetConnectionDisconnected: Boolean(
+            handoff.targetConnection && !handoff.targetConnection.isConnectedLive,
+          ),
+          queueState: handoff.targetConversation.queueState,
+          operatorId: handoff.targetConversation.operatorId,
+          operatorName: targetOp?.name ?? null,
+          sectorId: handoff.targetConversation.sectorId,
+          sectorName: targetSector?.name ?? null,
+          version: handoff.targetConversation.version,
+        };
+      }
+
       const [updated] = await db
         .update(conversations)
         .set({
@@ -2312,7 +2379,6 @@ export async function executeExtendedMcpTool(
         .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)))
         .returning();
 
-      const actorLabel = buildActorDisplayName(undefined, undefined, actor);
       const sysMsgId = `sys-${crypto.randomUUID()}`;
       const sysText = targetOp
         ? `Atendimento transferido para ${targetOp.name}${targetSector ? ` (Setor: ${targetSector.name})` : ""} via ${actorLabel}.${reason ? ` Motivo: ${reason}` : ""}`
@@ -2322,6 +2388,7 @@ export async function executeExtendedMcpTool(
         id: sysMsgId,
         tenantId,
         conversationId,
+        whatsappConnectionId: updated.whatsappConnectionId ?? null,
         senderType: "system",
         senderName: "Sistema",
         content: sysText,

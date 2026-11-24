@@ -29,6 +29,10 @@ import {
   type RodizioConfig,
 } from "./industrial-rodizio-store";
 import { INDUSTRIAL_SETTINGS_AGENT } from "./industrial-settings";
+import {
+  handoffConversationAcrossChannels,
+  resolveOperatorDedicatedConnection,
+} from "../whatsapp/dedicated-routing";
 
 function normalizeOperatorMatchName(rawName: string = ""): string {
   return rawName
@@ -294,6 +298,29 @@ export async function routeWhenSdrDisabledInTx(
   if (contactRow?.walletOperatorId) {
     const walletOp = dbOperators.find((o) => o.id === contactRow.walletOperatorId);
     if (walletOp) {
+      const dedicatedConn = await resolveOperatorDedicatedConnection(tx as any, tenantId, walletOp.id);
+      if (dedicatedConn && (conv.whatsappConnectionId ?? null) !== dedicatedConn.id) {
+        const handoff = await handoffConversationAcrossChannels(tx as any, {
+          tenantId,
+          sourceConversation: conv,
+          targetConnectionId: dedicatedConn.id,
+          targetConnectionInfo: dedicatedConn,
+          targetQueueState: "meus",
+          targetOperatorId: walletOp.id,
+          targetOperatorName: walletOp.name,
+          actorName: `Automação (${persona.name} Inativo -> Carteira)`,
+          preserveSourceOperatorId: walletOp.id,
+          updateContactWallet: true,
+        });
+        return {
+          routed: true,
+          mode: "assigned_wallet",
+          conversation: handoff.targetConversation,
+          operator: { id: walletOp.id, name: walletOp.name },
+          sectorId: handoff.targetConversation.sectorId ?? conv.sectorId ?? null,
+          systemMessageId: handoff.targetSystemMessageId,
+        };
+      }
       await setAttendanceActor(
         tx as any,
         tenantId,

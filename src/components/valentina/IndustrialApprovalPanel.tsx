@@ -12,6 +12,7 @@ import {
   AlertTriangle,
   ChevronDown,
   ChevronUp,
+  Smartphone,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -41,6 +42,13 @@ export interface ApprovalOptionsPayload {
     leadsReceivedCount: number;
     compensation: number;
     activeChatsNow: number;
+    dedicatedConnection?: {
+      id: string;
+      name: string;
+      phone: string | null;
+      status: string;
+      isConnectedLive: boolean;
+    } | null;
   }>;
   pipelines: Array<{ id: string; name: string; color?: string | null }>;
   stages: Array<{ id: string; name: string; pipelineId: string; orderIndex: number }>;
@@ -256,7 +264,16 @@ export const IndustrialApprovalPanel = React.memo(function IndustrialApprovalPan
         return;
       }
       const opName = data?.operator?.name || "operador selecionado";
-      toast.success(`Triagem aprovada! Lead encaminhado para ${opName} e card movido no CRM.`);
+      const channelInfo = data?.targetConnectionName
+        ? ` no WhatsApp dedicado (${data.targetConnectionName})`
+        : "";
+      if (data?.targetConnectionDisconnected) {
+        toast.warning(
+          `Triagem aprovada! Lead encaminhado para ${opName}${channelInfo} (atenção: celular desconectado no momento) e card movido no CRM.`,
+        );
+      } else {
+        toast.success(`Triagem aprovada! Lead encaminhado para ${opName}${channelInfo} e card movido no CRM.`);
+      }
       onActionCompleted("approved", session.conversationId);
     } catch {
       toast.error("Erro de conexão ao aprovar triagem.");
@@ -446,6 +463,13 @@ export const IndustrialApprovalPanel = React.memo(function IndustrialApprovalPan
                         if (isSuggested) badgeParts.push("Sugerido");
                         if (op.isOnLeave) badgeParts.push("Ausente");
                         else if (inSector) badgeParts.push(`${op.activeChatsNow} chats`);
+                        if (op.dedicatedConnection) {
+                          badgeParts.push(
+                            op.dedicatedConnection.isConnectedLive
+                              ? "WhatsApp dedicado"
+                              : "WhatsApp dedicado (off)",
+                          );
+                        }
                         return (
                           <SelectItem key={op.id} value={op.id} className="text-xs py-2 sm:py-1.5">
                             {op.name}
@@ -455,6 +479,29 @@ export const IndustrialApprovalPanel = React.memo(function IndustrialApprovalPan
                       })}
                     </SelectContent>
                   </Select>
+                  {(() => {
+                    const selectedOpObj = sortedOperators.find((o) => o.id === operatorId);
+                    const dc = selectedOpObj?.dedicatedConnection;
+                    if (!dc) return null;
+                    return (
+                      <div
+                        className={`mt-1 flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[10px] font-medium ${
+                          dc.isConnectedLive
+                            ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                            : "border-amber-500/35 bg-amber-500/10 text-amber-800 dark:text-amber-200"
+                        }`}
+                      >
+                        <Smartphone className="h-3 w-3 shrink-0" />
+                        <span className="truncate">
+                          Cai direto no WhatsApp dedicado:{" "}
+                          <strong className="font-bold">{dc.name}</strong>
+                          {dc.isConnectedLive
+                            ? " · Conectado"
+                            : " · Desconectado (não cairá na Meta Oficial)"}
+                        </span>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* Funil CRM */}

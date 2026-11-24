@@ -63,7 +63,6 @@ export async function readIndustrialDeliveryContext(
   if (
     !conversation ||
     conversation.whatsappConnectionId ||
-    conversation.queueState === "finalizados" ||
     (conversation.operatorId || null) !== operatorId ||
     (conversation.queueState === "meus" && !operatorId)
   )
@@ -86,6 +85,30 @@ export async function readIndustrialDeliveryContext(
     )
     .orderBy(desc(agentFlowStates.startedAt), desc(agentFlowStates.id))
     .limit(1);
+  if (conversation.queueState === "finalizados") {
+    const receiptTargetId = (flow?.metadata as any)?.handoffReceipt?.result?.targetConversationId;
+    if (!flow || flow.outcome !== "transferred" || typeof receiptTargetId !== "string" || !receiptTargetId || !operatorId) {
+      return null;
+    }
+    const [targetConv] = await database
+      .select({
+        id: conversations.id,
+        queueState: conversations.queueState,
+        operatorId: conversations.operatorId,
+        contactId: conversations.contactId,
+      })
+      .from(conversations)
+      .where(and(eq(conversations.tenantId, tenantId), eq(conversations.id, receiptTargetId)))
+      .limit(1);
+    if (
+      !targetConv ||
+      targetConv.contactId !== conversation.contactId ||
+      targetConv.queueState !== "meus" ||
+      targetConv.operatorId !== operatorId
+    ) {
+      return null;
+    }
+  }
   const [trigger] = await database
     .select({ id: messages.id, sentAt: messages.sentAt })
     .from(messages)

@@ -15,7 +15,7 @@ import { MessageReactions } from "./MessageReactions";
 import { MessageStatusTicks } from "./MessageStatusTicks";
 import { MessageReactionPicker } from "./MessageReactionPicker";
 import { useChat, getBrtTodayDateStr, extractBrtMessageDateStr, isValentinaMessageArchived } from "@/hooks/useChatState";
-import { useWhatsappConnections, useContactWhatsappHistory } from "@/hooks/useWhatsappConnections";
+import { useWhatsappConnections, useContactWhatsappHistory, whatsappConnectionAction } from "@/hooks/useWhatsappConnections";
 import { WhatsappNumberPicker } from "./WhatsappNumberPicker";
 import type { Message } from "@/lib/mockData";
 import { WhatsappLogo, InstagramLogo, MessengerLogo, SiteLogo } from "./ChatList";
@@ -66,6 +66,8 @@ import {
   PhoneOff,
   PhoneCall,
   AlertCircle,
+  AlertTriangle,
+  Smartphone,
   MessageSquare,
   Star,
   Sparkles,
@@ -1230,6 +1232,25 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
 
   const connectionsState = useWhatsappConnections(tenant);
   const activeProvider = connectionsState.connections.find(connection => connection.id === activeChat?.whatsappConnectionId)?.provider || tenantActiveProvider;
+  const dedicatedConnection = connectionsState.dedicatedConnectionId
+    ? connectionsState.connections.find((c) => c.id === connectionsState.dedicatedConnectionId) || null
+    : null;
+  const activePersonalConnection = activeChat?.whatsappConnectionId
+    ? connectionsState.connections.find((c) => c.id === activeChat.whatsappConnectionId && !c.corporate) || null
+    : null;
+  const isDedicatedMetaBlocked = Boolean(
+    connectionsState.isDedicatedBaileysUser &&
+      connectionsState.dedicatedConnectionId &&
+      activeChat &&
+      activeChat.id !== "valentina" &&
+      activeChat.channel === "whatsapp" &&
+      !isSiteConversationId(activeChat.id) &&
+      !activeChat.whatsappConnectionId,
+  );
+  const isActivePersonalDisconnected = Boolean(
+    activePersonalConnection && activePersonalConnection.status !== "connected",
+  );
+  const [openingDedicatedFromMeta, setOpeningDedicatedFromMeta] = useState(false);
   const [showAllNumbers] = useState(true);
   const [choosingWhatsappNumber, setChoosingWhatsappNumber] = useState(false);
   const unifiedHistory = useContactWhatsappHistory(tenant, activeChat?.id, connectionsState.enabled && showAllNumbers && activeChat?.channel === "whatsapp" && !isSiteConversationId(activeChat.id) && activeChat.id !== "valentina");
@@ -3654,10 +3675,11 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             connectionsState.enabled &&
             (sessionRole === "admin" ||
               connectionsState.canUseNumberPicker ||
-              connectionsState.connections.some(
-                (row) =>
-                  !row.corporate && row.enabled && row.canSend === true && row.status === "connected",
-              )) &&
+              (!connectionsState.isDedicatedBaileysUser &&
+                connectionsState.connections.some(
+                  (row) =>
+                    !row.corporate && row.enabled && row.canSend === true && row.status === "connected",
+                ))) &&
             (sessionRole === "admin" ||
               isOwner ||
               ((!activeChat.operatorId || activeChat.queue === "finalizados") && canCapture)) && (
@@ -4863,8 +4885,90 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
           ref={composerRef}
           className="block px-2.5 pb-2.5 md:px-5 md:pb-5 shrink-0"
         >
-          {/* ── BLOQUEIO: outro operador — oculta TUDO, mostra só o banner ── */}
-          {activeChat.whatsappConnectionId && connectionsState.connections.find(c => c.id === activeChat.whatsappConnectionId)?.canSend !== true ? (
+          {/* ── BLOQUEIO: usuário exclusivo Baileys visualizando conversa no WhatsApp Oficial ── */}
+          {isDedicatedMetaBlocked ? (
+            <div className="mx-auto max-w-2xl space-y-2.5">
+              {showInlineAnnotationComposer && canSendInternalNotes && activeChat.id !== "valentina" && (
+                <InlineChatNoteComposer
+                  conversationId={activeChat.id}
+                  onClose={() => setShowInlineAnnotationComposer(false)}
+                />
+              )}
+              <div
+                role="status"
+                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-500/35 bg-amber-500/10 p-4 text-xs md:text-sm text-foreground"
+              >
+                <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                  <Smartphone className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                  <div className="space-y-0.5">
+                    <p className="font-bold text-foreground">
+                      Envio bloqueado pelo WhatsApp Oficial
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Seu usuário opera exclusivamente pelo seu WhatsApp dedicado
+                      {dedicatedConnection?.name ? ` (${dedicatedConnection.name})` : ""}. Clique ao lado para continuar este atendimento no seu número.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    disabled={openingDedicatedFromMeta}
+                    onClick={async () => {
+                      if (!connectionsState.dedicatedConnectionId) return;
+                      setOpeningDedicatedFromMeta(true);
+                      try {
+                        const prepared = await whatsappConnectionAction({
+                          action: "prepare",
+                          sourceConversationId: activeChat.id,
+                          expectedVersion: activeChat.version ?? 1,
+                          connectionId: connectionsState.dedicatedConnectionId,
+                          allowDisconnectedOwner: true,
+                        });
+                        await refreshConversations(prepared.conversationId);
+                        setActiveQueue(prepared.queueState === "meus" ? "meus" : "todos");
+                        setSelectedChatId(prepared.conversationId);
+                        toast.success(
+                          `Conversa aberta no seu WhatsApp dedicado${dedicatedConnection?.name ? ` (${dedicatedConnection.name})` : ""}.`,
+                        );
+                      } catch (err) {
+                        toast.error(
+                          err instanceof Error
+                            ? err.message
+                            : "Não foi possível abrir a conversa no seu WhatsApp dedicado.",
+                        );
+                      } finally {
+                        setOpeningDedicatedFromMeta(false);
+                      }
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-bold text-primary-foreground hover:opacity-90 transition cursor-pointer disabled:opacity-60"
+                  >
+                    {openingDedicatedFromMeta ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Smartphone className="h-3.5 w-3.5" />
+                    )}
+                    <span>Continuar no meu WhatsApp</span>
+                  </button>
+                  {canSendInternalNotes && activeChat.id !== "valentina" && (
+                    <button
+                      type="button"
+                      data-chat-annotation-trigger="dedicated-meta-blocked"
+                      onClick={() => setShowInlineAnnotationComposer((prev) => !prev)}
+                      className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-semibold shadow-xs transition-colors cursor-pointer shrink-0 ${
+                        showInlineAnnotationComposer
+                          ? "border-amber-500 bg-amber-500/15 text-amber-700 dark:text-amber-400"
+                          : "border-border/90 bg-background hover:bg-muted/70 hover:border-amber-500/50 text-foreground"
+                      }`}
+                    >
+                      <Lock className="h-3.5 w-3.5 text-amber-500" />
+                      <span>{showInlineAnnotationComposer ? "Fechar Anotação" : "Anotação"}</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : activeChat.whatsappConnectionId && connectionsState.connections.find(c => c.id === activeChat.whatsappConnectionId)?.canSend !== true ? (
             <div className="mx-auto max-w-2xl space-y-2.5">
               {showInlineAnnotationComposer && canSendInternalNotes && activeChat.id !== "valentina" && (
                 <InlineChatNoteComposer
@@ -5270,6 +5374,29 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                         <span>Abrir no WhatsApp</span>
                       </button>
                     )}
+                  </div>
+                </div>
+              )}
+
+              {/* ── 1b. Alerta de WhatsApp dedicado desconectado (sem fallback para Meta Oficial) ── */}
+              {isActivePersonalDisconnected && msgMode === "client" && (
+                <div
+                  role="alert"
+                  className="mb-2.5 rounded-xl border border-amber-500/35 bg-amber-500/10 px-3.5 py-2 text-xs text-amber-900 dark:text-amber-200 backdrop-blur-xs shadow-2xs"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                      <span>
+                        Seu WhatsApp dedicado{" "}
+                        <strong className="font-bold">
+                          {activePersonalConnection?.name || "pessoal"}
+                        </strong>{" "}
+                        está desconectado. Reconecte o QR Code em{" "}
+                        <strong className="font-semibold">Configurações → Conexões</strong> para
+                        enviar mensagens (este atendimento não será desviado para a API Oficial).
+                      </span>
+                    </div>
                   </div>
                 </div>
               )}

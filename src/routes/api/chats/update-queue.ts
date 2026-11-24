@@ -10,11 +10,15 @@ import { getAiPersona } from "../../../lib/ai-persona";
 import { recordCommercialTransfer } from "../../../lib/commercial/tma";
 import { SlaEngine } from "../../../lib/sla-engine";
 import { SdrDebouncer } from "../../../lib/valentina/sdr-debouncer";
-import { requireConversationAccess, requireConversationSendAccess, hasWhatsappConnectionAccess } from "../../../lib/access-control/conversation-access";
-import { loadOperatorAccess } from "../../../lib/access-control/operator-context";
+import { requireConversationAccess, requireConversationSendAccess } from "../../../lib/access-control/conversation-access";
 import { getDealContext, isCurrentDealEligible, recordConversationAction, endDealContext, selectDealContext, assertDealContextVersion, DealContextError, findActiveGraceDeal } from "../../../lib/crm/conversation-deal-context";
 import { requireCrmDealAccess } from "../../../lib/access-control/crm-record-access";
 import { setAttendanceActor } from "../../../lib/attendance-events";
+import {
+  handoffConversationAcrossChannels,
+  resolveTargetConnectionForTransfer,
+  type DedicatedConnectionInfo,
+} from "../../../lib/whatsapp/dedicated-routing";
 
 export const Route = createFileRoute("/api/chats/update-queue")({
   server: {
@@ -93,11 +97,6 @@ export const Route = createFileRoute("/api/chats/update-queue")({
           if (conv.whatsappConnectionId) {
             const deniedSend = await requireConversationSendAccess(session, conversationId);
             if (deniedSend) return deniedSend;
-            if (queueState === "meus" && operatorId !== session.operator.id) {
-              const targetAccess = await loadOperatorAccess(session.tenantId, operatorId);
-              if (!targetAccess || !await hasWhatsappConnectionAccess(targetAccess, conv.whatsappConnectionId, "send"))
-                return Response.json({ error: "O responsável de destino não tem permissão para enviar por este número." }, { status: 403 });
-            }
           }
           const isOwner = conv.operatorId === session.operator.id;
           const isOverride = permissions.canOverrideChat === true;
@@ -182,6 +181,18 @@ export const Route = createFileRoute("/api/chats/update-queue")({
             systemMessageText = `Atendimento direcionado para a Automação (${aiName}).`;
           }
 
+          // 2.5. Resolver canal WhatsApp de destino (Baileys dedicado do destino vs. WhatsApp Oficial Meta)
+          const isSiteConv = typeof conv.id === "string" && conv.id.startsWith("conv-lc-");
+          const resolvedChannelTarget =
+            queueState !== "finalizados" && !isSiteConv && typeof resolveTargetConnectionForTransfer === "function"
+              ? await resolveTargetConnectionForTransfer(db, session.tenantId, queueState, targetOpId)
+              : { connectionId: conv.whatsappConnectionId ?? null, connectionInfo: null as DedicatedConnectionInfo | null };
+          const willRedirectChannel =
+            queueState !== "finalizados" &&
+            !isSiteConv &&
+            typeof handoffConversationAcrossChannels === "function" &&
+            (conv.whatsappConnectionId ?? null) !== (resolvedChannelTarget.connectionId ?? null);
+
           // 3. Concorrência Atômica com incremento de version dentro de db.transaction
           const updateData: Record<string, any> = {
             queueState,
@@ -204,6 +215,9 @@ export const Route = createFileRoute("/api/chats/update-queue")({
           }
 
           let updatedConv: any;
+          let closedSourceConv: typeof conversations.$inferSelect | null = null;
+          let redirectedChannel = false;
+          let targetConnectionInfo: DedicatedConnectionInfo | null = resolvedChannelTarget.connectionInfo;
           try {
             updatedConv = await db.transaction(async (tx) => {
               await setAttendanceActor(tx, session.tenantId, session.operator.name, session.operator.id);
@@ -218,6 +232,64 @@ export const Route = createFileRoute("/api/chats/update-queue")({
               if (!isCapture && !state.context.currentDealId && !graceDeal && !body.nextDealId && state.deals.some(isCurrentDealEligible)) {
                 throw new DealContextError("Selecione a negociação deste atendimento antes de transferir ou encerrar.", "DEAL_CONTEXT_REQUIRED");
               }
+
+              if (willRedirectChannel) {
+                if (state.conversation.version !== Number(expectedVersion)) {
+                  throw new ConcurrencyConflictError(state.conversation);
+                }
+                const handoff = await handoffConversationAcrossChannels(tx, {
+                  tenantId: session.tenantId,
+                  sourceConversation: state.conversation,
+                  targetConnectionId: resolvedChannelTarget.connectionId,
+                  targetConnectionInfo: resolvedChannelTarget.connectionInfo,
+                  targetQueueState: queueState as "meus" | "fila" | "automacao",
+                  targetOperatorId: targetOpId,
+                  targetOperatorName: respName,
+                  targetSectorId: sectorId !== undefined ? (sectorId || null) : undefined,
+                  targetSectorName,
+                  actorOperatorId: session.operator.id,
+                  actorName: session.operator.name,
+                  preferredDealId: body.nextDealId || state.context.currentDealId || graceDeal?.id || null,
+                  updateContactWallet: true,
+                });
+                redirectedChannel = handoff.redirected;
+                closedSourceConv = handoff.sourceConversation;
+                targetConnectionInfo = handoff.targetConnection;
+
+                const convResult: any = { ...handoff.targetConversation };
+                if (convResult.contactId) {
+                  const [cRow] = await tx
+                    .select({ name: contacts.name })
+                    .from(contacts)
+                    .where(and(eq(contacts.id, convResult.contactId), eq(contacts.tenantId, session.tenantId)))
+                    .limit(1);
+                  if (cRow?.name) convResult.contactName = cRow.name;
+                }
+
+                // Se saiu da automação em tenant industrial, encerrar/cancelar ciclo de silêncio da IA na origem
+                if (aiPersona.triagePolicy === "industrial" && queueState !== "automacao") {
+                  const now = new Date();
+                  await tx
+                    .update(agentFlowStates)
+                    .set({
+                      metadata: sql`${agentFlowStates.metadata} || '{"followUpStage":0}'::jsonb`,
+                      ...(queueState === "meus"
+                        ? { outcome: "transferred", completedAt: now }
+                        : {}),
+                      lastInteractionAt: now,
+                    })
+                    .where(
+                      and(
+                        eq(agentFlowStates.tenantId, session.tenantId),
+                        eq(agentFlowStates.conversationId, conversationId),
+                        isNull(agentFlowStates.completedAt),
+                      ),
+                    );
+                }
+
+                return convResult;
+              }
+
               const updatedRows = await tx
                 .update(conversations)
                 .set(updateData)
@@ -272,6 +344,7 @@ export const Route = createFileRoute("/api/chats/update-queue")({
                   id: messageId,
                   tenantId: session.tenantId,
                   conversationId,
+                  whatsappConnectionId: convResult.whatsappConnectionId ?? null,
                   senderType: "system",
                   senderName: "Sistema",
                   metaDetails: { attendanceActor: { name: session.operator.name, operatorId: session.operator.id }, attendanceSkip: true },
@@ -337,13 +410,18 @@ export const Route = createFileRoute("/api/chats/update-queue")({
             throw err;
           }
 
+          const effectiveConversationId = updatedConv.id as string;
+
           if (queueState !== "automacao") {
             SdrDebouncer.getInstance().clearSession(conversationId);
+            if (effectiveConversationId !== conversationId) {
+              SdrDebouncer.getInstance().clearSession(effectiveConversationId);
+            }
           }
 
-          if (conv.operatorId !== targetOpId || conv.queueState !== queueState) {
+          if (conv.operatorId !== targetOpId || conv.queueState !== queueState || redirectedChannel) {
             try {
-              await recordCommercialTransfer(session.tenantId, conversationId, queueState === "meus" ? targetOpId : null, updatedConv.version, updatedConv.updatedAt);
+              await recordCommercialTransfer(session.tenantId, effectiveConversationId, queueState === "meus" ? targetOpId : null, updatedConv.version, updatedConv.updatedAt);
             } catch (tmaError) {
               console.error("[update-queue] Falha ao registrar transferência comercial:", tmaError);
             }
@@ -354,16 +432,37 @@ export const Route = createFileRoute("/api/chats/update-queue")({
           const finalSectorId = sectorId !== undefined ? sectorId : updatedConv.sectorId ?? null;
           const finalWalletOperatorId = queueState === "meus" && finalOperatorId ? finalOperatorId : undefined;
 
+          if (redirectedChannel && closedSourceConv) {
+            void SlaEngine.getInstance().syncConversationQueueChange({
+              tenantId: session.tenantId,
+              conversationId: closedSourceConv.id,
+              queueState: "finalizados",
+              operatorId: closedSourceConv.operatorId ?? null,
+            });
+            SessionManager.getInstance().notifyPublic(session.tenantId, {
+              type: "queue_update",
+              conversationId: closedSourceConv.id,
+              contactId: closedSourceConv.contactId,
+              contactName: updatedConv.contactName || undefined,
+              queueState: "finalizados",
+              operatorId: closedSourceConv.operatorId ?? null,
+              walletOperatorId: finalWalletOperatorId,
+              sectorId: closedSourceConv.sectorId ?? null,
+              responsibleName: respName,
+              version: closedSourceConv.version,
+            });
+          }
+
           void SlaEngine.getInstance().syncConversationQueueChange({
             tenantId: session.tenantId,
-            conversationId,
+            conversationId: effectiveConversationId,
             queueState,
             operatorId: finalOperatorId,
           });
 
           SessionManager.getInstance().notifyPublic(session.tenantId, {
             type: "queue_update",
-            conversationId,
+            conversationId: effectiveConversationId,
             contactId: updatedConv.contactId,
             contactName: updatedConv.contactName || undefined,
             queueState,
@@ -374,13 +473,13 @@ export const Route = createFileRoute("/api/chats/update-queue")({
             version: updatedConv.version,
           });
 
-          if (typeof conversationId === "string" && conversationId.startsWith("conv-lc-")) {
+          if (typeof effectiveConversationId === "string" && effectiveConversationId.startsWith("conv-lc-")) {
             import("../../../lib/livechat/site-delivery")
               .then(({ pushSiteAgentJoined, pushSiteChatClosed }) => {
                 if (queueState === "meus") {
-                  pushSiteAgentJoined(session.tenantId, conversationId, respName, systemMessageText);
+                  pushSiteAgentJoined(session.tenantId, effectiveConversationId, respName, systemMessageText);
                 } else if (queueState === "finalizados") {
-                  pushSiteChatClosed(session.tenantId, conversationId, systemMessageText);
+                  pushSiteChatClosed(session.tenantId, effectiveConversationId, systemMessageText);
                 }
               })
               .catch(() => {});
@@ -390,7 +489,7 @@ export const Route = createFileRoute("/api/chats/update-queue")({
           if (
             queueState === "meus" &&
             finalOperatorId &&
-            conv.operatorId !== finalOperatorId &&
+            (conv.operatorId !== finalOperatorId || redirectedChannel) &&
             session.operator.id !== finalOperatorId
           ) {
             import("../../../lib/valentina/operator-notifications")
@@ -399,7 +498,7 @@ export const Route = createFileRoute("/api/chats/update-queue")({
                   tenantId: session.tenantId,
                   operatorId: finalOperatorId,
                   operatorName: respName,
-                  conversationId,
+                  conversationId: effectiveConversationId,
                   temperature: "quente",
                   transferSource: "manual_transfer",
                   transferredBy: session.operator.name || "Colega",
@@ -412,7 +511,7 @@ export const Route = createFileRoute("/api/chats/update-queue")({
           if (queueState === "finalizados") {
             auditService.enqueueAudit({
               tenantId: session.tenantId,
-              conversationId,
+              conversationId: effectiveConversationId,
               operatorId: finalOperatorId || conv.operatorId || session.operator.id,
               contactName: null,
               force: true,
@@ -424,7 +523,14 @@ export const Route = createFileRoute("/api/chats/update-queue")({
           return new Response(
             JSON.stringify({
               success: true,
-              conversationId,
+              conversationId: effectiveConversationId,
+              sourceConversationId: conv.id,
+              redirected: redirectedChannel,
+              whatsappConnectionId: updatedConv.whatsappConnectionId ?? null,
+              targetConnectionName: targetConnectionInfo?.name ?? null,
+              targetConnectionDisconnected: Boolean(
+                targetConnectionInfo && !targetConnectionInfo.isConnectedLive,
+              ),
               contactId: updatedConv.contactId,
               queueState,
               operatorId: finalOperatorId,

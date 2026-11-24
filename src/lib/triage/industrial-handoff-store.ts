@@ -49,6 +49,10 @@ import {
   isWithinIndustrialSchedule,
   parseIndustrialScheduleConfig,
 } from "./industrial-silence-policy";
+import {
+  handoffConversationAcrossChannels,
+  resolveOperatorDedicatedConnection,
+} from "../whatsapp/dedicated-routing";
 
 export interface HandoffRequest {
   version: 1;
@@ -92,6 +96,8 @@ export interface IndustrialStoredResult extends IndustrialHandoffResult {
   conversationVersion?: number;
   sectorId?: string;
   destinationRevision?: number;
+  targetConversationId?: string;
+  targetWhatsappConnectionId?: string | null;
   replayed?: boolean;
   superseded?: boolean;
 }
@@ -387,31 +393,58 @@ export function createIndustrialHandoffStore(
               if (options.signal?.aborted)
                 throw new HandoffOperationalError("processing_cancelled");
 
-              const [assigned] = await tx
-                .update(conversations)
-                .set({
-                  operatorId: operator.id,
-                  ...(resolvedSectorId ? { sectorId: resolvedSectorId } : {}),
-                  queueState: "meus",
-                  version: sql`${conversations.version} + 1`,
-                  updatedAt: new Date(),
-                })
-                .where(
-                  and(
-                    eq(conversations.tenantId, key.tenantId),
-                    eq(conversations.id, key.conversationId),
-                    isNull(conversations.operatorId),
-                    ne(conversations.queueState, "meus"),
-                    ne(conversations.queueState, "finalizados"),
-                  ),
-                )
-                .returning({ id: conversations.id, version: conversations.version });
-              if (!assigned) throw new HandoffOperationalError("assignment_failed");
+              const dedicatedConn = !isSiteConversationId(state.conv.id)
+                ? await resolveOperatorDedicatedConnection(tx as any, key.tenantId, operator.id)
+                : null;
+              let assignedVersion: number;
+              let targetConversationId: string | undefined;
+              let targetWhatsappConnectionId: string | null | undefined;
 
-              await tx
-                .update(contacts)
-                .set({ walletOperatorId: operator.id, responsibleName: operator.name })
-                .where(and(eq(contacts.tenantId, key.tenantId), eq(contacts.id, contact.id)));
+              if (dedicatedConn && (state.conv.whatsappConnectionId ?? null) !== dedicatedConn.id) {
+                const handoff = await handoffConversationAcrossChannels(tx as any, {
+                  tenantId: key.tenantId,
+                  sourceConversation: state.conv,
+                  targetConnectionId: dedicatedConn.id,
+                  targetConnectionInfo: dedicatedConn,
+                  targetQueueState: "meus",
+                  targetOperatorId: operator.id,
+                  targetOperatorName: operator.name,
+                  targetSectorId: resolvedSectorId,
+                  actorName: getAiPersona(key.tenantId).name,
+                  preserveSourceOperatorId: operator.id,
+                  updateContactWallet: true,
+                });
+                assignedVersion = handoff.targetConversation.version;
+                targetConversationId = handoff.targetConversation.id;
+                targetWhatsappConnectionId = handoff.targetConversation.whatsappConnectionId ?? null;
+              } else {
+                const [assigned] = await tx
+                  .update(conversations)
+                  .set({
+                    operatorId: operator.id,
+                    ...(resolvedSectorId ? { sectorId: resolvedSectorId } : {}),
+                    queueState: "meus",
+                    version: sql`${conversations.version} + 1`,
+                    updatedAt: new Date(),
+                  })
+                  .where(
+                    and(
+                      eq(conversations.tenantId, key.tenantId),
+                      eq(conversations.id, key.conversationId),
+                      isNull(conversations.operatorId),
+                      ne(conversations.queueState, "meus"),
+                      ne(conversations.queueState, "finalizados"),
+                    ),
+                  )
+                  .returning({ id: conversations.id, version: conversations.version });
+                if (!assigned) throw new HandoffOperationalError("assignment_failed");
+                assignedVersion = assigned.version;
+
+                await tx
+                  .update(contacts)
+                  .set({ walletOperatorId: operator.id, responsibleName: operator.name })
+                  .where(and(eq(contacts.tenantId, key.tenantId), eq(contacts.id, contact.id)));
+              }
 
               if (rodizio) {
                 const inFlow = all.some((op) => op.id === operator.id);
@@ -425,7 +458,7 @@ export function createIndustrialHandoffStore(
                           leadsReceivedCount: (op.leadsReceivedCount || 0) + 1,
                           recentLeads: [
                             {
-                              chatId: key.conversationId,
+                              chatId: targetConversationId || key.conversationId,
                               clientName: request.clientName,
                               receivedAt: new Date().toISOString(),
                             },
@@ -444,8 +477,11 @@ export function createIndustrialHandoffStore(
                 status: "transferred",
                 operator,
                 deal: null,
-                conversationVersion: assigned.version,
+                conversationVersion: assignedVersion,
                 sectorId: resolvedSectorId,
+                ...(targetConversationId
+                  ? { targetConversationId, targetWhatsappConnectionId }
+                  : {}),
               };
             }
           } else {
@@ -560,30 +596,60 @@ export function createIndustrialHandoffStore(
                 throw new HandoffOperationalError("crm_failed");
               if (options.signal?.aborted)
                 throw new HandoffOperationalError("processing_cancelled");
-              const [assigned] = await tx
-                .update(conversations)
-                .set({
-                  operatorId: operator.id,
-                  sectorId: sector.id,
-                  queueState: "meus",
-                  version: sql`${conversations.version} + 1`,
-                  updatedAt: new Date(),
-                })
-                .where(
-                  and(
-                    eq(conversations.tenantId, key.tenantId),
-                    eq(conversations.id, key.conversationId),
-                    isNull(conversations.operatorId),
-                    ne(conversations.queueState, "meus"),
-                    ne(conversations.queueState, "finalizados"),
-                  ),
-                )
-                .returning({ id: conversations.id, version: conversations.version });
-              if (!assigned) throw new HandoffOperationalError("assignment_failed");
-              await tx
-                .update(contacts)
-                .set({ walletOperatorId: operator.id, responsibleName: operator.name })
-                .where(and(eq(contacts.tenantId, key.tenantId), eq(contacts.id, contact.id)));
+
+              const dedicatedConn = !isSiteConversationId(state.conv.id)
+                ? await resolveOperatorDedicatedConnection(tx as any, key.tenantId, operator.id)
+                : null;
+              let assignedVersion: number;
+              let targetConversationId: string | undefined;
+              let targetWhatsappConnectionId: string | null | undefined;
+
+              if (dedicatedConn && (state.conv.whatsappConnectionId ?? null) !== dedicatedConn.id) {
+                const handoff = await handoffConversationAcrossChannels(tx as any, {
+                  tenantId: key.tenantId,
+                  sourceConversation: state.conv,
+                  targetConnectionId: dedicatedConn.id,
+                  targetConnectionInfo: dedicatedConn,
+                  targetQueueState: "meus",
+                  targetOperatorId: operator.id,
+                  targetOperatorName: operator.name,
+                  targetSectorId: sector.id,
+                  actorName: getAiPersona(key.tenantId).name,
+                  preferredDealId: deal?.dealId || null,
+                  preserveSourceOperatorId: operator.id,
+                  updateContactWallet: true,
+                });
+                assignedVersion = handoff.targetConversation.version;
+                targetConversationId = handoff.targetConversation.id;
+                targetWhatsappConnectionId = handoff.targetConversation.whatsappConnectionId ?? null;
+              } else {
+                const [assigned] = await tx
+                  .update(conversations)
+                  .set({
+                    operatorId: operator.id,
+                    sectorId: sector.id,
+                    queueState: "meus",
+                    version: sql`${conversations.version} + 1`,
+                    updatedAt: new Date(),
+                  })
+                  .where(
+                    and(
+                      eq(conversations.tenantId, key.tenantId),
+                      eq(conversations.id, key.conversationId),
+                      isNull(conversations.operatorId),
+                      ne(conversations.queueState, "meus"),
+                      ne(conversations.queueState, "finalizados"),
+                    ),
+                  )
+                  .returning({ id: conversations.id, version: conversations.version });
+                if (!assigned) throw new HandoffOperationalError("assignment_failed");
+                assignedVersion = assigned.version;
+                await tx
+                  .update(contacts)
+                  .set({ walletOperatorId: operator.id, responsibleName: operator.name })
+                  .where(and(eq(contacts.tenantId, key.tenantId), eq(contacts.id, contact.id)));
+              }
+
               const next = all.map((op) =>
                 op.id !== operator.id
                   ? op
@@ -593,7 +659,7 @@ export function createIndustrialHandoffStore(
                       leadsReceivedCount: (op.leadsReceivedCount || 0) + 1,
                       recentLeads: [
                         {
-                          chatId: key.conversationId,
+                          chatId: targetConversationId || key.conversationId,
                           clientName: request.clientName,
                           receivedAt: new Date().toISOString(),
                         },
@@ -609,9 +675,12 @@ export function createIndustrialHandoffStore(
                 status: "transferred",
                 operator,
                 deal,
-                conversationVersion: assigned.version,
+                conversationVersion: assignedVersion,
                 sectorId: sector.id,
                 destinationRevision: configuration.revision,
+                ...(targetConversationId
+                  ? { targetConversationId, targetWhatsappConnectionId }
+                  : {}),
               };
             }
           }
@@ -745,11 +814,27 @@ export function createIndustrialHandoffStore(
           return null;
         }
         const assignedOpId = receipt.result.operator?.id || null;
+        let effectiveConv = state.conv;
+        if (receipt.result.targetConversationId && receipt.result.targetConversationId !== state.conv.id) {
+          const [redirectedConv] = await tx
+            .select()
+            .from(conversations)
+            .where(
+              and(
+                eq(conversations.tenantId, key.tenantId),
+                eq(conversations.id, receipt.result.targetConversationId),
+              ),
+            )
+            .limit(1);
+          if (redirectedConv) {
+            effectiveConv = redirectedConv;
+          }
+        }
         const humanChanged =
-          state.conv.queueState === "finalizados" ||
+          effectiveConv.queueState === "finalizados" ||
           Boolean(
             assignedOpId &&
-            (state.conv.operatorId !== assignedOpId || state.conv.queueState !== "meus"),
+            (effectiveConv.operatorId !== assignedOpId || effectiveConv.queueState !== "meus"),
           );
         const nowIso = new Date().toISOString();
         if (humanChanged) {

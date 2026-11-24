@@ -22,21 +22,34 @@ export function WhatsappNumberPicker({
   compact?: boolean;
 }) {
   const { tenant, sessionRole } = useChat();
-  const { enabled, connections, refresh, canUseNumberPicker, canSwitchDuringAttendance } =
-    useWhatsappConnections(tenant);
+  const {
+    enabled,
+    connections,
+    refresh,
+    canUseNumberPicker,
+    canSwitchDuringAttendance,
+    isDedicatedBaileysUser,
+  } = useWhatsappConnections(tenant);
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState(connectionId || "corporate");
   const [busy, setBusy] = useState(false);
   useEffect(() => () => onChoosing?.(false), [onChoosing]);
+  const available = connections.filter(
+    (row) =>
+      row.enabled &&
+      row.canSend === true &&
+      row.status === "connected" &&
+      !(isDedicatedBaileysUser && row.corporate),
+  );
   const hasConnectedPersonalBaileys = connections.some(
     (row) => !row.corporate && row.enabled && row.canSend === true && row.status === "connected",
   );
   const allowedToSeePicker =
-    sessionRole === "admin" || canUseNumberPicker || hasConnectedPersonalBaileys;
+    sessionRole === "admin" ||
+    (isDedicatedBaileysUser
+      ? available.length > 1
+      : canUseNumberPicker || hasConnectedPersonalBaileys);
   if (!enabled || !allowedToSeePicker) return null;
-  const available = connections.filter(
-    (row) => row.enabled && row.canSend === true && row.status === "connected",
-  );
   const current = connections.find((row) => row.id === (connectionId || "corporate"));
   const chooseOpen = (value: boolean) => {
     if (busy) return;

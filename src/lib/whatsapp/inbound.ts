@@ -44,6 +44,10 @@ import {
   routeWhenSdrDisabledInTx,
   type SdrDisabledRoutingResult,
 } from "../triage/sdr-disabled-routing";
+import {
+  routeMetaInboundToDedicatedBaileys,
+  type RouteMetaInboundToDedicatedResult,
+} from "./dedicated-routing";
 import crypto from "node:crypto";
 
 type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -142,6 +146,13 @@ export class InboundProcessor {
               .from(contacts)
               .where(and(eq(contacts.tenantId, tenantId), eq(contacts.id, conv.contactId)))
           : [];
+        const dedicatedRedirect = (result as any).dedicatedRedirect as
+          | RouteMetaInboundToDedicatedResult
+          | undefined;
+        const redirectedDedicatedConv =
+          dedicatedRedirect?.redirected && dedicatedRedirect.dedicatedConversation
+            ? dedicatedRedirect.dedicatedConversation
+            : null;
         if (result.sdrDisabledRouting?.routed) {
           await deliverSdrDisabledRoutingEffects({
             tenantId,
@@ -164,7 +175,32 @@ export class InboundProcessor {
             walletOperatorId: contactRow?.walletOperatorId ?? null,
           },
         });
-        if ((result as any).reopened) {
+        if (redirectedDedicatedConv) {
+          SessionManager.getInstance().notifyPublic(tenantId, {
+            type: "queue_update",
+            conversationId: conv.id,
+            contactId: conv.contactId,
+            contactName: contactRow?.name || undefined,
+            queueState: "finalizados",
+            operatorId: conv.operatorId,
+            walletOperatorId: contactRow?.walletOperatorId ?? null,
+            sectorId: conv.sectorId,
+            version: conv.version,
+            responsibleName: contactRow?.responsibleName || undefined,
+          });
+          SessionManager.getInstance().notifyPublic(tenantId, {
+            type: "queue_update",
+            conversationId: redirectedDedicatedConv.id,
+            contactId: redirectedDedicatedConv.contactId,
+            contactName: contactRow?.name || undefined,
+            queueState: redirectedDedicatedConv.queueState,
+            operatorId: redirectedDedicatedConv.operatorId,
+            walletOperatorId: contactRow?.walletOperatorId ?? null,
+            sectorId: redirectedDedicatedConv.sectorId,
+            version: redirectedDedicatedConv.version,
+            responsibleName: contactRow?.responsibleName || undefined,
+          });
+        } else if ((result as any).reopened) {
           SessionManager.getInstance().notifyPublic(tenantId, {
             type: "queue_update",
             conversationId: conv.id,
@@ -178,27 +214,39 @@ export class InboundProcessor {
             responsibleName: contactRow?.responsibleName || undefined,
           });
         }
-        if (conv.operatorId)
-          void sendPushToOperator(tenantId, conv.operatorId, {
+        const pushOperatorId = redirectedDedicatedConv?.operatorId || conv.operatorId;
+        const pushConversationId = redirectedDedicatedConv?.id || conv.id;
+        if (pushOperatorId)
+          void sendPushToOperator(tenantId, pushOperatorId, {
             title: msg.senderName,
             body:
               analyzeMetaUnsupportedMessage(
                 msg.content,
                 msg.metaDetails as Record<string, any> | null,
               )?.previewLabel || msg.content,
-            conversationId: conv.id,
+            conversationId: pushConversationId,
             tenantId,
-            url: "/?chatId=" + conv.id,
+            url: "/?chatId=" + pushConversationId,
           }).catch(() => {});
-        void checkAndSendOperatorStatusAutoReply({
-          tenantId,
-          conversationId: conv.id,
-          contactId: conv.contactId,
-          incomingMessageTime: inbound.timestamp,
-        }).catch(() => {});
+        if (!redirectedDedicatedConv) {
+          void checkAndSendOperatorStatusAutoReply({
+            tenantId,
+            conversationId: conv.id,
+            contactId: conv.contactId,
+            incomingMessageTime: inbound.timestamp,
+          }).catch(() => {});
+        }
 
         // ── Abre ou atualiza ciclo de SLA unificado (Meta / Universal) ──
-        if (conv.queueState !== "finalizados") {
+        if (redirectedDedicatedConv) {
+          void SlaEngine.getInstance().openClientSlaCycle({
+            tenantId,
+            conversationId: redirectedDedicatedConv.id,
+            clientMessageId: result.messageId,
+            clientMessageAt: msg?.sentAt ? new Date(msg.sentAt) : inbound.timestamp,
+            operatorId: redirectedDedicatedConv.operatorId ?? null,
+          });
+        } else if (conv.queueState !== "finalizados") {
           void SlaEngine.getInstance().openClientSlaCycle({
             tenantId,
             conversationId: conv.id,
@@ -268,7 +316,7 @@ export class InboundProcessor {
         }
 
         // ── Acionamento do SDR (Fagner / Valentina) para mensagens da Meta Cloud API ──
-        if (inbound.provider === "meta" && isSdrTenant(tenantId) && conv) {
+        if (inbound.provider === "meta" && isSdrTenant(tenantId) && conv && !redirectedDedicatedConv) {
           void this.handleMetaSdrIntegration(inbound, conv, result.messageId, Boolean((result as any).reopened)).catch(
             (sdrErr) => console.error("[Inbound/SDR] Erro ao acionar SDR via Meta:", sdrErr)
           );
@@ -1215,10 +1263,36 @@ export class InboundProcessor {
         updatedAt: timestamp,
       });
 
+      // 6a. Se o cliente pertence à carteira de um operador com WhatsApp Baileys dedicado (não-admin),
+      // mantém a thread oficial fechada (preservada para o histórico unificado) e reabre/notifica
+      // a thread Baileys dedicada do operador para que responda exclusivamente pelo número dele.
+      let dedicatedRedirect: RouteMetaInboundToDedicatedResult | undefined;
+      if (contact.walletOperatorId && !activeConv.whatsappConnectionId) {
+        const [walletOpRow] = await db
+          .select({ id: operators.id, name: operators.name, role: operators.role })
+          .from(operators)
+          .where(and(eq(operators.id, contact.walletOperatorId), eq(operators.tenantId, tenantId)))
+          .limit(1);
+        if (walletOpRow) {
+          const redirectRes = await routeMetaInboundToDedicatedBaileys(db, {
+            tenantId,
+            corporateConversation: activeConv,
+            walletOperator: walletOpRow,
+            messagePreview: lastTextPreview,
+            timestamp: effectiveTimestamp,
+          });
+          if (redirectRes.redirected) {
+            dedicatedRedirect = redirectRes;
+            activeConv = redirectRes.corporateConversation;
+          }
+        }
+      }
+
       // 6b. Se o SDR IA estiver desativado em tenant de política industrial, direciona automaticamente
       // para quem estiver configurado em Fluxos -> SDR / Análise (ou Fila Humana se ninguém elegível).
       let sdrDisabledRouting: SdrDisabledRoutingResult | undefined;
       if (
+        !dedicatedRedirect?.redirected &&
         getAiPersona(tenantId).triagePolicy === "industrial" &&
         !activeConv.operatorId &&
         activeConv.queueState !== "meus" &&
@@ -1252,6 +1326,7 @@ export class InboundProcessor {
         createdConversation,
         reopened,
         sdrDisabledRouting,
+        dedicatedRedirect,
       };
     } catch (err) {
       throw err; // rollback de contato, conversa, mídia, mensagem e conclusão do evento

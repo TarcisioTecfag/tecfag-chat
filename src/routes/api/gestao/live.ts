@@ -1206,6 +1206,113 @@ export const Route = createFileRoute("/api/gestao/live")({
             systemEventText = `Atendimento finalizado pela Supervisão (${session.operator.name}).`;
           }
 
+          const { isSiteConversationId } = await import("../../../lib/livechat/site-channel-policy");
+          const {
+            handoffConversationAcrossChannels,
+            resolveTargetConnectionForTransfer,
+          } = await import("../../../lib/whatsapp/dedicated-routing");
+          const resolvedChannel =
+            action !== "close" && !isSiteConversationId(conv.id)
+              ? await resolveTargetConnectionForTransfer(db, tenantId, newQueueState, newOperatorId)
+              : { connectionId: conv.whatsappConnectionId ?? null, connectionInfo: null };
+          const needsChannelRedirect =
+            action !== "close" &&
+            !isSiteConversationId(conv.id) &&
+            (conv.whatsappConnectionId ?? null) !== (resolvedChannel.connectionId ?? null);
+
+          if (needsChannelRedirect) {
+            const handoff = await db.transaction((tx) =>
+              handoffConversationAcrossChannels(tx, {
+                tenantId,
+                sourceConversation: conv,
+                targetConnectionId: resolvedChannel.connectionId,
+                targetConnectionInfo: resolvedChannel.connectionInfo,
+                targetQueueState: newQueueState as "meus" | "fila" | "automacao",
+                targetOperatorId: newOperatorId,
+                targetOperatorName: targetOpName,
+                actorOperatorId: session.operator.id,
+                actorName: `Supervisão (${session.operator.name})`,
+                targetSystemMessageText: systemEventText,
+                sourceMetaDetails: {
+                  supervisorIntervention: action,
+                },
+                targetMetaDetails: {
+                  supervisorIntervention: action,
+                },
+                now,
+              }),
+            );
+
+            try {
+              const { SessionManager } = await import("../../../lib/baileys/session-manager");
+              const sm = SessionManager.getInstance();
+              sm.notifyPublic(tenantId, {
+                type: "queue_update",
+                conversationId: handoff.sourceConversation.id,
+                queueState: "finalizados",
+                operatorId: handoff.sourceConversation.operatorId,
+                sectorId: handoff.sourceConversation.sectorId,
+                version: handoff.sourceConversation.version,
+              });
+              sm.notifyPublic(tenantId, {
+                type: "queue_update",
+                conversationId: handoff.targetConversation.id,
+                queueState: handoff.targetConversation.queueState,
+                operatorId: handoff.targetConversation.operatorId,
+                sectorId: handoff.targetConversation.sectorId,
+                responsibleName: targetOpName || undefined,
+                version: handoff.targetConversation.version,
+              });
+            } catch (sseErr: any) {
+              console.warn("[gestao/live PATCH] Falha não-crítica ao emitir SSE:", sseErr?.message);
+            }
+
+            if (action === "transfer" && newOperatorId && newOperatorId !== session.operator.id) {
+              import("../../../lib/valentina/operator-notifications")
+                .then(({ notifyOperatorLeadTransferred }) =>
+                  notifyOperatorLeadTransferred({
+                    tenantId,
+                    operatorId: newOperatorId!,
+                    operatorName: targetOpName || "Consultor",
+                    conversationId: handoff.targetConversation.id,
+                    temperature: "quente",
+                    transferSource: "manual_transfer",
+                    transferredBy: session.operator.name || "Supervisão",
+                  }),
+                )
+                .catch(() => {});
+            }
+
+            return new Response(
+              JSON.stringify({
+                success: true,
+                action,
+                conversationId: handoff.targetConversation.id,
+                sourceConversationId: handoff.sourceConversation.id,
+                redirected: true,
+                whatsappConnectionId: handoff.targetConversation.whatsappConnectionId ?? null,
+                targetConnectionName: handoff.targetConnection?.name ?? null,
+                targetConnectionDisconnected: Boolean(
+                  handoff.targetConnection && !handoff.targetConnection.isConnectedLive,
+                ),
+                queueState: handoff.targetConversation.queueState,
+                operatorId: handoff.targetConversation.operatorId,
+                operatorName: targetOpName,
+                systemMessage: {
+                  id: handoff.targetSystemMessageId,
+                  conversationId: handoff.targetConversation.id,
+                  senderType: "system",
+                  senderName: "Sistema",
+                  content: systemEventText,
+                  sentAt: now.toISOString(),
+                  isInternalNote: true,
+                  status: "accepted",
+                },
+              }),
+              { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+          }
+
           const sysMsgId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
           await db.transaction(async (tx) => {
@@ -1228,6 +1335,7 @@ export const Route = createFileRoute("/api/gestao/live")({
               id: sysMsgId,
               tenantId,
               conversationId,
+              whatsappConnectionId: conv.whatsappConnectionId ?? null,
               senderType: "system",
               senderName: "Sistema",
               content: systemEventText,

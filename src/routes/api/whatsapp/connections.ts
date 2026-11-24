@@ -127,20 +127,28 @@ export const Route = createFileRoute("/api/whatsapp/connections")({
           .from(channelConfigs)
           .where(eq(channelConfigs.tenantId, session.tenantId));
         const isAdmin = session.operator.role === "admin";
-        const hasConnectedPersonalBaileys = rows.some(
+        const ownEnabledBaileys = rows.filter(
           (row) =>
             row.enabled &&
             row.provider === "baileys" &&
-            row.ownerOperatorId === session.operator.id &&
+            row.ownerOperatorId === session.operator.id,
+        );
+        const ownConnectedBaileys = ownEnabledBaileys.filter(
+          (row) =>
             row.baileysSessionStatus === "connected" &&
             Boolean(row.leaseUntil && row.leaseUntil.getTime() > Date.now()),
         );
+        const dedicatedConn = ownConnectedBaileys[0] || ownEnabledBaileys[0] || null;
+        const isDedicatedBaileysUser = !isAdmin && Boolean(dedicatedConn);
+        const hasConnectedPersonalBaileys = ownConnectedBaileys.length > 0;
         const canUseNumberPicker = isAdmin || hasConnectedPersonalBaileys;
         return Response.json(
           {
             enabled: true,
             canUseNumberPicker,
             canSwitchDuringAttendance: canUseNumberPicker,
+            isDedicatedBaileysUser,
+            dedicatedConnectionId: dedicatedConn?.id || null,
             canManage,
             accessGroups: groups,
             encryptionReady: connectionEncryptionReady(),
@@ -153,7 +161,7 @@ export const Route = createFileRoute("/api/whatsapp/connections")({
                 status: corporate?.status || "disconnected",
                 corporate: true,
                 enabled: true,
-                canSend: true,
+                canSend: !isDedicatedBaileysUser,
                 canPair: false,
               },
               ...rows.map((row) => ({
@@ -272,6 +280,7 @@ export const Route = createFileRoute("/api/whatsapp/connections")({
               sourceConversationId: body.sourceConversationId,
               expectedVersion: body.expectedVersion,
               connectionId: corporate ? null : id,
+              allowDisconnectedOwner: body.allowDisconnectedOwner === true,
             });
             try {
               SessionManager.getInstance().notifyPublic(tenantId, {
