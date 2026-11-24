@@ -13,6 +13,7 @@ import {
 import { toast } from "sonner";
 import { useChat } from "@/hooks/useChatState";
 import { getAiPersona } from "@/lib/ai-persona";
+import { useDeployReloadHold } from "@/lib/deploy-activity-guard";
 import { AiAvatar } from "@/components/ui/AiAvatar";
 import { SystemTooltip } from "@/components/ui/tooltip";
 import { AudioWithSpeed } from "@/components/ui/audio-with-speed";
@@ -209,6 +210,8 @@ export function ValentinaChatTab() {
   const [attachedAudio, setAttachedAudio] = useState<AttachedAudioInfo | null>(null);
   const [isRecordingAudio, setIsRecordingAudio] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
+
+  useDeployReloadHold(isRecordingAudio, "ai-chat-audio-recording", "audio_recording");
   const [fullscreenSrc, setFullscreenSrc] = useState<string | null>(null);
   const [headerFolderPopoverOpen, setHeaderFolderPopoverOpen] = useState(false);
 

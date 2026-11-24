@@ -27,6 +27,8 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { setRememberedTabForView } from "@/lib/app-routes";
 import { resolveTemplateVariables } from "@/lib/utils";
 import { ConversationDealContext, useConversationDealContext } from "@/components/crm/ConversationDealContext";
+import { useDeployReloadHold } from "@/lib/deploy-activity-guard";
+import { clearChatDraft, readChatDraft, writeChatDraft } from "@/lib/chat-drafts";
 
 interface MobileMessageInputProps {
   onSendMessage?: (text: string, isInternalNote: boolean, attachments?: File[]) => void | Promise<boolean>;
@@ -62,14 +64,40 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
   const aiPersona = getAiPersona(tenant || "valem");
 
   const [activeTab, setActiveTab] = useState<"message" | "internal_note" | "task">("message");
-  const [text, setText] = useState("");
+  const [text, setText] = useState(() => readChatDraft(tenant, selectedChatId));
   const dealContext = useConversationDealContext(selectedChatId || undefined);
   const draftContextVersion = useRef<number | undefined>(undefined);
   const [noteScope, setNoteScope] = useState<"current" | "general">("current");
+  const syncedMobileDraftKeyRef = useRef<string | null>(
+    tenant && selectedChatId ? `${tenant}:${selectedChatId}` : null,
+  );
   useEffect(() => {
     draftContextVersion.current = undefined;
     setNoteScope("current");
-  }, [selectedChatId]);
+    syncedMobileDraftKeyRef.current = null;
+    setText(readChatDraft(tenant, selectedChatId));
+  }, [selectedChatId, tenant]);
+  useEffect(() => {
+    const draftKey = tenant && selectedChatId ? `${tenant}:${selectedChatId}` : null;
+    if (!draftKey) return;
+    if (syncedMobileDraftKeyRef.current !== draftKey) {
+      syncedMobileDraftKeyRef.current = draftKey;
+      return;
+    }
+    if (!text) {
+      clearChatDraft(tenant, selectedChatId);
+      return;
+    }
+    const timer = setTimeout(() => {
+      writeChatDraft(tenant, selectedChatId, text);
+    }, 200);
+    return () => {
+      clearTimeout(timer);
+      if (syncedMobileDraftKeyRef.current === draftKey) {
+        writeChatDraft(tenant, selectedChatId, text);
+      }
+    };
+  }, [tenant, selectedChatId, text]);
   useEffect(() => {
     if (activeTab === "internal_note" && !canSendInternalNotes) {
       setActiveTab("message");
@@ -126,6 +154,8 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
   const audioChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
+  useDeployReloadHold(isRecording, "mobile-chat-audio-recording", "audio_recording");
+
   // Formatar Segundos para 00:00
   const fmtSec = (sec: number) => {
     const m = Math.floor(sec / 60);
@@ -146,6 +176,7 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
     if (accepted === false) return;
 
     setText("");
+    clearChatDraft(tenant, selectedChatId);
     setAttachments([]);
     setShowQuickTemplates(false);
     setShowEmojiPicker(false);

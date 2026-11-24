@@ -88,6 +88,12 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { ValentinaAssistantModal } from "./ValentinaAssistantModal";
+import {
+  acquireDeployReloadHold,
+  releaseDeployReloadHold,
+  useDeployReloadHold,
+} from "@/lib/deploy-activity-guard";
+import { clearChatDraft, readChatDraft, writeChatDraft } from "@/lib/chat-drafts";
 import { ProductCatalogPicker } from "./ProductCatalogPicker";
 import { InlineChatTaskComposer } from "./InlineChatTaskComposer";
 import {
@@ -1401,7 +1407,9 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
       });
   };
 
-  const [text, setText] = useState(initialTransientState?.text ?? "");
+  const [text, setText] = useState(
+    () => initialTransientState?.text ?? readChatDraft(tenant, activeChat?.id),
+  );
   const metaWindowCacheRef = useRef<Map<string, { open: boolean; expiresAt: string | null }>>(
     new Map(),
   );
@@ -2053,11 +2061,18 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   const [searchMatchIndex, setSearchMatchIndex] = useState<number>(0);
 
   const prevTransientChatIdRef = useRef<string | undefined>(activeChat?.id);
+  const prevTransientTenantRef = useRef<string | null | undefined>(tenant);
+  const syncedDraftKeyRef = useRef<string | null>(
+    tenant && activeChat?.id ? `${tenant}:${activeChat.id}` : null,
+  );
   useEffect(() => {
-    if (prevTransientChatIdRef.current !== activeChat?.id) {
+    if (prevTransientChatIdRef.current !== activeChat?.id || prevTransientTenantRef.current !== tenant) {
       prevTransientChatIdRef.current = activeChat?.id;
+      prevTransientTenantRef.current = tenant;
+      syncedDraftKeyRef.current = null;
       const cached = activeChat?.id ? transientChatPanelCache.get(activeChat.id) : undefined;
-      setText(cached?.text ?? "");
+      const persistedDraft = readChatDraft(tenant, activeChat?.id);
+      setText(cached?.text !== undefined && cached.text.length > 0 ? cached.text : persistedDraft);
       setReplyingTo(cached?.replyingTo ?? null);
       setAttachments(cached?.attachments ?? []);
       setMsgMode(cached?.msgMode ?? "client");
@@ -2069,7 +2084,31 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
       setShowValentinaModal(false);
       setIsCatalogOpen(false);
     }
-  }, [activeChat?.id]);
+  }, [activeChat?.id, tenant]);
+
+  // Persiste o rascunho de texto por conversa (isolado por tenant) para sobreviver a recarregamentos pós-deploy
+  useEffect(() => {
+    const chatId = activeChat?.id;
+    const draftKey = tenant && chatId ? `${tenant}:${chatId}` : null;
+    if (!draftKey) return;
+    if (syncedDraftKeyRef.current !== draftKey) {
+      syncedDraftKeyRef.current = draftKey;
+      return;
+    }
+    if (!text) {
+      clearChatDraft(tenant, chatId);
+      return;
+    }
+    const timer = setTimeout(() => {
+      writeChatDraft(tenant, chatId, text);
+    }, 200);
+    return () => {
+      clearTimeout(timer);
+      if (syncedDraftKeyRef.current === draftKey) {
+        writeChatDraft(tenant, chatId, text);
+      }
+    };
+  }, [tenant, activeChat?.id, text]);
 
   useEffect(() => {
     if (!activeChat?.id) return;
@@ -2762,6 +2801,20 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   const chunksRef = React.useRef<Blob[]>([]);
   const timerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Segura o recarregamento automático pós-deploy enquanto houver áudio ou chamada ativa
+  useDeployReloadHold(recordingState === "recording", "chat-panel-audio-recording", "audio_recording");
+  useDeployReloadHold(recordingState === "preview", "chat-panel-audio-preview", "audio_preview");
+  useDeployReloadHold(
+    callStatus === "waiting" || callStatus === "active" || callStatus === "transcribing",
+    "chat-panel-active-call",
+    "active_call",
+  );
+  useEffect(() => {
+    return () => {
+      releaseDeployReloadHold("chat-panel-send-queue");
+    };
+  }, []);
+
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -3137,59 +3190,63 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   const processSendQueue = async () => {
     if (isQueueProcessingRef.current) return;
     isQueueProcessingRef.current = true;
+    acquireDeployReloadHold("chat-panel-send-queue", "sending_message");
 
-    while (sendQueueRef.current.length > 0) {
-      const task = sendQueueRef.current.shift();
-      if (!task) continue;
+    try {
+      while (sendQueueRef.current.length > 0) {
+        const task = sendQueueRef.current.shift();
+        if (!task) continue;
 
-      try {
-        if (task.audioBlob) {
-          const ext = task.audioBlob.type.includes("ogg")
-            ? "ogg"
-            : task.audioBlob.type.includes("mp4")
-              ? "mp4"
-              : "webm";
-          const mimeType = task.audioBlob.type || "audio/webm";
-          const fileName = `audio-${Date.now()}.${ext}`;
-          const audioFile =
-            typeof File !== "undefined"
-              ? new File([task.audioBlob], fileName, { type: mimeType, lastModified: Date.now() })
-              : Object.assign(new Blob([task.audioBlob], { type: mimeType }), {
-                  name: fileName,
-                  lastModified: Date.now(),
-                });
-          const extras = task.attachments?.length
-            ? [...task.attachments, audioFile as File]
-            : [audioFile as File];
-          const accepted = await sendMessage(
-            task.text,
-            false,
-            extras,
-            task.quoted,
-            undefined,
-            task,
-          );
-          if (!accepted) break;
-        } else {
-          const accepted = await sendMessage(
-            task.text,
-            task.isInternal,
-            task.attachments,
-            task.quoted,
-            undefined,
-            task,
-          );
-          if (!accepted) break;
+        try {
+          if (task.audioBlob) {
+            const ext = task.audioBlob.type.includes("ogg")
+              ? "ogg"
+              : task.audioBlob.type.includes("mp4")
+                ? "mp4"
+                : "webm";
+            const mimeType = task.audioBlob.type || "audio/webm";
+            const fileName = `audio-${Date.now()}.${ext}`;
+            const audioFile =
+              typeof File !== "undefined"
+                ? new File([task.audioBlob], fileName, { type: mimeType, lastModified: Date.now() })
+                : Object.assign(new Blob([task.audioBlob], { type: mimeType }), {
+                    name: fileName,
+                    lastModified: Date.now(),
+                  });
+            const extras = task.attachments?.length
+              ? [...task.attachments, audioFile as File]
+              : [audioFile as File];
+            const accepted = await sendMessage(
+              task.text,
+              false,
+              extras,
+              task.quoted,
+              undefined,
+              task,
+            );
+            if (!accepted) break;
+          } else {
+            const accepted = await sendMessage(
+              task.text,
+              task.isInternal,
+              task.attachments,
+              task.quoted,
+              undefined,
+              task,
+            );
+            if (!accepted) break;
+          }
+          await removeBrowserIntent(task.id);
+          setLocalPending((rows) => rows.filter((row) => row.id !== task.id));
+        } catch (err: any) {
+          console.error("[ChatPanel] Erro ao enviar mensagem da fila:", err);
+          break;
         }
-        await removeBrowserIntent(task.id);
-        setLocalPending((rows) => rows.filter((row) => row.id !== task.id));
-      } catch (err: any) {
-        console.error("[ChatPanel] Erro ao enviar mensagem da fila:", err);
-        break;
       }
+    } finally {
+      isQueueProcessingRef.current = false;
+      releaseDeployReloadHold("chat-panel-send-queue");
     }
-
-    isQueueProcessingRef.current = false;
   };
 
   const handleSend = async () => {
@@ -3272,6 +3329,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
 
     // 1. Limpeza otimista IMEDIATA do campo de texto (latência zero para o operador poder digitar a próxima)
     setText("");
+    clearChatDraft(tenant, activeChat.id);
     setAttachments([]);
     setReplyingTo(null);
     setShowQuickMenu(false);

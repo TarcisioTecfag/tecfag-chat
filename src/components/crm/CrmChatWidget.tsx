@@ -90,6 +90,7 @@ import { getAiPersona } from "@/lib/ai-persona";
 import { AiAvatar } from "@/components/ui/AiAvatar";
 import { AgenticThoughtTrace } from "@/components/valentina/chat-blocks/AgenticThoughtTrace";
 import { stripNotificationEmojis } from "@/lib/format-notification-text";
+import { useDeployReloadHold } from "@/lib/deploy-activity-guard";
 import { shouldShowMiniChatWidget } from "@/lib/widget-visibility";
 import { isAppShellPath } from "@/lib/app-routes";
 import { QuotedMessagePreview } from "@/components/chat/ChatPanel";
@@ -1387,6 +1388,10 @@ export function CrmChatWidget() {
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const cancelRecordingRef = useRef(false);
+
+  useDeployReloadHold(recordingState === "recording", "crm-widget-audio-recording", "audio_recording");
+  useDeployReloadHold(recordingState === "preview", "crm-widget-audio-preview", "audio_preview");
+  useDeployReloadHold(sending, "crm-widget-sending", "sending_message");
 
   const fmtSec = (s: number) =>
     `${Math.floor(s / 60)
