@@ -313,6 +313,13 @@ const migrations = [
       import.meta.url,
     ),
   },
+  {
+    name: "0067_site_conversations_multi_session_index",
+    url: new URL(
+      "../src/db/migrations/0067_site_conversations_multi_session_index.sql",
+      import.meta.url,
+    ),
+  },
 ];
 const databaseUrl = process.env.DATABASE_URL;
 

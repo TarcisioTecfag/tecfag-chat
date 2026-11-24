@@ -559,7 +559,7 @@ export const conversations = pgTable("conversations", {
   lastMessageTime: timestamp("last_message_time").defaultNow().notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({
-  tenantContactUniqIdx: uniqueIndex("idx_conversations_tenant_contact_uniq").on(table.tenantId, table.contactId).where(sql`whatsapp_connection_id IS NULL`),
+  tenantContactUniqIdx: uniqueIndex("idx_conversations_tenant_contact_uniq").on(table.tenantId, table.contactId).where(sql`whatsapp_connection_id IS NULL AND id NOT LIKE 'conv-lc-%'`),
   tenantConnectionContactUniqIdx: uniqueIndex("idx_conversations_connection_contact_uniq").on(table.tenantId, table.whatsappConnectionId, table.contactId).where(sql`whatsapp_connection_id IS NOT NULL`),
   tenantOpQueueTimeIdx: index("idx_conversations_tenant_op_queue_msg_time").on(table.tenantId, table.operatorId, table.queueState, table.lastMessageTime),
   tenantContactUpdatedIdx: index("idx_conversations_tenant_contact_updated").on(table.tenantId, table.contactId, table.updatedAt),
