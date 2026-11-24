@@ -112,6 +112,12 @@ import {
   executeRdMarketingMcpTool,
   isRdMarketingMcpTool,
 } from "./valem-tecfag-mcp-rd-marketing-tools";
+import {
+  MCP_SITE_CHANNEL_TOOLS,
+  MCP_SITE_CHANNEL_TOOL_LABELS_PT,
+  executeSiteChannelMcpTool,
+  isSiteChannelMcpTool,
+} from "./valem-tecfag-mcp-site-channel-tools";
 
 export type McpToolAccessKind = "read" | "write";
 
@@ -1106,6 +1112,7 @@ export const MCP_EXTENDED_TOOLS: McpToolDefinition[] = [
   ...MCP_TEMPLATE_GROUPS_TOOLS,
   ...MCP_SDR_ORCHESTRATOR_TOOLS,
   ...MCP_RD_MARKETING_TOOLS,
+  ...MCP_SITE_CHANNEL_TOOLS,
 ];
 
 export const MCP_EXTENDED_TOOL_LABELS_PT: Record<string, string> = {
@@ -1148,6 +1155,7 @@ export const MCP_EXTENDED_TOOL_LABELS_PT: Record<string, string> = {
   ...MCP_TEMPLATE_GROUPS_TOOL_LABELS_PT,
   ...MCP_SDR_ORCHESTRATOR_TOOL_LABELS_PT,
   ...MCP_RD_MARKETING_TOOL_LABELS_PT,
+  ...MCP_SITE_CHANNEL_TOOL_LABELS_PT,
 };
 
 const EXTENDED_TOOL_NAMES = new Set(MCP_EXTENDED_TOOLS.map((t) => t.name));
@@ -4019,6 +4027,9 @@ export async function executeExtendedMcpTool(
       }
       if (isRdMarketingMcpTool(name)) {
         return executeRdMarketingMcpTool(name, args, tenantId);
+      }
+      if (isSiteChannelMcpTool(name)) {
+        return executeSiteChannelMcpTool(name, args, tenantId);
       }
       throw new Error(`Ferramenta estendida desconhecida: '${name}'.`);
   }

@@ -55,7 +55,7 @@ export const DEFAULT_MCP_ADMIN_TOKEN = "mcp_admin_7d9e3b5c1a8f4e6d2b0c9a7e5f3d1b
 
 export const MCP_SERVER_INFO = {
   name: "valem-tecfag-mcp",
-  version: "3.10.0",
+  version: "3.11.0",
 };
 
 export type McpAccessLevel = "read" | "read_write";
@@ -518,6 +518,10 @@ export function summarizeMcpToolResult(toolName: string, data: any): string {
         return `${Number(data.returnedCount ?? 0)} log(s) RD Marketing retornado(s)`;
       case "search_rd_marketing_journey_notifications":
         return `${Number(data.returnedCount ?? 0)} notificação(ões) de jornada RD Marketing encontrada(s)`;
+      case "get_site_channel_config":
+        return `Configuração do canal Site consultada (${data.siteChannelEnabled ? "ativo" : "pausado"}${data.activeTemplate?.name ? ` · template "${data.activeTemplate.name}"` : ""})`;
+      case "update_site_channel_config":
+        return `Configuração do canal Site atualizada (${data.siteChannelEnabled ? "ativo" : "pausado"}${data.activeTemplate?.name ? ` · template "${data.activeTemplate.name}"` : data.siteWhatsappTemplateId ? ` · template ${data.siteWhatsappTemplateId}` : " · sem template automático"})`;
       case "create_crm_deal":
         return `Negociação "${data.title || data.dealId}" criada na etapa "${data.stageName || data.stageId}" (${data.dealId})`;
       case "update_crm_deal_stage":
