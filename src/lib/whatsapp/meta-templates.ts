@@ -866,6 +866,7 @@ export async function getMetaTemplateLocalMetadataMap(
     {
       name: string;
       language: string;
+      status: string;
       bindings: TemplateBindings;
       customGroups: string[];
       allPipelines: boolean;
@@ -882,6 +883,7 @@ export async function getMetaTemplateLocalMetadataMap(
       metaTemplateId: metaMessageTemplates.metaTemplateId,
       name: metaMessageTemplates.name,
       language: metaMessageTemplates.language,
+      status: metaMessageTemplates.status,
       bindings: metaMessageTemplates.bindings,
       customGroups: metaMessageTemplates.customGroups,
       allPipelines: metaMessageTemplates.allPipelines,
@@ -898,6 +900,7 @@ export async function getMetaTemplateLocalMetadataMap(
     {
       name: string;
       language: string;
+      status: string;
       bindings: TemplateBindings;
       customGroups: string[];
       allPipelines: boolean;
@@ -913,6 +916,7 @@ export async function getMetaTemplateLocalMetadataMap(
     const entry = {
       name: row.name,
       language: row.language,
+      status: row.status,
       bindings: row.bindings || {},
       customGroups: normalizeCustomGroups(row.customGroups),
       allPipelines: scope.allPipelines,

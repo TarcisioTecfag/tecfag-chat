@@ -93,11 +93,16 @@ export async function processRdEvent(event: Event, receive = receiveLeads) {
       if (!renewed.length) return;
       try {
         // Card e recibo continuam atômicos; cada item é uma transação independente.
-        const [result] = await receive(
+        const results = await receive(
           { ...liveFlow, settings: event.settings },
           { leads: [lead] },
         );
-        outcomes.push({ index, status: result.status, dealId: result.dealId });
+        const result = results[0];
+        if (!result) {
+          outcomes.push({ index, status: "ignored" });
+        } else {
+          outcomes.push({ index, status: result.status, dealId: result.dealId });
+        }
       } catch (error) {
         const known = error as { statusCode?: number; message?: string };
         if (!known.statusCode || known.statusCode >= 500 || known.statusCode === 409) throw error;
@@ -132,10 +137,21 @@ export async function processRdEvent(event: Event, receive = receiveLeads) {
         message: `Evento ${event.id.slice(0, 12)}: ${failed.length} item(ns) preservado(s) para reprocessamento.${reasons ? ` Motivo: ${reasons}` : ""}`,
       });
   } catch (error) {
-    const known = error as { statusCode?: number; message?: string };
+    const known = error as { statusCode?: number; code?: string; message?: string };
     const permanent = Boolean(
       known.statusCode && known.statusCode < 500 && known.statusCode !== 409,
     );
+    if (!permanent) {
+      console.error("[RD Marketing/Inbox] Falha temporária ao processar evento:", {
+        tenantId: event.tenantId,
+        flowId: event.flowId,
+        eventId: event.id,
+        attempts: event.attempts,
+        statusCode: known.statusCode ?? null,
+        code: known.code ?? null,
+        message: known.message || (error instanceof Error ? error.message : String(error)),
+      });
+    }
     await db
       .update(rdMarketingEvents)
       .set({

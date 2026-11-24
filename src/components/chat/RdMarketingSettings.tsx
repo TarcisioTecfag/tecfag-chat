@@ -36,6 +36,8 @@ import {
   Bookmark,
   PauseCircle,
   FileText,
+  Send,
+  Wrench,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
@@ -95,6 +97,36 @@ type InboxEvent = {
   errorMessage?: string;
   attempts: number;
   outcomes: { index: number; status: string; error?: string }[];
+};
+
+type StaleFlowTemplate = {
+  flowId: string;
+  flowName: string;
+  enabled: boolean;
+  configuredTemplateId: string;
+  staleTemplateName: string | null;
+  staleTemplateStatus: string | null;
+  suggestedTemplate: {
+    metaTemplateId: string;
+    name: string;
+    language: string;
+  } | null;
+};
+
+type PendingTemplateDispatch = {
+  dealId: string;
+  dealTitle: string;
+  flowId: string;
+  flowName: string;
+  contactId: string;
+  contactName: string;
+  contactPhone: string;
+  stageName: string;
+  createdAt: string;
+  warningMessage: string;
+  flowTemplateStatus: "approved" | "auto_healable" | "missing";
+  resolvedTemplateId: string | null;
+  resolvedTemplateName: string | null;
 };
 
 interface CustomSelectOption {
@@ -395,6 +427,13 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
   const [events, setEvents] = useState<InboxEvent[]>([]);
   const [options, setOptions] = useState<Options | null>(null);
   const [metaTemplates, setMetaTemplates] = useState<Record<string, any>>({});
+  const [staleFlowTemplates, setStaleFlowTemplates] = useState<StaleFlowTemplate[]>([]);
+  const [pendingTemplateDispatches, setPendingTemplateDispatches] = useState<
+    PendingTemplateDispatch[]
+  >([]);
+  const [repairingTemplates, setRepairingTemplates] = useState(false);
+  const [dispatchingDealId, setDispatchingDealId] = useState<string | null>(null);
+  const [dispatchingAll, setDispatchingAll] = useState(false);
   const [id, setId] = useState("");
 
   const [form, setForm] = useState<FlowSettings>(blank);
@@ -422,8 +461,19 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
       setEvents(data.events || []);
       setOptions(data.options);
       setMetaTemplates(data.metaTemplates || {});
+      setStaleFlowTemplates(Array.isArray(data.staleFlowTemplates) ? data.staleFlowTemplates : []);
+      setPendingTemplateDispatches(
+        Array.isArray(data.pendingTemplateDispatches) ? data.pendingTemplateDispatches : [],
+      );
     }
-    return data as { flows: Flow[]; logs: Log[]; options: Options; metaTemplates: Record<string, any> };
+    return data as {
+      flows: Flow[];
+      logs: Log[];
+      options: Options;
+      metaTemplates: Record<string, any>;
+      staleFlowTemplates?: StaleFlowTemplate[];
+      pendingTemplateDispatches?: PendingTemplateDispatch[];
+    };
   }
 
   useEffect(() => {
@@ -432,6 +482,8 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
     setFlows([]);
     setLogs([]);
     setEvents([]);
+    setStaleFlowTemplates([]);
+    setPendingTemplateDispatches([]);
     setId("");
     setForm(blank());
     setUrl("");
@@ -454,6 +506,85 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
       });
     return () => controller.abort();
   }, [tenant]);
+
+  async function handleRepairTemplates(overrides?: Record<string, string>) {
+    setRepairingTemplates(true);
+    try {
+      const response = await fetch("/api/settings/rd-marketing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "repair_templates",
+          applyAutoHeal: true,
+          ...(overrides ? { overrides } : {}),
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Falha ao corrigir templates.");
+      const repairedCount = Array.isArray(data.repairedFlows) ? data.repairedFlows.length : 0;
+      const remainingCount = Array.isArray(data.staleFlows) ? data.staleFlows.length : 0;
+      if (repairedCount > 0) {
+        toast.success(
+          `${repairedCount} fluxo(s) atualizado(s) para o template aprovado na Meta.${
+            remainingCount > 0 ? ` Restam ${remainingCount} fluxo(s) para selecionar manualmente.` : ""
+          }`,
+        );
+      } else {
+        toast.info(
+          remainingCount > 0
+            ? `${remainingCount} fluxo(s) ainda precisam de seleção manual do template aprovado.`
+            : "Todos os fluxos já estão com templates aprovados.",
+        );
+      }
+      const reloaded = await load();
+      if (id) {
+        const current = reloaded.flows.find((f) => f.id === id);
+        if (current) setForm(structuredClone(current.settings));
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Erro ao corrigir templates.");
+    } finally {
+      setRepairingTemplates(false);
+    }
+  }
+
+  async function handleDispatchPendingTemplates(dealIds?: string[]) {
+    const isSingle = Array.isArray(dealIds) && dealIds.length === 1;
+    if (isSingle) setDispatchingDealId(dealIds[0]);
+    else setDispatchingAll(true);
+    try {
+      const response = await fetch("/api/settings/rd-marketing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "dispatch_pending_templates",
+          ...(dealIds ? { dealIds } : {}),
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Falha ao disparar templates.");
+      const okCount = Number(data.dispatchedCount || 0);
+      const failCount = Number(data.failedCount || 0);
+      if (okCount > 0) {
+        toast.success(
+          `${okCount} mensagem(ns) enviada(s) e movida(s) para CONTATANDO.${
+            failCount > 0 ? ` ${failCount} não puderam ser enviadas (verifique o template do fluxo).` : ""
+          }`,
+        );
+      } else if (failCount > 0) {
+        const firstReason = data.results?.[0]?.reason || "verifique o template do fluxo";
+        toast.error(`Nenhum envio concluído (${firstReason}).`);
+      } else {
+        toast.info("Nenhum lead pendente para disparo.");
+      }
+      await load();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Erro ao enviar templates.");
+    } finally {
+      setDispatchingDealId(null);
+      setDispatchingAll(false);
+    }
+  }
 
   const change = (patch: Partial<FlowSettings>) => {
     setForm((old) => ({ ...old, ...patch }));
@@ -1260,6 +1391,19 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
                 searchPlaceholder="Buscar template..."
                 icon={FileText}
               />
+              {form.whatsappTemplateId && !metaTemplates[form.whatsappTemplateId] && (
+                <div className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-700 dark:text-amber-300">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                  <div className="space-y-0.5">
+                    <p className="font-bold">
+                      Template salvo ({form.whatsappTemplateId}) não está aprovado ou foi excluído na Meta.
+                    </p>
+                    <p className="opacity-90">
+                      Selecione um template aprovado acima e salve o fluxo para reativar os disparos automáticos.
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Campo Identificador do Evento (Quando por evento) */}
@@ -1950,6 +2094,212 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
 
       {id && <RdMarketingDiagnostics tenant={tenant} flowId={id} />}
 
+      {/* 7.5. CARD: SAÚDE DOS TEMPLATES META & LEADS SEM DISPARO EM CONTATAR */}
+      {(staleFlowTemplates.length > 0 || pendingTemplateDispatches.length > 0) && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.25, delay: 0.2 }}
+          className="rounded-3xl border border-amber-500/30 bg-amber-500/5 p-6 shadow-soft space-y-5"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-amber-500/20 pb-4">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400">
+                <AlertTriangle className="h-4 w-4" />
+              </div>
+              <div>
+                <h4 className="text-sm font-extrabold text-foreground">
+                  Recuperação de Templates WhatsApp & Leads em CONTATAR
+                </h4>
+                <p className="text-xs text-muted-foreground">
+                  Corrija fluxos com template antigo/excluído na Meta e reenvie as mensagens automáticas pendentes movendo os cards para CONTATANDO.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {staleFlowTemplates.some((f) => f.suggestedTemplate) && (
+                <SystemTooltip content="Atualiza automaticamente todos os fluxos cujo template antigo possui substituto aprovado com o mesmo nome na Meta">
+                  <button
+                    type="button"
+                    disabled={repairingTemplates || dispatchingAll}
+                    onClick={() => handleRepairTemplates()}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white px-3.5 py-2 text-xs font-bold transition-all cursor-pointer disabled:opacity-60"
+                  >
+                    {repairingTemplates ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Wrench className="h-3.5 w-3.5" />
+                    )}
+                    Auto-corrigir fluxos (
+                    {staleFlowTemplates.filter((f) => f.suggestedTemplate).length})
+                  </button>
+                </SystemTooltip>
+              )}
+
+              {pendingTemplateDispatches.some((item) => item.resolvedTemplateId) && (
+                <SystemTooltip content="Envia o template oficial aprovado pela Meta para todos os leads prontos abaixo e move cada card automaticamente de CONTATAR para CONTATANDO">
+                  <button
+                    type="button"
+                    disabled={dispatchingAll || Boolean(dispatchingDealId) || repairingTemplates}
+                    onClick={() =>
+                      handleDispatchPendingTemplates(
+                        pendingTemplateDispatches
+                          .filter((item) => Boolean(item.resolvedTemplateId))
+                          .map((item) => item.dealId),
+                      )
+                    }
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 text-xs font-bold transition-all cursor-pointer disabled:opacity-60"
+                  >
+                    {dispatchingAll ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Send className="h-3.5 w-3.5" />
+                    )}
+                    Enviar para todos (
+                    {pendingTemplateDispatches.filter((item) => Boolean(item.resolvedTemplateId)).length}
+                    ) e mover p/ CONTATANDO
+                  </button>
+                </SystemTooltip>
+              )}
+            </div>
+          </div>
+
+          {staleFlowTemplates.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-bold text-foreground">
+                Fluxos com template inexistente ou não aprovado na Meta ({staleFlowTemplates.length})
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                {staleFlowTemplates.map((stale) => (
+                  <div
+                    key={stale.flowId}
+                    className="flex items-center justify-between gap-2 rounded-2xl border border-amber-500/25 bg-card/80 px-3.5 py-2.5 text-xs"
+                  >
+                    <div className="min-w-0 space-y-0.5">
+                      <p className="font-bold text-foreground truncate">{stale.flowName}</p>
+                      <p className="text-[11px] text-muted-foreground truncate">
+                        ID antigo: <span className="font-mono">{stale.configuredTemplateId}</span>
+                        {stale.staleTemplateName ? ` (${stale.staleTemplateName})` : ""}
+                      </p>
+                      {stale.suggestedTemplate ? (
+                        <p className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
+                          Substituto aprovado: {stale.suggestedTemplate.name}
+                        </p>
+                      ) : (
+                        <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                          Selecione um template aprovado manualmente neste fluxo.
+                        </p>
+                      )}
+                    </div>
+                    <SystemTooltip content="Abrir este fluxo no formulário acima para escolher um template aprovado">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const target = flows.find((f) => f.id === stale.flowId);
+                          if (target) {
+                            setId(target.id);
+                            setForm(structuredClone(target.settings));
+                            setUrl(target.webhookUrl || "");
+                            rememberRdMarketingFlow(tenant, target.id);
+                            window.scrollTo({ top: 0, behavior: "smooth" });
+                          }
+                        }}
+                        className="shrink-0 rounded-xl border border-border bg-muted/60 hover:bg-muted px-2.5 py-1.5 text-[11px] font-bold text-foreground cursor-pointer transition-all"
+                      >
+                        Editar fluxo
+                      </button>
+                    </SystemTooltip>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {pendingTemplateDispatches.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-bold text-foreground">
+                Leads em CONTATAR aguardando envio do template ({pendingTemplateDispatches.length})
+              </p>
+              <div className="space-y-2">
+                {pendingTemplateDispatches.map((item) => {
+                  const isSending = dispatchingDealId === item.dealId;
+                  const canSend = Boolean(item.resolvedTemplateId);
+                  return (
+                    <div
+                      key={item.dealId}
+                      className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 rounded-2xl border border-border bg-card/80 px-3.5 py-2.5 text-xs"
+                    >
+                      <div className="min-w-0 space-y-0.5">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-bold text-foreground">{item.contactName}</span>
+                          <Badge variant="outline" className="text-[10px] font-mono">
+                            {item.contactPhone}
+                          </Badge>
+                          <Badge
+                            variant="secondary"
+                            className="text-[10px] bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20"
+                          >
+                            {item.stageName}
+                          </Badge>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground">
+                          Fluxo: <span className="font-semibold text-foreground">{item.flowName}</span> ·{" "}
+                          {canSend ? (
+                            <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
+                              Template pronto: {item.resolvedTemplateName}
+                            </span>
+                          ) : (
+                            <span className="text-destructive font-semibold">
+                              Atualize o template do fluxo antes de enviar
+                            </span>
+                          )}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        <SystemTooltip content={`Abrir card ${item.dealTitle} no CRM`}>
+                          <a
+                            href={`/crm/deals/${item.dealId}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1 rounded-xl border border-border bg-muted/50 hover:bg-muted px-2.5 py-1.5 text-[11px] font-bold text-foreground"
+                          >
+                            Card
+                            <ExternalLink className="h-3 w-3" />
+                          </a>
+                        </SystemTooltip>
+                        <SystemTooltip
+                          content={
+                            canSend
+                              ? `Enviar template '${item.resolvedTemplateName}' via WhatsApp oficial e mover card para CONTATANDO`
+                              : "Defina um template aprovado neste fluxo para habilitar o disparo"
+                          }
+                        >
+                          <button
+                            type="button"
+                            disabled={!canSend || isSending || dispatchingAll}
+                            onClick={() => handleDispatchPendingTemplates([item.dealId])}
+                            className="inline-flex items-center gap-1.5 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground px-3 py-1.5 text-[11px] font-bold transition-all cursor-pointer disabled:opacity-50"
+                          >
+                            {isSending ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <Send className="h-3 w-3" />
+                            )}
+                            Enviar e mover
+                          </button>
+                        </SystemTooltip>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </motion.div>
+      )}
+
       {/* 8. CARD: HISTÓRICO DE EVENTOS E RECEBIMENTOS (LOGS) */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
@@ -2064,6 +2414,7 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
                 flows.find((f) => f.id === log.flowId)?.settings.name || "Fluxo Geral";
               const isSuccess = log.status === "created";
               const isDuplicate = log.status === "duplicate";
+              const isWarning = log.status === "warning";
               const isQueued = log.status === "queued";
 
               return (
@@ -2075,7 +2426,7 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
                     <div className="mt-0.5">
                       {isSuccess ? (
                         <CheckCircle className="h-4 w-4 text-emerald-500" />
-                      ) : isDuplicate ? (
+                      ) : isDuplicate || isWarning ? (
                         <AlertTriangle className="h-4 w-4 text-amber-500" />
                       ) : isQueued ? (
                         <RefreshCw className="h-4 w-4 text-sky-500" />
@@ -2090,7 +2441,7 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
                           variant={
                             isSuccess
                               ? "default"
-                              : isDuplicate || isQueued
+                              : isDuplicate || isWarning || isQueued
                                 ? "secondary"
                                 : "destructive"
                           }
@@ -2098,7 +2449,7 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
                             "text-[10px] font-bold",
                             isSuccess
                               ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
-                              : isDuplicate
+                              : isDuplicate || isWarning
                                 ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
                                 : isQueued
                                   ? "bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20"
@@ -2109,9 +2460,11 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
                             ? "Card Criado no CRM"
                             : isDuplicate
                               ? "Reenvio Ignorado"
-                              : isQueued
-                                ? "Reprocessamento Solicitado"
-                                : "Falha de Processamento"}
+                              : isWarning
+                                ? "Aviso de Template"
+                                : isQueued
+                                  ? "Reprocessamento Solicitado"
+                                  : "Falha de Processamento"}
                         </Badge>
                         <span className="text-xs font-bold text-foreground">{flowName}</span>
                       </div>

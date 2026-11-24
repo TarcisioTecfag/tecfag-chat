@@ -369,11 +369,15 @@ export async function executeRdMarketingMcpTool(
         db
           .select({
             id: metaMessageTemplates.id,
+            metaTemplateId: metaMessageTemplates.metaTemplateId,
             name: metaMessageTemplates.name,
+            language: metaMessageTemplates.language,
             status: metaMessageTemplates.status,
+            lastSyncedAt: metaMessageTemplates.lastSyncedAt,
           })
           .from(metaMessageTemplates)
-          .where(eq(metaMessageTemplates.tenantId, tenantId)),
+          .where(eq(metaMessageTemplates.tenantId, tenantId))
+          .orderBy(desc(metaMessageTemplates.lastSyncedAt)),
         db
           .select({
             flowId: rdMarketingEvents.flowId,
@@ -432,7 +436,22 @@ export async function executeRdMarketingMcpTool(
       const pipelineById = new Map(pipelines.map((p) => [p.id, p.name]));
       const stageById = new Map(stages.map((s) => [s.id, s]));
       const operatorById = new Map(ops.map((o) => [o.id, o.name]));
-      const templateById = new Map(templates.map((t) => [t.id, t]));
+      const approvedTemplateByKey = new Map<string, (typeof templates)[number]>();
+      const approvedTemplateByName = new Map<string, (typeof templates)[number][]>();
+      const anyTemplateByKey = new Map<string, (typeof templates)[number]>();
+      for (const t of templates) {
+        if (!anyTemplateByKey.has(t.id)) anyTemplateByKey.set(t.id, t);
+        if (!anyTemplateByKey.has(t.metaTemplateId)) anyTemplateByKey.set(t.metaTemplateId, t);
+        if (!anyTemplateByKey.has(t.name)) anyTemplateByKey.set(t.name, t);
+        if (t.status === "APPROVED") {
+          if (!approvedTemplateByKey.has(t.id)) approvedTemplateByKey.set(t.id, t);
+          if (!approvedTemplateByKey.has(t.metaTemplateId)) approvedTemplateByKey.set(t.metaTemplateId, t);
+          if (!approvedTemplateByKey.has(t.name)) approvedTemplateByKey.set(t.name, t);
+          const list = approvedTemplateByName.get(t.name) || [];
+          list.push(t);
+          approvedTemplateByName.set(t.name, list);
+        }
+      }
       const eventStatsByFlow = new Map(eventStats.map((s) => [s.flowId, s]));
       const logStatsByFlow = new Map(logStats.map((s) => [s.flowId, s]));
 
@@ -442,9 +461,16 @@ export async function executeRdMarketingMcpTool(
         const settings = row.settings;
         const evStat = eventStatsByFlow.get(row.id);
         const lgStat = logStatsByFlow.get(row.id);
-        const tpl = settings.whatsappTemplateId
-          ? templateById.get(settings.whatsappTemplateId)
-          : null;
+        const tplKey = settings.whatsappTemplateId ? settings.whatsappTemplateId.trim() : "";
+        const approvedTpl = tplKey ? approvedTemplateByKey.get(tplKey) ?? null : null;
+        const anyTpl = tplKey ? anyTemplateByKey.get(tplKey) ?? null : null;
+        const tpl = approvedTpl ?? anyTpl;
+        const replacement =
+          !approvedTpl && anyTpl
+            ? (approvedTemplateByName.get(anyTpl.name) || []).find(
+                (c) => c.language === anyTpl.language,
+              ) ?? (approvedTemplateByName.get(anyTpl.name) || [])[0] ?? null
+            : null;
 
         return {
           id: row.id,
@@ -472,6 +498,15 @@ export async function executeRdMarketingMcpTool(
                 id: settings.whatsappTemplateId,
                 name: tpl?.name ?? null,
                 status: tpl?.status ?? null,
+                ...(replacement
+                  ? {
+                      activeReplacement: {
+                        metaTemplateId: replacement.metaTemplateId,
+                        name: replacement.name,
+                        language: replacement.language,
+                      },
+                    }
+                  : {}),
               }
             : null,
           deduplication: settings.deduplication,

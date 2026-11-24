@@ -1,12 +1,17 @@
 import crypto from "node:crypto";
-import { and, desc, eq, isNull, or } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, or } from "drizzle-orm";
 import { db } from "../../db";
 import {
   agentFlowStates,
   contacts,
   conversations,
   crmConversationDeals,
+  crmDealContacts,
+  crmDeals,
+  crmStages,
+  messages,
   metaMessageTemplates,
+  rdMarketingFlows,
   rdMarketingLogs,
 } from "../../db/schema";
 import { getAiPersona } from "../ai-persona";
@@ -102,6 +107,136 @@ export function buildTemplatePayloadFromRecord(params: {
   };
 }
 
+export interface ResolvedRdTemplateResult {
+  template: typeof metaMessageTemplates.$inferSelect | null;
+  healedFromId?: string | null;
+  staleRecord?: {
+    id: string;
+    metaTemplateId: string;
+    name: string;
+    language: string;
+    status: string;
+  } | null;
+}
+
+/**
+ * Resolve o template aprovado pela Meta para um fluxo RD Marketing.
+ * Se o ID configurado apontar para um template antigo (ex.: DELETED/REJECTED após recriação na Meta),
+ * busca automaticamente o template APPROVED vigente com o mesmo `name` (preferindo o mesmo idioma)
+ * e, se `flowId` for informado, atualiza `rd_marketing_flows.settings.whatsappTemplateId` no banco.
+ */
+export async function resolveApprovedRdTemplate(
+  tenantId: string,
+  whatsappTemplateId: string,
+  options?: { flowId?: string | null; persistAutoHeal?: boolean },
+): Promise<ResolvedRdTemplateResult> {
+  const cleanTplKey = whatsappTemplateId.trim();
+  if (!cleanTplKey) return { template: null };
+
+  const [directApproved] = await db
+    .select()
+    .from(metaMessageTemplates)
+    .where(
+      and(
+        eq(metaMessageTemplates.tenantId, tenantId),
+        eq(metaMessageTemplates.status, "APPROVED"),
+        or(
+          eq(metaMessageTemplates.id, cleanTplKey),
+          eq(metaMessageTemplates.metaTemplateId, cleanTplKey),
+          eq(metaMessageTemplates.name, cleanTplKey),
+        ),
+      ),
+    )
+    .orderBy(desc(metaMessageTemplates.lastSyncedAt))
+    .limit(1);
+
+  if (directApproved) {
+    return { template: directApproved };
+  }
+
+  // Fallback resiliente: verifica se o ID salvo pertence a uma versão antiga (ex.: DELETED)
+  const [staleRow] = await db
+    .select()
+    .from(metaMessageTemplates)
+    .where(
+      and(
+        eq(metaMessageTemplates.tenantId, tenantId),
+        or(
+          eq(metaMessageTemplates.id, cleanTplKey),
+          eq(metaMessageTemplates.metaTemplateId, cleanTplKey),
+          eq(metaMessageTemplates.name, cleanTplKey),
+        ),
+      ),
+    )
+    .orderBy(desc(metaMessageTemplates.lastSyncedAt))
+    .limit(1);
+
+  if (!staleRow) {
+    return { template: null, staleRecord: null };
+  }
+
+  const staleRecord = {
+    id: staleRow.id,
+    metaTemplateId: staleRow.metaTemplateId,
+    name: staleRow.name,
+    language: staleRow.language,
+    status: staleRow.status,
+  };
+
+  const approvedBySameName = await db
+    .select()
+    .from(metaMessageTemplates)
+    .where(
+      and(
+        eq(metaMessageTemplates.tenantId, tenantId),
+        eq(metaMessageTemplates.status, "APPROVED"),
+        eq(metaMessageTemplates.name, staleRow.name),
+      ),
+    )
+    .orderBy(desc(metaMessageTemplates.lastSyncedAt));
+
+  const replacement =
+    approvedBySameName.find((row) => row.language === staleRow.language) ||
+    approvedBySameName[0] ||
+    null;
+
+  if (!replacement) {
+    return { template: null, staleRecord };
+  }
+
+  if (options?.flowId && options.persistAutoHeal !== false) {
+    try {
+      const [flow] = await db
+        .select({ id: rdMarketingFlows.id, settings: rdMarketingFlows.settings })
+        .from(rdMarketingFlows)
+        .where(
+          and(eq(rdMarketingFlows.tenantId, tenantId), eq(rdMarketingFlows.id, options.flowId)),
+        )
+        .limit(1);
+      if (flow && flow.settings?.whatsappTemplateId === cleanTplKey) {
+        await db
+          .update(rdMarketingFlows)
+          .set({
+            settings: {
+              ...flow.settings,
+              whatsappTemplateId: replacement.metaTemplateId,
+            },
+            updatedAt: new Date(),
+          })
+          .where(and(eq(rdMarketingFlows.tenantId, tenantId), eq(rdMarketingFlows.id, flow.id)));
+      }
+    } catch (healErr) {
+      console.error("[RD Marketing/SDR Template] Falha ao persistir auto-cura do template:", healErr);
+    }
+  }
+
+  return {
+    template: replacement,
+    healedFromId: cleanTplKey,
+    staleRecord,
+  };
+}
+
 /**
  * Executa o disparo PÓS-COMMIT do template WhatsApp configurado no fluxo RD Marketing:
  * - Só dispara quando o Fagner/SDR está habilitado no tenant (`sdrEnabled = true`).
@@ -143,32 +278,25 @@ export async function dispatchRdSdrTemplatePostCommit(
       return { dispatched: false, reason: "wallet_protected" };
     }
 
-    // 3. Resolver template aprovado no banco
+    // 3. Resolver template aprovado no banco (com auto-cura se o ID antigo foi substituído na Meta)
     const cleanTplKey = whatsappTemplateId.trim();
-    const [templateRow] = await db
-      .select()
-      .from(metaMessageTemplates)
-      .where(
-        and(
-          eq(metaMessageTemplates.tenantId, tenantId),
-          eq(metaMessageTemplates.status, "APPROVED"),
-          or(
-            eq(metaMessageTemplates.id, cleanTplKey),
-            eq(metaMessageTemplates.metaTemplateId, cleanTplKey),
-            eq(metaMessageTemplates.name, cleanTplKey),
-          ),
-        ),
-      )
-      .limit(1);
+    const resolved = await resolveApprovedRdTemplate(tenantId, cleanTplKey, {
+      flowId,
+      persistAutoHeal: true,
+    });
+    const templateRow = resolved.template;
 
     if (!templateRow) {
+      const staleSuffix = resolved.staleRecord
+        ? ` (último registro: '${resolved.staleRecord.name}', status '${resolved.staleRecord.status}')`
+        : "";
       await db.insert(rdMarketingLogs).values({
         id: crypto.randomUUID(),
         tenantId,
         flowId,
         status: "warning",
         dealId,
-        message: `Template WhatsApp '${cleanTplKey}' não encontrado ou não aprovado na Meta.`,
+        message: `Template WhatsApp '${cleanTplKey}' não encontrado ou não aprovado na Meta${staleSuffix}.`,
       });
       return { dispatched: false, reason: "template_not_found" };
     }
@@ -211,9 +339,27 @@ export async function dispatchRdSdrTemplatePostCommit(
           })
           .onConflictDoNothing();
 
-        // Se já está com operador humano ativo em "Meus", respeitar e não atropelar
-        if (conv.operatorId !== null || conv.queueState === "meus") {
+        // Se já está com operador humano ativo em "Meus", respeitar e não atropelar.
+        // Conversas vazias em "meus" sem operador e sem nenhuma mensagem real (apenas nota de sistema)
+        // podem ser assumidas normalmente pela automação do Fagner.
+        if (conv.operatorId !== null) {
           return { blocked: true as const, reason: "active_human_conversation", conversationId: conv.id };
+        }
+        if (conv.queueState === "meus") {
+          const [realMessage] = await tx
+            .select({ id: messages.id })
+            .from(messages)
+            .where(
+              and(
+                eq(messages.tenantId, tenantId),
+                eq(messages.conversationId, conv.id),
+                eq(messages.isInternalNote, false),
+              ),
+            )
+            .limit(1);
+          if (realMessage) {
+            return { blocked: true as const, reason: "active_human_conversation", conversationId: conv.id };
+          }
         }
 
         // Se estava em fila (sem operador) ou finalizada, direciona para automacao do Fagner
@@ -456,4 +602,463 @@ export async function dispatchRdSdrTemplatePostCommit(
       reason: err?.message || "unexpected_error",
     };
   }
+}
+
+export interface StaleRdFlowTemplateInfo {
+  flowId: string;
+  flowName: string;
+  enabled: boolean;
+  configuredTemplateId: string;
+  staleTemplateName: string | null;
+  staleTemplateStatus: string | null;
+  suggestedTemplate: {
+    metaTemplateId: string;
+    name: string;
+    language: string;
+  } | null;
+}
+
+export interface PendingRdTemplateDispatchItem {
+  dealId: string;
+  dealTitle: string;
+  flowId: string;
+  flowName: string;
+  contactId: string;
+  contactName: string;
+  contactPhone: string;
+  stageName: string;
+  createdAt: string;
+  warningMessage: string;
+  flowTemplateStatus: "approved" | "auto_healable" | "missing";
+  resolvedTemplateId: string | null;
+  resolvedTemplateName: string | null;
+}
+
+/**
+ * Inspeciona todos os fluxos RD Marketing do tenant com `whatsappTemplateId` configurado.
+ * Identifica os que apontam para templates inexistentes/excluídos/não-aprovados na Meta e,
+ * quando `applyAutoHeal` ou `overrides` é passado, atualiza os fluxos para o template APPROVED.
+ */
+export async function inspectAndRepairRdFlowTemplates(
+  tenantId: string,
+  opts?: { applyAutoHeal?: boolean; overrides?: Record<string, string> },
+): Promise<{
+  staleFlows: StaleRdFlowTemplateInfo[];
+  repairedFlows: Array<{
+    flowId: string;
+    flowName: string;
+    previousTemplateId: string;
+    newTemplateId: string;
+    newTemplateName: string;
+  }>;
+}> {
+  const [flows, allTemplates] = await Promise.all([
+    db
+      .select({ id: rdMarketingFlows.id, settings: rdMarketingFlows.settings })
+      .from(rdMarketingFlows)
+      .where(eq(rdMarketingFlows.tenantId, tenantId)),
+    db
+      .select({
+        id: metaMessageTemplates.id,
+        metaTemplateId: metaMessageTemplates.metaTemplateId,
+        name: metaMessageTemplates.name,
+        language: metaMessageTemplates.language,
+        status: metaMessageTemplates.status,
+        lastSyncedAt: metaMessageTemplates.lastSyncedAt,
+      })
+      .from(metaMessageTemplates)
+      .where(eq(metaMessageTemplates.tenantId, tenantId))
+      .orderBy(desc(metaMessageTemplates.lastSyncedAt)),
+  ]);
+
+  const approvedByKey = new Map<string, (typeof allTemplates)[number]>();
+  const approvedByName = new Map<string, (typeof allTemplates)[number][]>();
+  const anyByKey = new Map<string, (typeof allTemplates)[number]>();
+
+  for (const tpl of allTemplates) {
+    if (!anyByKey.has(tpl.id)) anyByKey.set(tpl.id, tpl);
+    if (!anyByKey.has(tpl.metaTemplateId)) anyByKey.set(tpl.metaTemplateId, tpl);
+    if (!anyByKey.has(tpl.name)) anyByKey.set(tpl.name, tpl);
+
+    if (tpl.status === "APPROVED") {
+      if (!approvedByKey.has(tpl.id)) approvedByKey.set(tpl.id, tpl);
+      if (!approvedByKey.has(tpl.metaTemplateId)) approvedByKey.set(tpl.metaTemplateId, tpl);
+      if (!approvedByKey.has(tpl.name)) approvedByKey.set(tpl.name, tpl);
+      const list = approvedByName.get(tpl.name) || [];
+      list.push(tpl);
+      approvedByName.set(tpl.name, list);
+    }
+  }
+
+  const staleFlows: StaleRdFlowTemplateInfo[] = [];
+  const repairedFlows: Array<{
+    flowId: string;
+    flowName: string;
+    previousTemplateId: string;
+    newTemplateId: string;
+    newTemplateName: string;
+  }> = [];
+
+  for (const flow of flows) {
+    const rawKey = String(flow.settings?.whatsappTemplateId || "").trim();
+    if (!rawKey) continue;
+
+    const overrideKey = opts?.overrides?.[flow.id]?.trim();
+    if (overrideKey) {
+      const targetApproved = approvedByKey.get(overrideKey);
+      if (targetApproved) {
+        await db
+          .update(rdMarketingFlows)
+          .set({
+            settings: {
+              ...flow.settings,
+              whatsappTemplateId: targetApproved.metaTemplateId,
+            },
+            updatedAt: new Date(),
+          })
+          .where(and(eq(rdMarketingFlows.tenantId, tenantId), eq(rdMarketingFlows.id, flow.id)));
+        repairedFlows.push({
+          flowId: flow.id,
+          flowName: flow.settings.name,
+          previousTemplateId: rawKey,
+          newTemplateId: targetApproved.metaTemplateId,
+          newTemplateName: targetApproved.name,
+        });
+        continue;
+      }
+    }
+
+    if (approvedByKey.has(rawKey)) continue;
+
+    const stale = anyByKey.get(rawKey) || null;
+    const candidates = stale ? approvedByName.get(stale.name) || [] : [];
+    const suggested =
+      (stale && candidates.find((c) => c.language === stale.language)) || candidates[0] || null;
+
+    if (opts?.applyAutoHeal && suggested) {
+      await db
+        .update(rdMarketingFlows)
+        .set({
+          settings: {
+            ...flow.settings,
+            whatsappTemplateId: suggested.metaTemplateId,
+          },
+          updatedAt: new Date(),
+        })
+        .where(and(eq(rdMarketingFlows.tenantId, tenantId), eq(rdMarketingFlows.id, flow.id)));
+      repairedFlows.push({
+        flowId: flow.id,
+        flowName: flow.settings.name,
+        previousTemplateId: rawKey,
+        newTemplateId: suggested.metaTemplateId,
+        newTemplateName: suggested.name,
+      });
+      continue;
+    }
+
+    staleFlows.push({
+      flowId: flow.id,
+      flowName: flow.settings.name,
+      enabled: Boolean(flow.settings.enabled),
+      configuredTemplateId: rawKey,
+      staleTemplateName: stale?.name || null,
+      staleTemplateStatus: stale?.status || null,
+      suggestedTemplate: suggested
+        ? {
+            metaTemplateId: suggested.metaTemplateId,
+            name: suggested.name,
+            language: suggested.language,
+          }
+        : null,
+    });
+  }
+
+  return { staleFlows, repairedFlows };
+}
+
+/**
+ * Lista negociações abertas em CONTATAR que tiveram aviso de falha no disparo do template RD
+ * e ainda não receberam nenhuma mensagem real no WhatsApp.
+ */
+export async function listPendingRdTemplateDispatches(
+  tenantId: string,
+): Promise<PendingRdTemplateDispatchItem[]> {
+  const [warningLogs, sentLogs, flows] = await Promise.all([
+    db
+      .select({
+        flowId: rdMarketingLogs.flowId,
+        dealId: rdMarketingLogs.dealId,
+        message: rdMarketingLogs.message,
+        createdAt: rdMarketingLogs.createdAt,
+      })
+      .from(rdMarketingLogs)
+      .where(and(eq(rdMarketingLogs.tenantId, tenantId), eq(rdMarketingLogs.status, "warning")))
+      .orderBy(desc(rdMarketingLogs.createdAt))
+      .limit(200),
+    db
+      .select({
+        dealId: rdMarketingLogs.dealId,
+        message: rdMarketingLogs.message,
+      })
+      .from(rdMarketingLogs)
+      .where(and(eq(rdMarketingLogs.tenantId, tenantId), eq(rdMarketingLogs.status, "created")))
+      .orderBy(desc(rdMarketingLogs.createdAt))
+      .limit(400),
+    db
+      .select({ id: rdMarketingFlows.id, settings: rdMarketingFlows.settings })
+      .from(rdMarketingFlows)
+      .where(eq(rdMarketingFlows.tenantId, tenantId)),
+  ]);
+
+  const alreadySentDeals = new Set<string>();
+  for (const row of sentLogs) {
+    if (row.dealId && /Template\s+'[^']+'\s+enviado/i.test(row.message || "")) {
+      alreadySentDeals.add(row.dealId);
+    }
+  }
+
+  const latestWarningByDeal = new Map<string, (typeof warningLogs)[number]>();
+  for (const log of warningLogs) {
+    if (!log.dealId || alreadySentDeals.has(log.dealId)) continue;
+    if (!/Template WhatsApp|Falha ao enviar template/i.test(log.message || "")) continue;
+    if (!latestWarningByDeal.has(log.dealId)) {
+      latestWarningByDeal.set(log.dealId, log);
+    }
+  }
+
+  const candidateDealIds = Array.from(latestWarningByDeal.keys());
+  if (candidateDealIds.length === 0) return [];
+
+  const dealRows = await db
+    .select({
+      dealId: crmDeals.id,
+      title: crmDeals.title,
+      status: crmDeals.status,
+      createdAt: crmDeals.createdAt,
+      stageName: crmStages.name,
+    })
+    .from(crmDeals)
+    .innerJoin(
+      crmStages,
+      and(eq(crmStages.tenantId, tenantId), eq(crmStages.id, crmDeals.stageId)),
+    )
+    .where(and(eq(crmDeals.tenantId, tenantId), inArray(crmDeals.id, candidateDealIds)));
+
+  const openContatarDeals = dealRows.filter(
+    (d) =>
+      d.status === "open" &&
+      String(d.stageName || "")
+        .trim()
+        .toUpperCase() === "CONTATAR",
+  );
+  if (openContatarDeals.length === 0) return [];
+
+  const openDealIds = openContatarDeals.map((d) => d.dealId);
+  const participantRows = await db
+    .select({
+      dealId: crmDealContacts.dealId,
+      contactId: contacts.id,
+      contactName: contacts.name,
+      contactPhone: contacts.phone,
+      walletOperatorId: contacts.walletOperatorId,
+      isPrimary: crmDealContacts.isPrimary,
+    })
+    .from(crmDealContacts)
+    .innerJoin(
+      contacts,
+      and(eq(contacts.tenantId, tenantId), eq(contacts.id, crmDealContacts.contactId)),
+    )
+    .where(
+      and(eq(crmDealContacts.tenantId, tenantId), inArray(crmDealContacts.dealId, openDealIds)),
+    );
+
+  const contactByDeal = new Map<string, (typeof participantRows)[number]>();
+  for (const p of participantRows) {
+    const prev = contactByDeal.get(p.dealId);
+    if (!prev || (p.isPrimary && !prev.isPrimary)) {
+      contactByDeal.set(p.dealId, p);
+    }
+  }
+
+  const contactIds = Array.from(
+    new Set(Array.from(contactByDeal.values()).map((c) => c.contactId)),
+  );
+  const convRows =
+    contactIds.length > 0
+      ? await db
+          .select({ id: conversations.id, contactId: conversations.contactId })
+          .from(conversations)
+          .where(
+            and(
+              eq(conversations.tenantId, tenantId),
+              inArray(conversations.contactId, contactIds),
+            ),
+          )
+      : [];
+
+  const convIds = convRows.map((c) => c.id);
+  const realMsgConvs = new Set<string>();
+  if (convIds.length > 0) {
+    const msgRows = await db
+      .select({ conversationId: messages.conversationId })
+      .from(messages)
+      .where(
+        and(
+          eq(messages.tenantId, tenantId),
+          inArray(messages.conversationId, convIds),
+          eq(messages.isInternalNote, false),
+        ),
+      );
+    for (const m of msgRows) realMsgConvs.add(m.conversationId);
+  }
+  const contactsWithRealMessages = new Set<string>();
+  for (const c of convRows) {
+    if (realMsgConvs.has(c.id)) contactsWithRealMessages.add(c.contactId);
+  }
+
+  const flowMap = new Map(flows.map((f) => [f.id, f]));
+  const flowResolutionCache = new Map<
+    string,
+    {
+      status: "approved" | "auto_healable" | "missing";
+      templateId: string | null;
+      templateName: string | null;
+    }
+  >();
+
+  const items: PendingRdTemplateDispatchItem[] = [];
+  for (const deal of openContatarDeals) {
+    const contact = contactByDeal.get(deal.dealId);
+    if (!contact) continue;
+    const canonicalPhone = normalizeCanonicalPhone(contact.contactPhone || "");
+    if (!canonicalPhone) continue;
+    if (contact.walletOperatorId) continue;
+    if (contactsWithRealMessages.has(contact.contactId)) continue;
+
+    const warn = latestWarningByDeal.get(deal.dealId)!;
+    const flow = flowMap.get(warn.flowId);
+    const configuredTplId = String(flow?.settings?.whatsappTemplateId || "").trim();
+
+    let resInfo = flowResolutionCache.get(warn.flowId);
+    if (!resInfo) {
+      if (!configuredTplId) {
+        resInfo = { status: "missing", templateId: null, templateName: null };
+      } else {
+        const resolved = await resolveApprovedRdTemplate(tenantId, configuredTplId, {
+          flowId: warn.flowId,
+          persistAutoHeal: false,
+        });
+        if (resolved.template && !resolved.healedFromId) {
+          resInfo = {
+            status: "approved",
+            templateId: resolved.template.metaTemplateId,
+            templateName: resolved.template.name,
+          };
+        } else if (resolved.template && resolved.healedFromId) {
+          resInfo = {
+            status: "auto_healable",
+            templateId: resolved.template.metaTemplateId,
+            templateName: resolved.template.name,
+          };
+        } else {
+          resInfo = { status: "missing", templateId: null, templateName: null };
+        }
+      }
+      flowResolutionCache.set(warn.flowId, resInfo);
+    }
+
+    items.push({
+      dealId: deal.dealId,
+      dealTitle: deal.title,
+      flowId: warn.flowId,
+      flowName: flow?.settings?.name || warn.flowId,
+      contactId: contact.contactId,
+      contactName: contact.contactName,
+      contactPhone: canonicalPhone,
+      stageName: deal.stageName,
+      createdAt: deal.createdAt instanceof Date ? deal.createdAt.toISOString() : String(deal.createdAt),
+      warningMessage: warn.message,
+      flowTemplateStatus: resInfo.status,
+      resolvedTemplateId: resInfo.templateId,
+      resolvedTemplateName: resInfo.templateName,
+    });
+  }
+
+  return items.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+/**
+ * Reenvia o template oficial Meta pelo Fagner e move de CONTATAR → CONTATANDO
+ * para leads pendentes cujos disparos falharam anteriormente.
+ */
+export async function retryPendingRdTemplateDispatches(
+  tenantId: string,
+  dealIds?: string[],
+): Promise<{
+  totalAttempted: number;
+  dispatchedCount: number;
+  failedCount: number;
+  results: Array<{
+    dealId: string;
+    contactName: string;
+    flowName: string;
+    dispatched: boolean;
+    templateName?: string;
+    cwrAction?: string;
+    reason?: string;
+  }>;
+}> {
+  const pending = await listPendingRdTemplateDispatches(tenantId);
+  const filterSet =
+    Array.isArray(dealIds) && dealIds.length > 0 ? new Set(dealIds.map((id) => id.trim())) : null;
+  const targets = filterSet ? pending.filter((item) => filterSet.has(item.dealId)) : pending;
+
+  const results: Array<{
+    dealId: string;
+    contactName: string;
+    flowName: string;
+    dispatched: boolean;
+    templateName?: string;
+    cwrAction?: string;
+    reason?: string;
+  }> = [];
+
+  for (const item of targets) {
+    if (!item.resolvedTemplateId) {
+      results.push({
+        dealId: item.dealId,
+        contactName: item.contactName,
+        flowName: item.flowName,
+        dispatched: false,
+        reason: "flow_template_not_configured",
+      });
+      continue;
+    }
+
+    const res = await dispatchRdSdrTemplatePostCommit({
+      tenantId,
+      flowId: item.flowId,
+      dealId: item.dealId,
+      contactId: item.contactId,
+      whatsappTemplateId: item.resolvedTemplateId,
+      clientName: item.contactName,
+    });
+
+    results.push({
+      dealId: item.dealId,
+      contactName: item.contactName,
+      flowName: item.flowName,
+      dispatched: res.dispatched,
+      templateName: res.templateName,
+      cwrAction: res.cwrAction,
+      reason: res.reason,
+    });
+  }
+
+  return {
+    totalAttempted: results.length,
+    dispatchedCount: results.filter((r) => r.dispatched).length,
+    failedCount: results.filter((r) => !r.dispatched).length,
+    results,
+  };
 }

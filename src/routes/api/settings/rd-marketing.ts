@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { db } from "../../../db";
 import { rdMarketingFlows } from "../../../db/schema";
 import { requireSession } from "../../../lib/auth-session";
-import { CrmError } from "../../../lib/crm/crm-service";
+import { CrmError, CrmValidationError } from "../../../lib/crm/crm-service";
 import {
   buildFlowWebhookUrl,
   decodeFlowWebhookToken,
@@ -25,6 +25,12 @@ import {
   processRdEvent,
   replayRdEvent,
 } from "../../../lib/rd-marketing/inbox";
+import {
+  inspectAndRepairRdFlowTemplates,
+  listPendingRdTemplateDispatches,
+  resolveApprovedRdTemplate,
+  retryPendingRdTemplateDispatches,
+} from "../../../lib/rd-marketing/sdr-template-dispatch";
 
 export const Route = createFileRoute("/api/settings/rd-marketing")({
   server: {
@@ -41,14 +47,27 @@ export const Route = createFileRoute("/api/settings/rd-marketing")({
           );
         try {
           const origin = new URL(request.url).origin;
-          const [data, options, events, metaTemplates] = await Promise.all([
-            listFlows(tenantId, origin),
-            flowOptions(tenantId),
-            listRdEvents(tenantId),
-            getMetaTemplateLocalMetadataMap(tenantId),
-          ]);
+          const [data, options, events, metaTemplates, templateAudit, pendingTemplateDispatches] =
+            await Promise.all([
+              listFlows(tenantId, origin),
+              flowOptions(tenantId),
+              listRdEvents(tenantId),
+              getMetaTemplateLocalMetadataMap(tenantId),
+              inspectAndRepairRdFlowTemplates(tenantId, { applyAutoHeal: false }),
+              listPendingRdTemplateDispatches(tenantId),
+            ]);
+          const approvedMetaTemplates = Object.fromEntries(
+            Array.from(metaTemplates.entries()).filter(([, tpl]) => tpl.status === "APPROVED"),
+          );
           return Response.json(
-            { ...data, options, events, metaTemplates: Object.fromEntries(metaTemplates) },
+            {
+              ...data,
+              options,
+              events,
+              metaTemplates: approvedMetaTemplates,
+              staleFlowTemplates: templateAudit.staleFlows,
+              pendingTemplateDispatches,
+            },
             { headers: { "Cache-Control": "no-store" } },
           );
         } catch (error) {
@@ -86,6 +105,30 @@ export const Route = createFileRoute("/api/settings/rd-marketing")({
           if (body.action === "preview")
             return Response.json(await previewFlow(tenantId, body.settings, body.payload));
           
+          if (body.action === "repair_templates") {
+            const overrides =
+              body.overrides && typeof body.overrides === "object" && !Array.isArray(body.overrides)
+                ? Object.fromEntries(
+                    Object.entries(body.overrides as Record<string, unknown>)
+                      .filter(([, v]) => typeof v === "string" && v.trim().length > 0)
+                      .map(([k, v]) => [k, String(v).trim()]),
+                  )
+                : undefined;
+            const result = await inspectAndRepairRdFlowTemplates(tenantId, {
+              applyAutoHeal: body.applyAutoHeal !== false,
+              overrides,
+            });
+            return Response.json(result, { headers: { "Cache-Control": "no-store" } });
+          }
+
+          if (body.action === "dispatch_pending_templates") {
+            const dealIds = Array.isArray(body.dealIds)
+              ? body.dealIds.filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+              : undefined;
+            const result = await retryPendingRdTemplateDispatches(tenantId, dealIds);
+            return Response.json(result, { headers: { "Cache-Control": "no-store" } });
+          }
+
           if (body.action === "delete") {
             if (typeof body.id !== "string")
               throw new CrmError("Informe o fluxo para exclusão.", "BAD_REQUEST", 400);
@@ -118,6 +161,19 @@ export const Route = createFileRoute("/api/settings/rd-marketing")({
           }
           if (body.action !== "save") throw new CrmError("Ação inválida.", "BAD_REQUEST", 400);
           const settings = await validateFlow(tenantId, body.settings);
+          if (settings.whatsappTemplateId) {
+            const resolvedTpl = await resolveApprovedRdTemplate(
+              tenantId,
+              settings.whatsappTemplateId,
+              { persistAutoHeal: false },
+            );
+            if (!resolvedTpl.template) {
+              throw new CrmValidationError(
+                "O template de WhatsApp selecionado não está aprovado na Meta. Selecione um template aprovado ou escolha 'Nenhum'.",
+              );
+            }
+            settings.whatsappTemplateId = resolvedTpl.template.metaTemplateId;
+          }
           const origin = new URL(request.url).origin;
           if (existing) {
             await db
