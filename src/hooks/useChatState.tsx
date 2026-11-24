@@ -255,6 +255,7 @@ type ChatContextType = {
     fields: Partial<Pick<Conversation, "name" | "phone" | "email">> & {
       accountId?: string | null;
       phones?: import("@/lib/contact-phone-types").ContactPhoneInput[];
+      emails?: string[];
     },
   ) => Promise<void>;
   updateContactWallet: (
@@ -271,6 +272,7 @@ type ChatContextType = {
     dealInput: ContactDealInput,
     customFields?: Record<string, unknown>,
     phones?: import("@/lib/contact-phone-types").ContactPhoneInput[],
+    emails?: string[],
   ) => Promise<{
     contactId: string;
     conversationId: string;
@@ -4210,6 +4212,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     fields: Partial<Pick<Conversation, "name" | "phone" | "email">> & {
       accountId?: string | null;
       phones?: import("@/lib/contact-phone-types").ContactPhoneInput[];
+      emails?: string[];
     },
   ) => {
     const conv = rawConversations.find((c) => c.id === id);
@@ -4229,7 +4232,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setConversations((prev) =>
       prev.map((c) => {
         if (c.id !== id && (!contactId || c.contactId !== contactId)) return c;
-        const { phones: _ignoredPhones, ...restFields } = fields;
+        const { phones: _ignoredPhones, emails: _ignoredEmails, ...restFields } = fields;
         const shouldUpdatePhone = c.id === id || !c.contactPhoneId;
         const safeFields = shouldUpdatePhone
           ? restFields
@@ -4586,6 +4589,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     dealInput: ContactDealInput,
     customFields?: Record<string, unknown>,
     phones?: import("@/lib/contact-phone-types").ContactPhoneInput[],
+    emails?: string[],
   ) => {
     const response = await fetch(`${BACKEND_URL}/api/contacts`, {
       method: "POST",
@@ -4596,6 +4600,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         phone,
         ...(Array.isArray(phones) && phones.length > 0 ? { phones } : {}),
         email,
+        ...(Array.isArray(emails) && emails.length > 0 ? { emails } : {}),
         accountId,
         channel,
         customFields,

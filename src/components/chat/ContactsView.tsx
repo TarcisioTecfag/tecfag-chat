@@ -20,6 +20,7 @@ import {
   createEmptyContactPhoneInput,
   ensureEditablePhonesList,
 } from "@/components/crm/ContactPhonesEditor";
+import { ContactEmailsEditor } from "@/components/crm/ContactEmailsEditor";
 import {
   type ContactPhoneInput,
   type ContactPhoneItem,
@@ -143,6 +144,7 @@ type ContactListItem = {
   phones: ContactPhoneItem[];
   whatsappUsername: string;
   email: string;
+  emails: string[];
   accountId: string | null;
   accountName: string | null;
   accountDocument: string | null;
@@ -329,6 +331,7 @@ export function ContactsView() {
       phones: Array.isArray(item.phones) ? item.phones : [],
       whatsappUsername: item.whatsappUsername || "",
       email: item.email || "",
+      emails: Array.isArray(item.emails) ? item.emails : item.email ? [item.email] : [],
       accountId: item.accountId || null,
       accountName: item.accountName || null,
       accountDocument: item.accountDocument || null,
@@ -547,12 +550,14 @@ export function ContactsView() {
     phone: string;
     phones: ContactPhoneInput[];
     email: string;
+    emails: string[];
     channel: Channel;
   }>({
     name: "",
     phone: "",
     phones: [createEmptyContactPhoneInput("commercial", true)],
     email: "",
+    emails: [""],
     channel: "whatsapp" as Channel,
   });
 
@@ -562,6 +567,7 @@ export function ContactsView() {
     phones: ContactPhoneInput[];
     whatsappUsername: string;
     email: string;
+    emails: string[];
     tagsInput: string;
   }>({
     name: "",
@@ -569,6 +575,7 @@ export function ContactsView() {
     phones: [createEmptyContactPhoneInput("commercial", true)],
     whatsappUsername: "",
     email: "",
+    emails: [""],
     tagsInput: "",
   });
 
@@ -690,10 +697,12 @@ export function ContactsView() {
       const validPhones = addForm.phones.filter((p) => (p.phone || "").replace(/\D/g, "").length >= 8);
       const primaryPhoneValue =
         (validPhones.find((p) => p.isPrimary) || validPhones[0])?.phone || addForm.phone;
+      const cleanAddEmails = addForm.emails.map((e) => e.trim()).filter(Boolean);
+      const primaryAddEmail = cleanAddEmails[0] || addForm.email.trim();
       const result = await createContact(
         addForm.name,
         primaryPhoneValue,
-        addForm.email,
+        primaryAddEmail,
         selectedDealMeta?.account?.id ||
           (dealSelection.newDeal as { accountId?: string | null } | undefined)?.accountId ||
           newAccount?.id ||
@@ -702,12 +711,14 @@ export function ContactsView() {
         dealSelection,
         newContactCustomFields,
         validPhones,
+        cleanAddEmails,
       );
       setAddForm({
         name: "",
         phone: "",
         phones: [createEmptyContactPhoneInput("commercial", true)],
         email: "",
+        emails: [""],
         channel: "whatsapp",
       });
       setNewAccount(null);
@@ -774,6 +785,12 @@ export function ContactsView() {
     const editablePhones = ensureEditablePhonesList(c.phones, c.phone);
     const primaryPhone =
       (editablePhones.find((p) => p.isPrimary) || editablePhones[0])?.phone || c.phone || "";
+    const editableEmails =
+      Array.isArray(c.emails) && c.emails.length > 0
+        ? c.emails
+        : c.email
+          ? [c.email]
+          : [""];
     setEditForm({
       name: c.name,
       phone: primaryPhone ? maskPhone(primaryPhone) : "",
@@ -782,7 +799,8 @@ export function ContactsView() {
         phone: p.phone ? maskPhone(p.phone) : "",
       })),
       whatsappUsername: c.whatsappUsername || "",
-      email: c.email || "",
+      email: editableEmails[0] || "",
+      emails: [...editableEmails],
       tagsInput: c.tags.join(", "),
     });
   };
@@ -794,6 +812,8 @@ export function ContactsView() {
     const validPhones = editForm.phones.filter((p) => (p.phone || "").replace(/\D/g, "").length >= 8);
     const primaryPhoneValue =
       (validPhones.find((p) => p.isPrimary) || validPhones[0])?.phone || editForm.phone;
+    const cleanEmails = editForm.emails.map((em) => em.trim()).filter(Boolean);
+    const primaryEmailValue = cleanEmails[0] || "";
     setSavingContact(true);
     try {
       const response = await fetch(`/api/contacts/${encodeURIComponent(editingContact.id)}`, {
@@ -803,7 +823,8 @@ export function ContactsView() {
           phone: primaryPhoneValue,
           phones: validPhones,
           whatsappUsername: editForm.whatsappUsername,
-          email: editForm.email,
+          email: primaryEmailValue,
+          emails: cleanEmails,
           accountId: editAccountId,
           tags: tagsArray,
         }),
@@ -1075,6 +1096,7 @@ export function ContactsView() {
                   phone: "",
                   phones: [createEmptyContactPhoneInput("commercial", true)],
                   email: "",
+                  emails: [""],
                   channel: "whatsapp",
                 });
                 setShowAddModal(true);
@@ -2089,15 +2111,15 @@ export function ContactsView() {
                 }}
               />
 
-              <div className="space-y-1">
-                <label className="text-[10px] font-extrabold uppercase text-muted-foreground">E-mail</label>
-                <input
-                  type="email"
-                  placeholder="Ex: joao@empresa.com"
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-extrabold uppercase text-muted-foreground">E-mails</label>
+                <ContactEmailsEditor
                   disabled={!!existingContact}
-                  value={addForm.email}
-                  onChange={(e) => setAddForm({ ...addForm, email: e.target.value })}
-                  className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent disabled:opacity-60"
+                  emails={addForm.emails}
+                  placeholder="Ex: joao@empresa.com"
+                  onChange={(nextEmails) =>
+                    setAddForm({ ...addForm, emails: nextEmails, email: nextEmails[0] || "" })
+                  }
                 />
               </div>
 
@@ -2466,13 +2488,13 @@ export function ContactsView() {
                   </div>
                 )}
 
-                <div className="space-y-1">
-                  <label className="text-[10px] font-extrabold uppercase text-muted-foreground">E-mail</label>
-                  <input
-                    type="email"
-                    value={editForm.email}
-                    onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
-                    className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent"
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-extrabold uppercase text-muted-foreground">E-mails</label>
+                  <ContactEmailsEditor
+                    emails={editForm.emails}
+                    onChange={(nextEmails) =>
+                      setEditForm({ ...editForm, emails: nextEmails, email: nextEmails[0] || "" })
+                    }
                   />
                 </div>
 

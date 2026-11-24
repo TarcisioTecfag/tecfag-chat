@@ -11,6 +11,7 @@ import {
   crmStages,
   messages,
   metaMessageTemplates,
+  operators,
   rdMarketingFlows,
   rdMarketingLogs,
 } from "../../db/schema";
@@ -237,10 +238,15 @@ export async function resolveApprovedRdTemplate(
   };
 }
 
+export const HUMAN_ACTIVE_CONVERSATION_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
 /**
  * Executa o disparo PÓS-COMMIT do template WhatsApp configurado no fluxo RD Marketing:
  * - Só dispara quando o Fagner/SDR está habilitado no tenant (`sdrEnabled = true`).
- * - Respeita estritamente carteira fixa (`walletOperatorId`) e atendimentos humanos ativos (`meus`).
+ * - Respeita atendimentos humanos ativos recentes (conversa em `meus` com mensagem real nos últimos 7 dias).
+ * - Contatos com carteira fixa antiga, mas sem conversa humana ativa recente (finalizada ou inativa > 7 dias),
+ *   recebem normalmente a abordagem automática (preservando `walletOperatorId` intacto).
+ * - Registra log claro em `rd_marketing_logs` em qualquer bloqueio para evitar falhas silenciosas.
  * - Cria ou reutiliza a conversa principal em `automacao`, vincula o card CWR,
  *   envia o template aprovado pela Meta (com {{1}} preenchido), inicia o ciclo ativo do Fagner
  *   (`greetingDone: true`) e move o card CWR de `CONTATAR` → `CONTATANDO`.
@@ -255,10 +261,18 @@ export async function dispatchRdSdrTemplatePostCommit(
     // 1. Verificar se o Fagner SDR está LIGADO
     const sdrEnabled = await isSdrEnabledForTenant(db, tenantId);
     if (!sdrEnabled) {
+      await db.insert(rdMarketingLogs).values({
+        id: crypto.randomUUID(),
+        tenantId,
+        flowId,
+        status: "warning",
+        dealId,
+        message: `Template WhatsApp não enviado: ${persona.name} (SDR) está desativado neste tenant.`,
+      });
       return { dispatched: false, reason: "sdr_disabled" };
     }
 
-    // 2. Carregar contato e respeitar carteira fixa
+    // 2. Carregar contato
     const [contact] = await db
       .select()
       .from(contacts)
@@ -271,11 +285,15 @@ export async function dispatchRdSdrTemplatePostCommit(
 
     const canonicalPhone = normalizeCanonicalPhone(contact.phone || "");
     if (!canonicalPhone) {
+      await db.insert(rdMarketingLogs).values({
+        id: crypto.randomUUID(),
+        tenantId,
+        flowId,
+        status: "warning",
+        dealId,
+        message: "Template WhatsApp não enviado: contato sem telefone válido.",
+      });
       return { dispatched: false, reason: "missing_phone" };
-    }
-
-    if (contact.walletOperatorId) {
-      return { dispatched: false, reason: "wallet_protected" };
     }
 
     // 3. Resolver template aprovado no banco (com auto-cura se o ID antigo foi substituído na Meta)
@@ -301,7 +319,8 @@ export async function dispatchRdSdrTemplatePostCommit(
       return { dispatched: false, reason: "template_not_found" };
     }
 
-    // 4. Criar ou reutilizar conversa principal sem duplicar + checar posse humana
+    // 4. Criar ou reutilizar conversa principal sem duplicar + checar posse humana recente (7 dias)
+    const activeCutoffMs = Date.now() - HUMAN_ACTIVE_CONVERSATION_WINDOW_MS;
     const prep = await db.transaction(async (tx) => {
       const matchedPhone = await resolveOrEnsureContactPhoneRow(tx, tenantId, contact.id, {
         phone: canonicalPhone,
@@ -340,15 +359,12 @@ export async function dispatchRdSdrTemplatePostCommit(
           })
           .onConflictDoNothing();
 
-        // Se já está com operador humano ativo em "Meus", respeitar e não atropelar.
-        // Conversas vazias em "meus" sem operador e sem nenhuma mensagem real (apenas nota de sistema)
-        // podem ser assumidas normalmente pela automação do Fagner.
-        if (conv.operatorId !== null) {
-          return { blocked: true as const, reason: "active_human_conversation", conversationId: conv.id };
-        }
+        // Respeita atendimento humano ativo recente em "Meus" (últimos 7 dias).
+        // Conversas finalizadas, vazias (só nota interna) ou paradas em "Meus" há > 7 dias
+        // podem receber o disparo automático do SDR preservando a carteira do contato.
         if (conv.queueState === "meus") {
-          const [realMessage] = await tx
-            .select({ id: messages.id })
+          const [latestRealMessage] = await tx
+            .select({ id: messages.id, timestamp: messages.timestamp })
             .from(messages)
             .where(
               and(
@@ -357,13 +373,37 @@ export async function dispatchRdSdrTemplatePostCommit(
                 eq(messages.isInternalNote, false),
               ),
             )
+            .orderBy(desc(messages.timestamp))
             .limit(1);
-          if (realMessage) {
-            return { blocked: true as const, reason: "active_human_conversation", conversationId: conv.id };
+
+          const lastActivityTime =
+            latestRealMessage?.timestamp instanceof Date
+              ? latestRealMessage.timestamp.getTime()
+              : conv.lastMessageTime instanceof Date
+                ? conv.lastMessageTime.getTime()
+                : 0;
+
+          if (latestRealMessage && lastActivityTime >= activeCutoffMs) {
+            let operatorName: string | null = null;
+            const opId = conv.operatorId || contact.walletOperatorId;
+            if (opId) {
+              const [opRow] = await tx
+                .select({ name: operators.name })
+                .from(operators)
+                .where(and(eq(operators.tenantId, tenantId), eq(operators.id, opId)))
+                .limit(1);
+              operatorName = opRow?.name || null;
+            }
+            return {
+              blocked: true as const,
+              reason: contact.walletOperatorId ? "wallet_protected" : "active_human_conversation",
+              conversationId: conv.id,
+              operatorName,
+            };
           }
         }
 
-        // Se estava em fila (sem operador) ou finalizada, direciona para automacao do Fagner
+        // Se estava em fila (sem operador), finalizada ou inativa > 7 dias, direciona para automacao do SDR
         const now = new Date();
         await setAttendanceActor(tx, tenantId, `${persona.name} (RD Marketing Template)`, null);
         const [updated] = await tx
@@ -419,6 +459,18 @@ export async function dispatchRdSdrTemplatePostCommit(
     });
 
     if (prep.blocked) {
+      const ownerLabel = prep.operatorName ? ` (${prep.operatorName})` : "";
+      await db.insert(rdMarketingLogs).values({
+        id: crypto.randomUUID(),
+        tenantId,
+        flowId,
+        status: "warning",
+        dealId,
+        message:
+          prep.reason === "wallet_protected"
+            ? `Template '${templateRow.name}' não enviado: contato pertence à carteira ativa${ownerLabel} com conversa recente em Meus (últimos 7 dias).`
+            : `Template '${templateRow.name}' não enviado: conversa humana ativa recente em Meus${ownerLabel} (últimos 7 dias).`,
+      });
       return { dispatched: false, reason: prep.reason, conversationId: prep.conversationId };
     }
 

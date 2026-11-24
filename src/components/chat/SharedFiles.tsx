@@ -26,6 +26,7 @@ import {
   ContactPhoneTypeBadge,
   ensureEditablePhonesList,
 } from "@/components/crm/ContactPhonesEditor";
+import { ContactEmailsEditor } from "@/components/crm/ContactEmailsEditor";
 import type { ContactPhoneInput, ContactPhoneItem } from "@/lib/contact-phone-types";
 import type { CrmAccountDTO } from "@/lib/crm/crm-types";
 import { WhatsappLogo, InstagramLogo, MessengerLogo, SiteLogo } from "./ChatList";
@@ -417,6 +418,8 @@ export function SharedFiles() {
   });
   const [contactPhones, setContactPhones] = useState<ContactPhoneItem[]>([]);
   const [editPhones, setEditPhones] = useState<ContactPhoneInput[]>([]);
+  const [contactEmails, setContactEmails] = useState<string[]>([]);
+  const [editEmails, setEditEmails] = useState<string[]>([]);
   const [openingPhoneChatId, setOpeningPhoneChatId] = useState<string | null>(null);
 
   const [cnpjDetails, setCnpjDetails] = useState<CnpjFullDetails>({});
@@ -431,6 +434,7 @@ export function SharedFiles() {
     setSelectedAccount(null);
     setContactSiteVisitorId(null);
     setContactPhones(Array.isArray(activeChat?.contactPhones) ? activeChat.contactPhones : []);
+    setContactEmails(activeChat?.email ? [activeChat.email] : []);
     setIsEditingInfo(false);
     setIsEditingNameInline(false);
     isFirstCnpjRender.current = true;
@@ -447,6 +451,11 @@ export function SharedFiles() {
           setSelectedAccount(acc);
           if (Array.isArray(contact?.phones)) {
             setContactPhones(contact.phones);
+          }
+          if (Array.isArray(contact?.emails)) {
+            setContactEmails(contact.emails);
+          } else if (contact?.email) {
+            setContactEmails([contact.email]);
           }
           const cf = contact?.customFields && typeof contact.customFields === "object" ? contact.customFields : {};
           const svId =
@@ -761,11 +770,18 @@ export function SharedFiles() {
   // Handle Client Info Edit
   const startEditing = () => {
     setIsEditingNameInline(false);
+    const currentEmails =
+      contactEmails.length > 0
+        ? contactEmails
+        : activeChat.email
+          ? [activeChat.email]
+          : [""];
     setEditForm({
       name: activeChat.name || "",
       phone: activeChat.phone || "",
-      email: activeChat.email || "",
+      email: currentEmails[0] || "",
     });
+    setEditEmails(currentEmails.length > 0 ? [...currentEmails] : [""]);
     const basePhones =
       contactPhones.length > 0
         ? contactPhones
@@ -850,19 +866,27 @@ export function SharedFiles() {
       const validPhones = editPhones.filter((p) => (p.phone || "").replace(/\D/g, "").length >= 8);
       const primaryPhoneItem = validPhones.find((p) => p.isPrimary) || validPhones[0];
       const primaryPhone = primaryPhoneItem?.phone || editForm.phone || activeChat.phone || "";
+      const cleanEmails = editEmails.map((e) => e.trim()).filter(Boolean);
+      const primaryEmail = cleanEmails[0] || "";
       await updateClientInfo(activeChat.id, {
         ...editForm,
         name: normalizedName,
         phone: primaryPhone,
         phones: validPhones.length > 0 ? validPhones : undefined,
+        email: primaryEmail,
+        emails: cleanEmails,
         accountId: selectedAccount?.id || null,
       });
+      setContactEmails(cleanEmails);
       if (activeChat.contactId) {
         const refreshedRes = await fetch(`/api/contacts/${encodeURIComponent(activeChat.contactId)}`).catch(() => null);
         if (refreshedRes?.ok) {
           const refreshedContact = await refreshedRes.json().catch(() => null);
           if (Array.isArray(refreshedContact?.phones)) {
             setContactPhones(refreshedContact.phones);
+          }
+          if (Array.isArray(refreshedContact?.emails)) {
+            setContactEmails(refreshedContact.emails);
           }
         }
       }
@@ -1173,13 +1197,15 @@ export function SharedFiles() {
                     compact
                   />
                 </div>
-                <div className="space-y-0.5">
-                  <label className="text-[9px] font-bold text-muted-foreground">E-mail</label>
-                  <input
-                    type="text"
-                    value={editForm.email}
-                    onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
-                    className="h-8 w-full rounded-lg bg-card px-2 text-xs focus:outline-none focus:ring-1 focus:ring-primary border border-border"
+                <div className="space-y-1">
+                  <label className="text-[9px] font-bold text-muted-foreground">E-mails</label>
+                  <ContactEmailsEditor
+                    emails={editEmails}
+                    onChange={(nextEmails) => {
+                      setEditEmails(nextEmails);
+                      setEditForm((prev) => ({ ...prev, email: nextEmails[0] || "" }));
+                    }}
+                    compact
                   />
                 </div>
                 <div className="space-y-1">
@@ -1424,30 +1450,65 @@ export function SharedFiles() {
                   );
                 })()}
 
-                {/* E-mail + Cópia */}
-                <div className="flex items-center justify-between gap-1.5 min-w-0">
-                  <div className="flex items-center gap-2 min-w-0 flex-1">
-                    <Mail className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                    <span className="text-xs text-foreground font-medium truncate">
-                      {activeChat.email || "Não informado"}
-                    </span>
-                  </div>
-                  {activeChat.email && (
-                    <SystemTooltip content="Copiar e-mail">
-                      <button
-                        type="button"
-                        onClick={() => handleCopyValue("email", activeChat.email, "E-mail")}
-                        className="grid h-5 w-5 shrink-0 place-items-center rounded-md text-muted-foreground/60 hover:text-foreground hover:bg-muted/80 transition-colors cursor-pointer"
-                      >
-                        {copiedKey === "email" ? (
-                          <Check className="h-3 w-3 text-emerald-500" />
-                        ) : (
-                          <Copy className="h-3 w-3" />
-                        )}
-                      </button>
-                    </SystemTooltip>
-                  )}
-                </div>
+                {/* E-mails + Cópia */}
+                {(() => {
+                  const displayEmails =
+                    contactEmails.length > 0
+                      ? contactEmails
+                      : activeChat.email
+                        ? [activeChat.email]
+                        : [];
+                  if (displayEmails.length === 0) {
+                    return (
+                      <div className="flex items-center justify-between gap-1.5 min-w-0">
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <Mail className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                          <span className="text-xs text-foreground font-medium truncate">
+                            Não informado
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className="space-y-1">
+                      {displayEmails.map((em, idx) => {
+                        const copyId = `email-${idx}`;
+                        return (
+                          <div
+                            key={`${em}-${idx}`}
+                            className="flex items-center justify-between gap-1.5 min-w-0"
+                          >
+                            <div className="flex items-center gap-2 min-w-0 flex-1">
+                              <Mail
+                                className={cn(
+                                  "h-3.5 w-3.5 shrink-0",
+                                  idx === 0 ? "text-muted-foreground" : "text-muted-foreground/60",
+                                )}
+                              />
+                              <span className="text-xs text-foreground font-medium truncate">
+                                {em}
+                              </span>
+                            </div>
+                            <SystemTooltip content="Copiar e-mail">
+                              <button
+                                type="button"
+                                onClick={() => handleCopyValue(copyId, em, "E-mail")}
+                                className="grid h-5 w-5 shrink-0 place-items-center rounded-md text-muted-foreground/60 hover:text-foreground hover:bg-muted/80 transition-colors cursor-pointer"
+                              >
+                                {copiedKey === copyId ? (
+                                  <Check className="h-3 w-3 text-emerald-500" />
+                                ) : (
+                                  <Copy className="h-3 w-3" />
+                                )}
+                              </button>
+                            </SystemTooltip>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
 
                 {/* Empresa / Cliente Vinculado + Cópia */}
                 <div className="flex items-start justify-between gap-1.5 min-w-0">

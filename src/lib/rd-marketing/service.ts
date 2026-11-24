@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { and, eq, gte, ne, or, sql, desc, isNull } from "drizzle-orm";
+import { and, eq, gte, inArray, ne, or, sql, desc, isNull } from "drizzle-orm";
 import {
   dispatchRdSdrTemplatePostCommit,
   type RdTemplateDispatchJob,
@@ -11,6 +11,7 @@ import {
 
 import { db } from "../../db";
 import {
+  contactPhones,
   contacts,
   conversations,
   crmAccounts,
@@ -39,6 +40,12 @@ import {
   type CustomFieldValues,
 } from "../crm/custom-fields";
 import { buildPhoneSearchTerms, normalizeCanonicalPhone, phoneRegistrationError } from "../utils";
+import {
+  buildContactExactEmailSql,
+  extractContactEmails,
+  mergeContactEmails,
+} from "../crm/contact-emails";
+import { resolveOrEnsureContactPhoneRow } from "../crm/contact-phones";
 import { recordRdDiagnostic } from "./diagnostic-store";
 import { isRdActivityLead } from "./activity-events";
 import {
@@ -261,6 +268,26 @@ async function resolveContact(
       sql`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext(${identity}))`,
     );
   }
+  const phoneMatchedContactIds = new Set<string>();
+  if (phoneTerms.length > 0) {
+    const phoneRows = await tx
+      .select({ contactId: contactPhones.contactId })
+      .from(contactPhones)
+      .where(
+        and(
+          eq(contactPhones.tenantId, tenantId),
+          or(
+            inArray(contactPhones.phoneIdentity, phoneTerms),
+            ...phoneTerms.map(
+              (term) => sql`regexp_replace(${contactPhones.phone}, '[^0-9]', '', 'g') = ${term}`,
+            ),
+          ),
+        ),
+      );
+    for (const row of phoneRows) phoneMatchedContactIds.add(row.contactId);
+  }
+  const phoneMatchedIdsList = Array.from(phoneMatchedContactIds);
+
   const matches = await tx
     .select()
     .from(contacts)
@@ -271,7 +298,8 @@ async function resolveContact(
           ...phoneTerms.map(
             (term) => sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${term}`,
           ),
-          email ? sql`lower(${contacts.email}) = ${email}` : undefined,
+          phoneMatchedIdsList.length > 0 ? inArray(contacts.id, phoneMatchedIdsList) : undefined,
+          email ? buildContactExactEmailSql(contacts.email, contacts.customFields, email) : undefined,
           sql`FALSE`,
         ),
       ),
@@ -285,8 +313,8 @@ async function resolveContact(
     const aExactPhone = Boolean(phone && aDigits === phone);
     const bExactPhone = Boolean(phone && bDigits === phone);
     if (aExactPhone !== bExactPhone) return aExactPhone ? -1 : 1;
-    const aHasPhone = Boolean(aDigits && phoneSet.has(aDigits));
-    const bHasPhone = Boolean(bDigits && phoneSet.has(bDigits));
+    const aHasPhone = Boolean((aDigits && phoneSet.has(aDigits)) || phoneMatchedContactIds.has(a.id));
+    const bHasPhone = Boolean((bDigits && phoneSet.has(bDigits)) || phoneMatchedContactIds.has(b.id));
     if (aHasPhone !== bHasPhone) return aHasPhone ? -1 : 1;
     const aHasWhatsapp = Boolean(a.whatsappJid || a.whatsappUserId);
     const bHasWhatsapp = Boolean(b.whatsappJid || b.whatsappUserId);
@@ -314,17 +342,30 @@ async function resolveContact(
         customFields[key] = value;
     }
     const phoneOwnedByOther = Boolean(
-      phone && matches.some((m) => m.id !== existing.id && cleanDigits(m.phone) === phone),
+      phone &&
+      (matches.some((m) => m.id !== existing.id && cleanDigits(m.phone) === phone) ||
+        Array.from(phoneMatchedContactIds).some((cid) => cid !== existing.id)),
     );
     const nextPhone = existing.phone || (!phoneOwnedByOther && phone ? phone : null);
     const emailOwnedByOther = Boolean(
       email &&
-      matches.some(
-        (candidate) =>
-          candidate.id !== existing.id && candidate.email?.trim().toLowerCase() === email,
-      ),
+      matches.some((candidate) => {
+        if (candidate.id === existing.id) return false;
+        const candidateEmails = extractContactEmails(
+          candidate.email,
+          candidate.customFields as Record<string, unknown>,
+        ).allEmails;
+        return candidateEmails.includes(email);
+      }),
     );
-    const nextEmail = existing.email || (!emailOwnedByOther ? email : null) || null;
+    // Nunca descartar e-mails novos: mantém o principal e acumula os demais em customFields.secondaryEmails
+    const mergedEmails = mergeContactEmails(
+      existing.email,
+      customFields,
+      !emailOwnedByOther && email ? email : null,
+    );
+    const nextEmail = mergedEmails.primaryEmail;
+    const nextCustomFields = mergedEmails.customFields;
     const nextAccountId =
       existing.accountId || sortedMatches.find((m) => m.accountId)?.accountId || null;
     const nextEntryChannel = existing.entryChannel || "rd_webhook";
@@ -343,7 +384,7 @@ async function resolveContact(
         phone: nextPhone,
         email: nextEmail,
         accountId: nextAccountId,
-        customFields,
+        customFields: nextCustomFields,
         entryChannel: nextEntryChannel,
         firstSource: nextFirstSource,
         firstCampaign: nextFirstCampaign,
@@ -356,12 +397,15 @@ async function resolveContact(
         landingPage: nextLandingPage,
       })
       .where(and(eq(contacts.tenantId, tenantId), eq(contacts.id, existing.id)));
+    if (phone && !phoneOwnedByOther && cleanDigits(nextPhone) !== phone) {
+      await resolveOrEnsureContactPhoneRow(tx, tenantId, existing.id, { phone }).catch(() => {});
+    }
     return {
       ...existing,
       phone: nextPhone,
       email: nextEmail,
       accountId: nextAccountId,
-      customFields,
+      customFields: nextCustomFields,
       entryChannel: nextEntryChannel,
       firstSource: nextFirstSource,
       firstCampaign: nextFirstCampaign,

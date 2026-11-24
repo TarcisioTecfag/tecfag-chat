@@ -3019,6 +3019,7 @@ export async function executeMcpTool(
           c.name,
           c.phone,
           c.email,
+          c.custom_fields,
           c.cnpj,
           c.cpf,
           c.main_channel,
@@ -3041,6 +3042,14 @@ export async function executeMcpTool(
                   c.name ILIKE ${pattern}
                   OR COALESCE(c.phone, '') ILIKE ${pattern}
                   OR COALESCE(c.email, '') ILIKE ${pattern}
+                  OR (
+                    jsonb_typeof(c.custom_fields->'secondaryEmails') = 'array'
+                    AND EXISTS (
+                      SELECT 1
+                      FROM jsonb_array_elements_text(c.custom_fields->'secondaryEmails') AS se(val)
+                      WHERE se.val ILIKE ${pattern}
+                    )
+                  )
                   OR COALESCE(c.cnpj, '') ILIKE ${pattern}
                   OR COALESCE(acc.name, '') ILIKE ${pattern}
                 )`
@@ -3053,31 +3062,41 @@ export async function executeMcpTool(
       return {
         tenantId,
         returnedCount: rows.length,
-        contacts: rows.map((r: any) => ({
-          id: r.id,
-          name: r.name,
-          phone: r.phone,
-          email: r.email,
-          document: formatCnpjOrCpf(r.cnpj || r.cpf || r.account_document),
-          channel: r.main_channel,
-          responsibleName: r.responsible_name,
-          tags: r.tags || [],
-          account: r.account_id
-            ? {
-                id: r.account_id,
-                name: r.account_name,
-                tradeName: r.account_trade_name,
-                document: formatCnpjOrCpf(r.account_document),
-              }
-            : null,
-          conversation: r.conversation_id
-            ? {
-                id: r.conversation_id,
-                queueState: r.queue_state,
-                lastMessageTime: r.last_message_time,
-              }
-            : null,
-        })),
+        contacts: rows.map((r: any) => {
+          const cf = (r.custom_fields && typeof r.custom_fields === "object" ? r.custom_fields : {}) as Record<string, unknown>;
+          const secondaryEmails = Array.isArray(cf.secondaryEmails)
+            ? cf.secondaryEmails.filter((e): e is string => typeof e === "string" && e.trim().length > 0)
+            : [];
+          const allEmails = Array.from(
+            new Set([r.email, ...secondaryEmails].filter((e): e is string => typeof e === "string" && e.trim().length > 0)),
+          );
+          return {
+            id: r.id,
+            name: r.name,
+            phone: r.phone,
+            email: r.email,
+            emails: allEmails,
+            document: formatCnpjOrCpf(r.cnpj || r.cpf || r.account_document),
+            channel: r.main_channel,
+            responsibleName: r.responsible_name,
+            tags: r.tags || [],
+            account: r.account_id
+              ? {
+                  id: r.account_id,
+                  name: r.account_name,
+                  tradeName: r.account_trade_name,
+                  document: formatCnpjOrCpf(r.account_document),
+                }
+              : null,
+            conversation: r.conversation_id
+              ? {
+                  id: r.conversation_id,
+                  queueState: r.queue_state,
+                  lastMessageTime: r.last_message_time,
+                }
+              : null,
+          };
+        }),
       };
     }
 

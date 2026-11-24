@@ -25,6 +25,10 @@ import {
   type ContactPhoneInput,
   type ContactPhoneItem,
 } from "../../../lib/crm/contact-phones";
+import {
+  extractContactEmails,
+  normalizeContactEmailsInput,
+} from "../../../lib/crm/contact-emails";
 import { getContactDealRows } from "../../../lib/crm/contact-deals-query";
 import { isAccountEligibleForCrossContactPropagation } from "../../../lib/crm/generic-account-guard";
 
@@ -67,6 +71,7 @@ export const Route = createFileRoute("/api/contacts/$contactId")({
             phones?: ContactPhoneInput[];
             whatsappUsername?: string | null;
             email?: string;
+            emails?: string[];
             cnpj?: string;
             cpf?: string;
             tags?: string[];
@@ -172,13 +177,6 @@ export const Route = createFileRoute("/api/contacts/$contactId")({
             }
             updates.whatsappUsername = username || null;
           }
-          if ("email" in body) {
-            if (body.email != null && typeof body.email !== "string")
-              return Response.json({ error: "E-mail inválido." }, { status: 400 });
-            updates.email = body.email?.trim().toLowerCase() || null;
-            if (updates.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(updates.email))
-              return Response.json({ error: "E-mail inválido." }, { status: 400 });
-          }
           if ("cnpj" in body) {
             if (body.cnpj != null && typeof body.cnpj !== "string")
               return Response.json({ error: "CNPJ inválido." }, { status: 400 });
@@ -215,6 +213,43 @@ export const Route = createFileRoute("/api/contacts/$contactId")({
             contactFieldDefs = await listCustomFields(session.tenantId, "contact");
             const patch = validateFieldValues(contactFieldDefs, body.customFields);
             updates.customFields = { ...prevCustomFieldsObj, ...patch };
+          }
+          if (Array.isArray(body.emails)) {
+            const baseCf = (updates.customFields as Record<string, unknown>) || prevCustomFieldsObj;
+            const normEmails = normalizeContactEmailsInput(
+              body.emails,
+              typeof body.email === "string" ? body.email : undefined,
+              baseCf,
+            );
+            if (normEmails.validationError) {
+              return Response.json({ error: normEmails.validationError }, { status: 400 });
+            }
+            updates.email = normEmails.primaryEmail;
+            updates.customFields = normEmails.customFields;
+          } else if ("email" in body) {
+            if (body.email != null && typeof body.email !== "string")
+              return Response.json({ error: "E-mail inválido." }, { status: 400 });
+            const rawEmailStr = body.email?.trim() || "";
+            if (rawEmailStr) {
+              const baseCf = (updates.customFields as Record<string, unknown>) || prevCustomFieldsObj;
+              const existingSecondary = extractContactEmails(null, baseCf).secondaryEmails;
+              const normEmails = normalizeContactEmailsInput(
+                [rawEmailStr, ...existingSecondary],
+                undefined,
+                baseCf,
+              );
+              if (normEmails.validationError) {
+                return Response.json({ error: "E-mail inválido." }, { status: 400 });
+              }
+              updates.email = normEmails.primaryEmail;
+              updates.customFields = normEmails.customFields;
+            } else {
+              const baseCf = (updates.customFields as Record<string, unknown>) || prevCustomFieldsObj;
+              const existingSecondary = extractContactEmails(null, baseCf).secondaryEmails;
+              const normEmails = normalizeContactEmailsInput(existingSecondary, undefined, baseCf);
+              updates.email = normEmails.primaryEmail;
+              updates.customFields = normEmails.customFields;
+            }
           }
 
           if (normalizedPhonesToSync && normalizedPhonesToSync.length > 0) {
@@ -472,8 +507,14 @@ export const Route = createFileRoute("/api/contacts/$contactId")({
             }
           }
 
+          const updatedEmails = updatedContact
+            ? extractContactEmails(
+                updatedContact.email,
+                updatedContact.customFields as Record<string, unknown>,
+              ).allEmails
+            : [];
           const enrichedContact = updatedContact
-            ? { ...updatedContact, phones: updatedPhones }
+            ? { ...updatedContact, phones: updatedPhones, emails: updatedEmails }
             : null;
 
           if (enrichedContact) {
@@ -483,7 +524,7 @@ export const Route = createFileRoute("/api/contacts/$contactId")({
                 type: "contact_updated",
                 contactId,
                 contact: enrichedContact,
-                updates: { ...updates, phones: updatedPhones },
+                updates: { ...updates, phones: updatedPhones, emails: updatedEmails },
               });
             } catch {
               // Ignora se SessionManager não estiver ativo em contexto de teste
@@ -613,8 +654,12 @@ export const Route = createFileRoute("/api/contacts/$contactId")({
           }
 
           const deals = await getContactDealRows(db, session.tenantId, contact.id).catch(() => []);
+          const emails = extractContactEmails(
+            contact.email,
+            contact.customFields as Record<string, unknown>,
+          ).allEmails;
 
-          return new Response(JSON.stringify({ ...contact, phones, account, deals }), {
+          return new Response(JSON.stringify({ ...contact, phones, emails, account, deals }), {
             headers: { ...CORS, "Content-Type": "application/json" },
           });
         } catch (e: any) {

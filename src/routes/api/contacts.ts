@@ -34,6 +34,12 @@ import {
   normalizeContactPhonesInput,
   syncContactPhones,
 } from "../../lib/crm/contact-phones";
+import {
+  buildContactExactEmailSql,
+  buildContactSecondaryEmailSearchSql,
+  extractContactEmails,
+  normalizeContactEmailsInput,
+} from "../../lib/crm/contact-emails";
 import { syncConversationDeals } from "../../lib/crm/deal-associations";
 import { listCustomFields, validateFieldValues } from "../../lib/crm/custom-fields";
 import { setAttendanceActor } from "../../lib/attendance-events";
@@ -128,6 +134,7 @@ export const Route = createFileRoute("/api/contacts")({
             or(
               ilike(contacts.name, pattern),
               ilike(contacts.email, pattern),
+              buildContactSecondaryEmailSearchSql(contacts.customFields, pattern),
               ilike(contacts.whatsappUsername, pattern),
               ilike(contacts.phone, pattern),
               ilike(crmAccounts.name, pattern),
@@ -355,10 +362,13 @@ export const Route = createFileRoute("/api/contacts")({
                 cf.siteContinuityCode ||
                 (Array.isArray(cf.linkedSiteContactIds) && cf.linkedSiteContactIds.length > 0),
             );
+            const extractedEmails = extractContactEmails(item.email, cf);
             return {
               ...item,
               phone: primaryPhone,
               phones,
+              email: extractedEmails.primaryEmail ?? item.email,
+              emails: extractedEmails.allEmails,
               accountId: item.accountId || fallbackAcc?.accountId || null,
               accountName: item.accountName || fallbackAcc?.accountName || null,
               accountDocument: item.accountDocument || fallbackAcc?.accountDocument || null,
@@ -398,7 +408,7 @@ export const Route = createFileRoute("/api/contacts")({
           }
 
           const body = await request.json().catch(() => ({}));
-          const { name, phone, phones: rawPhones, email, accountId, channel } = body;
+          const { name, phone, phones: rawPhones, email, emails: rawEmails, accountId, channel } = body;
 
           if (typeof name !== "string" || !name.trim() || name.trim().length > 200) {
             return new Response(JSON.stringify({ error: "Campo obrigatório ausente: name." }), {
@@ -423,13 +433,18 @@ export const Route = createFileRoute("/api/contacts")({
           }
 
           const normalizedPhone = normalizedPhonesResult.primaryPhone || "";
-          const normalizedEmail = typeof email === "string" ? email.trim().toLowerCase() : "";
+          const normalizedEmailsResult = normalizeContactEmailsInput(
+            rawEmails,
+            typeof email === "string" ? email : "",
+          );
+          if (normalizedEmailsResult.validationError) {
+            return Response.json({ error: normalizedEmailsResult.validationError }, { status: 400 });
+          }
+          const normalizedEmail = normalizedEmailsResult.primaryEmail || "";
           if (
             (phone && (typeof phone !== "string" || phone.length > 40)) ||
             (normalizedPhone && normalizedPhone.length < 8) ||
             (email != null && typeof email !== "string") ||
-            normalizedEmail.length > 254 ||
-            (normalizedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) ||
             (channel && !["whatsapp", "instagram", "messenger", "livechat"].includes(channel)) ||
             (accountId !== undefined && accountId !== null && typeof accountId !== "string")
           ) {
@@ -519,6 +534,10 @@ export const Route = createFileRoute("/api/contacts")({
               if (existingByEmail) return existingByEmail;
             }
 
+            const mergedCustomFields: Record<string, unknown> = {
+              ...(customFields && typeof customFields === "object" ? customFields : {}),
+              ...normalizedEmailsResult.customFields,
+            };
             const now = new Date();
             await tx.insert(contacts).values({
               id: finalContactId,
@@ -530,7 +549,7 @@ export const Route = createFileRoute("/api/contacts")({
               mainChannel: channel || "whatsapp",
               walletOperatorId: requiresExplicitCapture ? null : session.operator.id,
               responsibleName: requiresExplicitCapture ? "Na Fila" : session.operator.name,
-              customFields,
+              customFields: mergedCustomFields,
               createdAt: now,
             });
 

@@ -3,6 +3,7 @@ import { eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { db } from "../src/db";
 import {
+  contactPhones,
   contacts,
   conversations,
   crmDealContacts,
@@ -16,8 +17,14 @@ import {
   rdMarketingLogs,
   tenants,
 } from "../src/db/schema";
+import {
+  extractContactEmails,
+  mergeContactEmails,
+  normalizeContactEmailsInput,
+} from "../src/lib/crm/contact-emails";
 import { claimRdEvent, processRdEvent } from "../src/lib/rd-marketing/inbox";
 import { defaultMappings, type FlowSettings } from "../src/lib/rd-marketing/mapping";
+import { receiveLeads } from "../src/lib/rd-marketing/service";
 import {
   inspectAndRepairRdFlowTemplates,
   listPendingRdTemplateDispatches,
@@ -352,5 +359,89 @@ describe("RD Marketing: auto-cura de templates Meta, recovery de leads em CONTAT
     // Após auto-cura, inspectAndRepairRdFlowTemplates não reporta mais o fluxo como stale
     const auditAfter = await inspectAndRepairRdFlowTemplates(tenantA, { applyAutoHeal: false });
     expect(auditAfter.staleFlows).toHaveLength(0);
+  });
+
+  test("contact-emails acumula múltiplos e-mails sem nunca descartar e valida formatos", () => {
+    const m1 = mergeContactEmails("marcio@empresa.com", {}, "PAODEALHO@hotmail.com");
+    expect(m1.primaryEmail).toBe("marcio@empresa.com");
+    expect(m1.secondaryEmails).toEqual(["paodealho@hotmail.com"]);
+    expect(m1.allEmails).toEqual(["marcio@empresa.com", "paodealho@hotmail.com"]);
+
+    const m2 = mergeContactEmails(m1.primaryEmail, m1.customFields, "terceiro@empresa.com.br");
+    expect(m2.allEmails).toEqual([
+      "marcio@empresa.com",
+      "paodealho@hotmail.com",
+      "terceiro@empresa.com.br",
+    ]);
+
+    const norm = normalizeContactEmailsInput(
+      ["novo@principal.com", "marcio@empresa.com", "MARCIO@EMPRESA.COM"],
+      undefined,
+      { extra: "keep" },
+    );
+    expect(norm.validationError).toBeUndefined();
+    expect(norm.primaryEmail).toBe("novo@principal.com");
+    expect(norm.secondaryEmails).toEqual(["marcio@empresa.com"]);
+    expect(norm.customFields).toEqual({ extra: "keep", secondaryEmails: ["marcio@empresa.com"] });
+
+    const bad = normalizeContactEmailsInput(["ok@ok.com", "nao-e-email"]);
+    expect(bad.validationError).toContain("nao-e-email");
+  });
+
+  test("receiveLeads resolve contato via contact_phones secundário (caso José Arnaldo Link) e acumula 2º e-mail sem descartar", async () => {
+    const existingSecondaryContactId = `cont-sec-${runId}`;
+    await db.insert(contacts).values({
+      id: existingSecondaryContactId,
+      tenantId: tenantA,
+      name: "Arnaldo Existente",
+      phone: "5566974009107",
+      email: "superjuina@gmail.com",
+      mainChannel: "whatsapp",
+      customFields: {},
+    });
+    await db.insert(contactPhones).values({
+      id: `cp-sec-${runId}`,
+      tenantId: tenantA,
+      contactId: existingSecondaryContactId,
+      phone: "5561992780010",
+      phoneIdentity: "556192780010",
+      type: "personal",
+      isPrimary: false,
+    });
+
+    const [flowRow] = await db
+      .select()
+      .from(rdMarketingFlows)
+      .where(eq(rdMarketingFlows.id, flowActivityId));
+
+    const outcomes = await receiveLeads(flowRow, {
+      leads: [
+        {
+          uuid: `uuid-arnaldo-${runId}`,
+          name: "José Arnaldo Link",
+          email: "arnaldo10.link@gmail.com",
+          personal_phone: "+55 (61) 99278-0010",
+          last_conversion: {
+            created_at: "2026-11-24T17:00:00Z",
+            content: { identificador: "botao-site-teste" },
+          },
+        },
+      ],
+    });
+
+    expect(outcomes).toHaveLength(1);
+    expect(outcomes[0].status).toBe("created");
+
+    const [updatedContact] = await db
+      .select()
+      .from(contacts)
+      .where(eq(contacts.id, existingSecondaryContactId));
+    const extracted = extractContactEmails(
+      updatedContact.email,
+      updatedContact.customFields as Record<string, unknown>,
+    );
+    expect(extracted.primaryEmail).toBe("superjuina@gmail.com");
+    expect(extracted.secondaryEmails).toContain("arnaldo10.link@gmail.com");
+    expect(extracted.allEmails).toEqual(["superjuina@gmail.com", "arnaldo10.link@gmail.com"]);
   });
 });
