@@ -55,6 +55,7 @@ export const ACTION_HISTORY_LABELS: Record<string, string> = {
   delete_knowledge_folder: "Pasta da base de conhecimento excluída",
   delete_meta_template: "Modelo da Meta excluído",
   bulk_update: "Negociações alteradas em massa",
+  duplicate_deal: "Negociação duplicada",
   create_deals_for_companies: "Negociações criadas em massa",
   create_tasks: "Tarefas criadas em massa",
   reset_tenant: "Reinicialização de dados",

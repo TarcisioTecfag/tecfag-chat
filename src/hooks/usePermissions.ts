@@ -13,6 +13,7 @@ import {
   AnalyticsTabId,
   SettingsTabId,
   LigacoesTabId,
+  hasCrmPermission,
   normalizeGroupPermissions,
 } from "@/lib/rbac";
 
@@ -176,14 +177,16 @@ export function usePermissions() {
     canManageObjectives: permissions.ligacoes.canManageObjectives,
 
     // Atalhos do CRM
-    canViewCrm: permissions.crm?.canViewCrm ?? true,
-    canViewAllDeals: permissions.crm?.canViewAllDeals ?? true,
-    canCreateDeals: permissions.crm?.canCreateDeals ?? true,
-    canEditDeals: permissions.crm?.canEditDeals ?? true,
-    canMoveStages: permissions.crm?.canMoveStages ?? true,
-    canCloseDeals: permissions.crm?.canCloseDeals ?? true,
-    canManagePipelines: permissions.crm?.canManagePipelines ?? true,
-    canManageProducts: permissions.crm?.canManageProducts ?? true,
-    canManageProposals: permissions.crm?.canManageProposals ?? true,
+    canViewCrm: hasCrmPermission(permissions, "canViewCrm", sessionRole ?? undefined),
+    canViewAllDeals: hasCrmPermission(permissions, "canViewAllDeals", sessionRole ?? undefined),
+    canCreateDeals: hasCrmPermission(permissions, "canCreateDeals", sessionRole ?? undefined),
+    canEditDeals: hasCrmPermission(permissions, "canEditDeals", sessionRole ?? undefined),
+    canMoveStages: hasCrmPermission(permissions, "canMoveStages", sessionRole ?? undefined),
+    canCloseDeals: hasCrmPermission(permissions, "canCloseDeals", sessionRole ?? undefined),
+    canManagePipelines: hasCrmPermission(permissions, "canManagePipelines", sessionRole ?? undefined),
+    canManageProducts: hasCrmPermission(permissions, "canManageProducts", sessionRole ?? undefined),
+    canManageProposals: hasCrmPermission(permissions, "canManageProposals", sessionRole ?? undefined),
+    canDeleteDeals: hasCrmPermission(permissions, "canDeleteDeals", sessionRole ?? undefined),
+    canExportDeals: hasCrmPermission(permissions, "canExportDeals", sessionRole ?? undefined),
   };
 }

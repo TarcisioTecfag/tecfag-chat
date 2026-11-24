@@ -39,6 +39,8 @@ interface PipelineColumnProps {
   onDropDeal: (dealId: string, newStageId: string, version: number) => void;
   onNewDealAtStage?: (stageId: string) => void;
   onCreateTaskClick?: (deal: DealCardData) => void;
+  onDuplicateDeal?: (deal: DealCardData) => void;
+  onDeleteDeal?: (deal: DealCardData) => void;
   onLoadMore?: () => void;
   loadingMore?: boolean;
   onStartCardDrag?: (e: React.PointerEvent<HTMLDivElement>, deal: DealCardData) => void;
@@ -56,6 +58,8 @@ export const PipelineColumn = React.memo(function PipelineColumn({
   onDropDeal,
   onNewDealAtStage,
   onCreateTaskClick,
+  onDuplicateDeal,
+  onDeleteDeal,
   onLoadMore,
   loadingMore = false,
   onStartCardDrag,
@@ -233,6 +237,8 @@ export const PipelineColumn = React.memo(function PipelineColumn({
                   onQuickMove={onDropDeal}
                   allStages={allStages}
                   onCreateTaskClick={onCreateTaskClick}
+                  onDuplicateClick={onDuplicateDeal}
+                  onDeleteClick={onDeleteDeal}
                   onStartDrag={onStartCardDrag}
                 />
               ))}

@@ -143,8 +143,21 @@ export function formatDealEvent(
         description: cleanDesc,
       };
     }
-    case "created":
-      return { title: "Negociação criada", description: null };
+    case "created": {
+      const fromTitle = text(meta.duplicatedFromTitle);
+      return {
+        title: fromTitle ? "Negociação duplicada" : "Negociação criada",
+        description: fromTitle ? `Duplicada a partir de "${fromTitle}"` : null,
+      };
+    }
+
+    case "deal_duplicated": {
+      const duplicatedTitle = text(meta.duplicatedTitle);
+      return {
+        title: "Negociação duplicada",
+        description: duplicatedTitle ? `Nova cópia criada: "${duplicatedTitle}"` : null,
+      };
+    }
 
     case "title_changed": {
       const fromTitle = text(meta.fromTitle);

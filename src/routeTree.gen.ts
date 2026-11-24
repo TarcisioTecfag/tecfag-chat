@@ -202,6 +202,7 @@ import { Route as ApiCrmDealsDealIdFreightQuotesRouteImport } from './routes/api
 import { Route as ApiCrmDealsDealIdFilesRouteImport } from './routes/api/crm/deals/$dealId/files'
 import { Route as ApiCrmDealsDealIdEvidenceRouteImport } from './routes/api/crm/deals/$dealId/evidence'
 import { Route as ApiCrmDealsDealIdEmailsRouteImport } from './routes/api/crm/deals/$dealId/emails'
+import { Route as ApiCrmDealsDealIdDuplicateRouteImport } from './routes/api/crm/deals/$dealId/duplicate'
 import { Route as ApiCrmDealsDealIdConversationsRouteImport } from './routes/api/crm/deals/$dealId/conversations'
 import { Route as ApiCrmDealsDealIdContactsRouteImport } from './routes/api/crm/deals/$dealId/contacts'
 import { Route as ApiCrmDealsDealIdAiPriorityRouteImport } from './routes/api/crm/deals/$dealId/ai-priority'
@@ -1229,6 +1230,12 @@ const ApiCrmDealsDealIdEmailsRoute = ApiCrmDealsDealIdEmailsRouteImport.update({
   path: '/emails',
   getParentRoute: () => ApiCrmDealsDealIdRoute,
 } as any)
+const ApiCrmDealsDealIdDuplicateRoute =
+  ApiCrmDealsDealIdDuplicateRouteImport.update({
+    id: '/duplicate',
+    path: '/duplicate',
+    getParentRoute: () => ApiCrmDealsDealIdRoute,
+  } as any)
 const ApiCrmDealsDealIdConversationsRoute =
   ApiCrmDealsDealIdConversationsRouteImport.update({
     id: '/conversations',
@@ -1472,6 +1479,7 @@ export interface FileRoutesByFullPath {
   '/api/crm/deals/$dealId/ai-priority': typeof ApiCrmDealsDealIdAiPriorityRoute
   '/api/crm/deals/$dealId/contacts': typeof ApiCrmDealsDealIdContactsRoute
   '/api/crm/deals/$dealId/conversations': typeof ApiCrmDealsDealIdConversationsRoute
+  '/api/crm/deals/$dealId/duplicate': typeof ApiCrmDealsDealIdDuplicateRoute
   '/api/crm/deals/$dealId/emails': typeof ApiCrmDealsDealIdEmailsRouteWithChildren
   '/api/crm/deals/$dealId/evidence': typeof ApiCrmDealsDealIdEvidenceRoute
   '/api/crm/deals/$dealId/files': typeof ApiCrmDealsDealIdFilesRouteWithChildren
@@ -1676,6 +1684,7 @@ export interface FileRoutesByTo {
   '/api/crm/deals/$dealId/ai-priority': typeof ApiCrmDealsDealIdAiPriorityRoute
   '/api/crm/deals/$dealId/contacts': typeof ApiCrmDealsDealIdContactsRoute
   '/api/crm/deals/$dealId/conversations': typeof ApiCrmDealsDealIdConversationsRoute
+  '/api/crm/deals/$dealId/duplicate': typeof ApiCrmDealsDealIdDuplicateRoute
   '/api/crm/deals/$dealId/emails': typeof ApiCrmDealsDealIdEmailsRouteWithChildren
   '/api/crm/deals/$dealId/evidence': typeof ApiCrmDealsDealIdEvidenceRoute
   '/api/crm/deals/$dealId/files': typeof ApiCrmDealsDealIdFilesRouteWithChildren
@@ -1881,6 +1890,7 @@ export interface FileRoutesById {
   '/api/crm/deals/$dealId/ai-priority': typeof ApiCrmDealsDealIdAiPriorityRoute
   '/api/crm/deals/$dealId/contacts': typeof ApiCrmDealsDealIdContactsRoute
   '/api/crm/deals/$dealId/conversations': typeof ApiCrmDealsDealIdConversationsRoute
+  '/api/crm/deals/$dealId/duplicate': typeof ApiCrmDealsDealIdDuplicateRoute
   '/api/crm/deals/$dealId/emails': typeof ApiCrmDealsDealIdEmailsRouteWithChildren
   '/api/crm/deals/$dealId/evidence': typeof ApiCrmDealsDealIdEvidenceRoute
   '/api/crm/deals/$dealId/files': typeof ApiCrmDealsDealIdFilesRouteWithChildren
@@ -2087,6 +2097,7 @@ export interface FileRouteTypes {
     | '/api/crm/deals/$dealId/ai-priority'
     | '/api/crm/deals/$dealId/contacts'
     | '/api/crm/deals/$dealId/conversations'
+    | '/api/crm/deals/$dealId/duplicate'
     | '/api/crm/deals/$dealId/emails'
     | '/api/crm/deals/$dealId/evidence'
     | '/api/crm/deals/$dealId/files'
@@ -2291,6 +2302,7 @@ export interface FileRouteTypes {
     | '/api/crm/deals/$dealId/ai-priority'
     | '/api/crm/deals/$dealId/contacts'
     | '/api/crm/deals/$dealId/conversations'
+    | '/api/crm/deals/$dealId/duplicate'
     | '/api/crm/deals/$dealId/emails'
     | '/api/crm/deals/$dealId/evidence'
     | '/api/crm/deals/$dealId/files'
@@ -2495,6 +2507,7 @@ export interface FileRouteTypes {
     | '/api/crm/deals/$dealId/ai-priority'
     | '/api/crm/deals/$dealId/contacts'
     | '/api/crm/deals/$dealId/conversations'
+    | '/api/crm/deals/$dealId/duplicate'
     | '/api/crm/deals/$dealId/emails'
     | '/api/crm/deals/$dealId/evidence'
     | '/api/crm/deals/$dealId/files'
@@ -4012,6 +4025,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiCrmDealsDealIdEmailsRouteImport
       parentRoute: typeof ApiCrmDealsDealIdRoute
     }
+    '/api/crm/deals/$dealId/duplicate': {
+      id: '/api/crm/deals/$dealId/duplicate'
+      path: '/duplicate'
+      fullPath: '/api/crm/deals/$dealId/duplicate'
+      preLoaderRoute: typeof ApiCrmDealsDealIdDuplicateRouteImport
+      parentRoute: typeof ApiCrmDealsDealIdRoute
+    }
     '/api/crm/deals/$dealId/conversations': {
       id: '/api/crm/deals/$dealId/conversations'
       path: '/conversations'
@@ -4297,6 +4317,7 @@ interface ApiCrmDealsDealIdRouteChildren {
   ApiCrmDealsDealIdAiPriorityRoute: typeof ApiCrmDealsDealIdAiPriorityRoute
   ApiCrmDealsDealIdContactsRoute: typeof ApiCrmDealsDealIdContactsRoute
   ApiCrmDealsDealIdConversationsRoute: typeof ApiCrmDealsDealIdConversationsRoute
+  ApiCrmDealsDealIdDuplicateRoute: typeof ApiCrmDealsDealIdDuplicateRoute
   ApiCrmDealsDealIdEmailsRoute: typeof ApiCrmDealsDealIdEmailsRouteWithChildren
   ApiCrmDealsDealIdEvidenceRoute: typeof ApiCrmDealsDealIdEvidenceRoute
   ApiCrmDealsDealIdFilesRoute: typeof ApiCrmDealsDealIdFilesRouteWithChildren
@@ -4313,6 +4334,7 @@ const ApiCrmDealsDealIdRouteChildren: ApiCrmDealsDealIdRouteChildren = {
   ApiCrmDealsDealIdAiPriorityRoute: ApiCrmDealsDealIdAiPriorityRoute,
   ApiCrmDealsDealIdContactsRoute: ApiCrmDealsDealIdContactsRoute,
   ApiCrmDealsDealIdConversationsRoute: ApiCrmDealsDealIdConversationsRoute,
+  ApiCrmDealsDealIdDuplicateRoute: ApiCrmDealsDealIdDuplicateRoute,
   ApiCrmDealsDealIdEmailsRoute: ApiCrmDealsDealIdEmailsRouteWithChildren,
   ApiCrmDealsDealIdEvidenceRoute: ApiCrmDealsDealIdEvidenceRoute,
   ApiCrmDealsDealIdFilesRoute: ApiCrmDealsDealIdFilesRouteWithChildren,

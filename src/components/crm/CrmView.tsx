@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useTrainingSurface } from "@/hooks/useTrainingSurface";
 import { useChat } from "@/hooks/useChatState";
+import { usePermissions } from "@/hooks/usePermissions";
 import { useTabNavigation } from "@/hooks/useTabNavigation";
 import { CrmToolbar, PipelineOption, CrmStatusFilter } from "./CrmToolbar";
 import { PipelineBoard } from "./PipelineBoard";
@@ -8,6 +9,8 @@ import { DealList } from "./DealList";
 import { DealCardData } from "./DealCard";
 import { CreateDealDialog } from "./CreateDealDialog";
 import { CreateTaskModal } from "./CreateTaskModal";
+import { DuplicateDealDialog } from "./DuplicateDealDialog";
+import { DeleteDealDialog } from "./DeleteDealDialog";
 import { CrmQuickCreateDialog, CrmQuickCreateKind } from "./CrmQuickCreateDialog";
 import { CrmSearchModal } from "./CrmSearchModal";
 import { AccountDetailModal } from "./AccountDetailModal";
@@ -144,6 +147,7 @@ export function CrmView() {
     setActiveView,
     setSelectedChatId,
   } = useChat();
+  const { canCreateDeals, canDeleteDeals } = usePermissions();
   const navigate = useNavigate();
   const snapshotKey = `${tenant}:${currentOperatorId}`;
   const initialSnapshot = useRef<CrmViewSnapshot | null>(
@@ -323,6 +327,8 @@ export function CrmView() {
   const [createAtStageId, setCreateAtStageId] = useState<string | undefined>(undefined);
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [taskModalDeal, setTaskModalDeal] = useState<DealCardData | null>(null);
+  const [duplicateModalDeal, setDuplicateModalDeal] = useState<DealCardData | null>(null);
+  const [deleteModalDeal, setDeleteModalDeal] = useState<DealCardData | null>(null);
   useTrainingSurface("crm", (step) => {
     if (loading || !pipelines.length) return false;
     const id = step.id;
@@ -802,6 +808,14 @@ export function CrmView() {
     [handleDealClick],
   );
 
+  const handleDuplicateDealClick = useCallback((deal: DealCardData) => {
+    setDuplicateModalDeal(deal);
+  }, []);
+
+  const handleDeleteDealClick = useCallback((deal: DealCardData) => {
+    setDeleteModalDeal(deal);
+  }, []);
+
   const handleClearAllFilters = useCallback(() => {
     setStatusFilter("all");
     setSelectedOperatorIds([]);
@@ -1028,6 +1042,8 @@ export function CrmView() {
               onMoveDeal={handleMoveDeal}
               onNewDealAtStage={handleNewDealAtStage}
               onCreateTaskClick={handleCreateTaskClick}
+              onDuplicateDeal={canCreateDeals ? handleDuplicateDealClick : undefined}
+              onDeleteDeal={canDeleteDeals ? handleDeleteDealClick : undefined}
               onLoadMoreStage={handleLoadMoreStage}
               loadingMoreStages={loadingMoreStages}
             />
@@ -1160,6 +1176,39 @@ export function CrmView() {
       <SaleCelebrationModal
         data={celebrationData}
         onClose={() => setCelebrationData(null)}
+      />
+
+      <DuplicateDealDialog
+        isOpen={duplicateModalDeal !== null}
+        deal={duplicateModalDeal}
+        pipelines={pipelines}
+        defaultOpenAfter={false}
+        onClose={() => setDuplicateModalDeal(null)}
+        onDuplicated={(newDeal, { openAfter }) => {
+          fetchDeals();
+          fetchStagesSummary();
+          if (openAfter && newDeal?.id) {
+            navigate({
+              to: "/crm/deals/$dealId",
+              params: { dealId: newDeal.id },
+              search: { from: "crm" },
+            });
+          }
+        }}
+      />
+
+      <DeleteDealDialog
+        isOpen={deleteModalDeal !== null}
+        deal={deleteModalDeal}
+        onClose={() => setDeleteModalDeal(null)}
+        onDeleted={(deletedId, mode) => {
+          invalidateDealCache(deletedId);
+          if (mode === "permanent" || (mode === "trash" && statusFilter !== "all" && statusFilter !== "paused")) {
+            setDeals((prev) => prev.filter((d) => d.id !== deletedId));
+          }
+          fetchDeals();
+          fetchStagesSummary();
+        }}
       />
     </div>
   );

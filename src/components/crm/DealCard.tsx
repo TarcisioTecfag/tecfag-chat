@@ -11,6 +11,8 @@ import {
   CheckCircle2,
   MoreVertical,
   Pencil,
+  Copy,
+  Trash2,
   ListTodo,
   ArrowRight,
   EyeOff,
@@ -213,6 +215,8 @@ export interface DealCardProps {
   onQuickMove?: (dealId: string, newStageId: string, currentVersion: number) => void;
   onTaskCompleted?: (dealId: string, activityId: string) => void;
   onCreateTaskClick?: (deal: DealCardData) => void;
+  onDuplicateClick?: (deal: DealCardData) => void;
+  onDeleteClick?: (deal: DealCardData) => void;
   allStages?: Array<{ id: string; name: string; isVisible?: boolean }>;
   isDragging?: boolean;
   isOverlay?: boolean;
@@ -242,6 +246,8 @@ export const DealCard = React.memo(function DealCard({
   onQuickMove,
   onTaskCompleted,
   onCreateTaskClick,
+  onDuplicateClick,
+  onDeleteClick,
   allStages = [],
   isDragging = false,
   isOverlay = false,
@@ -256,7 +262,26 @@ export const DealCard = React.memo(function DealCard({
   const [savingValue, setSavingValue] = useState(false);
   const [optimisticValue, setOptimisticValue] = useState<number | null | undefined>(undefined);
   const valueInputRef = useRef<HTMLInputElement | null>(null);
+  const quickMenuRef = useRef<HTMLDivElement | null>(null);
   const hoverPrefetchTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!showQuickMenu) return;
+    const handlePointerDownOutside = (event: PointerEvent) => {
+      if (quickMenuRef.current && !quickMenuRef.current.contains(event.target as Node)) {
+        setShowQuickMenu(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setShowQuickMenu(false);
+    };
+    document.addEventListener("pointerdown", handlePointerDownOutside);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDownOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [showQuickMenu]);
 
   useEffect(() => {
     setOptimisticValue(undefined);
@@ -550,7 +575,7 @@ export const DealCard = React.memo(function DealCard({
           )}
 
           {/* Menu Rápido de Ações */}
-          <div className="relative">
+          <div ref={quickMenuRef} className="relative">
             <CardTooltip content="Ações rápidas" disabled={isOverlay}>
               <button
                 type="button"
@@ -568,7 +593,7 @@ export const DealCard = React.memo(function DealCard({
             {showQuickMenu && (
               <div
                 onClick={(e) => e.stopPropagation()}
-                className="absolute right-0 top-6 z-30 w-44 rounded-xl border border-border bg-popover p-1.5 shadow-xl text-[11px] font-medium text-popover-foreground animate-in fade-in zoom-in-95"
+                className="absolute right-0 top-6 z-30 w-48 rounded-xl border border-border bg-popover p-1.5 shadow-xl text-[11px] font-medium text-popover-foreground animate-in fade-in zoom-in-95"
               >
                 <button
                   type="button"
@@ -593,6 +618,20 @@ export const DealCard = React.memo(function DealCard({
                   <ListTodo className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                   <span>Criar Tarefa</span>
                 </button>
+
+                {onDuplicateClick && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowQuickMenu(false);
+                      onDuplicateClick(deal);
+                    }}
+                    className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground cursor-pointer transition-colors"
+                  >
+                    <Copy className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                    <span>Duplicar Negociação</span>
+                  </button>
+                )}
 
                 {allStages.length > 1 && onQuickMove && (
                   <div className="border-t border-border/60 my-1 pt-1 max-h-40 overflow-y-auto">
@@ -620,6 +659,22 @@ export const DealCard = React.memo(function DealCard({
                           )}
                         </button>
                       ))}
+                  </div>
+                )}
+
+                {onDeleteClick && (
+                  <div className="border-t border-border/60 mt-1 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowQuickMenu(false);
+                        onDeleteClick(deal);
+                      }}
+                      className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-destructive hover:bg-destructive/10 cursor-pointer transition-colors font-semibold"
+                    >
+                      <Trash2 className="h-3.5 w-3.5 shrink-0" />
+                      <span>Excluir Negociação</span>
+                    </button>
                   </div>
                 )}
               </div>

@@ -133,6 +133,9 @@ import {
   invalidateDealCache,
 } from "@/lib/crm/deal-prefetch";
 import { HiddenStageTransferDialog } from "./HiddenStageTransferDialog";
+import { DuplicateDealDialog } from "./DuplicateDealDialog";
+import { DeleteDealDialog } from "./DeleteDealDialog";
+import { hasCrmPermission, normalizeGroupPermissions } from "@/lib/rbac";
 
 export function normalizeMultilineMarkdown(rawText: string): string {
   if (!rawText) return "";
@@ -847,6 +850,21 @@ export function DealDetailModal({
           chatContext?.sessionPermissions?.monitor?.canAccessTasks === true)),
   );
   const [isWhisperModalOpen, setIsWhisperModalOpen] = useState(false);
+  const effectiveCrmPerms =
+    chatContext?.sessionPermissions ??
+    (chatContext?.currentGroup ? normalizeGroupPermissions(chatContext.currentGroup) : null);
+  const canDuplicateDeal = hasCrmPermission(
+    effectiveCrmPerms,
+    "canCreateDeals",
+    chatContext?.sessionRole ?? undefined,
+  );
+  const canDeleteDeal = hasCrmPermission(
+    effectiveCrmPerms,
+    "canDeleteDeals",
+    chatContext?.sessionRole ?? undefined,
+  );
+  const [isDuplicateModalOpen, setIsDuplicateModalOpen] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const operators = React.useMemo(() => {
     const merged = new Map<string, any>();
     if (Array.isArray(chatContext?.operators)) {
@@ -3859,9 +3877,35 @@ export function DealDetailModal({
             </div>
 
             {/* Direita: Ações Terminais no mesmo cabeçalho */}
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-center gap-2 shrink-0 flex-wrap">
               {!loading && deal && (
                 <>
+                  {canDuplicateDeal && (
+                    <SystemTooltip content="Duplicar negociação">
+                      <button
+                        type="button"
+                        onClick={() => setIsDuplicateModalOpen(true)}
+                        className="flex h-8 items-center gap-1.5 rounded-full border border-border bg-card px-3 text-xs font-bold text-foreground hover:bg-muted transition-colors cursor-pointer"
+                      >
+                        <Copy className="h-3.5 w-3.5 text-muted-foreground" />
+                        <span>Duplicar</span>
+                      </button>
+                    </SystemTooltip>
+                  )}
+
+                  {canDeleteDeal && (
+                    <SystemTooltip content="Excluir negociação">
+                      <button
+                        type="button"
+                        onClick={() => setIsDeleteModalOpen(true)}
+                        className="flex h-8 items-center gap-1.5 rounded-full border border-destructive/30 bg-destructive/10 px-3 text-xs font-bold text-destructive hover:bg-destructive/20 transition-colors cursor-pointer"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        <span>Excluir</span>
+                      </button>
+                    </SystemTooltip>
+                  )}
+
                   {deal.status === "open" && (
                     <SystemTooltip content="Pausar negociação">
                       <button
@@ -8500,6 +8544,56 @@ export function DealDetailModal({
             title: deal.title || "Negociação",
             stageName: deal.stage?.name || null,
             operatorId: deal.operatorId || null,
+          }}
+        />
+      )}
+
+      {canDuplicateDeal && deal && (
+        <DuplicateDealDialog
+          isOpen={isDuplicateModalOpen}
+          deal={{
+            id: deal.id,
+            title: deal.title || "Negociação",
+            pipelineId: deal.pipelineId || deal.pipeline?.id,
+            stageId: deal.stageId || deal.stage?.id,
+            operatorId: deal.operatorId || null,
+            account: deal.account ? { name: deal.account.name } : null,
+          }}
+          pipelines={
+            availablePipelines.filter((p) => p.isVisible !== false && Array.isArray(p.stages) && p.stages.length > 0)
+              .length > 0
+              ? availablePipelines
+                  .filter((p) => p.isVisible !== false && Array.isArray(p.stages) && p.stages.length > 0)
+                  .map((p) => ({ id: p.id, name: p.name, stages: p.stages || [] }))
+              : undefined
+          }
+          defaultOpenAfter={true}
+          onClose={() => setIsDuplicateModalOpen(false)}
+          onDuplicated={(newDeal, { openAfter }) => {
+            onDealUpdated();
+            if (openAfter && newDeal?.id && onOpenDeal) {
+              onOpenDeal(newDeal.id);
+            } else {
+              void loadDealDetail(true);
+            }
+          }}
+        />
+      )}
+
+      {canDeleteDeal && deal && (
+        <DeleteDealDialog
+          isOpen={isDeleteModalOpen}
+          deal={{
+            id: deal.id,
+            title: deal.title || "Negociação",
+            status: deal.status,
+            account: deal.account ? { name: deal.account.name } : null,
+          }}
+          onClose={() => setIsDeleteModalOpen(false)}
+          onDeleted={(deletedId) => {
+            invalidateDealCache(deletedId);
+            onDealUpdated();
+            onClose();
           }}
         />
       )}

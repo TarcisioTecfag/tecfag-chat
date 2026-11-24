@@ -93,7 +93,14 @@ import {
 } from "./custom-fields";
 import { CatalogValidationError, ensureCatalogOption, getCatalogPolicy, validateCatalogChoice } from "./catalogs";
 import { validateAccountDocument } from "./account-validation";
-import { syncAccountDealContacts, lockContactDeals, linkContactToDeal, DealRequiredError, assertDealsCanBeRemoved } from "./deal-associations";
+import {
+  syncAccountDealContacts,
+  syncConversationDeals,
+  lockContactDeals,
+  linkContactToDeal,
+  DealRequiredError,
+  assertDealsCanBeRemoved,
+} from "./deal-associations";
 import { enqueueRdCommercial } from "../rd-marketing/commercial-outbox";
 import { isCommercialWinStage } from "../commercial/metrics";
 import {
@@ -4909,6 +4916,385 @@ export class CrmService {
 
       if (!data.marketingOrigin) await enqueueRdCommercial(tx, tenantId, deal, null);
       return deal;
+    });
+  }
+
+  /**
+   * Duplica uma negociação existente dentro do mesmo tenant, preservando dados comerciais,
+   * empresa, contatos participantes, produtos (opcional) e campos personalizados não-únicos.
+   * A cópia sempre inicia limpa em status "open", sem herdar IDs do RD, motivos de encerramento
+   * ou histórico de atividades/arquivos da negociação de origem.
+   */
+  async duplicateDeal(
+    tenantId: string,
+    dealId: string,
+    operatorId: string | null,
+    operatorName: string,
+    options: {
+      title?: string;
+      pipelineId?: string;
+      stageId?: string;
+      operatorId?: string | null;
+      copyProducts?: boolean;
+      authorizedOperatorId?: string;
+    } = {},
+    executor: Pick<typeof db, "transaction"> = db,
+  ): Promise<{
+    deal: CrmDeal;
+    copiedContactsCount: number;
+    copiedProductsCount: number;
+    omittedUniqueFields: string[];
+  }> {
+    return await executor.transaction(async (tx) => {
+      const [original] = await tx
+        .select()
+        .from(crmDeals)
+        .where(
+          and(
+            eq(crmDeals.tenantId, tenantId),
+            eq(crmDeals.id, dealId),
+            options.authorizedOperatorId ? eq(crmDeals.operatorId, options.authorizedOperatorId) : undefined,
+          ),
+        )
+        .limit(1);
+
+      if (!original) {
+        throw new CrmNotFoundError("Negociação não encontrada.");
+      }
+
+      const targetPipelineId = options.pipelineId?.trim() || original.pipelineId;
+      const [pipeline] = await tx
+        .select({ id: crmPipelines.id })
+        .from(crmPipelines)
+        .where(and(eq(crmPipelines.id, targetPipelineId), eq(crmPipelines.tenantId, tenantId)))
+        .limit(1);
+
+      if (!pipeline) {
+        throw new CrmCrossTenantError(`O funil informado (${targetPipelineId}) não pertence ao tenant ${tenantId}.`);
+      }
+
+      const pipelineStages = await tx
+        .select({
+          id: crmStages.id,
+          pipelineId: crmStages.pipelineId,
+          orderIndex: crmStages.orderIndex,
+          isWinStage: crmStages.isWinStage,
+          isLossStage: crmStages.isLossStage,
+        })
+        .from(crmStages)
+        .where(and(eq(crmStages.pipelineId, targetPipelineId), eq(crmStages.tenantId, tenantId)))
+        .orderBy(asc(crmStages.orderIndex));
+
+      if (pipelineStages.length === 0) {
+        throw new CrmValidationError("O funil selecionado não possui etapas cadastradas.", "NO_STAGES");
+      }
+
+      const requestedStageId = options.stageId?.trim() || null;
+      let targetStage = requestedStageId
+        ? pipelineStages.find((s) => s.id === requestedStageId)
+        : undefined;
+
+      if (requestedStageId && !targetStage) {
+        throw new CrmValidationError(
+          `A etapa (${requestedStageId}) não pertence ao funil informado (${targetPipelineId}).`,
+          "STAGE_NOT_IN_PIPELINE",
+        );
+      }
+
+      if (!targetStage) {
+        const firstOpenStage =
+          pipelineStages.find((s) => !s.isWinStage && !s.isLossStage) || pipelineStages[0];
+        if (targetPipelineId === original.pipelineId) {
+          const originalStage = pipelineStages.find((s) => s.id === original.stageId);
+          targetStage =
+            originalStage && !originalStage.isWinStage && !originalStage.isLossStage
+              ? originalStage
+              : firstOpenStage;
+        } else {
+          targetStage = firstOpenStage;
+        }
+      }
+
+      const assignedOpId =
+        options.operatorId !== undefined ? options.operatorId : original.operatorId;
+      if (assignedOpId) {
+        const [op] = await tx
+          .select({ id: operators.id })
+          .from(operators)
+          .where(and(eq(operators.id, assignedOpId), eq(operators.tenantId, tenantId)))
+          .limit(1);
+        if (!op) {
+          throw new CrmCrossTenantError(
+            `O operador responsável (${assignedOpId}) não pertence ao tenant ${tenantId}.`,
+          );
+        }
+      }
+
+      const rawTitle = typeof options.title === "string" ? options.title.trim() : "";
+      const newTitle = rawTitle || `${original.title} (Cópia)`;
+      if (newTitle.length > 250) {
+        throw new CrmValidationError("O título da negociação deve ter no máximo 250 caracteres.");
+      }
+
+      // Clona campos personalizados removendo apenas campos marcados como únicos (isUnique: true)
+      const dealFieldDefinitions = await listCustomFields(tenantId, "deal", tx);
+      const uniqueKeySet = new Set<string>();
+      const omittedUniqueFields: string[] = [];
+      for (const def of dealFieldDefinitions) {
+        if (def.isUnique) {
+          uniqueKeySet.add(def.id);
+          if (def.name) uniqueKeySet.add(def.name);
+        }
+      }
+
+      const rawOriginalCf =
+        original.customFields && typeof original.customFields === "object" && !Array.isArray(original.customFields)
+          ? (original.customFields as Record<string, unknown>)
+          : {};
+      const clonedCustomFields: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(rawOriginalCf)) {
+        if (uniqueKeySet.has(k)) {
+          if (isFilled(v)) {
+            const def = dealFieldDefinitions.find((d) => d.id === k || d.name === k);
+            omittedUniqueFields.push(def?.name || k);
+          }
+          continue;
+        }
+        clonedCustomFields[k] = v;
+      }
+
+      let sectorCtx = {
+        pipelineName: null as string | null,
+        stageName: null as string | null,
+        stageIsWin: Boolean(targetStage.isWinStage),
+        stageIsLoss: Boolean(targetStage.isLossStage),
+        operatorDivision: null as string | null,
+        operatorSectorNames: [] as string[],
+      };
+      try {
+        sectorCtx = await loadDealSectorResolutionContext(
+          tx,
+          tenantId,
+          targetPipelineId,
+          targetStage.id,
+          assignedOpId || null,
+        );
+      } catch {
+        // Ignora em mocks parciais
+      }
+
+      const finalIsTest = Boolean(original.isTest) || isTestEntityTitle(newTitle);
+      const resolvedSector = resolveDealCurrentSector({
+        isTest: finalIsTest,
+        isLegacy: false,
+        explicitSector: original.sectorCurrent || original.sectorOrigin || null,
+        pipelineId: targetPipelineId,
+        pipelineName: sectorCtx.pipelineName,
+        stageId: targetStage.id,
+        stageName: sectorCtx.stageName,
+        operatorDivision: sectorCtx.operatorDivision,
+        operatorSectorNames: sectorCtx.operatorSectorNames,
+        customFields: clonedCustomFields,
+      });
+
+      const now = new Date();
+      const newDealId = `deal-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+
+      const [newDeal] = await tx
+        .insert(crmDeals)
+        .values({
+          id: newDealId,
+          tenantId,
+          title: newTitle,
+          accountId: original.accountId,
+          pipelineId: targetPipelineId,
+          originalPipelineId: targetPipelineId,
+          stageId: targetStage.id,
+          status: "open",
+          value: original.value,
+          currency: original.currency || "BRL",
+          expectedCloseDate: original.expectedCloseDate,
+          operatorId: assignedOpId || null,
+          source: original.source,
+          campaign: original.campaign,
+          entryChannel: original.entryChannel || "manual",
+          utmSource: original.utmSource,
+          utmMedium: original.utmMedium,
+          utmCampaign: original.utmCampaign,
+          utmContent: original.utmContent,
+          utmTerm: original.utmTerm,
+          clickId: original.clickId,
+          landingPage: original.landingPage,
+          sectorOrigin: original.sectorOrigin || resolvedSector,
+          sectorCurrent: resolvedSector,
+          rating: original.rating ?? 0,
+          customFields: clonedCustomFields,
+          version: 1,
+          isLegacy: false,
+          isTest: finalIsTest,
+          lastActivityAt: now,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning();
+
+      // Copia participantes (contatos) preservando papel e contato principal
+      const originContacts = await tx
+        .select({
+          contactId: crmDealContacts.contactId,
+          role: crmDealContacts.role,
+          isPrimary: crmDealContacts.isPrimary,
+        })
+        .from(crmDealContacts)
+        .where(and(eq(crmDealContacts.tenantId, tenantId), eq(crmDealContacts.dealId, original.id)))
+        .orderBy(desc(crmDealContacts.isPrimary), asc(crmDealContacts.createdAt));
+
+      let copiedContactsCount = 0;
+      const linkedConversationIds = new Set<string>();
+      for (const participant of originContacts) {
+        await lockContactDeals(tx, tenantId, participant.contactId);
+        await tx
+          .insert(crmDealContacts)
+          .values({
+            id: `dc-${crypto.randomUUID()}`,
+            tenantId,
+            dealId: newDealId,
+            contactId: participant.contactId,
+            role: participant.role || "buyer",
+            isPrimary: Boolean(participant.isPrimary),
+            createdAt: now,
+          })
+          .onConflictDoNothing();
+        copiedContactsCount++;
+
+        const contactConvs = await tx
+          .select({ id: conversations.id })
+          .from(conversations)
+          .where(
+            and(
+              eq(conversations.tenantId, tenantId),
+              eq(conversations.contactId, participant.contactId),
+            ),
+          );
+        for (const conv of contactConvs) {
+          linkedConversationIds.add(conv.id);
+          await syncConversationDeals(tx, tenantId, conv.id, participant.contactId, operatorId);
+        }
+      }
+
+      // Fallback seguro apenas quando a negociação legada não tinha participantes diretos
+      if (copiedContactsCount === 0 && original.accountId) {
+        await syncAccountDealContacts(tx, tenantId, newDealId, original.accountId, operatorId);
+        const syncedContacts = await tx
+          .select({ id: crmDealContacts.id })
+          .from(crmDealContacts)
+          .where(and(eq(crmDealContacts.tenantId, tenantId), eq(crmDealContacts.dealId, newDealId)));
+        copiedContactsCount = syncedContacts.length;
+      }
+
+      if (copiedContactsCount === 0) {
+        throw new CrmDealContactRequiredError(
+          "Esta negociação está sem contato cadastrado. Vincule um contato antes de duplicá-la.",
+        );
+      }
+
+      // Copia produtos / itens vinculados quando habilitado (padrão: true)
+      let copiedProductsCount = 0;
+      if (options.copyProducts !== false) {
+        const originProducts = await tx
+          .select()
+          .from(crmDealProducts)
+          .where(and(eq(crmDealProducts.tenantId, tenantId), eq(crmDealProducts.dealId, original.id)))
+          .orderBy(asc(crmDealProducts.createdAt));
+
+        if (originProducts.length > 0) {
+          await tx.insert(crmDealProducts).values(
+            originProducts.map((prod) => ({
+              id: `dp-${crypto.randomUUID()}`,
+              tenantId,
+              dealId: newDealId,
+              productId: prod.productId,
+              name: prod.name,
+              quantity: prod.quantity,
+              unitPrice: prod.unitPrice,
+              discountPercent: prod.discountPercent,
+              totalPrice: prod.totalPrice,
+              notes: prod.notes,
+              createdAt: now,
+            })),
+          );
+          copiedProductsCount = originProducts.length;
+        }
+      }
+
+      // Eventos de auditoria na cópia e na negociação original
+      await this.logDealEvent(
+        tenantId,
+        newDealId,
+        "created",
+        operatorId,
+        {
+          title: newDeal.title,
+          pipelineId: newDeal.pipelineId,
+          stageId: newDeal.stageId,
+          value: newDeal.value,
+          duplicatedFromDealId: original.id,
+          duplicatedFromTitle: original.title,
+          copiedProductsCount,
+          copiedContactsCount,
+        },
+        tx,
+      );
+
+      await this.logDealEvent(
+        tenantId,
+        original.id,
+        "deal_duplicated",
+        operatorId,
+        {
+          duplicatedDealId: newDealId,
+          duplicatedTitle: newDeal.title,
+          pipelineId: newDeal.pipelineId,
+          stageId: newDeal.stageId,
+        },
+        tx,
+      );
+
+      await tx.insert(crmActionHistory).values({
+        id: crypto.randomUUID(),
+        tenantId,
+        operatorId,
+        operatorName,
+        action: "duplicate_deal",
+        entityType: "deal",
+        itemCount: 1,
+        details: {
+          sourceDealId: original.id,
+          sourceTitle: original.title,
+          deals: [{ id: newDeal.id, title: newDeal.title }],
+          copiedProductsCount,
+          copiedContactsCount,
+        },
+      });
+
+      if (linkedConversationIds.size > 0) {
+        try {
+          for (const convId of linkedConversationIds) {
+            await getDealContext(tx, tenantId, convId, operatorId);
+          }
+        } catch {
+          // Ignora caso em mocks parciais
+        }
+      }
+
+      await enqueueRdCommercial(tx, tenantId, newDeal, null);
+
+      return {
+        deal: newDeal,
+        copiedContactsCount,
+        copiedProductsCount,
+        omittedUniqueFields,
+      };
     });
   }
 

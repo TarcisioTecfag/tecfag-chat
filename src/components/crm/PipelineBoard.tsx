@@ -42,6 +42,8 @@ interface PipelineBoardProps {
   ) => void;
   onNewDealAtStage?: (stageId: string) => void;
   onCreateTaskClick?: (deal: DealCardData) => void;
+  onDuplicateDeal?: (deal: DealCardData) => void;
+  onDeleteDeal?: (deal: DealCardData) => void;
   onLoadMoreStage?: (stageId: string) => void;
   loadingMoreStages?: Record<string, boolean>;
 }
@@ -123,6 +125,8 @@ export const PipelineBoard = React.memo(function PipelineBoard({
   onMoveDeal,
   onNewDealAtStage,
   onCreateTaskClick,
+  onDuplicateDeal,
+  onDeleteDeal,
   onLoadMoreStage,
   loadingMoreStages,
 }: PipelineBoardProps) {
@@ -957,6 +961,8 @@ export const PipelineBoard = React.memo(function PipelineBoard({
               onDropDeal={handleInterceptMove}
               onNewDealAtStage={onNewDealAtStage}
               onCreateTaskClick={onCreateTaskClick}
+              onDuplicateDeal={onDuplicateDeal}
+              onDeleteDeal={onDeleteDeal}
               onLoadMore={onLoadMoreMap[stage.id]}
               loadingMore={!!loadingMoreStages?.[stage.id]}
               onStartCardDrag={handleStartCardDrag}
