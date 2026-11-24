@@ -41,6 +41,8 @@ export type LiveDealSummary = {
   stageId?: string | null;
   stageName: string | null;
   rating?: number;
+  operatorId?: string | null;
+  operatorName?: string | null;
 };
 
 export type LiveTaskItem = {
@@ -57,6 +59,25 @@ export type LivePipelineOption = {
   name: string;
   count: number;
   totalValue: number;
+};
+
+export type LiveSectorOption = {
+  id: string;
+  name: string;
+  operatorIds: string[];
+  count: number;
+};
+
+export type LiveOperatorDirectoryItem = {
+  operatorId: string;
+  operatorName: string;
+  operatorAvatar?: string | null;
+  status: "disponivel" | "ocupado" | "ausente";
+  isOnline?: boolean;
+  lastSeenAt?: string | null;
+  sectorIds?: string[];
+  waitingReplyCount?: number;
+  activeTodayCount?: number;
 };
 
 export type LiveActivityCategory =
@@ -76,6 +97,8 @@ export type LiveConversation = {
   accountName?: string | null;
   accountDocument?: string | null;
   queueState?: string;
+  sectorId?: string | null;
+  sectorName?: string | null;
   lastMessage: string;
   lastMessageTime?: string;
   waitingMinutes: number;
@@ -87,11 +110,15 @@ export type LiveConversation = {
   metaWindowOpen?: boolean;
   metaWindowRemainingMinutes?: number | null;
   activeDeal?: LiveDealSummary | null;
+  linkedPipelineIds?: string[];
+  hasOpenDeal?: boolean;
   openTasksCount?: number;
   overdueTasksCount?: number;
   nextTaskTitle?: string | null;
   tasks?: LiveTaskItem[];
   failedMessagesCount?: number;
+  sentMessagesToday?: number;
+  responseDeltasMinutes?: number[];
   operatorId?: string | null;
   operatorName?: string | null;
   messages: LiveMessage[];
@@ -104,6 +131,7 @@ export type LiveOperator = {
   status: "disponivel" | "ocupado" | "ausente";
   isOnline?: boolean;
   lastSeenAt?: string | null;
+  sectorIds?: string[];
   usageSecondsToday?: number;
   sentMessagesToday?: number;
   avgResponseMinutesToday?: number | null;
@@ -145,6 +173,8 @@ export type LiveData = {
   automation: LiveConversation[];   // Com Valentina/Fagner (automação)
   summary?: LiveSummary;
   pipelines?: LivePipelineOption[];
+  sectors?: LiveSectorOption[];
+  allOperators?: LiveOperatorDirectoryItem[];
 };
 
 

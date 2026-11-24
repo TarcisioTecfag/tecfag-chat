@@ -28,6 +28,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { getAiPersona } from "@/lib/ai-persona";
 import { buildPhoneQueryPlan, matchesPhoneSearchQuery } from "@/lib/utils";
+import { filterLiveDataset, type FilteredLiveDataset } from "@/lib/monitor/live-filters";
 import { formatMetaErrorMessagePt } from "@/lib/whatsapp/meta-template-common";
 import { analyzeMetaUnsupportedMessage } from "@/lib/whatsapp/meta-message-text";
 import { MetaUnsupportedNoticeCard } from "@/components/chat/MetaUnsupportedNoticeCard";
@@ -57,10 +58,12 @@ import {
   MOCK_AUDITS,
   MOCK_GLOBAL_TASKS_RESPONSE,
   LiveOperator,
+  LiveOperatorDirectoryItem,
   LiveConversation,
   LiveData,
   LiveMessage,
   LivePipelineOption,
+  LiveSectorOption,
   LiveTaskItem,
   AlertItem,
   AlertOperatorBottleneck,
@@ -5896,6 +5899,113 @@ function LivePipelineSelect({
 }
 
 /**
+ * Dropdown customizado de Setor / Equipe com animações suaves e paleta do sistema.
+ */
+function LiveSectorSelect({
+  value,
+  onChange,
+  sectors,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  sectors: LiveSectorOption[];
+}) {
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const selectedLabel = useMemo(() => {
+    if (!value) return "Todos os Setores";
+    return sectors.find((s) => s.id === value)?.name ?? "Setor";
+  }, [value, sectors]);
+
+  return (
+    <div ref={ref} className="relative w-full">
+      <motion.button
+        type="button"
+        whileHover={{ scale: 1.005 }}
+        whileTap={{ scale: 0.99 }}
+        onClick={() => setOpen((o) => !o)}
+        className={`w-full flex items-center gap-1.5 bg-muted/60 border rounded-lg px-2.5 py-1.5 text-[11px] transition-all duration-200 cursor-pointer ${
+          value
+            ? "border-primary text-primary font-semibold bg-primary/5"
+            : "border-border text-muted-foreground hover:border-primary/50 hover:text-foreground"
+        }`}
+      >
+        <Layers className="h-3.5 w-3.5 shrink-0" />
+        <span className="flex-1 text-left truncate">{selectedLabel}</span>
+        <ChevronDown
+          className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 ${
+            open ? "rotate-180" : ""
+          }`}
+        />
+      </motion.button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: 6, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 4, scale: 0.98 }}
+            transition={{ duration: 0.16, ease: "easeOut" }}
+            className="absolute left-0 top-full mt-1.5 z-50 bg-card border border-border rounded-2xl shadow-xl py-1.5 w-full max-h-60 overflow-y-auto scrollbar-thin"
+          >
+            <button
+              type="button"
+              onClick={() => {
+                onChange("");
+                setOpen(false);
+              }}
+              className={`w-full flex items-center justify-between gap-2 px-3 py-2 text-[11px] text-left transition-colors cursor-pointer ${
+                !value
+                  ? "bg-primary/10 text-primary font-bold"
+                  : "text-foreground hover:bg-muted/60"
+              }`}
+            >
+              <span className="truncate">Todos os Setores</span>
+              {!value && <CheckCircle2 className="h-3.5 w-3.5 text-primary shrink-0" />}
+            </button>
+
+            {sectors.length > 0 && <div className="my-1 border-t border-line" />}
+
+            {sectors.map((sec) => {
+              const isActive = value === sec.id;
+              return (
+                <button
+                  key={sec.id}
+                  type="button"
+                  onClick={() => {
+                    onChange(sec.id);
+                    setOpen(false);
+                  }}
+                  className={`w-full flex items-center justify-between gap-2 px-3 py-2 text-[11px] text-left transition-colors cursor-pointer ${
+                    isActive
+                      ? "bg-primary/10 text-primary font-bold"
+                      : "text-foreground hover:bg-muted/60"
+                  }`}
+                >
+                  <span className="truncate flex-1">{sec.name}</span>
+                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground shrink-0">
+                    {sec.count}
+                  </span>
+                </button>
+              );
+            })}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+/**
  * Popover de Intervenção Direta da Supervisão:
  * Permite transferir/atribuir imediatamente a um consultor, devolver para a fila ou finalizar o atendimento
  * sem sair da aba Ao Vivo.
@@ -5908,7 +6018,7 @@ function LiveSupervisorInterventionPopover({
   compact = false,
 }: {
   conv: LiveConversation;
-  operators: LiveOperator[];
+  operators: (LiveOperator | LiveOperatorDirectoryItem)[];
   onIntervene: (
     conversationId: string,
     action: "transfer" | "return_to_queue" | "close",
@@ -5936,7 +6046,11 @@ function LiveSupervisorInterventionPopover({
   const eligibleCycleOperators = useMemo(
     () =>
       sortedOperators.filter(
-        (op) => !(conv.operatorId === op.operatorId && conv.queueState === "atendimento"),
+        (op) =>
+          !(
+            conv.operatorId === op.operatorId &&
+            (conv.queueState === "meus" || conv.queueState === "atendimento")
+          ),
       ),
     [sortedOperators, conv.operatorId, conv.queueState],
   );
@@ -6111,7 +6225,9 @@ function LiveSupervisorInterventionPopover({
 
             <div ref={listRef} className="max-h-52 overflow-y-auto scrollbar-thin py-1">
               {sortedOperators.map((op) => {
-                const isCurrent = conv.operatorId === op.operatorId && conv.queueState === "atendimento";
+                const isCurrent =
+                  conv.operatorId === op.operatorId &&
+                  (conv.queueState === "meus" || conv.queueState === "atendimento");
                 const isHighlighted = !isCurrent && op.operatorId === highlightedOpId;
                 return (
                   <button
@@ -6699,6 +6815,7 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
   // Estado principal
   const [liveData, setLiveData] = useState<LiveData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   // Conversa selecionada (null = exibe o Cockpit Executivo da Diretoria)
@@ -6712,84 +6829,202 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
 
   // Filtros
   const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [dateFilter, setDateFilter] = useState(""); // YYYY-MM-DD
   const [opIdFilter, setOpIdFilter] = useState(""); // operatorId
+  const [sectorIdFilter, setSectorIdFilter] = useState(""); // sectorId
   const [pipelineFilter, setPipelineFilter] = useState(""); // "" | "__with_deal__" | pipelineId
   const [sidebarFilter, setSidebarFilter] = useState<LiveSidebarFilter>("active");
+
+  // Cache leve de nomes de funis conhecidos para não perder o label do chip quando o recorte zera
+  const [knownPipelines, setKnownPipelines] = useState<Record<string, string>>({});
 
   // Sussurro do Supervisor (Nota Interna Direta)
   const [whisperText, setWhisperText] = useState("");
   const [sendingWhisper, setSendingWhisper] = useState(false);
 
-  // Histórico completo (carregado sob demanda)
-  const [fullHistory, setFullHistory] = useState<LiveMessage[]>([]);
-  const [fullHistoryLoading, setFullHistoryLoading] = useState(false);
-  const [fullHistoryConvId, setFullHistoryConvId] = useState<string | null>(null);
+  // Mensagens da conversa aberta no Modo Espião (carregadas sob demanda via /api/gestao/messages)
+  const [spyMessages, setSpyMessages] = useState<LiveMessage[]>([]);
+  const [spyMessagesLoading, setSpyMessagesLoading] = useState(false);
+  const [spyMessagesConvId, setSpyMessagesConvId] = useState<string | null>(null);
 
-  // Quando a conversa muda, limpa histórico completo e campo de sussurro
+  // Guardas anti-flickering e anti-race-condition
+  const liveAbortRef = useRef<AbortController | null>(null);
+  const liveReqSeqRef = useRef(0);
+  const liveInFlightRef = useRef(false);
+
+  const spyAbortRef = useRef<AbortController | null>(null);
+  const spyReqSeqRef = useRef(0);
+  const spyInFlightRef = useRef(false);
+
+  // Debounce da busca para evitar rajada de chamadas a cada tecla
   useEffect(() => {
-    setFullHistory([]);
-    setFullHistoryConvId(null);
-    setWhisperText("");
-  }, [selectedConvId]);
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchTerm.trim());
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
 
-  const loadFullHistory = useCallback(
-    async (convId: string) => {
+  // Carrega mensagens sob demanda para a conversa selecionada no Modo Espião
+  const fetchSpyMessages = useCallback(
+    async (convId: string, opts?: { silent?: boolean }) => {
       if (!convId || demoMode) return;
-      setFullHistoryLoading(true);
+      if (opts?.silent && spyInFlightRef.current) return;
+
+      if (!opts?.silent && spyAbortRef.current) {
+        spyAbortRef.current.abort();
+      }
+      const controller = new AbortController();
+      spyAbortRef.current = controller;
+      const reqSeq = ++spyReqSeqRef.current;
+      spyInFlightRef.current = true;
+      if (!opts?.silent) setSpyMessagesLoading(true);
+
       try {
         const res = await fetch(
-          `/api/gestao/messages?tenantId=${tenant}&conversationId=${convId}`
+          `/api/gestao/messages?tenantId=${tenant}&conversationId=${encodeURIComponent(convId)}`,
+          { signal: controller.signal }
         );
+        if (reqSeq !== spyReqSeqRef.current) return;
         if (res.ok) {
           const data: LiveMessage[] = await res.json();
-          setFullHistory(data);
-          setFullHistoryConvId(convId);
+          if (reqSeq !== spyReqSeqRef.current) return;
+          setSpyMessages(data);
+          setSpyMessagesConvId(convId);
         }
-      } catch (e) {
-        console.error("[LiveTab] Erro ao carregar histórico completo:", e);
+      } catch (e: any) {
+        if (e?.name !== "AbortError") {
+          console.error("[LiveTab] Erro ao carregar mensagens da conversa:", e);
+        }
       } finally {
-        setFullHistoryLoading(false);
+        if (reqSeq === spyReqSeqRef.current) {
+          spyInFlightRef.current = false;
+          setSpyMessagesLoading(false);
+        }
       }
     },
     [tenant, demoMode]
   );
 
-  // Fetch de dados com filtros
-  const fetchLive = useCallback(async () => {
-    if (demoMode) {
-      setLiveData({
-        operators: MOCK_LIVE as LiveOperator[],
-        unassigned: [],
-        automation: [],
-        pipelines: [],
-      });
-      setLoading(false);
+  // Quando a conversa muda, limpa o sussurro e carrega imediatamente o histórico completo sob demanda
+  useEffect(() => {
+    setWhisperText("");
+    if (!selectedConvId) {
+      spyAbortRef.current?.abort();
+      setSpyMessages([]);
+      setSpyMessagesConvId(null);
+      setSpyMessagesLoading(false);
       return;
     }
-    try {
-      const params = new URLSearchParams({ tenantId: tenant });
-      if (dateFilter) params.set("date", dateFilter);
-      if (opIdFilter) params.set("opId", opIdFilter);
-      if (searchTerm.length >= 2) params.set("search", searchTerm);
 
-      const res = await fetch(`/api/gestao/live?${params.toString()}`);
-      if (res.ok) {
-        const data: LiveData = await res.json();
-        setLiveData(data);
-        setLastUpdated(new Date());
-      }
-    } catch (e) {
-      console.error("[MonitorView/LiveTab] Erro ao buscar dados ao vivo:", e);
-    } finally {
-      setLoading(false);
+    if (demoMode) {
+      setSpyMessages([]);
+      setSpyMessagesConvId(selectedConvId);
+      setSpyMessagesLoading(false);
+      return;
     }
-  }, [tenant, demoMode, dateFilter, opIdFilter, searchTerm]);
+
+    setSpyMessages([]);
+    setSpyMessagesConvId(null);
+    void fetchSpyMessages(selectedConvId, { silent: false });
+
+    const interval = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      void fetchSpyMessages(selectedConvId, { silent: true });
+    }, 8_000);
+
+    return () => {
+      clearInterval(interval);
+      spyAbortRef.current?.abort();
+    };
+  }, [selectedConvId, demoMode, fetchSpyMessages]);
+
+  // Fetch de dados com filtros, AbortController, sequenciador anti-flickering e guarda anti-empilhamento
+  const fetchLive = useCallback(
+    async (opts?: { isPoll?: boolean }) => {
+      if (demoMode) {
+        setLiveData({
+          operators: MOCK_LIVE as LiveOperator[],
+          unassigned: [],
+          automation: [],
+          pipelines: [],
+          sectors: [],
+        });
+        setLoading(false);
+        return;
+      }
+
+      // Polling automático não empilha se já houver requisição ativa
+      if (opts?.isPoll && liveInFlightRef.current) {
+        return;
+      }
+
+      // Mudança de filtro ou refresh manual aborta a requisição anterior imediatamente
+      if (!opts?.isPoll && liveAbortRef.current) {
+        liveAbortRef.current.abort();
+      }
+
+      const controller = new AbortController();
+      liveAbortRef.current = controller;
+      const reqSeq = ++liveReqSeqRef.current;
+      liveInFlightRef.current = true;
+      setIsRefreshing(true);
+
+      try {
+        const params = new URLSearchParams({ tenantId: tenant });
+        if (dateFilter) params.set("date", dateFilter);
+        if (opIdFilter) params.set("opId", opIdFilter);
+        if (sectorIdFilter) params.set("sectorId", sectorIdFilter);
+        if (pipelineFilter) params.set("pipelineId", pipelineFilter);
+        if (debouncedSearch.length >= 2) params.set("search", debouncedSearch);
+
+        const res = await fetch(`/api/gestao/live?${params.toString()}`, {
+          signal: controller.signal,
+        });
+
+        // Descarta qualquer resposta fora de ordem (elimina flickering de filtros)
+        if (reqSeq !== liveReqSeqRef.current) return;
+
+        if (res.ok) {
+          const data: LiveData = await res.json();
+          if (reqSeq !== liveReqSeqRef.current) return;
+          setLiveData(data);
+          setLastUpdated(new Date());
+          if (Array.isArray(data.pipelines) && data.pipelines.length > 0) {
+            setKnownPipelines((prev) => {
+              const next = { ...prev };
+              for (const p of data.pipelines ?? []) {
+                next[p.id] = p.name;
+              }
+              return next;
+            });
+          }
+        }
+      } catch (e: any) {
+        if (e?.name !== "AbortError") {
+          console.error("[MonitorView/LiveTab] Erro ao buscar dados ao vivo:", e);
+        }
+      } finally {
+        if (reqSeq === liveReqSeqRef.current) {
+          liveInFlightRef.current = false;
+          setLoading(false);
+          setIsRefreshing(false);
+        }
+      }
+    },
+    [tenant, demoMode, dateFilter, opIdFilter, sectorIdFilter, pipelineFilter, debouncedSearch]
+  );
 
   useEffect(() => {
-    fetchLive();
-    const interval = setInterval(fetchLive, 8_000);
-    return () => clearInterval(interval);
+    void fetchLive({ isPoll: false });
+    const interval = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      void fetchLive({ isPoll: true });
+    }, 10_000);
+    return () => {
+      clearInterval(interval);
+      liveAbortRef.current?.abort();
+    };
   }, [fetchLive]);
 
   // Enviar Sussurro / Nota Interna de Supervisão
@@ -6818,25 +7053,10 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
       toast.success("Orientação interna enviada para o consultor!");
 
       if (createdMsg) {
-        setLiveData((prev) => {
-          if (!prev) return prev;
-          const appendMsg = (c: LiveConversation) =>
-            c.id === selectedConvId
-              ? { ...c, messages: [...c.messages, createdMsg] }
-              : c;
-          return {
-            ...prev,
-            operators: prev.operators.map((op) => ({
-              ...op,
-              conversations: op.conversations.map(appendMsg),
-            })),
-            unassigned: prev.unassigned.map(appendMsg),
-            automation: prev.automation.map(appendMsg),
-          };
-        });
-        if (fullHistoryConvId === selectedConvId) {
-          setFullHistory((prev) => [...prev, createdMsg]);
-        }
+        setSpyMessages((prev) =>
+          prev.some((m) => m.id === createdMsg.id) ? prev : [...prev, createdMsg]
+        );
+        setSpyMessagesConvId(selectedConvId);
       }
     } catch (err: any) {
       toast.error(err.message || "Erro ao enviar orientação de supervisão.");
@@ -6881,21 +7101,67 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
           toast.success("Atendimento devolvido para a fila geral.");
         } else {
           toast.success(
-            `Atendimento atribuído para ${data.targetOperatorName || "o consultor"}.`
+            `Atendimento atribuído para ${data.operatorName || data.targetOperatorName || "o consultor"}.`
           );
         }
 
-        await fetchLive();
+        await fetchLive({ isPoll: false });
+        if (selectedConvId === conversationId && action !== "close") {
+          await fetchSpyMessages(conversationId, { silent: true });
+        }
       } catch (err: any) {
         toast.error(err.message || "Falha ao executar intervenção.");
       } finally {
         setInterveningConvId(null);
       }
     },
-    [demoMode, fetchLive, selectedConvId]
+    [demoMode, fetchLive, fetchSpyMessages, selectedConvId]
   );
 
-  // Encontrar conversa selecionada em qualquer seção (incluindo automação IA)
+  // Dataset único e estritamente filtrado — compartilhado entre Sidebar, Cockpit, Radar e Equipe
+  const filteredDataset: FilteredLiveDataset = useMemo(
+    () =>
+      filterLiveDataset(liveData, {
+        opIdFilter,
+        sectorIdFilter,
+        pipelineFilter,
+        searchTerm,
+      }),
+    [liveData, opIdFilter, sectorIdFilter, pipelineFilter, searchTerm]
+  );
+
+  // Diretório completo de operadores do tenant (preserva dropdowns e transferências mesmo filtrando 1 consultor)
+  const directoryOperators: LiveOperatorDirectoryItem[] = useMemo(() => {
+    if (liveData?.allOperators && liveData.allOperators.length > 0) {
+      return liveData.allOperators;
+    }
+    return (liveData?.operators ?? []).map((op) => ({
+      operatorId: op.operatorId,
+      operatorName: op.operatorName,
+      operatorAvatar: op.operatorAvatar ?? null,
+      status: op.status,
+      isOnline: op.isOnline,
+      lastSeenAt: op.lastSeenAt ?? null,
+      sectorIds: op.sectorIds ?? [],
+      waitingReplyCount: op.waitingReplyCount ?? 0,
+      activeTodayCount: op.activeTodayCount ?? 0,
+    }));
+  }, [liveData?.allOperators, liveData?.operators]);
+
+  // Opções do dropdown de Operador (quando Setor está ativo, destaca/filtra os consultores daquele setor mantendo o selecionado)
+  const selectableOperators = useMemo(() => {
+    if (!sectorIdFilter) return directoryOperators;
+    const sec = (liveData?.sectors ?? []).find((s) => s.id === sectorIdFilter);
+    const secOpSet = new Set(sec?.operatorIds ?? []);
+    return directoryOperators.filter(
+      (op) =>
+        op.operatorId === opIdFilter ||
+        secOpSet.has(op.operatorId) ||
+        Boolean(op.sectorIds?.includes(sectorIdFilter))
+    );
+  }, [directoryOperators, sectorIdFilter, liveData?.sectors, opIdFilter]);
+
+  // Encontrar conversa selecionada (busca no dataset completo retornado para não desmontar o Modo Espião abruptamente)
   const allConvs = useMemo(
     () => [
       ...(liveData?.operators.flatMap((op) => op.conversations) ?? []),
@@ -6920,41 +7186,16 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
     return selectedConv?.operatorName ?? null;
   }, [liveData?.operators, selectedConvId, selectedConv, aiPersona.name]);
 
-  // Mensagens exibidas: combina fullHistory (quando carregado) com novas mensagens ao vivo sem congelar
+  // Mensagens exibidas no Modo Espião (carregadas sob demanda via /api/gestao/messages)
   const displayedMessages = useMemo(() => {
     if (!selectedConv) return [];
-    if (fullHistoryConvId !== selectedConvId || fullHistory.length === 0) {
-      return selectedConv.messages;
+    if (spyMessagesConvId === selectedConvId) {
+      return spyMessages;
     }
-    const existingIds = new Set(fullHistory.map((m) => m.id));
-    const newerFromLive = selectedConv.messages.filter((m) => !existingIds.has(m.id));
-    return [...fullHistory, ...newerFromLive];
-  }, [selectedConv, fullHistoryConvId, selectedConvId, fullHistory]);
+    return selectedConv.messages ?? [];
+  }, [selectedConv, spyMessagesConvId, selectedConvId, spyMessages]);
 
-  // Filtro de busca, funil CRM e categoria na sidebar
   const searchLower = searchTerm.toLowerCase().trim();
-  const livePhonePlan = useMemo(
-    () => (searchLower ? buildPhoneQueryPlan(searchTerm) : null),
-    [searchLower, searchTerm]
-  );
-  const matchesSearch = useCallback(
-    (c: LiveConversation) =>
-      !searchLower ||
-      c.contactName.toLowerCase().includes(searchLower) ||
-      matchesPhoneSearchQuery(c.contactPhone, livePhonePlan) ||
-      (c.accountName?.toLowerCase().includes(searchLower) ?? false) ||
-      (c.activeDeal?.title.toLowerCase().includes(searchLower) ?? false),
-    [searchLower, livePhonePlan]
-  );
-
-  const matchesPipeline = useCallback(
-    (c: LiveConversation) => {
-      if (!pipelineFilter) return true;
-      if (pipelineFilter === "__with_deal__") return Boolean(c.activeDeal);
-      return c.activeDeal?.pipelineId === pipelineFilter;
-    },
-    [pipelineFilter]
-  );
 
   const matchesSidebarCategory = useCallback(
     (c: LiveConversation) => {
@@ -6976,36 +7217,14 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
     [sidebarFilter, searchLower]
   );
 
-  const filterConv = useCallback(
-    (c: LiveConversation) =>
-      matchesSearch(c) && matchesPipeline(c) && matchesSidebarCategory(c),
-    [matchesSearch, matchesPipeline, matchesSidebarCategory]
-  );
+  // Operadores filtrados e ordenados por urgência/atividade no recorte ativo
+  const filteredOperators = filteredDataset.operators;
 
-  // Lista de operadores ordenada por urgência e atividade real hoje
-  const allOperators = useMemo(() => {
-    const ops = liveData?.operators ?? [];
-    return [...ops].sort((a, b) => {
-      const waitDiff = (b.waitingReplyCount ?? 0) - (a.waitingReplyCount ?? 0);
-      if (waitDiff !== 0) return waitDiff;
-      const activeDiff = (b.activeTodayCount ?? 0) - (a.activeTodayCount ?? 0);
-      if (activeDiff !== 0) return activeDiff;
-      if (Boolean(a.isOnline) !== Boolean(b.isOnline)) {
-        return a.isOnline ? -1 : 1;
-      }
-      const convDiff = b.conversations.length - a.conversations.length;
-      if (convDiff !== 0) return convDiff;
-      return a.operatorName.localeCompare(b.operatorName, "pt-BR");
-    });
-  }, [liveData?.operators]);
-
-  // Contadores para as pílulas da sidebar (respeitando filtro de funil comercial quando ativo)
+  // Contadores para as pílulas da sidebar (100% alinhados com o recorte filtrado)
   const filterCounts = useMemo(() => {
-    const opConvs = (liveData?.operators.flatMap((o) => o.conversations) ?? []).filter(
-      matchesPipeline
-    );
-    const queueCount = (liveData?.unassigned ?? []).filter(matchesPipeline).length;
-    const autoCount = (liveData?.automation ?? []).filter(matchesPipeline).length;
+    const opConvs = filteredDataset.operators.flatMap((o) => o.conversations);
+    const queueCount = filteredDataset.unassigned.length;
+    const autoCount = filteredDataset.automation.length;
 
     const waitingCount =
       opConvs.filter((c) => c.isUnanswered).length + queueCount;
@@ -7026,46 +7245,85 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
     const allCount = opConvs.length + queueCount + autoCount;
 
     return { activeCount, waitingCount, unstartedCount, allCount };
-  }, [liveData, matchesPipeline]);
+  }, [filteredDataset]);
 
-  // Mapas auxiliares para o DealDetailModal
+  // Mapas auxiliares para o DealDetailModal (sempre com todos os operadores do tenant)
   const operatorsMapForDeal = useMemo(() => {
     const map: Record<string, string> = {};
-    for (const op of liveData?.operators ?? []) {
+    for (const op of directoryOperators) {
       map[op.operatorId] = op.operatorName;
     }
     return map;
-  }, [liveData?.operators]);
+  }, [directoryOperators]);
 
   const operatorsListForDeal = useMemo(
     () =>
-      (liveData?.operators ?? []).map((op) => ({
+      directoryOperators.map((op) => ({
         id: op.operatorId,
         name: op.operatorName,
       })),
-    [liveData?.operators]
+    [directoryOperators]
   );
 
-  // Ref para auto-scroll do chat
+  // Ref para auto-scroll do chat (rola apenas quando muda a conversa ou chega mensagem nova)
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
+  const lastMsgId = displayedMessages[displayedMessages.length - 1]?.id ?? null;
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [selectedConvId, displayedMessages.length]);
+  }, [selectedConvId, lastMsgId]);
 
   const filteredUnassigned = useMemo(
-    () => (liveData?.unassigned ?? []).filter(filterConv),
-    [liveData?.unassigned, filterConv]
+    () => filteredDataset.unassigned.filter(matchesSidebarCategory),
+    [filteredDataset.unassigned, matchesSidebarCategory]
   );
 
   const filteredAutomation = useMemo(
-    () =>
-      sidebarFilter === "unstarted"
-        ? []
-        : (liveData?.automation ?? []).filter(
-            (c) => matchesSearch(c) && matchesPipeline(c)
-          ),
-    [liveData?.automation, sidebarFilter, matchesSearch, matchesPipeline]
+    () => (sidebarFilter === "unstarted" ? [] : filteredDataset.automation),
+    [filteredDataset.automation, sidebarFilter]
   );
+
+  const activeFilterLabels = useMemo(() => {
+    const labels: string[] = [];
+    if (dateFilter) {
+      labels.push(new Date(dateFilter + "T12:00:00").toLocaleDateString("pt-BR"));
+    }
+    if (opIdFilter) {
+      const name =
+        directoryOperators.find((o) => o.operatorId === opIdFilter)?.operatorName ??
+        "Operador";
+      labels.push(name);
+    }
+    if (sectorIdFilter) {
+      const secName =
+        (liveData?.sectors ?? []).find((s) => s.id === sectorIdFilter)?.name ??
+        "Setor";
+      labels.push(`Setor: ${secName}`);
+    }
+    if (pipelineFilter) {
+      const pipeName =
+        pipelineFilter === "__with_deal__"
+          ? "Com Negócio Aberto"
+          : (liveData?.pipelines?.find((p) => p.id === pipelineFilter)?.name ??
+            knownPipelines[pipelineFilter] ??
+            "Funil CRM");
+      labels.push(pipeName);
+    }
+    if (searchLower) {
+      labels.push(`Busca: "${searchTerm.trim()}"`);
+    }
+    return labels;
+  }, [
+    dateFilter,
+    opIdFilter,
+    sectorIdFilter,
+    pipelineFilter,
+    searchLower,
+    searchTerm,
+    directoryOperators,
+    liveData?.sectors,
+    liveData?.pipelines,
+    knownPipelines,
+  ]);
 
   const selectedOperatorTyping = selectedConvId
     ? operatorTypingStatus?.[selectedConvId]
@@ -7107,16 +7365,25 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
             <LiveOperatorSelect
               value={opIdFilter}
               onChange={setOpIdFilter}
-              operators={allOperators}
+              operators={selectableOperators}
             />
           </div>
+
+          {/* Filtro Real de Setor / Equipe */}
+          {(liveData?.sectors?.length ?? 0) > 0 && (
+            <LiveSectorSelect
+              value={sectorIdFilter}
+              onChange={setSectorIdFilter}
+              sectors={liveData?.sectors ?? []}
+            />
+          )}
 
           {/* Filtro Executivo de Funil Comercial (CRM Pipeline) */}
           <LivePipelineSelect
             value={pipelineFilter}
             onChange={setPipelineFilter}
             pipelines={liveData?.pipelines ?? []}
-            openDealsCount={liveData?.summary?.openDealsInLiveCount ?? 0}
+            openDealsCount={filteredDataset.summary.openDealsInLiveCount}
           />
 
           {/* Pílulas de Filtro Operacional com animação suave */}
@@ -7161,7 +7428,7 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
           </div>
 
           {/* Chips de filtros ativos */}
-          {(dateFilter || opIdFilter || pipelineFilter) && (
+          {(dateFilter || opIdFilter || sectorIdFilter || pipelineFilter) && (
             <div className="flex items-center gap-1 flex-wrap pt-0.5">
               {dateFilter && (
                 <span className="inline-flex items-center gap-1 text-[10px] bg-primary/10 text-primary border border-primary/20 px-2 py-0.5 rounded-full font-semibold">
@@ -7177,7 +7444,7 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
               )}
               {opIdFilter && (
                 <span className="inline-flex items-center gap-1 text-[10px] bg-primary/10 text-primary border border-primary/20 px-2 py-0.5 rounded-full font-semibold">
-                  {allOperators.find((o) => o.operatorId === opIdFilter)?.operatorName ??
+                  {directoryOperators.find((o) => o.operatorId === opIdFilter)?.operatorName ??
                     "Operador"}
                   <button
                     type="button"
@@ -7188,11 +7455,25 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
                   </button>
                 </span>
               )}
+              {sectorIdFilter && (
+                <span className="inline-flex items-center gap-1 text-[10px] bg-primary/10 text-primary border border-primary/20 px-2 py-0.5 rounded-full font-semibold">
+                  {(liveData?.sectors ?? []).find((s) => s.id === sectorIdFilter)?.name ??
+                    "Setor"}
+                  <button
+                    type="button"
+                    onClick={() => setSectorIdFilter("")}
+                    className="cursor-pointer hover:opacity-75"
+                  >
+                    <X className="h-2.5 w-2.5" />
+                  </button>
+                </span>
+              )}
               {pipelineFilter && (
                 <span className="inline-flex items-center gap-1 text-[10px] bg-primary/10 text-primary border border-primary/20 px-2 py-0.5 rounded-full font-semibold">
                   {pipelineFilter === "__with_deal__"
-                    ? "Com Negócio"
+                    ? "Com Negócio Aberto"
                     : (liveData?.pipelines?.find((p) => p.id === pipelineFilter)?.name ??
+                      knownPipelines[pipelineFilter] ??
                       "Funil")}
                   <button
                     type="button"
@@ -7232,14 +7513,14 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
 
         {/* Lista de conversas agrupadas */}
         <div className="flex-1 overflow-y-auto scrollbar-thin p-2 space-y-3.5">
-          {loading && (
+          {loading && !liveData && (
             <div className="flex items-center justify-center py-8">
               <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground/40" />
             </div>
           )}
 
           {/* ── Seção: Na Fila (sem operador) ─────────────────────────────── */}
-          {!loading && !opIdFilter && filteredUnassigned.length > 0 && (
+          {(!loading || liveData) && !opIdFilter && filteredUnassigned.length > 0 && (
             <div className="space-y-1">
               <div className="flex items-center justify-between px-2 py-1 rounded-lg bg-primary/5 border border-primary/15">
                 <div className="flex items-center gap-1.5">
@@ -7266,7 +7547,7 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
           )}
 
           {/* ── Seção: Com Fagner / Valentina (automação — espiável inline) ── */}
-          {!loading && !opIdFilter && filteredAutomation.length > 0 && (
+          {(!loading || liveData) && !opIdFilter && filteredAutomation.length > 0 && (
             <div className="space-y-1">
               <div className="flex items-center justify-between px-2 py-1">
                 <div className="flex items-center gap-1.5">
@@ -7294,12 +7575,11 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
           )}
 
           {/* ── Seção: Operadores ── */}
-          {!loading &&
-            allOperators
-              .filter((op) => (opIdFilter ? op.operatorId === opIdFilter : true))
+          {(!loading || liveData) &&
+            filteredOperators
               .map((op) => ({
                 op,
-                filtered: op.conversations.filter(filterConv),
+                filtered: op.conversations.filter(matchesSidebarCategory),
               }))
               .filter(({ op, filtered }) => {
                 if (opIdFilter) return true;
@@ -7363,7 +7643,7 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
                       <div className="flex items-center gap-1 shrink-0">
                         {waitingCount > 0 && (
                           <SystemTooltip
-                            content={`${waitingCount} cliente(s) aguardando resposta deste consultor`}
+                            content={`${waitingCount} cliente(s) aguardando resposta deste consultor no filtro atual`}
                           >
                             <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded-full bg-primary text-primary-foreground animate-pulse">
                               {waitingCount} esp.
@@ -7371,7 +7651,7 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
                           </SystemTooltip>
                         )}
                         <SystemTooltip
-                          content={`${activeToday} ativo(s) hoje · ${totalCarteira} total na carteira`}
+                          content={`${activeToday} ativo(s) hoje · ${totalCarteira} no recorte atual`}
                         >
                           <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
                             {sidebarFilter === "all" || sidebarFilter === "unstarted"
@@ -7386,8 +7666,8 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
                       <p className="text-[10px] text-muted-foreground pl-4 italic py-0.5">
                         {sidebarFilter === "active"
                           ? totalCarteira > 0
-                            ? `Sem conversa ativa hoje (${totalCarteira} na carteira)`
-                            : "Sem conversas ativas"
+                            ? `Sem conversa ativa hoje (${totalCarteira} no recorte)`
+                            : "Sem conversas neste filtro"
                           : "Nenhum atendimento neste filtro"}
                       </p>
                     ) : (
@@ -7406,10 +7686,12 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
                 );
               })}
 
-          {!loading &&
+          {(!loading || liveData) &&
             filteredUnassigned.length === 0 &&
             filteredAutomation.length === 0 &&
-            allOperators.every((op) => op.conversations.filter(filterConv).length === 0) && (
+            filteredOperators.every(
+              (op) => op.conversations.filter(matchesSidebarCategory).length === 0
+            ) && (
               <div className="flex flex-col items-center justify-center gap-2 py-10 px-4 text-center text-muted-foreground">
                 <Radio className="h-7 w-7 opacity-25" />
                 <span className="text-xs font-semibold text-foreground">
@@ -7432,23 +7714,28 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
         {lastUpdated && (
           <div className="px-3 py-2 border-t border-line shrink-0 flex items-center justify-between">
             <div className="flex items-center gap-1.5">
-              <span className="relative flex h-1.5 w-1.5">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
-                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-primary" />
-              </span>
+              {isRefreshing ? (
+                <RefreshCw className="h-2.5 w-2.5 animate-spin text-primary" />
+              ) : (
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-primary" />
+                </span>
+              )}
               <span className="text-[9px] text-muted-foreground">
-                Atualizado às{" "}
-                {lastUpdated.toLocaleTimeString("pt-BR", {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                  second: "2-digit",
-                })}
+                {isRefreshing
+                  ? "Atualizando..."
+                  : `Atualizado às ${lastUpdated.toLocaleTimeString("pt-BR", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      second: "2-digit",
+                    })}`}
               </span>
             </div>
             <motion.button
               type="button"
               whileTap={{ scale: 0.94 }}
-              onClick={fetchLive}
+              onClick={() => void fetchLive({ isPoll: false })}
               className="text-[9px] font-bold text-primary hover:underline cursor-pointer"
             >
               Atualizar
@@ -7570,7 +7857,7 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
                   {/* Popover de Intervenção Direta (Atribuir / Transferir / Devolver à Fila / Finalizar) */}
                   <LiveSupervisorInterventionPopover
                     conv={selectedConv}
-                    operators={allOperators}
+                    operators={directoryOperators}
                     onIntervene={handleSupervisoryIntervention}
                     busy={interveningConvId === selectedConv.id}
                   />
@@ -7657,6 +7944,23 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
                           .join(" · ")}
                       </span>
                     )}
+                    {selectedConv.activeDeal.operatorId &&
+                      selectedConv.operatorId &&
+                      selectedConv.activeDeal.operatorId !== selectedConv.operatorId &&
+                      selectedConv.activeDeal.operatorName && (
+                        <SystemTooltip
+                          content={`O atendimento no WhatsApp está com ${
+                            selectedOpName || "outro consultor"
+                          }, mas o card vinculado no CRM pertence a ${
+                            selectedConv.activeDeal.operatorName
+                          }.`}
+                        >
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-primary bg-primary/10 border border-primary/25 px-2 py-0.5 rounded-md">
+                            <User className="h-2.5 w-2.5 shrink-0" />
+                            Card CRM: {selectedConv.activeDeal.operatorName}
+                          </span>
+                        </SystemTooltip>
+                      )}
                   </div>
                 ) : (
                   <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
@@ -7676,35 +7980,16 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
 
               {/* Balões de Mensagem com suporte a mídia, transcrição e separadores de data */}
               <div className="flex-1 overflow-y-auto scrollbar-thin flex flex-col">
-                {/* Banner de carregar histórico completo */}
-                {selectedConv.messages.length >= 30 && fullHistoryConvId !== selectedConvId && (
-                  <div className="px-5 pt-3 pb-1 shrink-0">
-                    <motion.button
-                      type="button"
-                      whileHover={{ scale: 1.005 }}
-                      whileTap={{ scale: 0.99 }}
-                      onClick={() => loadFullHistory(selectedConvId!)}
-                      disabled={fullHistoryLoading}
-                      className="w-full flex items-center justify-center gap-2 py-1.5 rounded-xl border border-dashed border-border bg-muted/30 hover:bg-muted/60 text-[11px] font-semibold text-muted-foreground hover:text-foreground transition cursor-pointer disabled:opacity-50"
-                    >
-                      {fullHistoryLoading ? (
-                        <>
-                          <RefreshCw className="h-3.5 w-3.5 animate-spin" /> Carregando histórico
-                          completo...
-                        </>
-                      ) : (
-                        <>
-                          <Clock className="h-3.5 w-3.5" /> Carregar histórico anterior completo
-                          (exibindo últimas {selectedConv.messages.length})
-                        </>
-                      )}
-                    </motion.button>
-                  </div>
-                )}
-
-                {/* Timeline de Mensagens */}
+                {/* Timeline de Mensagens (carregadas sob demanda via /api/gestao/messages) */}
                 <div className="flex-1 overflow-y-auto scrollbar-thin p-5 space-y-2.5">
-                  {displayedMessages.length === 0 ? (
+                  {spyMessagesLoading && displayedMessages.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2">
+                      <RefreshCw className="h-5 w-5 animate-spin text-primary/60" />
+                      <span className="text-xs font-medium">
+                        Carregando mensagens da conversa...
+                      </span>
+                    </div>
+                  ) : displayedMessages.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2">
                       <MessageSquare className="h-8 w-8 opacity-20" />
                       <span className="text-xs">Nenhuma mensagem registrada nesta conversa</span>
@@ -7810,7 +8095,7 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
                       mensagens) · O cliente nunca vê os sussurros internos
                     </span>
                   </div>
-                  {fullHistoryConvId === selectedConvId && (
+                  {spyMessagesConvId === selectedConvId && (
                     <span className="text-primary font-semibold">Histórico completo ativo</span>
                   )}
                 </div>
@@ -7826,8 +8111,12 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
               className="flex-1 flex flex-col min-h-0 overflow-hidden"
             >
               <LiveExecutiveOverview
-                liveData={liveData}
+                dataset={filteredDataset}
+                directoryOperators={directoryOperators}
+                hasData={Boolean(liveData)}
                 loading={loading}
+                isRefreshing={isRefreshing}
+                activeFilterLabels={activeFilterLabels}
                 aiPersonaName={aiPersona.name}
                 onSelectConversation={(convId) => setSelectedConvId(convId)}
                 onFilterOperator={(opId) => {
@@ -7853,7 +8142,7 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
             isOpen={Boolean(inspectDealId)}
             onClose={() => setInspectDealId(null)}
             onDealUpdated={() => {
-              fetchLive();
+              void fetchLive({ isPoll: false });
             }}
             onOpenConversation={(convId) => {
               setInspectDealId(null);
@@ -7879,8 +8168,12 @@ type LiveRadarMode = "waiting" | "failed" | "expiring";
  * e Matriz de Produtividade Real do Dia por Consultor.
  */
 function LiveExecutiveOverview({
-  liveData,
+  dataset,
+  directoryOperators,
+  hasData,
   loading,
+  isRefreshing,
+  activeFilterLabels,
   aiPersonaName,
   onSelectConversation,
   onFilterOperator,
@@ -7890,8 +8183,12 @@ function LiveExecutiveOverview({
   interveningConvId,
   onInspectDeal,
 }: {
-  liveData: LiveData | null;
+  dataset: FilteredLiveDataset;
+  directoryOperators: LiveOperatorDirectoryItem[];
+  hasData: boolean;
   loading: boolean;
+  isRefreshing: boolean;
+  activeFilterLabels: string[];
   aiPersonaName: string;
   onSelectConversation: (convId: string) => void;
   onFilterOperator: (opId: string) => void;
@@ -7907,7 +8204,7 @@ function LiveExecutiveOverview({
 }) {
   const [radarMode, setRadarMode] = useState<LiveRadarMode>("waiting");
 
-  if (loading && !liveData) {
+  if (loading && !hasData) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted-foreground">
         <RefreshCw className="h-6 w-6 animate-spin text-primary/50" />
@@ -7916,10 +8213,10 @@ function LiveExecutiveOverview({
     );
   }
 
-  const operators = liveData?.operators ?? [];
-  const unassigned = liveData?.unassigned ?? [];
-  const automation = liveData?.automation ?? [];
-  const summary = liveData?.summary;
+  const operators = dataset.operators;
+  const unassigned = dataset.unassigned;
+  const automation = dataset.automation;
+  const summary = dataset.summary;
 
   const allEnrichedConvs = [
     ...unassigned.map((c) => ({ ...c, isQueue: true })),
@@ -7937,7 +8234,7 @@ function LiveExecutiveOverview({
     })),
   ];
 
-  // Modo 1: Clientes aguardando resposta + Fila sem consultor
+  // Modo 1: Clientes aguardando resposta + Fila sem consultor (já 100% dentro dos filtros ativos)
   const waitingConvs = allEnrichedConvs
     .filter((c) => c.isQueue || c.isUnanswered)
     .sort((a, b) => b.waitingMinutes - a.waitingMinutes);
@@ -7962,26 +8259,15 @@ function LiveExecutiveOverview({
       return aRem - bRem;
     });
 
-  const waitingCount =
-    summary?.waitingReplyCount ?? waitingConvs.filter((c) => !c.isQueue).length;
-  const criticalWaitCount =
-    summary?.criticalWaitCount ?? waitingConvs.filter((c) => c.waitingMinutes >= 15).length;
-  const maxWaitMinutes =
-    summary?.maxWaitMinutes ??
-    waitingConvs.reduce((m, c) => (c.waitingMinutes > m ? c.waitingMinutes : m), 0);
-  const activeTodayCount =
-    summary?.activeTodayCount ??
-    operators.reduce((acc, op) => acc + (op.activeTodayCount ?? 0), 0);
-  const totalSentToday =
-    summary?.totalSentMessagesToday ??
-    operators.reduce((acc, op) => acc + (op.sentMessagesToday ?? 0), 0);
-  const onlineOpsCount =
-    summary?.onlineOperators ?? operators.filter((o) => o.isOnline).length;
-  const awaitingFirstCount =
-    summary?.awaitingFirstContactCount ??
-    operators.reduce((acc, op) => acc + (op.awaitingFirstContactCount ?? 0), 0);
-  const activePipelineValue = summary?.activePipelineValue ?? 0;
-  const openDealsCount = summary?.openDealsInLiveCount ?? 0;
+  const waitingCount = summary.waitingReplyCount;
+  const criticalWaitCount = summary.criticalWaitCount;
+  const maxWaitMinutes = summary.maxWaitMinutes;
+  const activeTodayCount = summary.activeTodayCount;
+  const totalSentToday = summary.totalSentMessagesToday;
+  const onlineOpsCount = summary.onlineOperators;
+  const awaitingFirstCount = summary.awaitingFirstContactCount;
+  const activePipelineValue = summary.activePipelineValue;
+  const openDealsCount = summary.openDealsInLiveCount;
 
   const radarList =
     radarMode === "waiting"
@@ -7995,14 +8281,24 @@ function LiveExecutiveOverview({
       {/* Cabeçalho do Cockpit */}
       <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-line">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <h2 className="text-sm font-extrabold text-foreground">
               Cockpit Executivo · Operação Ao Vivo
             </h2>
             <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20 text-primary text-[10px] font-extrabold">
-              <span className="h-1.5 w-1.5 rounded-full bg-primary animate-ping" />
+              {isRefreshing ? (
+                <RefreshCw className="h-2.5 w-2.5 animate-spin" />
+              ) : (
+                <span className="h-1.5 w-1.5 rounded-full bg-primary animate-ping" />
+              )}
               TEMPO REAL
             </span>
+            {activeFilterLabels.length > 0 && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted border border-border text-[10px] font-bold text-foreground">
+                <Filter className="h-2.5 w-2.5 text-primary shrink-0" />
+                {activeFilterLabels.join(" · ")}
+              </span>
+            )}
           </div>
           <p className="text-[11px] text-muted-foreground mt-0.5">
             Inspecione atendimentos em tempo real, intervenha na fila e acompanhe a produtividade do dia por consultor
@@ -8012,7 +8308,8 @@ function LiveExecutiveOverview({
         <div className="flex items-center gap-2 text-[10px]">
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-muted/60 border border-border text-muted-foreground font-semibold">
             <Send className="h-3 w-3 text-primary" />
-            <strong className="text-foreground">{totalSentToday}</strong> envios hoje pela equipe
+            <strong className="text-foreground">{totalSentToday}</strong> envios hoje{" "}
+            {selectedOpId ? "no recorte" : "pela equipe"}
           </span>
         </div>
       </div>
@@ -8315,6 +8612,28 @@ function LiveExecutiveOverview({
                                 </span>
                               )}
 
+                              {conv.sectorName && (
+                                <span className="px-1.5 py-0.2 rounded bg-muted text-muted-foreground font-semibold">
+                                  {conv.sectorName}
+                                </span>
+                              )}
+
+                              {conv.activeDeal?.operatorId &&
+                                conv.operatorId &&
+                                conv.activeDeal.operatorId !== conv.operatorId &&
+                                conv.activeDeal.operatorName && (
+                                  <SystemTooltip
+                                    content={`Atendimento no chat com ${
+                                      conv.operatorName || "este consultor"
+                                    }, mas o card CRM pertence a ${conv.activeDeal.operatorName}.`}
+                                  >
+                                    <span className="inline-flex items-center gap-0.5 text-primary font-bold">
+                                      <User className="h-2.5 w-2.5" />
+                                      Card CRM: {conv.activeDeal.operatorName}
+                                    </span>
+                                  </SystemTooltip>
+                                )}
+
                               {radarMode === "failed" && (conv.failedMessagesCount ?? 0) > 0 && (
                                 <span className="inline-flex items-center gap-1 text-primary font-bold">
                                   <AlertTriangle className="h-2.5 w-2.5" />
@@ -8361,7 +8680,7 @@ function LiveExecutiveOverview({
 
                           <LiveSupervisorInterventionPopover
                             conv={conv}
-                            operators={operators}
+                            operators={directoryOperators}
                             onIntervene={onIntervene}
                             busy={interveningConvId === conv.id}
                             compact
@@ -8404,7 +8723,18 @@ function LiveExecutiveOverview({
           </div>
 
           <div className="divide-y divide-line max-h-[410px] overflow-y-auto scrollbar-thin">
-            {operators.map((op) => {
+            {operators.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 px-4 text-center text-muted-foreground gap-1.5">
+                <Users className="h-7 w-7 opacity-25" />
+                <p className="text-xs font-bold text-foreground">
+                  Nenhum consultor neste filtro
+                </p>
+                <p className="text-[10px]">
+                  Ajuste o filtro de setor, funil ou busca para ver outros consultores.
+                </p>
+              </div>
+            ) : (
+              operators.map((op) => {
               const isSelectedOp = selectedOpId === op.operatorId;
               const waiting = op.waitingReplyCount ?? 0;
               const activeToday = op.activeTodayCount ?? 0;
@@ -8526,7 +8856,8 @@ function LiveExecutiveOverview({
                   </div>
                 </motion.div>
               );
-            })}
+            })
+            )}
           </div>
         </div>
       </div>
@@ -8674,6 +9005,29 @@ function LiveConvCard({
               </span>
             </span>
           )}
+          {conv.activeDeal?.operatorId &&
+            conv.operatorId &&
+            conv.activeDeal.operatorId !== conv.operatorId &&
+            conv.activeDeal.operatorName && (
+              <SystemTooltip
+                content={`Atendimento no chat com ${
+                  conv.operatorName || "este consultor"
+                }, mas o card CRM pertence a ${conv.activeDeal.operatorName}.`}
+              >
+                <span
+                  className={`text-[8px] font-bold px-1 py-0.2 rounded truncate shrink-0 inline-flex items-center gap-0.5 ${
+                    isSelected
+                      ? "bg-white/15 text-white/95"
+                      : "bg-muted text-muted-foreground border border-border"
+                  }`}
+                >
+                  <User className="h-2 w-2 shrink-0" />
+                  <span className="truncate max-w-[70px]">
+                    {conv.activeDeal.operatorName.split(" ")[0]}
+                  </span>
+                </span>
+              </SystemTooltip>
+            )}
         </div>
       )}
     </motion.button>
