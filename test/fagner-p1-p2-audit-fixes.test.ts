@@ -5,6 +5,7 @@ import {
   DEFAULT_INDUSTRIAL_SILENCE_CONFIG,
   evaluateIndustrialSilence,
   findLatestClientRescheduleMs,
+  isBotClosingOrInformativeMessage,
   parseIndustrialSilenceConfig,
 } from "../src/lib/triage/industrial-silence-policy";
 import {
@@ -540,6 +541,120 @@ describe("Correções P1/P2 da Auditoria Fagner — Itens 2, 3, 4 e 5 (23/11/202
       );
       expect(sdrEngineSrc).toContain("evaluateIndustrialMachineSuggestionGate");
       expect(sdrEngineSrc).toContain("suppressIndustrialModelListing");
+    });
+  });
+
+  describe("Bloqueio de Follow-up de Silêncio pós-Informativo (BRUNA) e pós-Despedida (Carlos)", () => {
+    it("não cobra silêncio em fluxo informativo (5B_CURRICULO / 5C_COMPRAS / Concluído (Informativo)) — caso BRUNA GABRIELE", () => {
+      const decisionBySubflow = evaluateIndustrialSilence({
+        now: new Date("2026-11-24T13:30:00.000Z"),
+        withinSchedule: true,
+        flow: {
+          id: "fs-bruna",
+          tenantId: "tecfag",
+          conversationId: "conv-lc-da8ce890-6573-40e3-a703-d4275f21ac79",
+          startedAt: new Date("2026-11-24T11:00:00.000Z"),
+          outcome: "in_progress",
+          currentStep: "Concluído (Informativo)",
+          metadata: { subflow: "5B_CURRICULO", followUpStage: 0 },
+        },
+        conversation: { id: "conv-lc-da8ce890-6573-40e3-a703-d4275f21ac79", queueState: "automacao", operatorId: null },
+        recentMessages: [
+          { id: "m1", senderType: "client", sentAt: "2026-11-24T11:01:00.000Z", content: "Como faço pra enviar currículo" },
+          { id: "m2", senderType: "bot", sentAt: "2026-11-24T11:01:30.000Z", content: "Olá, Bruna. O setor responsável pelo recebimento de currículos é o nosso RH. Registrei seu contato e interesse." },
+          { id: "m3", senderType: "bot", sentAt: "2026-11-24T11:01:31.000Z", content: "Posso ajudar com mais alguma informação sobre nossos equipamentos ou serviços?" },
+        ],
+      });
+      expect(decisionBySubflow.action).toBe("none");
+      expect(decisionBySubflow.reason).toBe("informative_or_resolved_flow");
+
+      // Mesmo sem subflow/currentStep preenchidos, a pergunta protocolar de cortesia NÃO dispara follow-up
+      const decisionByMessage = evaluateIndustrialSilence({
+        now: new Date("2026-11-24T13:30:00.000Z"),
+        withinSchedule: true,
+        flow: {
+          id: "fs-bruna-2",
+          tenantId: "tecfag",
+          conversationId: "conv-lc-da8ce890-6573-40e3-a703-d4275f21ac79",
+          startedAt: new Date("2026-11-24T11:00:00.000Z"),
+          outcome: "in_progress",
+          metadata: { followUpStage: 0 },
+        },
+        conversation: { id: "conv-lc-da8ce890-6573-40e3-a703-d4275f21ac79", queueState: "automacao", operatorId: null },
+        recentMessages: [
+          { id: "m1", senderType: "client", sentAt: "2026-11-24T11:01:00.000Z", content: "Como faço pra enviar currículo" },
+          { id: "m2", senderType: "bot", sentAt: "2026-11-24T11:01:30.000Z", content: "Posso ajudar com mais alguma informação sobre nossos equipamentos ou serviços?" },
+        ],
+      });
+      expect(decisionByMessage.action).toBe("none");
+      expect(decisionByMessage.reason).toBe("bot_already_closed_conversation");
+    });
+
+    it("não cobra silêncio após despedida cordial do próprio Fagner — caso Carlos", () => {
+      const decision = evaluateIndustrialSilence({
+        now: new Date("2026-11-23T19:00:00.000Z"),
+        withinSchedule: true,
+        flow: {
+          id: "fs-carlos",
+          tenantId: "tecfag",
+          conversationId: "conv-rdc-551497125011",
+          startedAt: new Date("2026-11-23T17:00:00.000Z"),
+          outcome: "in_progress",
+          currentStep: "Em Qualificação",
+          metadata: { followUpStage: 0 },
+        },
+        conversation: { id: "conv-rdc-551497125011", queueState: "automacao", operatorId: null },
+        recentMessages: [
+          { id: "m1", senderType: "client", sentAt: "2026-11-23T17:45:11.000Z", content: "[MEDIA:audio]" },
+          { id: "m2", senderType: "bot", sentAt: "2026-11-23T17:45:52.000Z", content: "Compreendido, Carlos. Agradeço o retorno." },
+          { id: "m3", senderType: "bot", sentAt: "2026-11-23T17:45:52.100Z", content: "Ficamos à disposição para qualquer necessidade futura. Um abraço." },
+        ],
+      });
+      expect(decision.action).toBe("none");
+      expect(decision.reason).toBe("bot_already_closed_conversation");
+    });
+
+    it("preserva follow-up normal de silêncio quando o Fagner fez uma pergunta real de qualificação", () => {
+      expect(
+        isBotClosingOrInformativeMessage(
+          "Ficamos à disposição para ajudar! Para agilizar, qual produto você pretende envasar e qual a sua produção diária?",
+        ),
+      ).toBe(false);
+
+      const decision = evaluateIndustrialSilence({
+        now: new Date("2026-11-24T13:10:00.000Z"),
+        withinSchedule: true,
+        flow: {
+          id: "fs-normal",
+          tenantId: "tecfag",
+          conversationId: "conv-wa-normal",
+          startedAt: new Date("2026-11-24T12:00:00.000Z"),
+          outcome: "in_progress",
+          currentStep: "Em Qualificação",
+          metadata: { followUpStage: 0 },
+        },
+        conversation: { id: "conv-wa-normal", queueState: "automacao", operatorId: null },
+        recentMessages: [
+          { id: "m1", senderType: "client", sentAt: "2026-11-24T12:01:00.000Z", content: "Quero uma seladora" },
+          { id: "m2", senderType: "bot", sentAt: "2026-11-24T12:01:30.000Z", content: "Para te ajudar melhor, o que você vai embalar e qual a produção diária aproximada?" },
+        ],
+      });
+      expect(decision.action).toBe("send_followup");
+      expect(decision.nextStage).toBe(1);
+    });
+
+    it("integração: sdr-followup-engine passa currentStep e sdr-engine encerra fluxos informativos e despedidas cordiais", () => {
+      const followUpSrc = fs.readFileSync(
+        path.resolve(process.cwd(), "src/lib/valentina/sdr-followup-engine.ts"),
+        "utf8",
+      );
+      const sdrEngineSrc = fs.readFileSync(
+        path.resolve(process.cwd(), "src/lib/valentina/sdr-engine.ts"),
+        "utf8",
+      );
+      expect(followUpSrc).toContain("currentStep: flow.currentStep");
+      expect(sdrEngineSrc).toContain("isCordialBotClosingTurn");
+      expect(sdrEngineSrc).toContain("isInformativeResolution");
     });
   });
 });

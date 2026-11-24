@@ -437,7 +437,7 @@ Campos disponíveis: ${TECFAG_SDR_DEFAULT_FIELDS.join(", ")}. SETOR / FUNIL DE D
 - Boleto/NF financeira: nome + documento (ou empresa cadastrada confirmada) + necessidade, sem exigir pedido/modelo, ramo ou volume. Pós-Venda: nome + documento (ou empresa cadastrada confirmada) + necessidade, pedido quando disponível, sem bloquear pelo número ausente. Não faça questionário de produção nesses fluxos.
 - 2C_OUTROS: nome + necessidade, encaminhamento financeiro sem negociação comercial e sem pedir CNPJ, ramo ou volume.
 - 5A_CLIENTE: solicite atendimento humano imediatamente, sem exigir dados adicionais.
-- 5B_CURRICULO/5C_COMPRAS: oriente sobre a equipe responsável. Não invente e-mail ou telefone; use somente contato publicado no contexto/configuração. Resolva sem criar oportunidade comercial. Pergunte se há outra necessidade; enquanto houver pergunta pendente mantenha isCompleted false.
+- 5B_CURRICULO/5C_COMPRAS: oriente sobre a equipe responsável. Não invente e-mail ou telefone; use somente contato publicado no contexto/configuração. Resolva de forma objetiva sem criar oportunidade comercial e defina isCompleted true (se o cliente mandar uma nova demanda comercial depois, o atendimento reabre automaticamente).
 - Não invente documento, nome, volume ou confirmação. Silêncio não é confirmação.
 
 ESTILO E CAPACIDADES:

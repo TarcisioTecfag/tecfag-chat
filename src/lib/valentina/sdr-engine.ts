@@ -84,6 +84,7 @@ import {
   parseIndustrialScheduleConfig,
   isWithinIndustrialSchedule,
   buildIndustrialOffHoursClosingNotice,
+  isBotClosingOrInformativeMessage,
 } from "../triage/industrial-silence-policy";
 import { runIndustrialDecisor, lookupIndustrialBlockedFamily } from "../triage/industrial-decisor-runtime";
 import { applyMachineDecision, parseIndustrialCapital, type MachineDecision } from "../triage/industrial-decisor";
@@ -1708,22 +1709,36 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       // ║  A IA jamais pode encerrar a triagem sem dados vitais coletados.   ║
       // ╚══════════════════════════════════════════════════════════════════════╝
       let isCompleted = false;
+      let isCordialBotClosingTurn = false;
       if (isClientDeclinedTurn) {
         isCompleted = true;
       } else if (industrialRoute) {
         const hasPendingQuestion = hasPendingTriageQuestion(aiResult.messagesToSend);
+        const isInformativeResolution = industrialReadiness?.action === "inform";
+        const cordialClosingFromBot =
+          !isInformativeResolution &&
+          !hasPendingQuestion &&
+          !storeTurn &&
+          isBotClosingOrInformativeMessage(aiResult.messagesToSend.join(" "));
         const implicitReadyHandoff =
           Boolean(industrialReadiness?.ready) &&
           !hasPendingQuestion &&
           claimsIndustrialHandoffEffect(aiResult.messagesToSend);
-        isCompleted =
-          !storeTurn &&
-          canFinishIndustrialTriage({
-            route: industrialRoute,
-            data: updatedCollectedData,
-            isCompleted: Boolean(aiResult.isCompleted) || implicitReadyHandoff,
-            hasPendingQuestion,
-          });
+        if (isInformativeResolution) {
+          isCompleted = !storeTurn;
+        } else if (cordialClosingFromBot) {
+          isCordialBotClosingTurn = true;
+          isCompleted = true;
+        } else {
+          isCompleted =
+            !storeTurn &&
+            canFinishIndustrialTriage({
+              route: industrialRoute,
+              data: updatedCollectedData,
+              isCompleted: Boolean(aiResult.isCompleted) || implicitReadyHandoff,
+              hasPendingQuestion,
+            });
+        }
       } else if (hasVitalInformation) {
         // Com dados vitais coletados: aceita conclusão da IA (sem pergunta real pendente) OU transferência explícita
         if ((aiResult.isCompleted && !botIsAskingQuestion) || messagesMentionTransfer) {
@@ -1759,10 +1774,11 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
           if (industrialTriage && industrialRoute) {
             if (!flowState) return false;
-            // Desfechos informativos/não-comerciais (Currículos 5B_CURRICULO, Fornecedores 5C_COMPRAS)
-            // e desistência explícita ("Não, agradeço") concluem de forma limpa:
-            // SEM fila de aprovação SDR, SEM "Perfeito, já coletei tudo!" e SEM card comercial no FUNIL CWR.
-            if (isClientDeclinedTurn || industrialReadiness?.action === "inform") {
+            // Desfechos informativos/não-comerciais (Currículos 5B_CURRICULO, Fornecedores 5C_COMPRAS),
+            // desistência explícita ("Não, agradeço") e despedidas cordiais (ex.: cliente recusou por áudio)
+            // concluem de forma limpa: SEM fila de aprovação SDR, SEM "Perfeito, já coletei tudo!",
+            // SEM follow-up de silêncio 1h depois e SEM card comercial no FUNIL CWR.
+            if (isClientDeclinedTurn || isCordialBotClosingTurn || industrialReadiness?.action === "inform") {
               industrialHandoff = {
                 status: "resolved",
                 operator: null,
@@ -2024,7 +2040,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
               .update(agentFlowStates)
               .set({
                 currentStep: industrialTriage
-                  ? isClientDeclinedTurn
+                  ? isClientDeclinedTurn || isCordialBotClosingTurn
                     ? "Encerrado (Sem interesse)"
                     : industrialReadiness?.action === "inform"
                       ? "Concluído (Informativo)"
@@ -2550,6 +2566,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           // Não cria card comercial para desfechos não-comerciais (currículos, fornecedores, desistências).
           const isNonCommercialOutcome =
             isClientDeclinedTurn ||
+            isCordialBotClosingTurn ||
             industrialReadiness?.action === "inform" ||
             industrialRoute?.subflow === "5B_CURRICULO" ||
             industrialRoute?.subflow === "5C_COMPRAS";

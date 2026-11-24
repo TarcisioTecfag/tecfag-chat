@@ -185,6 +185,7 @@ export class SdrFollowupEngine {
             startedAt: flow.startedAt,
             lastInteractionAt: flow.lastInteractionAt,
             outcome: flow.outcome,
+            currentStep: flow.currentStep,
             completedAt: flow.completedAt,
             followUpStage: Number(meta.followUpStage || 0),
             collectedData,

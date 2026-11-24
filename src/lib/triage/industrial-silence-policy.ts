@@ -410,6 +410,7 @@ export interface IndustrialSilenceEvalInput {
     startedAt?: Date | null;
     lastInteractionAt?: Date | null;
     outcome?: string | null;
+    currentStep?: string | null;
     completedAt?: Date | null;
     followUpStage?: number | null;
     collectedData?: Record<string, unknown> | null;
@@ -439,6 +440,46 @@ export interface IndustrialSilenceEvalDecision {
 
 const CLIENT_RESCHEDULE_PATTERN =
   /\b(?:amanha|na\s+segunda|segunda[\s-]?feira|terca[\s-]?feira|quarta[\s-]?feira|quinta[\s-]?feira|sexta[\s-]?feira|semana\s+que\s+vem|mais\s+tarde|depois\s+(?:eu\s+|te\s+)?(?:mando|envio|passo|falo|conversamos|retorno)|em\s+horario\s+comercial|no\s+proximo\s+dia\s+util|vou\s+(?:precisar\s+)?pegar\s+.*amanha|a\s+gente\s+conversa\s+(?:amanha|segunda|depois))\b/i;
+
+const NON_COMMERCIAL_SILENCE_EXEMPT_SUBFLOWS = new Set([
+  "5B_CURRICULO",
+  "5C_COMPRAS",
+]);
+
+const NON_COMMERCIAL_SILENCE_EXEMPT_STEPS = new Set([
+  "concluido (informativo)",
+  "encerrado (sem interesse)",
+  "ignorado (ura/bot externo)",
+]);
+
+const BOT_PENDING_TRIAGE_QUESTION_PATTERN =
+  /\b(?:qual\s+(?:o\s+|a\s+|seu\s+|sua\s+)?(?:nome|cnpj|cpf|produto|producao|volume|peca|modelo|maquina|equipamento|empresa|ramo|problema)|me\s+inform[ae]|me\s+pass[ae]|pode\s+me\s+(?:informar|passar|dizer|confirmar)|sua\s+empresa\s+e\s+a\b|o\s+que\s+voce\s+(?:vai|precisa|pretende)\s+(?:embalar|envasar|selar|produzir|datar|rotular)|qual\s+a\s+sua\s+producao|qual\s+o\s+volume)\b/i;
+
+const BOT_CLOSING_OR_COURTESY_WRAPUP_PATTERN =
+  /(?:(?:ficamos|continuamos|estamos|fico)\s+a\s+disposicao|(?:para|em)\s+qualquer\s+necessidade\s+futura|quando\s+decidir\s+retomar|caso\s+precise\s+de\s+alguma\s+(?:solucao|equipamento|ajuda)\s+no\s+futuro|conte\s+conosco\s+quando\s+precisar|um\s+abraco[!.\s]*$|posso\s+(?:te\s+)?ajudar\s+com\s+mais\s+alguma\s+(?:informacao|coisa)|ha\s+mais\s+alguma\s+(?:duvida|necessidade)|precisa\s+de\s+mais\s+alguma\s+(?:informacao|coisa))/i;
+
+function normalizeSilenceText(value: unknown): string {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * Detecta quando a própria última resposta do Fagner já encerrou o assunto
+ * cordialmente ("Ficamos à disposição... Um abraço.") ou fez apenas uma pergunta
+ * protocolar de cortesia após orientação informativa ("Posso ajudar com mais alguma informação?"),
+ * sem nenhuma pergunta pendente de qualificação. Nesses casos o motor de silêncio
+ * NÃO deve cobrar o cliente 1h depois.
+ */
+export function isBotClosingOrInformativeMessage(text: string): boolean {
+  const norm = normalizeSilenceText(text);
+  if (!norm) return false;
+  if (BOT_PENDING_TRIAGE_QUESTION_PATTERN.test(norm)) return false;
+  return BOT_CLOSING_OR_COURTESY_WRAPUP_PATTERN.test(norm);
+}
 
 /**
  * Detecta se o cliente pediu explicitamente para continuar em outro momento/dia útil
@@ -500,6 +541,16 @@ export function evaluateIndustrialSilence(
     return { action: "none", reason: "handoff_committed_or_pending", rescuePartialLead: false };
   }
 
+  const normalizedStep = normalizeSilenceText(flow.currentStep);
+  const subflowCode = String(metadata.subflow || "").trim().toUpperCase();
+  if (
+    metadata.handoffStatus === "resolved" ||
+    NON_COMMERCIAL_SILENCE_EXEMPT_SUBFLOWS.has(subflowCode) ||
+    NON_COMMERCIAL_SILENCE_EXEMPT_STEPS.has(normalizedStep)
+  ) {
+    return { action: "none", reason: "informative_or_resolved_flow", rescuePartialLead: false };
+  }
+
   const cycleMsgs = selectRecentCycleMessages(input.recentMessages, flow.startedAt || null, 40);
   if (cycleMsgs.length === 0) {
     return { action: "none", reason: "no_cycle_messages", rescuePartialLead: false };
@@ -523,6 +574,19 @@ export function evaluateIndustrialSilence(
 
   if (lastMsg.senderType !== "bot") {
     return { action: "none", reason: "last_message_not_bot", rescuePartialLead: false };
+  }
+
+  // Coleta todo o último bloco de balões do bot; se ele já se despediu cordialmente
+  // ("Ficamos à disposição... Um abraço.") ou encerrou sem pergunta de triagem,
+  // nunca cobra o cliente novamente via follow-up de silêncio.
+  const trailingBotContents: string[] = [];
+  for (let i = cycleMsgs.length - 1; i >= 0; i--) {
+    if (cycleMsgs[i].senderType !== "bot") break;
+    const content = String(cycleMsgs[i].content || "").trim();
+    if (content) trailingBotContents.unshift(content);
+  }
+  if (trailingBotContents.length > 0 && isBotClosingOrInformativeMessage(trailingBotContents.join(" "))) {
+    return { action: "none", reason: "bot_already_closed_conversation", rescuePartialLead: false };
   }
 
   const lastMsgMs =
