@@ -26,6 +26,7 @@ import {
   type ContactPhoneItem,
 } from "../../../lib/crm/contact-phones";
 import { getContactDealRows } from "../../../lib/crm/contact-deals-query";
+import { isAccountEligibleForCrossContactPropagation } from "../../../lib/crm/generic-account-guard";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -590,7 +591,16 @@ export const Route = createFileRoute("/api/contacts/$contactId")({
                   ),
                 )
                 .limit(1);
-              if (dealWithAcc?.account) account = dealWithAcc.account;
+              if (
+                dealWithAcc?.account &&
+                isAccountEligibleForCrossContactPropagation({
+                  name: dealWithAcc.account.name,
+                  tradeName: dealWithAcc.account.tradeName,
+                  document: dealWithAcc.account.document,
+                })
+              ) {
+                account = dealWithAcc.account;
+              }
             }
             if (account?.id) {
               await db

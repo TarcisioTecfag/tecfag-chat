@@ -5,6 +5,7 @@ import {
   contacts,
   conversationDealContexts,
   conversations,
+  crmAccounts,
   crmDeals,
   crmDealActivities,
   crmDealContacts,
@@ -15,6 +16,7 @@ import {
   operators,
 } from "../../db/schema";
 import { getContactDealRows, resolveRelatedContactIds } from "./contact-deals-query";
+import { isAccountEligibleForCrossContactPropagation } from "./generic-account-guard";
 
 export type DealTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 export const DEAL_REQUIRED_MESSAGE =
@@ -394,7 +396,7 @@ export async function linkContactToDeal(
     await syncConversationDeals(tx, tenantId, conv.id, contactId, operatorId);
 }
 
-/** Ao selecionar uma empresa, inclui seus contatos sem substituir participantes anteriores. */
+/** Ao selecionar uma empresa, inclui seus contatos sem substituir participantes anteriores (exceto contas-balde/genéricas). */
 export async function syncAccountDealContacts(
   tx: DealTransaction,
   tenantId: string,
@@ -402,11 +404,36 @@ export async function syncAccountDealContacts(
   accountId: string,
   operatorId: string | null,
 ) {
+  const [account] = await tx
+    .select({
+      id: crmAccounts.id,
+      name: crmAccounts.name,
+      tradeName: crmAccounts.tradeName,
+      document: crmAccounts.document,
+    })
+    .from(crmAccounts)
+    .where(and(eq(crmAccounts.tenantId, tenantId), eq(crmAccounts.id, accountId)))
+    .limit(1);
+
+  if (!account) return;
+
   const companyContacts = await tx
     .select({ id: contacts.id })
     .from(contacts)
     .where(and(eq(contacts.tenantId, tenantId), eq(contacts.accountId, accountId)))
     .orderBy(asc(contacts.id));
+
+  if (
+    !isAccountEligibleForCrossContactPropagation({
+      name: account.name,
+      tradeName: account.tradeName,
+      document: account.document,
+      contactCount: companyContacts.length,
+    })
+  ) {
+    return;
+  }
+
   for (const contact of companyContacts)
     await linkContactToDeal(tx, tenantId, contact.id, dealId, operatorId);
 }
@@ -581,7 +608,11 @@ export async function ensureLinkedDeviceConversationDeal(
     }> = [];
 
     try {
-      const rows = await getContactDealRows(tx, tenantId, contactId);
+      // Auto-vinculação de conversa de celular vinculado olha apenas negociações diretas do contato,
+      // nunca negociações de terceiros da mesma empresa (evita contaminação cruzada).
+      const rows = await getContactDealRows(tx, tenantId, contactId, {
+        includeAccountDeals: false,
+      });
       existingDeals = rows.map((r) => ({
         id: r.id,
         title: r.title,

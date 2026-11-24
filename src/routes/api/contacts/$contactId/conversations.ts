@@ -234,19 +234,6 @@ export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
                 (!requiresExplicitCapture || autoCapture);
 
               if (!shouldAssignToCurrentOperator) {
-                if (targetConv.queueState === "finalizados") {
-                  await setAttendanceActor(tx, tenantId, session.operator.name, session.operator.id);
-                  await tx
-                    .update(conversations)
-                    .set({ operatorId: null, queueState: "fila", updatedAt: now })
-                    .where(
-                      and(
-                        eq(conversations.id, targetConv.id),
-                        eq(conversations.tenantId, tenantId),
-                        isNull(conversations.whatsappConnectionId),
-                      ),
-                    );
-                }
                 await syncConversationWithDeals(targetConv.id, targetConv.contactId);
                 return {
                   conversationId: targetConv.id,
@@ -255,8 +242,7 @@ export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
                     targetConv.queueState === "finalizados" ||
                     targetConv.operatorId !== session.operator.id ||
                     targetConv.queueState !== "meus",
-                  queueState:
-                    targetConv.queueState === "finalizados" ? "fila" : targetConv.queueState,
+                  queueState: targetConv.queueState,
                   contactPhoneId: targetPhoneItem?.id || null,
                   contactPhone: targetPhoneItem?.phone || contact.phone || null,
                 };
@@ -268,7 +254,6 @@ export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
                 .set({
                   operatorId: session.operator.id,
                   queueState: "meus",
-                  lastMessageTime: now,
                   updatedAt: now,
                 })
                 .where(

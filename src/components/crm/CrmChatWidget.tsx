@@ -2133,7 +2133,7 @@ export function CrmChatWidget() {
                   dealId: detail.dealId || undefined,
                   contactPhoneId: detail.contactPhoneId || undefined,
                   phone: detail.phone || undefined,
-                  autoCapture: true,
+                  autoCapture: false,
                 }),
               },
             );
@@ -2155,7 +2155,7 @@ export function CrmChatWidget() {
                 credentials: "include",
                 body: JSON.stringify({
                   ensure: true,
-                  autoCapture: true,
+                  autoCapture: false,
                   contactId: detail.contactId || undefined,
                   contactPhoneId: detail.contactPhoneId || undefined,
                   phone: detail.phone || undefined,
@@ -2219,7 +2219,7 @@ export function CrmChatWidget() {
                   credentials: "include",
                   body: JSON.stringify({
                     dealId: detail.dealId || undefined,
-                    autoCapture: true,
+                    autoCapture: false,
                   }),
                 },
               );

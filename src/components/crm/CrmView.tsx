@@ -829,7 +829,7 @@ export function CrmView() {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               credentials: "include",
-              body: JSON.stringify({ dealId: deal.id, autoCapture: true }),
+              body: JSON.stringify({ dealId: deal.id, autoCapture: false }),
             },
           );
           if (res.ok) {
@@ -847,7 +847,7 @@ export function CrmView() {
             credentials: "include",
             body: JSON.stringify({
               ensure: true,
-              autoCapture: true,
+              autoCapture: false,
               phone: deal.account?.phone || undefined,
               name: deal.account?.name || deal.title,
             }),

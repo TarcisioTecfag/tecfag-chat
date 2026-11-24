@@ -1427,7 +1427,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
           credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            autoCapture: true,
+            autoCapture: false,
             ...(dealContext.data?.currentDeal?.id ? { dealId: dealContext.data.currentDeal.id } : {}),
           }),
         },

@@ -784,6 +784,42 @@ if (!databaseUrl) {
       );
     }
 
+    // 10g. Higienização Tecfag (24/11/2026): reatribuir atendimento do Pedro (Gustavo -> Jhordan) e limpar contas-balde sem CNPJ + contaminação cruzada de deals
+    const tecfagGenericAccountCleanupName =
+      "tecfag_cleanup_generic_accounts_and_pedro_2026_11_24_v1";
+    const [appliedTecfagGenericAccountCleanup] = await sql`
+      SELECT name FROM app_deploy_migrations WHERE name = ${tecfagGenericAccountCleanupName}
+    `;
+    if (!appliedTecfagGenericAccountCleanup) {
+      console.log(
+        `[platform migration] Iniciando execução única de ${tecfagGenericAccountCleanupName}...`,
+      );
+      try {
+        const { runTecfagGenericAccountsAndPedroCleanup } = await import(
+          "./cleanup-tecfag-generic-accounts-and-pedro.mjs"
+        );
+        const summary = await runTecfagGenericAccountsAndPedroCleanup(sql, "tecfag");
+        await sql`
+          INSERT INTO app_deploy_migrations (name)
+          VALUES (${tecfagGenericAccountCleanupName})
+          ON CONFLICT (name) DO NOTHING
+        `;
+        console.log(
+          `[platform migration] ${tecfagGenericAccountCleanupName} concluída com sucesso:`,
+          JSON.stringify(summary),
+        );
+      } catch (cleanupErr) {
+        console.warn(
+          `[platform migration] Aviso ao executar ${tecfagGenericAccountCleanupName}:`,
+          cleanupErr?.message || cleanupErr,
+        );
+      }
+    } else {
+      console.log(
+        `[platform migration] ${tecfagGenericAccountCleanupName} já aplicada anteriormente.`,
+      );
+    }
+
     // 11. Higienização contínua de sectors.operator_ids (remove IDs de operadores órfãos/excluídos e deduplica por setor)
     try {
       const [allSectors, allOperators] = await Promise.all([

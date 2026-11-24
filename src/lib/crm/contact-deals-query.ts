@@ -11,6 +11,7 @@ import {
   operators,
 } from "../../db/schema";
 import type { DealTransaction } from "./deal-associations";
+import { isAccountEligibleForCrossContactPropagation } from "./generic-account-guard";
 
 function buildPhoneDigitsVariants(rawPhone?: string | null): string[] {
   if (!rawPhone) return [];
@@ -181,26 +182,83 @@ export async function getContactDealRows(
   reader: Pick<DealTransaction, "select">,
   tenantId: string,
   contactId: string,
+  options?: { includeAccountDeals?: boolean },
 ) {
   const contactIds = await resolveRelatedContactIds(reader, tenantId, contactId);
   if (contactIds.length === 0) return [];
 
   let relatedAccountIds: string[] = [];
-  try {
-    const contactAccounts = await reader
-      .select({ accountId: contacts.accountId })
-      .from(contacts)
-      .where(
-        and(
-          eq(contacts.tenantId, tenantId),
-          contactIds.length === 1 ? eq(contacts.id, contactIds[0]) : inArray(contacts.id, contactIds),
-        ),
+  if (options?.includeAccountDeals !== false) {
+    try {
+      const contactAccounts = await reader
+        .select({ accountId: contacts.accountId })
+        .from(contacts)
+        .where(
+          and(
+            eq(contacts.tenantId, tenantId),
+            contactIds.length === 1
+              ? eq(contacts.id, contactIds[0])
+              : inArray(contacts.id, contactIds),
+          ),
+        );
+      const rawAccountIds = Array.from(
+        new Set(contactAccounts.map((c) => c.accountId).filter((id): id is string => Boolean(id))),
       );
-    relatedAccountIds = Array.from(
-      new Set(contactAccounts.map((c) => c.accountId).filter((id): id is string => Boolean(id))),
-    );
-  } catch {
-    // Mantém vazio em mocks parciais
+      if (rawAccountIds.length > 0) {
+        try {
+          const accountRows = await reader
+            .select({
+              id: crmAccounts.id,
+              name: crmAccounts.name,
+              tradeName: crmAccounts.tradeName,
+              document: crmAccounts.document,
+            })
+            .from(crmAccounts)
+            .where(
+              and(
+                eq(crmAccounts.tenantId, tenantId),
+                rawAccountIds.length === 1
+                  ? eq(crmAccounts.id, rawAccountIds[0])
+                  : inArray(crmAccounts.id, rawAccountIds),
+              ),
+            );
+          const countRows = await reader
+            .select({
+              accountId: contacts.accountId,
+              total: sql<number>`count(*)::int`,
+            })
+            .from(contacts)
+            .where(
+              and(
+                eq(contacts.tenantId, tenantId),
+                rawAccountIds.length === 1
+                  ? eq(contacts.accountId, rawAccountIds[0])
+                  : inArray(contacts.accountId, rawAccountIds),
+              ),
+            )
+            .groupBy(contacts.accountId);
+          const countByAccountId = new Map<string, number>();
+          for (const row of countRows) {
+            if (row.accountId) countByAccountId.set(row.accountId, Number(row.total) || 0);
+          }
+          relatedAccountIds = accountRows
+            .filter((acc) =>
+              isAccountEligibleForCrossContactPropagation({
+                name: acc.name,
+                tradeName: acc.tradeName,
+                document: acc.document,
+                contactCount: countByAccountId.get(acc.id) ?? 0,
+              }),
+            )
+            .map((acc) => acc.id);
+        } catch {
+          // Em mocks unitários parciais sem groupBy/crmAccounts, preserva rawAccountIds
+          relatedAccountIds = rawAccountIds;
+        }
+      }
+    } catch {
+      // Mantém vazio em mocks parciais
+    }
   }
 
   const contactFilter = (column: typeof crmDealContacts.contactId | typeof conversations.contactId) =>

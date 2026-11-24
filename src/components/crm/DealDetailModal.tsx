@@ -986,7 +986,7 @@ export function DealDetailModal({
           dealId: deal?.id,
           contactPhoneId: phoneTarget?.contactPhoneId || undefined,
           phone: phoneTarget?.phone || undefined,
-          autoCapture: true,
+          autoCapture: false,
         }),
       });
       if (!res.ok) {
