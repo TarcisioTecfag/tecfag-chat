@@ -1036,13 +1036,9 @@ export const Route = createFileRoute("/api/valentina/sdr")({
               ? safeFormatIso(lastClient.sentAt)
               : lastMessageAtIso;
 
-            const rawChannel = contact?.mainChannel || "whatsapp";
-            const normalizedChannel =
-              isSiteConversationId(fs.conversationId) ||
-              rawChannel === "livechat" ||
-              rawChannel === "site"
-                ? "site"
-                : "whatsapp";
+            const normalizedChannel = isSiteConversationId(fs.conversationId)
+              ? "site"
+              : "whatsapp";
             if (channelScope && normalizedChannel !== channelScope) continue;
 
             sessions.push({
@@ -1127,13 +1123,9 @@ export const Route = createFileRoute("/api/valentina/sdr")({
               ? batchKnownClientsByKey.get(`orphan:${c.id}`) || null
               : null;
 
-            const rawChannel = contact?.mainChannel || "whatsapp";
-            const normalizedChannel =
-              isSiteConversationId(c.id) ||
-              rawChannel === "livechat" ||
-              rawChannel === "site"
-                ? "site"
-                : "whatsapp";
+            const normalizedChannel = isSiteConversationId(c.id)
+              ? "site"
+              : "whatsapp";
             if (channelScope && normalizedChannel !== channelScope) continue;
 
             sessions.push({

@@ -132,4 +132,28 @@ describe("Política Site → WhatsApp (Zero Poluição CWR + Funil por Setor)", 
       ),
     ).rejects.toThrow("indisponível para o tenant 'valem'");
   });
+
+  it("classifica canal SDR/Sweep estritamente por isSiteConversationId para que awaiting_approval pós-site apareça no funil de WhatsApp (aba SDR)", () => {
+    const root = path.resolve(import.meta.dir, "..");
+    const sdrRoute = readFileSync(path.join(root, "src/routes/api/valentina/sdr.ts"), "utf8");
+    const sdrSweep = readFileSync(path.join(root, "src/lib/triage/sdr-sweep.ts"), "utf8");
+    const handoffSvc = readFileSync(
+      path.join(root, "src/lib/livechat/site-whatsapp-handoff.ts"),
+      "utf8",
+    );
+    const prepareConv = readFileSync(
+      path.join(root, "src/lib/whatsapp/prepare-conversation.ts"),
+      "utf8",
+    );
+
+    // 1. sdr.ts e sdr-sweep.ts nunca expulsam conversa WhatsApp do funil de Zap por causa de contact.mainChannel === "livechat"
+    expect(sdrRoute).not.toContain('rawChannel === "livechat"');
+    expect(sdrSweep).not.toContain('contact?.mainChannel === "livechat"');
+
+    // 2. Handoff promove mainChannel para whatsapp preservando siteVisitorId/linkedSiteContactIds
+    expect(handoffSvc).toContain('contact.mainChannel === "livechat" ? { mainChannel: "whatsapp" }');
+
+    // 3. prepare-conversation.ts aceita conversa não-conv-lc-* mesmo se o contato legado ainda estiver com mainChannel='livechat'
+    expect(prepareConv).toContain('!current.id.startsWith("conv-lc-")');
+  });
 });

@@ -458,12 +458,9 @@ export async function runSdrSweep(
     const targetFunnel = cleanTargetFunnel(meta, collected);
     const resolvedOp = resolveOperator(conv, meta);
 
-    const channel: "whatsapp" | "site" =
-      isSiteConversationId(fs.conversationId) ||
-      contact?.mainChannel === "livechat" ||
-      contact?.mainChannel === "site"
-        ? "site"
-        : "whatsapp";
+    const channel: "whatsapp" | "site" = isSiteConversationId(fs.conversationId)
+      ? "site"
+      : "whatsapp";
     if (params.channel && channel !== params.channel) continue;
 
     const company =
@@ -645,12 +642,7 @@ export async function runSdrSweep(
         (contact?.cnpjDetails as any)?.razaoSocial ||
         (contact?.customFields as any)?.company ||
         "Empresa não informada",
-      channel:
-        isSiteConversationId(conv.id) ||
-        contact?.mainChannel === "livechat" ||
-        contact?.mainChannel === "site"
-          ? "site"
-          : "whatsapp",
+      channel: isSiteConversationId(conv.id) ? "site" : "whatsapp",
       outcome: "in_progress",
       statusLabel: "Na fila de automação",
       targetFunnel: null,

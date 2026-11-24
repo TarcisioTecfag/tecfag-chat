@@ -444,6 +444,7 @@ export async function dispatchSiteTriageToWhatsApp(
       await tx
         .update(contacts)
         .set({
+          ...(contact.mainChannel === "livechat" ? { mainChannel: "whatsapp" } : {}),
           customFields: {
             ...existingCf,
             siteVisitorId: visitorId,

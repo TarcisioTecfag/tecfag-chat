@@ -116,10 +116,13 @@ export async function prepareWhatsappConversation(
       .from(contacts)
       .where(and(eq(contacts.tenantId, tenantId), eq(contacts.id, current.contactId)))
       .limit(1);
-    if (
-      !contact ||
-      (!current.whatsappConnectionId && (contact.mainChannel ?? "whatsapp") !== "whatsapp")
-    )
+    const isEffectiveWhatsappChannel =
+      !current.id.startsWith("conv-lc-") &&
+      (Boolean(current.whatsappConnectionId) ||
+        !contact?.mainChannel ||
+        contact.mainChannel === "whatsapp" ||
+        contact.mainChannel === "livechat");
+    if (!contact || !isEffectiveWhatsappChannel)
       fail("Este atendimento não pertence ao WhatsApp.", "INVALID_CHANNEL", 400);
     if (input.connectionId) {
       const [connection] = await tx
@@ -154,7 +157,10 @@ export async function prepareWhatsappConversation(
         .limit(1);
       if (!corporate || corporate.status !== "connected")
         fail("O WhatsApp da empresa não está conectado.", "CONNECTION_UNAVAILABLE");
-      if ((contact.mainChannel ?? "whatsapp") !== "whatsapp")
+      if (
+        (contact.mainChannel ?? "whatsapp") !== "whatsapp" &&
+        contact.mainChannel !== "livechat"
+      )
         fail("Use o atendimento do canal original deste contato.", "INVALID_CHANNEL", 400);
     }
     const allCandidates = await tx
