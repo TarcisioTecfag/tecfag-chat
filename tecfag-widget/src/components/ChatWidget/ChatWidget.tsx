@@ -1212,7 +1212,7 @@ export const ChatWidget: React.FC = () => {
       return;
     }
     if (!isValidEmailAddress(cleanEmail)) {
-      setPreChatError("Informe um e-mail válido (ex.: nome@empresa.com.br).");
+      setPreChatError("Informe um e-mail válido (ex.: nome@gmail.com).");
       return;
     }
     if (!isValidBrPhone(cleanPhoneDigits)) {
@@ -1694,7 +1694,7 @@ export const ChatWidget: React.FC = () => {
                         setPreChatEmailInput(e.target.value);
                         if (preChatError) setPreChatError(null);
                       }}
-                      placeholder="voce@empresa.com.br"
+                      placeholder="seuemail@gmail.com"
                       className={
                         isBlackNovember
                           ? "w-full bg-black/35 border border-white/25 rounded-xl text-white placeholder-white/55 focus:outline-none focus:ring-2 focus:ring-white/60 focus:bg-black/50 transition-all font-medium shadow-inner"
