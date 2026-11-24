@@ -333,6 +333,58 @@ const ChatContext = createContext<ChatContextType | undefined>(undefined);
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
+function getIframeEmbedContext(): { embedded: boolean; embedOrigin: string | null } {
+  if (typeof window === "undefined") {
+    return { embedded: false, embedOrigin: null };
+  }
+  let embedded = false;
+  try {
+    embedded = window.self !== window.top;
+  } catch {
+    embedded = true;
+  }
+  if (!embedded) {
+    return { embedded: false, embedOrigin: null };
+  }
+
+  let embedOrigin: string | null = null;
+  try {
+    const ancestors = (window.location as Location & { ancestorOrigins?: DOMStringList }).ancestorOrigins;
+    if (ancestors && ancestors.length > 0) {
+      const topOrigin = ancestors[ancestors.length - 1];
+      if (typeof topOrigin === "string" && topOrigin.trim() && topOrigin !== "null") {
+        embedOrigin = topOrigin.trim();
+      }
+    }
+  } catch {}
+
+  if (!embedOrigin) {
+    try {
+      if (document.referrer) {
+        const refOrigin = new URL(document.referrer).origin;
+        if (refOrigin && refOrigin !== window.location.origin) {
+          embedOrigin = refOrigin;
+        }
+      }
+    } catch {}
+  }
+
+  if (embedOrigin) {
+    try {
+      sessionStorage.setItem("chat_embed_origin", embedOrigin);
+    } catch {}
+  } else {
+    try {
+      const cached = sessionStorage.getItem("chat_embed_origin");
+      if (cached && cached !== window.location.origin) {
+        embedOrigin = cached;
+      }
+    } catch {}
+  }
+
+  return { embedded: true, embedOrigin };
+}
+
 export function getBrtTodayDateStr(dateObj: Date = new Date()): string {
   return dateObj.toLocaleDateString("pt-BR", {
     timeZone: "America/Sao_Paulo",
@@ -747,10 +799,15 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     setIsClient(true);
     if (typeof window !== "undefined") {
-      const savedTenant = localStorage.getItem("chat_tenant");
-      if (savedTenant === "valem" || savedTenant === "tecfag") {
-        setTenantState(savedTenant as any);
-      }
+      // Captura e memoriza a origem do iframe logo na montagem inicial (útil p/ Firefox após reload)
+      getIframeEmbedContext();
+
+      try {
+        const savedTenant = localStorage.getItem("chat_tenant");
+        if (savedTenant === "valem" || savedTenant === "tecfag") {
+          setTenantState(savedTenant as any);
+        }
+      } catch {}
 
       try {
         localStorage.removeItem("chat_active_queue");
@@ -768,10 +825,12 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         }
       } else {
-        const savedView = localStorage.getItem("chat_active_view");
-        if (savedView) {
-          setActiveView(savedView as any);
-        }
+        try {
+          const savedView = localStorage.getItem("chat_active_view");
+          if (savedView) {
+            setActiveView(savedView as any);
+          }
+        } catch {}
       }
 
       // Validar sessão ativa no servidor com cookie HttpOnly
@@ -2060,15 +2119,22 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     switchingTenantRef.current = true;
     try {
+      const embedContext = getIframeEmbedContext();
       const response = await fetch(`${BACKEND_URL}/api/auth/switch-tenant`, {
         method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tenantId: newTenant }),
+        body: JSON.stringify({
+          tenantId: newTenant,
+          embedded: embedContext.embedded,
+          embedOrigin: embedContext.embedOrigin,
+        }),
       });
       if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || "Acesso negado.");
       // Recarregar encerra conexões em tempo real e limpa estados do tenant anterior.
-      localStorage.setItem("chat_tenant", newTenant);
-      localStorage.setItem("chat_active_view", "chat");
-      localStorage.removeItem("rbac_operators");
+      try {
+        localStorage.setItem("chat_tenant", newTenant);
+        localStorage.setItem("chat_active_view", "chat");
+        localStorage.removeItem("rbac_operators");
+      } catch {}
       window.location.reload();
     } catch (error: any) {
       toast.error(error?.message || "Não foi possível alternar a empresa.");
@@ -6068,6 +6134,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
+      const embedContext = getIframeEmbedContext();
       const response = await fetch(`${BACKEND_URL}/api/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -6076,6 +6143,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           tenantId: targetTenant,
           email: targetEmail,
           password: targetPassword,
+          embedded: embedContext.embedded,
+          embedOrigin: embedContext.embedOrigin,
         }),
       });
 

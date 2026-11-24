@@ -10,6 +10,64 @@ import { getBrtDateKey, touchOperatorPresence } from "./operator-presence.js";
 export const SESSION_COOKIE_NAME = "session_token";
 export const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000; // 7 dias
 
+const DEFAULT_ALLOWED_IFRAME_ORIGINS = [
+  "https://kronos-3qsu.onrender.com",
+];
+
+function normalizeOrigin(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return null;
+    return parsed.origin.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+export function getAllowedIframeOrigins(): string[] {
+  const allowed = new Set<string>();
+  for (const origin of DEFAULT_ALLOWED_IFRAME_ORIGINS) {
+    const normalized = normalizeOrigin(origin);
+    if (normalized) allowed.add(normalized);
+  }
+  const extraRaw = process.env.ALLOWED_IFRAME_ORIGINS || "";
+  for (const item of extraRaw.split(",")) {
+    const normalized = normalizeOrigin(item);
+    if (normalized) allowed.add(normalized);
+  }
+  return Array.from(allowed);
+}
+
+export function isAllowedIframeOrigin(origin: unknown): boolean {
+  const normalized = normalizeOrigin(origin);
+  if (!normalized) return false;
+  return getAllowedIframeOrigins().includes(normalized);
+}
+
+export function isSecureRequest(request?: Request): boolean {
+  if (process.env.NODE_ENV === "production") return true;
+  if (!request) return false;
+  const forwardedProto = (request.headers.get("x-forwarded-proto") || "").split(",")[0]?.trim().toLowerCase();
+  if (forwardedProto === "https") return true;
+  try {
+    return new URL(request.url).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+export function shouldUsePartitionedSessionCookie(
+  request: Request,
+  body?: { embedded?: unknown; embedOrigin?: unknown } | null,
+): boolean {
+  if (!body || body.embedded !== true) return false;
+  if (!isSecureRequest(request)) return false;
+  return isAllowedIframeOrigin(body.embedOrigin);
+}
+
 export interface SanitizedOperator {
   id: string;
   tenantId: string;
@@ -125,9 +183,17 @@ export function parseCookies(request: Request): Record<string, string> {
   if (!cookieHeader) return cookies;
 
   cookieHeader.split(";").forEach((part) => {
-    const [rawKey, ...valParts] = part.trim().split("=");
-    if (rawKey) {
-      cookies[rawKey.trim()] = decodeURIComponent(valParts.join("=").trim());
+    const trimmed = part.trim();
+    if (!trimmed) return;
+    const eqIndex = trimmed.indexOf("=");
+    if (eqIndex <= 0) return;
+    const key = trimmed.slice(0, eqIndex).trim();
+    const rawVal = trimmed.slice(eqIndex + 1).trim();
+    if (!key) return;
+    try {
+      cookies[key] = decodeURIComponent(rawVal);
+    } catch {
+      cookies[key] = rawVal;
     }
   });
 
@@ -135,20 +201,50 @@ export function parseCookies(request: Request): Record<string, string> {
 }
 
 /**
- * Extrai o token de sessão do Cookie HttpOnly ou do Header Authorization Bearer.
+ * Extrai todos os tokens candidatos de sessão (suporta cookies duplicados legados + Bearer).
  */
-export function extractSessionToken(request: Request): string | null {
-  const cookies = parseCookies(request);
-  if (cookies[SESSION_COOKIE_NAME]) {
-    return cookies[SESSION_COOKIE_NAME];
+export function extractSessionTokens(request: Request): string[] {
+  const tokens: string[] = [];
+  const seen = new Set<string>();
+  const pushToken = (val: string | undefined | null) => {
+    const trimmed = (val || "").trim();
+    if (trimmed && !seen.has(trimmed)) {
+      seen.add(trimmed);
+      tokens.push(trimmed);
+    }
+  };
+
+  const cookieHeader = request.headers.get("Cookie") || request.headers.get("cookie") || "";
+  if (cookieHeader) {
+    for (const part of cookieHeader.split(";")) {
+      const trimmed = part.trim();
+      if (!trimmed) continue;
+      const eqIndex = trimmed.indexOf("=");
+      if (eqIndex <= 0) continue;
+      const key = trimmed.slice(0, eqIndex).trim();
+      if (key !== SESSION_COOKIE_NAME) continue;
+      const rawVal = trimmed.slice(eqIndex + 1).trim();
+      try {
+        pushToken(decodeURIComponent(rawVal));
+      } catch {
+        pushToken(rawVal);
+      }
+    }
   }
 
   const authHeader = request.headers.get("Authorization") || request.headers.get("authorization");
   if (authHeader && authHeader.toLowerCase().startsWith("bearer ")) {
-    return authHeader.substring(7).trim();
+    pushToken(authHeader.substring(7));
   }
 
-  return null;
+  return tokens;
+}
+
+/**
+ * Extrai o token de sessão do Cookie HttpOnly ou do Header Authorization Bearer.
+ */
+export function extractSessionToken(request: Request): string | null {
+  return extractSessionTokens(request)[0] ?? null;
 }
 
 /**
@@ -228,9 +324,13 @@ export async function getAuthSessionByToken(token: string): Promise<AuthSessionC
  * Retorna o contexto completo com operador sanitizado e permissões, ou null se não autenticado.
  */
 export async function getAuthSession(request: Request): Promise<AuthSessionContext | null> {
-  const token = extractSessionToken(request);
-  if (!token) return null;
-  return getAuthSessionByToken(token);
+  const tokens = extractSessionTokens(request);
+  if (tokens.length === 0) return null;
+  for (const token of tokens) {
+    const session = await getAuthSessionByToken(token);
+    if (session) return session;
+  }
+  return null;
 }
 
 /** Verificação leve para uma conexão SSE já autenticada na abertura. */
@@ -248,19 +348,44 @@ export async function isSessionTokenActive(session: AuthSessionContext): Promise
 
 /**
  * Cria o cabeçalho Set-Cookie para a sessão HttpOnly.
+ * - Acesso direto (top-level): SameSite=Lax (proteção CSRF padrão).
+ * - Acesso via iframe autorizado em HTTPS (ex.: KRONOS): SameSite=None; Secure; Partitioned (CHIPS).
  */
-export function buildSessionCookie(token: string, expiresAt: Date): string {
-  const isProd = process.env.NODE_ENV === "production";
-  const secureFlag = isProd ? "Secure; " : "";
-  const maxAge = Math.floor((expiresAt.getTime() - Date.now()) / 1000);
-  return `${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}; Expires=${expiresAt.toUTCString()}; ${secureFlag}`;
+export function buildSessionCookie(
+  token: string,
+  expiresAt: Date,
+  options?: { partitioned?: boolean; secure?: boolean },
+): string {
+  const isSecure = options?.secure ?? process.env.NODE_ENV === "production";
+  const maxAge = Math.max(0, Math.floor((expiresAt.getTime() - Date.now()) / 1000));
+  if (options?.partitioned && isSecure) {
+    return `${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=None; Secure; Partitioned; Max-Age=${maxAge}; Expires=${expiresAt.toUTCString()}`;
+  }
+  const secureFlag = isSecure ? "; Secure" : "";
+  return `${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}; Expires=${expiresAt.toUTCString()}${secureFlag}`;
 }
 
 /**
  * Cria o cabeçalho Set-Cookie para revogar/expirar o cookie de sessão no logout.
  */
-export function buildLogoutCookie(): string {
-  return `${SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT`;
+export function buildLogoutCookie(options?: { secure?: boolean }): string {
+  const isSecure = options?.secure ?? process.env.NODE_ENV === "production";
+  const secureFlag = isSecure ? "; Secure" : "";
+  return `${SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT${secureFlag}`;
+}
+
+/**
+ * Retorna os cabeçalhos Set-Cookie necessários para limpar tanto o cookie padrão quanto o cookie CHIPS (Partitioned).
+ */
+export function buildLogoutCookies(options?: { secure?: boolean }): string[] {
+  const isSecure = options?.secure ?? process.env.NODE_ENV === "production";
+  const cookies = [buildLogoutCookie({ secure: isSecure })];
+  if (isSecure) {
+    cookies.push(
+      `${SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=None; Secure; Partitioned; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT`,
+    );
+  }
+  return cookies;
 }
 
 // ── Rate Limiter em Memória para Login ─────────────────────────────────────────

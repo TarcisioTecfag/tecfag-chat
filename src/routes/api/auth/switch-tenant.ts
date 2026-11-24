@@ -2,10 +2,12 @@ import { createFileRoute } from "@tanstack/react-router";
 import {
   buildSessionCookie,
   createSession,
-  extractSessionToken,
+  extractSessionTokens,
+  isSecureRequest,
   requireSession,
   revokeSessionByToken,
   sanitizeOperator,
+  shouldUsePartitionedSessionCookie,
 } from "../../../lib/auth-session.js";
 import { getPlatformMembership } from "../../../lib/platform-access.js";
 
@@ -49,8 +51,11 @@ export const Route = createFileRoute("/api/auth/switch-tenant")({
         }
 
         const { token, expiresAt } = await createSession(requestedTenant, membership.operator.id);
-        const previousToken = extractSessionToken(request);
-        if (previousToken) await revokeSessionByToken(previousToken);
+        for (const previousToken of extractSessionTokens(request)) {
+          await revokeSessionByToken(previousToken);
+        }
+        const secure = isSecureRequest(request);
+        const partitioned = shouldUsePartitionedSessionCookie(request, body);
         return new Response(
           JSON.stringify({
             success: true,
@@ -61,7 +66,7 @@ export const Route = createFileRoute("/api/auth/switch-tenant")({
           {
             headers: {
               "Content-Type": "application/json",
-              "Set-Cookie": buildSessionCookie(token, expiresAt),
+              "Set-Cookie": buildSessionCookie(token, expiresAt, { partitioned, secure }),
             },
           },
         );

@@ -12,6 +12,8 @@ import {
   checkLoginRateLimit,
   recordFailedLogin,
   resetLoginRateLimit,
+  isSecureRequest,
+  shouldUsePartitionedSessionCookie,
 } from "../../../lib/auth-session.js";
 
 export const Route = createFileRoute("/api/auth/login")({
@@ -122,9 +124,13 @@ export const Route = createFileRoute("/api/auth/login")({
 
           // Criar sessão de servidor segura
           const { token, expiresAt } = await createSession(matchedOp.tenantId, matchedOp.id);
-          const cookieHeader = buildSessionCookie(token, expiresAt);
+          const secure = isSecureRequest(request);
+          const partitioned = shouldUsePartitionedSessionCookie(request, body);
+          const cookieHeader = buildSessionCookie(token, expiresAt, { partitioned, secure });
 
-          console.log(`[Login API] ✅ Operador autenticado com sessão HttpOnly: ${matchedOp.name} (${matchedOp.email}) | Tenant: ${matchedOp.tenantId}`);
+          console.log(
+            `[Login API] ✅ Operador autenticado com sessão HttpOnly${partitioned ? " (iframe/CHIPS)" : ""}: ${matchedOp.name} (${matchedOp.email}) | Tenant: ${matchedOp.tenantId}`,
+          );
 
           const sanitized = sanitizeOperator(matchedOp);
 
