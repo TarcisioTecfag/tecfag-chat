@@ -1,5 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
+import { and, asc, eq, gte, inArray } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
+import { messages } from "../src/db/schema";
 import {
   computeLiveSummary,
   filterLiveDataset,
@@ -376,6 +379,7 @@ describe("Monitoramento Ao Vivo — Validação Real da Query SQL Otimizada em P
       INSERT INTO conversations (id, tenant_id) VALUES
         ('conv-tecfag-wait', 'tecfag'),
         ('conv-tecfag-replied', 'tecfag'),
+        ('conv-tecfag-empty', 'tecfag'),
         ('conv-valem-isolated', 'valem');
 
       -- Conversa 1 (tecfag): agente respondeu 10:00, cliente mandou 10:05 e 10:10 + nota interna 10:12 + msg failed
@@ -418,28 +422,38 @@ describe("Monitoramento Ao Vivo — Validação Real da Query SQL Otimizada em P
         s."failedMessagesCount"
       FROM conversations c
       CROSS JOIN LATERAL (
-        WITH recent AS (
+        WITH recent_raw AS (
           SELECT
             m.id,
             m.sender_type,
             m.content,
             m.sent_at,
             m.is_internal_note,
-            m.status,
-            ROW_NUMBER() OVER (ORDER BY m.sent_at DESC, m.id DESC) AS rn_any,
-            CASE
-              WHEN NOT COALESCE(m.is_internal_note, false) AND m.sender_type <> 'system'
-              THEN ROW_NUMBER() OVER (
-                PARTITION BY (NOT COALESCE(m.is_internal_note, false) AND m.sender_type <> 'system')
-                ORDER BY m.sent_at DESC, m.id DESC
-              )
-              ELSE NULL
-            END AS rn_real
+            m.status
           FROM messages m
           WHERE m.tenant_id = $1
             AND m.conversation_id = c.id
           ORDER BY m.sent_at DESC, m.id DESC
           LIMIT 35
+        ),
+        recent AS (
+          SELECT
+            r.id,
+            r.sender_type,
+            r.content,
+            r.sent_at,
+            r.is_internal_note,
+            r.status,
+            ROW_NUMBER() OVER (ORDER BY r.sent_at DESC, r.id DESC) AS rn_any,
+            CASE
+              WHEN NOT COALESCE(r.is_internal_note, false) AND r.sender_type <> 'system'
+              THEN ROW_NUMBER() OVER (
+                PARTITION BY (NOT COALESCE(r.is_internal_note, false) AND r.sender_type <> 'system')
+                ORDER BY r.sent_at DESC, r.id DESC
+              )
+              ELSE NULL
+            END AS rn_real
+          FROM recent_raw r
         ),
         last_non_client AS (
           SELECT MIN(rn_real) AS non_client_rn
@@ -447,32 +461,36 @@ describe("Monitoramento Ao Vivo — Validação Real da Query SQL Otimizada em P
           WHERE rn_real IS NOT NULL AND sender_type <> 'client'
         )
         SELECT
-          EXISTS(SELECT 1 FROM recent WHERE rn_real IS NOT NULL) AS "hasRealMsg",
-          MAX(sender_type) FILTER (WHERE rn_real = 1) AS "lastRealSenderType",
-          MAX(LEFT(content, 280)) FILTER (WHERE rn_real = 1) AS "lastRealContent",
-          MAX(sent_at) FILTER (WHERE rn_real = 1) AS "lastRealSentAt",
-          MAX(LEFT(content, 280)) FILTER (WHERE rn_any = 1) AS "lastAnyContent",
-          MAX(sent_at) FILTER (WHERE rn_real IS NOT NULL AND sender_type = 'client') AS "lastClientSentAt",
-          MIN(sent_at) FILTER (
-            WHERE rn_real IS NOT NULL
-              AND sender_type = 'client'
-              AND (
-                (SELECT non_client_rn FROM last_non_client) IS NULL
-                OR rn_real < (SELECT non_client_rn FROM last_non_client)
-              )
+          (COUNT(*) FILTER (WHERE r.rn_real IS NOT NULL) > 0) AS "hasRealMsg",
+          MAX(r.sender_type) FILTER (WHERE r.rn_real = 1) AS "lastRealSenderType",
+          MAX(LEFT(r.content, 280)) FILTER (WHERE r.rn_real = 1) AS "lastRealContent",
+          MAX(r.sent_at) FILTER (WHERE r.rn_real = 1) AS "lastRealSentAt",
+          MAX(LEFT(r.content, 280)) FILTER (WHERE r.rn_any = 1) AS "lastAnyContent",
+          MAX(r.sent_at) FILTER (WHERE r.rn_real IS NOT NULL AND r.sender_type = 'client') AS "lastClientSentAt",
+          MIN(r.sent_at) FILTER (
+            WHERE r.rn_real IS NOT NULL
+              AND r.sender_type = 'client'
+              AND (lnc.non_client_rn IS NULL OR r.rn_real < lnc.non_client_rn)
           ) AS "firstUnansweredClientSentAt",
-          COUNT(*) FILTER (WHERE status = 'failed')::int AS "failedMessagesCount"
-        FROM recent
+          COUNT(*) FILTER (WHERE r.status = 'failed')::int AS "failedMessagesCount"
+        FROM recent r
+        CROSS JOIN last_non_client lnc
       ) s
       WHERE c.tenant_id = $1
-        AND c.id IN ('conv-tecfag-wait', 'conv-tecfag-replied', 'conv-valem-isolated')
+        AND c.id IN ('conv-tecfag-wait', 'conv-tecfag-replied', 'conv-tecfag-empty', 'conv-valem-isolated')
       ORDER BY c.id
       `,
       ["tecfag"]
     );
 
-    // Isolamento multi-tenant: apenas 2 conversas de tecfag retornadas (valem excluída!)
-    expect(result.rows).toHaveLength(2);
+    // Isolamento multi-tenant: apenas 3 conversas de tecfag retornadas (valem excluída!)
+    expect(result.rows).toHaveLength(3);
+
+    const emptyConv = result.rows.find((r) => r.conversationId === "conv-tecfag-empty")!;
+    expect(emptyConv.hasRealMsg).toBe(false);
+    expect(emptyConv.lastRealSenderType).toBeNull();
+    expect(emptyConv.firstUnansweredClientSentAt).toBeNull();
+    expect(emptyConv.failedMessagesCount).toBe(0);
 
     const replied = result.rows.find((r) => r.conversationId === "conv-tecfag-replied")!;
     expect(replied.hasRealMsg).toBe(true);
@@ -494,5 +512,21 @@ describe("Monitoramento Ao Vivo — Validação Real da Query SQL Otimizada em P
     expect(waiting.failedMessagesCount).toBe(1);
 
     await pg.close();
+  });
+
+  it("serializa todayLookbackStart como string (nunca Date cru) nos parâmetros da query de produtividade (evita ERR_INVALID_ARG_TYPE no postgres-js)", () => {
+    const dialect = new PgDialect();
+    const todayLookbackStart = new Date("2026-11-23T23:00:00.000Z");
+    const whereClause = and(
+      eq(messages.tenantId, "tecfag"),
+      inArray(messages.conversationId, ["conv-1", "conv-2"]),
+      gte(messages.sentAt, todayLookbackStart),
+      eq(messages.isInternalNote, false),
+      inArray(messages.senderType, ["client", "agent"])
+    );
+    const compiled = dialect.sqlToQuery(whereClause!);
+    // Garante que nenhum parâmetro é instância de Date (que quebra Bind() no postgres-js)
+    expect(compiled.params.some((p) => p instanceof Date)).toBe(false);
+    expect(compiled.params).toContain("2026-11-23T23:00:00.000Z");
   });
 });

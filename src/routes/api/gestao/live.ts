@@ -8,7 +8,7 @@ import {
   crmAccounts,
   messages,
 } from "../../../db/schema";
-import { eq, and, ne, desc, gte, lte, asc, sql } from "drizzle-orm";
+import { eq, and, ne, desc, gte, lte, asc, inArray, sql } from "drizzle-orm";
 import { requireSession } from "../../../lib/auth-session";
 import {
   conversationReadCondition,
@@ -339,28 +339,38 @@ export const Route = createFileRoute("/api/gestao/live")({
                   s."failedMessagesCount"
                 FROM conversations c
                 CROSS JOIN LATERAL (
-                  WITH recent AS (
+                  WITH recent_raw AS (
                     SELECT
                       m.id,
                       m.sender_type,
                       m.content,
                       m.sent_at,
                       m.is_internal_note,
-                      m.status,
-                      ROW_NUMBER() OVER (ORDER BY m.sent_at DESC, m.id DESC) AS rn_any,
-                      CASE
-                        WHEN NOT COALESCE(m.is_internal_note, false) AND m.sender_type <> 'system'
-                        THEN ROW_NUMBER() OVER (
-                          PARTITION BY (NOT COALESCE(m.is_internal_note, false) AND m.sender_type <> 'system')
-                          ORDER BY m.sent_at DESC, m.id DESC
-                        )
-                        ELSE NULL
-                      END AS rn_real
+                      m.status
                     FROM messages m
                     WHERE m.tenant_id = ${tenantId}
                       AND m.conversation_id = c.id
                     ORDER BY m.sent_at DESC, m.id DESC
                     LIMIT 35
+                  ),
+                  recent AS (
+                    SELECT
+                      r.id,
+                      r.sender_type,
+                      r.content,
+                      r.sent_at,
+                      r.is_internal_note,
+                      r.status,
+                      ROW_NUMBER() OVER (ORDER BY r.sent_at DESC, r.id DESC) AS rn_any,
+                      CASE
+                        WHEN NOT COALESCE(r.is_internal_note, false) AND r.sender_type <> 'system'
+                        THEN ROW_NUMBER() OVER (
+                          PARTITION BY (NOT COALESCE(r.is_internal_note, false) AND r.sender_type <> 'system')
+                          ORDER BY r.sent_at DESC, r.id DESC
+                        )
+                        ELSE NULL
+                      END AS rn_real
+                    FROM recent_raw r
                   ),
                   last_non_client AS (
                     SELECT MIN(rn_real) AS non_client_rn
@@ -368,45 +378,48 @@ export const Route = createFileRoute("/api/gestao/live")({
                     WHERE rn_real IS NOT NULL AND sender_type <> 'client'
                   )
                   SELECT
-                    EXISTS(SELECT 1 FROM recent WHERE rn_real IS NOT NULL) AS "hasRealMsg",
-                    MAX(sender_type) FILTER (WHERE rn_real = 1) AS "lastRealSenderType",
-                    MAX(LEFT(content, 280)) FILTER (WHERE rn_real = 1) AS "lastRealContent",
-                    MAX(sent_at) FILTER (WHERE rn_real = 1) AS "lastRealSentAt",
-                    MAX(LEFT(content, 280)) FILTER (WHERE rn_any = 1) AS "lastAnyContent",
-                    MAX(sent_at) FILTER (WHERE rn_real IS NOT NULL AND sender_type = 'client') AS "lastClientSentAt",
-                    MIN(sent_at) FILTER (
-                      WHERE rn_real IS NOT NULL
-                        AND sender_type = 'client'
-                        AND (
-                          (SELECT non_client_rn FROM last_non_client) IS NULL
-                          OR rn_real < (SELECT non_client_rn FROM last_non_client)
-                        )
+                    (COUNT(*) FILTER (WHERE r.rn_real IS NOT NULL) > 0) AS "hasRealMsg",
+                    MAX(r.sender_type) FILTER (WHERE r.rn_real = 1) AS "lastRealSenderType",
+                    MAX(LEFT(r.content, 280)) FILTER (WHERE r.rn_real = 1) AS "lastRealContent",
+                    MAX(r.sent_at) FILTER (WHERE r.rn_real = 1) AS "lastRealSentAt",
+                    MAX(LEFT(r.content, 280)) FILTER (WHERE r.rn_any = 1) AS "lastAnyContent",
+                    MAX(r.sent_at) FILTER (WHERE r.rn_real IS NOT NULL AND r.sender_type = 'client') AS "lastClientSentAt",
+                    MIN(r.sent_at) FILTER (
+                      WHERE r.rn_real IS NOT NULL
+                        AND r.sender_type = 'client'
+                        AND (lnc.non_client_rn IS NULL OR r.rn_real < lnc.non_client_rn)
                     ) AS "firstUnansweredClientSentAt",
-                    COUNT(*) FILTER (WHERE status = 'failed')::int AS "failedMessagesCount"
-                  FROM recent
+                    COUNT(*) FILTER (WHERE r.status = 'failed')::int AS "failedMessagesCount"
+                  FROM recent r
+                  CROSS JOIN last_non_client lnc
                 ) s
                 WHERE c.tenant_id = ${tenantId}
                   AND c.id IN (${idParams})
               `),
 
-              // 6.2. Produtividade de hoje (apenas 3 colunas escalares para mensagens de hoje)
+              // 6.2. Produtividade de hoje (apenas 3 colunas escalares — query tipada Drizzle para serialização segura de Date no postgres-js)
               opConvIds.length > 0
-                ? db.execute(sql`
-                    SELECT
-                      m.conversation_id AS "conversationId",
-                      m.sender_type AS "senderType",
-                      m.sent_at AS "sentAt"
-                    FROM messages m
-                    WHERE m.tenant_id = ${tenantId}
-                      AND m.conversation_id IN (${sql.join(
-                        opConvIds.map((id) => sql`${id}`),
-                        sql`, `
-                      )})
-                      AND m.sent_at >= ${todayLookbackStart}
-                      AND NOT COALESCE(m.is_internal_note, false)
-                      AND m.sender_type IN ('client', 'agent')
-                    ORDER BY m.conversation_id, m.sent_at ASC, m.id ASC
-                  `)
+                ? db
+                    .select({
+                      conversationId: messages.conversationId,
+                      senderType: messages.senderType,
+                      sentAt: messages.sentAt,
+                    })
+                    .from(messages)
+                    .where(
+                      and(
+                        eq(messages.tenantId, tenantId),
+                        inArray(messages.conversationId, opConvIds),
+                        gte(messages.sentAt, todayLookbackStart),
+                        eq(messages.isInternalNote, false),
+                        inArray(messages.senderType, ["client", "agent"])
+                      )
+                    )
+                    .orderBy(
+                      asc(messages.conversationId),
+                      asc(messages.sentAt),
+                      asc(messages.id)
+                    )
                 : Promise.resolve([]),
 
               // 6.3. Deals vinculados (prioriza deal aberto, vínculo direto, mesmo operador da conversa e atualização recente)
