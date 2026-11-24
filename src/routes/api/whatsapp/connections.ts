@@ -3,6 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { db } from "../../../db";
 import {
+  agentConfigs,
   channelConfigs,
   operators,
   whatsappConnections,
@@ -127,6 +128,23 @@ export const Route = createFileRoute("/api/whatsapp/connections")({
           .from(channelConfigs)
           .where(eq(channelConfigs.tenantId, session.tenantId));
         const isAdmin = session.operator.role === "admin";
+        let dedicatedRoutingEnabled = false;
+        try {
+          const [toggleRow] = await db
+            .select({ enabled: agentConfigs.enabled })
+            .from(agentConfigs)
+            .where(
+              and(
+                eq(agentConfigs.tenantId, session.tenantId),
+                eq(agentConfigs.agentType, "whatsapp_dedicated_routing"),
+              ),
+            )
+            .limit(1);
+          dedicatedRoutingEnabled = toggleRow?.enabled === 1;
+        } catch (err: any) {
+          const code = err?.code ?? err?.cause?.code;
+          if (code !== "42P01") throw err;
+        }
         const ownEnabledBaileys = rows.filter(
           (row) =>
             row.enabled &&
@@ -139,7 +157,7 @@ export const Route = createFileRoute("/api/whatsapp/connections")({
             Boolean(row.leaseUntil && row.leaseUntil.getTime() > Date.now()),
         );
         const dedicatedConn = ownConnectedBaileys[0] || ownEnabledBaileys[0] || null;
-        const isDedicatedBaileysUser = !isAdmin && Boolean(dedicatedConn);
+        const isDedicatedBaileysUser = dedicatedRoutingEnabled && !isAdmin && Boolean(dedicatedConn);
         const hasConnectedPersonalBaileys = ownConnectedBaileys.length > 0;
         const canUseNumberPicker = isAdmin || hasConnectedPersonalBaileys;
         return Response.json(
@@ -147,8 +165,9 @@ export const Route = createFileRoute("/api/whatsapp/connections")({
             enabled: true,
             canUseNumberPicker,
             canSwitchDuringAttendance: canUseNumberPicker,
+            dedicatedRoutingEnabled,
             isDedicatedBaileysUser,
-            dedicatedConnectionId: dedicatedConn?.id || null,
+            dedicatedConnectionId: dedicatedRoutingEnabled ? dedicatedConn?.id || null : null,
             canManage,
             accessGroups: groups,
             encryptionReady: connectionEncryptionReady(),
@@ -204,6 +223,68 @@ export const Route = createFileRoute("/api/whatsapp/connections")({
         const body = await request.json().catch(() => null);
         if (!body || typeof body !== "object")
           return Response.json({ error: "Requisição inválida." }, { status: 400 });
+        if (body.action === "set-dedicated-routing") {
+          if (session.operator.role !== "admin" || !canManageWhatsappConnection(session))
+            return Response.json({ error: "Permissão insuficiente." }, { status: 403 });
+          if (typeof body.enabled !== "boolean")
+            return Response.json({ error: "Informe o estado (ativo ou desativado)." }, { status: 400 });
+          const now = new Date();
+          const [existing] = await db
+            .select({ id: agentConfigs.id, config: agentConfigs.config })
+            .from(agentConfigs)
+            .where(
+              and(
+                eq(agentConfigs.tenantId, tenantId),
+                eq(agentConfigs.agentType, "whatsapp_dedicated_routing"),
+              ),
+            )
+            .limit(1);
+          const nextConfig = {
+            ...((existing?.config as Record<string, unknown> | undefined) || {}),
+            updatedAt: now.toISOString(),
+            updatedByOperatorId: session.operator.id,
+            updatedByOperatorName: session.operator.name,
+          };
+          if (existing) {
+            await db
+              .update(agentConfigs)
+              .set({
+                enabled: body.enabled ? 1 : 0,
+                config: nextConfig,
+                updatedAt: now,
+              })
+              .where(and(eq(agentConfigs.tenantId, tenantId), eq(agentConfigs.id, existing.id)));
+          } else {
+            await db.insert(agentConfigs).values({
+              id: `cfg-wa-dedicated-${tenantId}`,
+              tenantId,
+              agentType: "whatsapp_dedicated_routing",
+              enabled: body.enabled ? 1 : 0,
+              config: nextConfig,
+              createdAt: now,
+              updatedAt: now,
+            });
+          }
+          try {
+            await db.insert(crmActionHistory).values({
+              id: randomUUID(),
+              tenantId,
+              operatorId: session.operator.id,
+              operatorName: session.operator.name,
+              action: "toggle_dedicated_baileys_routing",
+              entityType: "whatsapp_connection",
+              itemCount: 1,
+              details: { dedicatedRoutingEnabled: body.enabled },
+            });
+          } catch {}
+          try {
+            SessionManager.getInstance().notifyPublic(tenantId, {
+              type: "connection_access_changed",
+              dedicatedRoutingEnabled: body.enabled,
+            });
+          } catch {}
+          return Response.json({ dedicatedRoutingEnabled: body.enabled }, { headers });
+        }
         if (body.action === "create") {
           if (session.operator.role !== "admin" || !canManageWhatsappConnection(session))
             return Response.json({ error: "Permissão insuficiente." }, { status: 403 });

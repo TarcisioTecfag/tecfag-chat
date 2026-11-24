@@ -66,6 +66,7 @@ beforeAll(async () => {
     schema.mediaFiles,
     schema.pendingInbounds,
     schema.channelConfigs,
+    schema.agentConfigs,
     schema.crmPipelines,
     schema.crmStages,
     schema.crmDeals,
@@ -321,6 +322,28 @@ afterAll(async () => {
 });
 
 describe("Roteamento exclusivo Baileys dedicado (Personnalité)", () => {
+  it("inicia DESLIGADO por padrão (modo legado 100% preservado) e ativa/desativa pelo interruptor de Configurações", async () => {
+    expect(await routing.isDedicatedBaileysRoutingEnabled(db, TENANT_DEDICATED)).toBe(false);
+    expect(await routing.resolveOperatorDedicatedConnection(db, TENANT_DEDICATED, "pers-a")).toBeNull();
+    const transferOff = await routing.resolveTargetConnectionForTransfer(
+      db,
+      TENANT_DEDICATED,
+      "meus",
+      "pers-a",
+    );
+    expect(transferOff.featureEnabled).toBe(false);
+    expect(
+      await access.requireDedicatedChannelSendCompliance(makeSession("pers-a", "agent"), "conv-meta-1"),
+    ).toBeNull();
+
+    // Liga o interruptor em Configurações → Conexões
+    await routing.setDedicatedBaileysRoutingEnabled(db, TENANT_DEDICATED, true, {
+      operatorId: "admin-op",
+      operatorName: "Admin Master",
+    });
+    expect(await routing.isDedicatedBaileysRoutingEnabled(db, TENANT_DEDICATED)).toBe(true);
+  });
+
   it("resolve conexão dedicada inclusive quando desconectada e preserva tenant Valem intocado", async () => {
     const connA = await routing.resolveOperatorDedicatedConnection(db, TENANT_DEDICATED, "pers-a");
     expect(connA?.id).toBe("conn-pers-a");
@@ -612,5 +635,15 @@ describe("Roteamento exclusivo Baileys dedicado (Personnalité)", () => {
       convA.id,
     );
     expect(allowedOwnBaileys).toBeNull();
+
+    // Desligar o interruptor restaura imediatamente o modo padrão (libera envio Meta novamente)
+    await routing.setDedicatedBaileysRoutingEnabled(db, TENANT_DEDICATED, false, {
+      operatorId: "admin-op",
+      operatorName: "Admin Master",
+    });
+    expect(await routing.isDedicatedBaileysRoutingEnabled(db, TENANT_DEDICATED)).toBe(false);
+    expect(
+      await access.requireDedicatedChannelSendCompliance(makeSession("pers-a", "agent"), "conv-meta-1"),
+    ).toBeNull();
   });
 });

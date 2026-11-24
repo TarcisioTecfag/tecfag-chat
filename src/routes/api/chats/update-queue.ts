@@ -10,12 +10,14 @@ import { getAiPersona } from "../../../lib/ai-persona";
 import { recordCommercialTransfer } from "../../../lib/commercial/tma";
 import { SlaEngine } from "../../../lib/sla-engine";
 import { SdrDebouncer } from "../../../lib/valentina/sdr-debouncer";
-import { requireConversationAccess, requireConversationSendAccess } from "../../../lib/access-control/conversation-access";
+import { requireConversationAccess, requireConversationSendAccess, hasWhatsappConnectionAccess } from "../../../lib/access-control/conversation-access";
+import { loadOperatorAccess } from "../../../lib/access-control/operator-context";
 import { getDealContext, isCurrentDealEligible, recordConversationAction, endDealContext, selectDealContext, assertDealContextVersion, DealContextError, findActiveGraceDeal } from "../../../lib/crm/conversation-deal-context";
 import { requireCrmDealAccess } from "../../../lib/access-control/crm-record-access";
 import { setAttendanceActor } from "../../../lib/attendance-events";
 import {
   handoffConversationAcrossChannels,
+  isDedicatedBaileysRoutingEnabled,
   resolveTargetConnectionForTransfer,
   type DedicatedConnectionInfo,
 } from "../../../lib/whatsapp/dedicated-routing";
@@ -94,9 +96,18 @@ export const Route = createFileRoute("/api/chats/update-queue")({
           }
 
           const permissions = session.permissions.chat;
+          const dedicatedRoutingActive =
+            typeof isDedicatedBaileysRoutingEnabled === "function"
+              ? await isDedicatedBaileysRoutingEnabled(db, session.tenantId)
+              : false;
           if (conv.whatsappConnectionId) {
             const deniedSend = await requireConversationSendAccess(session, conversationId);
             if (deniedSend) return deniedSend;
+            if (!dedicatedRoutingActive && queueState === "meus" && operatorId !== session.operator.id) {
+              const targetAccess = await loadOperatorAccess(session.tenantId, operatorId);
+              if (!targetAccess || !await hasWhatsappConnectionAccess(targetAccess, conv.whatsappConnectionId, "send"))
+                return Response.json({ error: "O responsável de destino não tem permissão para enviar por este número." }, { status: 403 });
+            }
           }
           const isOwner = conv.operatorId === session.operator.id;
           const isOverride = permissions.canOverrideChat === true;
@@ -181,13 +192,22 @@ export const Route = createFileRoute("/api/chats/update-queue")({
             systemMessageText = `Atendimento direcionado para a Automação (${aiName}).`;
           }
 
-          // 2.5. Resolver canal WhatsApp de destino (Baileys dedicado do destino vs. WhatsApp Oficial Meta)
+          // 2.5. Resolver canal WhatsApp de destino (somente quando o modo exclusivo Baileys está ativado)
           const isSiteConv = typeof conv.id === "string" && conv.id.startsWith("conv-lc-");
           const resolvedChannelTarget =
-            queueState !== "finalizados" && !isSiteConv && typeof resolveTargetConnectionForTransfer === "function"
+            dedicatedRoutingActive &&
+            queueState !== "finalizados" &&
+            !isSiteConv &&
+            typeof resolveTargetConnectionForTransfer === "function"
               ? await resolveTargetConnectionForTransfer(db, session.tenantId, queueState, targetOpId)
-              : { connectionId: conv.whatsappConnectionId ?? null, connectionInfo: null as DedicatedConnectionInfo | null };
+              : {
+                  featureEnabled: false,
+                  connectionId: conv.whatsappConnectionId ?? null,
+                  connectionInfo: null as DedicatedConnectionInfo | null,
+                };
           const willRedirectChannel =
+            dedicatedRoutingActive &&
+            resolvedChannelTarget.featureEnabled &&
             queueState !== "finalizados" &&
             !isSiteConv &&
             typeof handoffConversationAcrossChannels === "function" &&

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "../../db";
 import {
+  agentConfigs,
   contacts,
   conversationDealContexts,
   conversations,
@@ -78,6 +79,8 @@ export interface RouteMetaInboundToDedicatedResult {
   systemMessageId: string | null;
 }
 
+export const DEDICATED_ROUTING_AGENT_TYPE = "whatsapp_dedicated_routing";
+
 function isLiveLease(status: string | null | undefined, leaseUntil: Date | null | undefined, nowMs = Date.now()): boolean {
   return status === "connected" && Boolean(leaseUntil && leaseUntil.getTime() > nowMs);
 }
@@ -88,11 +91,93 @@ function isMissingRelationError(error: unknown): boolean {
 }
 
 /**
+ * Verifica se o modo "Fluxo exclusivo para WhatsApps dedicados (Baileys)" está ATIVADO
+ * nas configurações do tenant (`agent_configs`, `agentType = "whatsapp_dedicated_routing"`).
+ *
+ * Padrão seguro: `false` (DESLIGADO) — preserva o comportamento tradicional até que um
+ * administrador ative o interruptor em Configurações → Conexões → WhatsApps da equipe.
+ */
+export async function isDedicatedBaileysRoutingEnabled(
+  executor: DedicatedDbExecutor,
+  tenantId: string | null | undefined,
+): Promise<boolean> {
+  if (!tenantId || !multiConnectionEnabled(tenantId)) return false;
+  try {
+    const [row] = await executor
+      .select({ enabled: agentConfigs.enabled })
+      .from(agentConfigs)
+      .where(
+        and(
+          eq(agentConfigs.tenantId, tenantId),
+          eq(agentConfigs.agentType, DEDICATED_ROUTING_AGENT_TYPE),
+        ),
+      )
+      .limit(1);
+    return row?.enabled === 1;
+  } catch (err) {
+    if (isMissingRelationError(err)) return false;
+    throw err;
+  }
+}
+
+/**
+ * Persiste o estado do interruptor "Fluxo exclusivo para WhatsApps dedicados (Baileys)"
+ * por tenant em `agent_configs` (sem necessidade de migration SQL).
+ */
+export async function setDedicatedBaileysRoutingEnabled(
+  executor: DedicatedDbExecutor,
+  tenantId: string,
+  enabled: boolean,
+  actor?: { operatorId?: string | null; operatorName?: string | null },
+): Promise<boolean> {
+  const now = new Date();
+  const [existing] = await executor
+    .select({ id: agentConfigs.id, config: agentConfigs.config })
+    .from(agentConfigs)
+    .where(
+      and(
+        eq(agentConfigs.tenantId, tenantId),
+        eq(agentConfigs.agentType, DEDICATED_ROUTING_AGENT_TYPE),
+      ),
+    )
+    .limit(1);
+
+  const nextConfig = {
+    ...((existing?.config as Record<string, unknown> | undefined) || {}),
+    updatedAt: now.toISOString(),
+    updatedByOperatorId: actor?.operatorId ?? null,
+    updatedByOperatorName: actor?.operatorName ?? null,
+  };
+
+  if (existing) {
+    await executor
+      .update(agentConfigs)
+      .set({
+        enabled: enabled ? 1 : 0,
+        config: nextConfig,
+        updatedAt: now,
+      })
+      .where(and(eq(agentConfigs.tenantId, tenantId), eq(agentConfigs.id, existing.id)));
+  } else {
+    await executor.insert(agentConfigs).values({
+      id: `cfg-wa-dedicated-${tenantId}`,
+      tenantId,
+      agentType: DEDICATED_ROUTING_AGENT_TYPE,
+      enabled: enabled ? 1 : 0,
+      config: nextConfig,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+  return enabled;
+}
+
+/**
  * Resolve a conexão Baileys pessoal habilitada cujo titular (`ownerOperatorId`)
  * é o operador informado neste tenant.
  *
  * - Retorna `null` imediatamente quando múltiplas conexões não estão habilitadas no tenant
- *   (preserva 100% tenants como `valem`).
+ *   OU quando o interruptor "Fluxo exclusivo para WhatsApps dedicados" está DESLIGADO.
  * - Prioriza conexão atualmente conectada com lease ativo; caso todas estejam desconectadas,
  *   ainda retorna a conexão habilitada mais recente com `isConnectedLive: false` para que
  *   o atendimento nunca vaze para a API Oficial da Meta.
@@ -103,6 +188,9 @@ export async function resolveOperatorDedicatedConnection(
   operatorId: string | null | undefined,
 ): Promise<DedicatedConnectionInfo | null> {
   if (!tenantId || !operatorId || !multiConnectionEnabled(tenantId)) {
+    return null;
+  }
+  if (!(await isDedicatedBaileysRoutingEnabled(executor, tenantId))) {
     return null;
   }
 
@@ -158,6 +246,7 @@ export async function listDedicatedConnectionsByOperator(
 ): Promise<Map<string, DedicatedConnectionInfo>> {
   const result = new Map<string, DedicatedConnectionInfo>();
   if (!tenantId || !multiConnectionEnabled(tenantId)) return result;
+  if (!(await isDedicatedBaileysRoutingEnabled(executor, tenantId))) return result;
 
   const rows = await executor
     .select({
@@ -233,14 +322,22 @@ export async function resolveTargetConnectionForTransfer(
   tenantId: string,
   queueState: string,
   targetOperatorId: string | null | undefined,
-): Promise<{ connectionId: string | null; connectionInfo: DedicatedConnectionInfo | null }> {
+): Promise<{
+  featureEnabled: boolean;
+  connectionId: string | null;
+  connectionInfo: DedicatedConnectionInfo | null;
+}> {
+  const featureEnabled = await isDedicatedBaileysRoutingEnabled(executor, tenantId);
+  if (!featureEnabled) {
+    return { featureEnabled: false, connectionId: null, connectionInfo: null };
+  }
   if (queueState === "meus" && targetOperatorId) {
     const dedicated = await resolveOperatorDedicatedConnection(executor, tenantId, targetOperatorId);
     if (dedicated) {
-      return { connectionId: dedicated.id, connectionInfo: dedicated };
+      return { featureEnabled: true, connectionId: dedicated.id, connectionInfo: dedicated };
     }
   }
-  return { connectionId: null, connectionInfo: null };
+  return { featureEnabled: true, connectionId: null, connectionInfo: null };
 }
 
 async function copyDealLinksAndContext(

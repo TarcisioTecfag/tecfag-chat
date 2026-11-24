@@ -1214,8 +1214,9 @@ export const Route = createFileRoute("/api/gestao/live")({
           const resolvedChannel =
             action !== "close" && !isSiteConversationId(conv.id)
               ? await resolveTargetConnectionForTransfer(db, tenantId, newQueueState, newOperatorId)
-              : { connectionId: conv.whatsappConnectionId ?? null, connectionInfo: null };
+              : { featureEnabled: false, connectionId: conv.whatsappConnectionId ?? null, connectionInfo: null };
           const needsChannelRedirect =
+            resolvedChannel.featureEnabled &&
             action !== "close" &&
             !isSiteConversationId(conv.id) &&
             (conv.whatsappConnectionId ?? null) !== (resolvedChannel.connectionId ?? null);

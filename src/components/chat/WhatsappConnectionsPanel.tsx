@@ -49,13 +49,14 @@ const CAPTURE_POLICY_OPTIONS = [
 
 export function WhatsappConnectionsPanel({ compact = false }: { compact?: boolean }) {
   const { tenant, operators, currentOperatorId } = useChat();
-  const { enabled, canManage, encryptionReady, connections, refresh } =
+  const { enabled, canManage, encryptionReady, connections, dedicatedRoutingEnabled, refresh } =
     useWhatsappConnections(tenant);
 
   const [name, setName] = useState("");
   const [owner, setOwner] = useState("");
   const [capture, setCapture] = useState<"selected" | "all">("selected");
   const [busy, setBusy] = useState(false);
+  const [togglingDedicatedRouting, setTogglingDedicatedRouting] = useState(false);
   const [pairing, setPairing] = useState<string | null>(null);
   const [qr, setQr] = useState("");
   const [pairError, setPairError] = useState("");
@@ -202,6 +203,116 @@ export function WhatsappConnectionsPanel({ compact = false }: { compact?: boolea
           </SystemTooltip>
         </div>
       </div>
+
+      {/* Interruptor: Fluxo exclusivo de WhatsApp dedicado (Baileys) */}
+      {(canManage || dedicatedRoutingEnabled) && (
+        <div
+          className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border p-3.5 text-xs transition-all ${
+            dedicatedRoutingEnabled
+              ? "border-emerald-500/30 bg-emerald-500/[0.05]"
+              : "border-border bg-muted/25"
+          }`}
+        >
+          <div className="flex items-start gap-3 min-w-0 flex-1">
+            <div
+              className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl border mt-0.5 ${
+                dedicatedRoutingEnabled
+                  ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400"
+                  : "bg-muted border-border text-muted-foreground"
+              }`}
+            >
+              {dedicatedRoutingEnabled ? (
+                <ShieldCheck className="h-4 w-4" />
+              ) : (
+                <ShieldAlert className="h-4 w-4" />
+              )}
+            </div>
+            <div className="min-w-0 space-y-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-extrabold text-foreground">
+                  Fluxo exclusivo para WhatsApps dedicados (Baileys)
+                </span>
+                <span
+                  className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold ${
+                    dedicatedRoutingEnabled
+                      ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                      : "border-border bg-muted text-muted-foreground"
+                  }`}
+                >
+                  {dedicatedRoutingEnabled ? "Ativo" : "Desativado (Modo padrão)"}
+                </span>
+              </div>
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                {dedicatedRoutingEnabled
+                  ? "Ativado: transferências e triagens para vendedores com Baileys vinculado caem direto no número dedicado deles, transferências entre canais ocorrem automaticamente e o envio pelo WhatsApp Oficial fica bloqueado para esses operadores."
+                  : "Desativado: o sistema opera no modo tradicional (transferências permanecem no canal atual e vendedores com Baileys podem usar o WhatsApp Oficial normalmente). Ative quando quiser virar para o fluxo exclusivo."}
+              </p>
+            </div>
+          </div>
+
+          {canManage && (
+            <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+              <SystemTooltip
+                content={
+                  dedicatedRoutingEnabled
+                    ? "Desativar fluxo exclusivo e voltar imediatamente ao comportamento padrão anterior"
+                    : "Ativar fluxo exclusivo para todos os vendedores com Baileys vinculado"
+                }
+              >
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={dedicatedRoutingEnabled}
+                  aria-label="Alternar fluxo exclusivo para WhatsApps dedicados"
+                  disabled={togglingDedicatedRouting || busy}
+                  onClick={async () => {
+                    const nextEnabled = !dedicatedRoutingEnabled;
+                    setTogglingDedicatedRouting(true);
+                    try {
+                      await whatsappConnectionAction({
+                        action: "set-dedicated-routing",
+                        enabled: nextEnabled,
+                      });
+                      await refresh();
+                      toast.success(
+                        nextEnabled
+                          ? "Fluxo exclusivo de WhatsApp dedicado ATIVADO."
+                          : "Fluxo exclusivo DESATIVADO — sistema restaurado ao modo padrão anterior.",
+                      );
+                    } catch (e) {
+                      toast.error(
+                        e instanceof Error
+                          ? e.message
+                          : "Não foi possível alterar a configuração.",
+                      );
+                    } finally {
+                      setTogglingDedicatedRouting(false);
+                    }
+                  }}
+                  className={`inline-flex h-8 items-center gap-2 rounded-xl border px-3 text-xs font-bold transition cursor-pointer disabled:opacity-50 ${
+                    dedicatedRoutingEnabled
+                      ? "border-emerald-500/40 bg-emerald-600 text-white hover:bg-emerald-700"
+                      : "border-border bg-card text-foreground hover:bg-muted"
+                  }`}
+                >
+                  {togglingDedicatedRouting ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <span
+                      className={`inline-flex h-4 w-7 items-center rounded-full p-0.5 transition-colors ${
+                        dedicatedRoutingEnabled ? "bg-white/30 justify-end" : "bg-muted-foreground/30 justify-start"
+                      }`}
+                    >
+                      <span className="h-3 w-3 rounded-full bg-white shadow-xs" />
+                    </span>
+                  )}
+                  <span>{dedicatedRoutingEnabled ? "Ativado" : "Desativado"}</span>
+                </button>
+              </SystemTooltip>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Lista de Conexões Cadastradas */}
       {sellerConnections.length === 0 ? (

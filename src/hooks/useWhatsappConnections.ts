@@ -21,6 +21,7 @@ type ConnectionState = {
   loaded: boolean;
   canUseNumberPicker: boolean;
   canSwitchDuringAttendance: boolean;
+  dedicatedRoutingEnabled: boolean;
   isDedicatedBaileysUser: boolean;
   dedicatedConnectionId: string | null;
   enabled: boolean;
@@ -33,6 +34,7 @@ const empty: ConnectionState = {
   loaded: false,
   canUseNumberPicker: false,
   canSwitchDuringAttendance: false,
+  dedicatedRoutingEnabled: false,
   isDedicatedBaileysUser: false,
   dedicatedConnectionId: null,
   enabled: false,

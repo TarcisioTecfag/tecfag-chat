@@ -1,6 +1,7 @@
 import { and, eq, exists, inArray, isNull, isNotNull, or, sql } from "drizzle-orm";
 import { db } from "../../db";
 import {
+  agentConfigs,
   contacts,
   conversations,
   whatsappConnections,
@@ -211,6 +212,24 @@ export async function requireDedicatedChannelSendCompliance(
     .split(",")
     .map((s) => s.trim());
   if (!enabledTenants.includes(session.tenantId)) return null;
+
+  try {
+    const [toggle] = await db
+      .select({ enabled: agentConfigs.enabled })
+      .from(agentConfigs)
+      .where(
+        and(
+          eq(agentConfigs.tenantId, session.tenantId),
+          eq(agentConfigs.agentType, "whatsapp_dedicated_routing"),
+        ),
+      )
+      .limit(1);
+    if (toggle?.enabled !== 1) return null;
+  } catch (err: any) {
+    const code = err?.code ?? err?.cause?.code;
+    if (code === "42P01") return null;
+    throw err;
+  }
 
   const [conv] = await db
     .select({

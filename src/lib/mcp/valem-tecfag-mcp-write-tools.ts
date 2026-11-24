@@ -2308,8 +2308,9 @@ export async function executeExtendedMcpTool(
       } = await import("../whatsapp/dedicated-routing");
       const resolvedChannel = !isSiteConversationId(conv.id)
         ? await resolveTargetConnectionForTransfer(db, tenantId, nextQueueState, targetOp?.id ?? null)
-        : { connectionId: conv.whatsappConnectionId ?? null, connectionInfo: null };
+        : { featureEnabled: false, connectionId: conv.whatsappConnectionId ?? null, connectionInfo: null };
       const needsChannelRedirect =
+        resolvedChannel.featureEnabled &&
         !isSiteConversationId(conv.id) &&
         (conv.whatsappConnectionId ?? null) !== (resolvedChannel.connectionId ?? null);
 

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "../../db";
 import {
+  agentConfigs,
   channelConfigs,
   contacts,
   conversations,
@@ -65,6 +66,25 @@ export async function prepareWhatsappConversation(
         )
         .limit(1);
   const canSwitchOwnAttendance = master || Boolean(ownConnectedBaileys);
+  let dedicatedRoutingActive = false;
+  if (!master) {
+    try {
+      const [toggle] = await db
+        .select({ enabled: agentConfigs.enabled })
+        .from(agentConfigs)
+        .where(
+          and(
+            eq(agentConfigs.tenantId, tenantId),
+            eq(agentConfigs.agentType, "whatsapp_dedicated_routing"),
+          ),
+        )
+        .limit(1);
+      dedicatedRoutingActive = toggle?.enabled === 1;
+    } catch (err: any) {
+      const code = err?.code ?? err?.cause?.code;
+      if (code !== "42P01") throw err;
+    }
+  }
   if (
     (session.permissions.chat.canCaptureChat !== true && !canSwitchOwnAttendance) ||
     !rules.enabled ||
@@ -156,7 +176,7 @@ export async function prepareWhatsappConversation(
       if (!isLiveConnected && !(input.allowDisconnectedOwner && isOwnEnabledConnection))
         fail("Este número não está conectado. Atualize a lista.", "CONNECTION_UNAVAILABLE");
     } else {
-      if (!master) {
+      if (!master && dedicatedRoutingActive) {
         const [ownDedicated] = await tx
           .select({ id: whatsappConnections.id, name: whatsappConnections.name })
           .from(whatsappConnections)

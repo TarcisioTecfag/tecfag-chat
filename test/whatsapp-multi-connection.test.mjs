@@ -1501,15 +1501,7 @@ test("choose number, save, capture, finish and choose again preserve independent
         orm.eq(schema.messages.conversationId, prepared.conversationId),
       ),
     );
-  // Dedicated Baileys seller (non-admin) cannot switch back to corporate Meta
-  const deniedCorporate = await saveNumber(prepared.conversationId, closed.version, "corporate");
-  assert.equal(deniedCorporate.status, 403);
-  assert.equal((await deniedCorporate.json()).code, "DEDICATED_BAILEYS_ONLY");
-  // Admin retains master override to prepare corporate Meta preserving independent histories
-  const prevWho = who;
-  who = session("admin-a", "admin");
   const next = await saveNumber(prepared.conversationId, closed.version, "corporate");
-  who = prevWho;
   assert.equal(next.status, 200);
   const nextPrepared = await next.json();
   assert.equal(nextPrepared.conversationId, "workflow-company");

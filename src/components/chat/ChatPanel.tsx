@@ -5379,7 +5379,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               )}
 
               {/* ── 1b. Alerta de WhatsApp dedicado desconectado (sem fallback para Meta Oficial) ── */}
-              {isActivePersonalDisconnected && msgMode === "client" && (
+              {connectionsState.dedicatedRoutingEnabled && isActivePersonalDisconnected && msgMode === "client" && (
                 <div
                   role="alert"
                   className="mb-2.5 rounded-xl border border-amber-500/35 bg-amber-500/10 px-3.5 py-2 text-xs text-amber-900 dark:text-amber-200 backdrop-blur-xs shadow-2xs"
