@@ -13,6 +13,7 @@ import {
   vtexEncryptionReady,
 } from "../src/lib/vtex/crypto.ts";
 import { captureSiteContext } from "../src/lib/livechat/site-context.ts";
+import { buildTecfagFagnerPrompt } from "../src/lib/valentina/sdr-tecfag-prompt.ts";
 import * as jsxRuntime from "react/jsx-runtime";
 const config = () => ({
   ...contract.defaultVtexSettings(),
@@ -668,10 +669,130 @@ describe("VTEX: runtime no núcleo industrial", () => {
       siteContext: null,
       fetch: transport.fetch,
     });
+    assert.equal(result.mode, "direct_reply");
     assert.match(result.messages[0], /R\$\s*123,45/);
     assert.equal(result.evidence.selectedSkuId, "147");
     assert.equal(result.isCompleted, undefined);
     assert.equal(result.collectedData, undefined);
+  });
+  it("WhatsApp com link de produto decodifica entidades HTML, deduplica Descrição e entrega modo ai_context enxuto (caso BL2000A)", async () => {
+    const bl2000a = {
+      productId: "319",
+      productName: "Paletizadora Automática - BL2000A",
+      linkText: "paletizadora-automatica---bl2000a",
+      description:
+        "<p>A Paletizadora Automática BL2000A é utilizada para envolver produtos em paletes com filme stretch. A máquina embala de forma padronizada, mantendo os produtos seguros, limpos e sem contato com umidade durante o transporte ou armazenamento. Equipada com sensor óptico, mede a altura dos paletes e libera apenas a quantidade necessária de filme. Possui produtividade de 15 a 140 paletes por hora.</p>",
+      allSpecifications: [
+        "Modelo",
+        "Descrição",
+        "Diferenciais",
+        "Especificações Técnicas",
+        "Alimentação",
+      ],
+      Modelo: ["BL2000A"],
+      Descrição: [
+        "A Paletizadora Autom&aacute;tica BL2000A &eacute; utilizada para envolver produtos em paletes com filme stretch. A m&aacute;quina embala de forma padronizada, mantendo os produtos seguros, limpos e sem contato com umidade durante o transporte ou armazenamento. Estrutura da m&aacute;quina A BL2000A possui visor IHM.",
+      ],
+      Diferenciais: [
+        "&bull; Plataforma girat&oacute;ria com ajuste do &acirc;ngulo de rota&ccedil;&atilde;o; &bull; Pintura eletrost&aacute;tica para inibir a oxida&ccedil;&atilde;o; &bull; Di&acirc;metro da mesa girat&oacute;ria personaliz&aacute;vel (sob encomenda); &bull; Start-up e suporte t&eacute;cnico especializado e pe&ccedil;as de reposi&ccedil;&atilde;o.",
+      ],
+      "Especificações Técnicas": [
+        "&bull; Alimenta&ccedil;&atilde;o ou Voltagem: 220V, 1 fase ou 380V, 3 fases | 50/60Hz &bull; Pot&ecirc;ncia: 1250W &bull; Velocidade: 0-12 giros/min &bull; Produtividade: 15-140 paletes/hora &bull; Carga m&amp;aacute;xima: 2000Kg &bull; Altura m&aacute;xima do palete: 2100mm &bull; Altura do pilar da m&aacute;quina: 2400mm",
+      ],
+      Alimentação: ["   "],
+      items: [
+        {
+          itemId: "319",
+          name: "220V ou 380V",
+          referenceId: [{ Key: "RefId", Value: "BL2000A" }],
+          sellers: [{ sellerId: "1", commertialOffer: { Price: 45900, AvailableQuantity: 4 } }],
+        },
+      ],
+    };
+    const transport = fixtureFetch([bl2000a]);
+    const runtime = load("src/lib/vtex/runtime.ts", {
+      "./store": {
+        readVtexConfig: async () => ({ settings: config(), row: { enabled: 1 } }),
+        credentialsForVtex: () => undefined,
+      },
+      "./client": { queryVtex },
+      "./turn": turn,
+    });
+    const result = await runtime.runVtexStoreTurn({}, "fixture", {
+      text: "Olá! Gostaria de saber mais sobre as soluções da Tecfag.\nhttps://shop.example.test/paletizadora-automatica---bl2000a/p",
+      channel: "whatsapp",
+      siteContext: null,
+      fetch: transport.fetch,
+    });
+    assert.equal(result.mode, "ai_context");
+    assert.equal(result.evidence.selectedSkuId, "319");
+    assert.ok(result.aiContext, "aiContext deve ser gerado para WhatsApp details");
+
+    // Zero entidades HTML residuais ou entidades cortadas no meio
+    for (const text of [result.aiContext, result.messages[0]]) {
+      assert.doesNotMatch(text, /&(?:aacute|eacute|oacute|acirc|ccedil|atilde|ecirc|bull|amp);/i);
+      assert.doesNotMatch(text, /\bm&(?:\s|$)/);
+      // Caracteres acentuados e bullets corretamente decodificados (incluindo &amp;aacute; em 2 passadas)
+      assert.match(text, /Plataforma giratória/);
+      assert.match(text, /rotação/);
+      assert.match(text, /Carga máxima: 2000Kg/);
+      // Sem campo vazio pendurado e sem duplicação do campo Descrição
+      assert.doesNotMatch(text, /(?:^|\n)Alimentação:\s*(?:$|\n)/);
+      assert.doesNotMatch(text, /(?:^|\n)\s*(?:•\s*)?Descrição:/);
+      // Sem vazamento comercial no WhatsApp
+      assert.doesNotMatch(text, /R\$|45\.?900/);
+    }
+    // Resposta fallback também compacta (< 2000 chars, preservando Fonte e Consulta em)
+    assert.ok(result.messages[0].length < 1800, `Mensagem fallback longa demais: ${result.messages[0].length}`);
+    assert.match(result.messages[0], /Fonte: https:\/\/shop\.example\.test\/paletizadora-automatica---bl2000a\/p/);
+    assert.match(result.messages[0], /Consulta em /);
+  });
+  it("WhatsApp com link de produto com múltiplas variantes de voltagem usa modo ai_context listando variantes", async () => {
+    const transport = fixtureFetch([product(true)]);
+    const runtime = load("src/lib/vtex/runtime.ts", {
+      "./store": {
+        readVtexConfig: async () => ({ settings: config(), row: { enabled: 1 } }),
+        credentialsForVtex: () => undefined,
+      },
+      "./client": { queryVtex },
+      "./turn": turn,
+    });
+    const result = await runtime.runVtexStoreTurn({}, "fixture", {
+      text: "https://shop.example.test/seladora-s100/p",
+      channel: "whatsapp",
+      siteContext: null,
+      fetch: transport.fetch,
+    });
+    assert.equal(result.mode, "ai_context");
+    assert.match(result.aiContext, /110 V \(SKU 147\)/);
+    assert.match(result.aiContext, /220 V \(SKU 148\)/);
+    assert.doesNotMatch(result.aiContext, /R\$/);
+  });
+  it("buildTecfagFagnerPrompt com vtexProductContext injeta ficha limpa e libera resposta sobre o modelo sem trava contraditória", () => {
+    const prompt = buildTecfagFagnerPrompt({
+      aiPersona: {
+        name: "Fagner",
+        company: "Grupo Tecfag",
+        segment: "Equipamentos industriais",
+        tone: "consultivo",
+        gender: "male",
+        triagePolicy: "industrial",
+      },
+      knowledgeContext: "",
+      vtexProductContext:
+        "🛒 PRODUTO CONSULTADO NA LOJA OFICIAL VTEX:\n- Nome oficial: Paletizadora Automática - BL2000A",
+      conversationHistoryText: "",
+      batchSummary: "https://www.tecfag.com.br/paletizadora-automatica/p",
+      currentDataSummary: {},
+      cnpjDirective: "",
+      firstMessageRule: "",
+      hasPreviousEmoji: false,
+      hasPreviousAudio: false,
+    });
+    assert.match(prompt, /PRODUTO CONSULTADO NA LOJA OFICIAL VTEX/);
+    assert.match(prompt, /Paletizadora Automática - BL2000A/);
+    assert.doesNotMatch(prompt, /TRAVA DE SUGESTÃO DE MÁQUINA ATIVA/);
+    assert.match(prompt, /CLIENTE CITOU UM MODELO ESPECÍFICO NESTE TURNO/);
   });
 });
 

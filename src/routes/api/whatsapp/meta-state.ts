@@ -16,6 +16,7 @@ import {
   resolveConversationActiveDealStage,
 } from "../../../lib/whatsapp/meta-templates";
 import { requireConversationAccess } from "../../../lib/access-control/conversation-access";
+import { isSiteConversationId } from "../../../lib/livechat/site-channel-policy";
 
 export const Route = createFileRoute("/api/whatsapp/meta-state")({
   server: {
@@ -29,6 +30,9 @@ export const Route = createFileRoute("/api/whatsapp/meta-state")({
         if (!conversationId) return Response.json({ error: "conversationId é obrigatório" }, { status: 400 });
         if (conversationId === "valentina") {
           return Response.json({ activeProvider: "internal", window: null });
+        }
+        if (isSiteConversationId(conversationId)) {
+          return Response.json({ activeProvider: "livechat", window: null });
         }
         const denied = await requireConversationAccess(auth.session, conversationId);
         if (denied) return denied;

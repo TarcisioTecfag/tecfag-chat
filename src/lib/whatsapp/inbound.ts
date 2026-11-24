@@ -18,7 +18,7 @@ import {
   agentFlowStates,
   agentConfigs,
 } from "../../db/schema";
-import { isNull, eq, and, desc, sql, or, like } from "drizzle-orm";
+import { isNull, eq, and, desc, sql, or, like, notLike } from "drizzle-orm";
 import { UniversalInboundMessage } from "./types";
 import { getAiPersona, isSdrTenant } from "../ai-persona";
 import { SessionManager } from "../baileys/session-manager";
@@ -925,6 +925,7 @@ export class InboundProcessor {
                 and(
                   eq(conversations.tenantId, tenantId),
                   isNull(conversations.whatsappConnectionId),
+                  notLike(conversations.id, "conv-lc-%"),
                   or(
                     ...convPhoneTerms.map(
                       (term) => sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${term}`,

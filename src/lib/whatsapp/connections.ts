@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, eq, isNull, or, sql } from "drizzle-orm";
+import { and, eq, isNull, notLike, or, sql } from "drizzle-orm";
 import { db } from "../../db";
 import { channelConfigs, conversations, whatsappConnections } from "../../db/schema";
 import { multiConnectionEnabled } from "./connection-policy";
@@ -8,7 +8,7 @@ import { encryptConnectionAuth } from "./connection-crypto";
 export function conversationConnectionCondition(connectionId?: string | null) {
   return connectionId
     ? eq(conversations.whatsappConnectionId, connectionId)
-    : isNull(conversations.whatsappConnectionId);
+    : and(isNull(conversations.whatsappConnectionId), notLike(conversations.id, "conv-lc-%"))!;
 }
 
 export async function readBaileysConfig(tenantId: string, connectionId?: string | null) {

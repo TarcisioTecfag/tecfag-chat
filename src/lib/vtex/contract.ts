@@ -119,19 +119,170 @@ export interface VtexResult {
     | "invalid_query"
     | "credentials_unavailable";
 }
-export const plainText = (raw: unknown, max = 1000) =>
-  typeof raw === "string"
-    ? raw
-        .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
-        .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
-        .replace(/<[^>]*>/g, " ")
-        .replace(/&nbsp;/gi, " ")
-        .replace(/&amp;/gi, "&")
-        .replace(/[\p{Cc}\p{Zl}\p{Zp}]/gu, " ")
-        .replace(/\s+/g, " ")
-        .trim()
-        .slice(0, max)
-    : "";
+const VTEX_HTML_NAMED_ENTITIES: Record<string, string> = {
+  nbsp: " ",
+  amp: "&",
+  quot: '"',
+  apos: "'",
+  lt: "<",
+  gt: ">",
+  ndash: "–",
+  mdash: "—",
+  bull: "•",
+  middot: "·",
+  hellip: "…",
+  deg: "°",
+  ordm: "º",
+  ordf: "ª",
+  sup2: "²",
+  sup3: "³",
+  times: "×",
+  divide: "÷",
+  plusmn: "±",
+  lsquo: "‘",
+  rsquo: "’",
+  ldquo: "“",
+  rdquo: "”",
+  laquo: "«",
+  raquo: "»",
+  copy: "©",
+  reg: "®",
+  trade: "™",
+  euro: "€",
+  pound: "£",
+  frac12: "½",
+  frac14: "¼",
+  frac34: "¾",
+  aacute: "á",
+  Aacute: "Á",
+  agrave: "à",
+  Agrave: "À",
+  acirc: "â",
+  Acirc: "Â",
+  atilde: "ã",
+  Atilde: "Ã",
+  auml: "ä",
+  Auml: "Ä",
+  aring: "å",
+  Aring: "Å",
+  eacute: "é",
+  Eacute: "É",
+  egrave: "è",
+  Egrave: "È",
+  ecirc: "ê",
+  Ecirc: "Ê",
+  euml: "ë",
+  Euml: "Ë",
+  iacute: "í",
+  Iacute: "Í",
+  igrave: "ì",
+  Igrave: "Ì",
+  icirc: "î",
+  Icirc: "Î",
+  iuml: "ï",
+  Iuml: "Ï",
+  oacute: "ó",
+  Oacute: "Ó",
+  ograve: "ò",
+  Ograve: "Ò",
+  ocirc: "ô",
+  Ocirc: "Ô",
+  otilde: "õ",
+  Otilde: "Õ",
+  ouml: "ö",
+  Ouml: "Ö",
+  uacute: "ú",
+  Uacute: "Ú",
+  ugrave: "ù",
+  Ugrave: "Ù",
+  ucirc: "û",
+  Ucirc: "Û",
+  uuml: "ü",
+  Uuml: "Ü",
+  ccedil: "ç",
+  Ccedil: "Ç",
+  ntilde: "ñ",
+  Ntilde: "Ñ",
+  yacute: "ý",
+  Yacute: "Ý",
+  yuml: "ÿ",
+};
+
+function decodeVtexHtmlEntitiesOnce(input: string): string {
+  return input
+    .replace(/&#(\d+);/g, (_m, dec) => {
+      const code = Number(dec);
+      if (!Number.isFinite(code) || code < 32 || code > 0x10ffff) return " ";
+      return code === 160 ? " " : String.fromCodePoint(code);
+    })
+    .replace(/&#x([0-9a-f]+);/gi, (_m, hex) => {
+      const code = parseInt(hex, 16);
+      if (!Number.isFinite(code) || code < 32 || code > 0x10ffff) return " ";
+      return code === 160 ? " " : String.fromCodePoint(code);
+    })
+    .replace(/&([a-zA-Z0-9]+);/g, (full, name) => {
+      if (Object.hasOwn(VTEX_HTML_NAMED_ENTITIES, name)) {
+        return VTEX_HTML_NAMED_ENTITIES[name];
+      }
+      const lower = name.toLowerCase();
+      if (Object.hasOwn(VTEX_HTML_NAMED_ENTITIES, lower)) {
+        return VTEX_HTML_NAMED_ENTITIES[lower];
+      }
+      return full;
+    });
+}
+
+export function decodeVtexHtmlEntities(input: string): string {
+  if (!input || !input.includes("&")) return input || "";
+  return decodeVtexHtmlEntitiesOnce(decodeVtexHtmlEntitiesOnce(input));
+}
+
+export function smartTruncate(text: string, max: number): string {
+  if (max <= 0 || !text) return "";
+  const trimmed = text.trim();
+  if (trimmed.length <= max) return trimmed;
+  if (max <= 12) return trimmed.slice(0, max);
+
+  const window = trimmed.slice(0, max - 1);
+  const sentenceFloor = Math.floor(max * 0.58);
+  let lastSentenceEnd = -1;
+  for (let i = window.length - 1; i >= sentenceFloor; i--) {
+    const ch = window[i];
+    if (ch === "." || ch === "!" || ch === "?") {
+      const next = trimmed[i + 1];
+      if (!next || /\s/.test(next)) {
+        lastSentenceEnd = i;
+        break;
+      }
+    }
+  }
+  if (lastSentenceEnd >= sentenceFloor) {
+    return window.slice(0, lastSentenceEnd + 1).trim();
+  }
+
+  const wordFloor = Math.floor(max * 0.45);
+  const lastSpace = window.lastIndexOf(" ");
+  const cut = lastSpace >= wordFloor ? window.slice(0, lastSpace) : window;
+  const cleaned = cut.replace(/[\s,;:\-–—•|(\/]+$/u, "").trim();
+  return `${cleaned || cut.trim()}…`;
+}
+
+export const plainText = (raw: unknown, max = 1000) => {
+  if (typeof raw !== "string") return "";
+  const stripped = raw
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/<li\b[^>]*>/gi, " • ")
+    .replace(/<(?:br|\/p|\/div|\/li|\/tr|\/h[1-6])\b[^>]*>/gi, " ")
+    .replace(/<[^>]*>/g, " ");
+  const decoded = decodeVtexHtmlEntities(stripped)
+    .replace(/[\p{Cc}\p{Zl}\p{Zp}]/gu, " ")
+    .replace(/(?:\s*•\s*){2,}/g, " • ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return smartTruncate(decoded, max);
+};
 export function sameStorefront(raw: string, config: VtexSettings): boolean {
   try {
     const value = new URL(raw),

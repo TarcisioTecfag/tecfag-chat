@@ -253,6 +253,7 @@ export function evaluateIndustrialMachineSuggestionGate(params: {
   batchSummary?: string;
   conversationHistoryText?: string;
   subflow?: string | null;
+  hasResolvedVtexProduct?: boolean;
 }): IndustrialMachineSuggestionGateResult {
   const summary = params.currentDataSummary || {};
   const batchText = String(params.batchSummary || "");
@@ -261,6 +262,7 @@ export function evaluateIndustrialMachineSuggestionGate(params: {
   const hasApplication = hasCollectedApplication || hasApplicationOrProductCue(batchText);
   const hasVolume = hasCollectedVolume || hasProductivityOrVolumeCue(batchText);
   const clientMentionedSpecificModel =
+    Boolean(params.hasResolvedVtexProduct) ||
     hasExplicitMachineModelCode(batchText) ||
     hasExplicitMachineModelCode(summary["MÁQUINA / PEÇA / INTERESSE"] || "");
 
@@ -321,6 +323,7 @@ export function evaluateIndustrialMachineSuggestionGate(params: {
 export function buildTecfagFagnerPrompt(params: {
   aiPersona: AiPersona;
   knowledgeContext: string;
+  vtexProductContext?: string | null;
   conversationHistoryText: string;
   priorConversationHistoryText?: string;
   currentDateTimeBrt?: string;
@@ -338,11 +341,15 @@ export function buildTecfagFagnerPrompt(params: {
   const p = params.aiPersona;
   const currentDateTimeLabel =
     params.currentDateTimeBrt || formatSdrDateTimeBrt(new Date());
+  const vtexContextBlock = params.vtexProductContext?.trim()
+    ? `\n${params.vtexProductContext.trim()}\n`
+    : "";
   const machineSuggestionGate = evaluateIndustrialMachineSuggestionGate({
     currentDataSummary: params.currentDataSummary,
     batchSummary: params.batchSummary,
     conversationHistoryText: params.conversationHistoryText,
     subflow: params.subflow ?? null,
+    hasResolvedVtexProduct: Boolean(vtexContextBlock),
   });
   const priorHistoryBlock = params.priorConversationHistoryText?.trim()
     ? `\nHISTÓRICO ANTERIOR A ESTE ATENDIMENTO (MEMÓRIA DE CONVERSAS PASSADAS — OBSERVE SEMPRE A DATA E IDADE DE CADA MENSAGEM):\n${params.priorConversationHistoryText.trim()}\n`
@@ -367,7 +374,7 @@ POLÍTICA DE TRIAGEM: ${INDUSTRIAL_POLICY_VERSION}. As mesmas regras valem no si
 DATA E HORA ATUAL: ${currentDateTimeLabel}
 
 ${params.knowledgeContext}
-${priorHistoryBlock}
+${vtexContextBlock}${priorHistoryBlock}
 HISTÓRICO DA CONVERSA ATUAL (com data/hora BRT e idade relativa de cada mensagem):
 ${params.conversationHistoryText}
 

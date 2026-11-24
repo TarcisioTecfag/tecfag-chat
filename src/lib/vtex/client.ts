@@ -1,5 +1,6 @@
 import {
   plainText,
+  smartTruncate,
   projectVtexForChannel,
   sameStorefront,
   vtexQuerySchema,
@@ -75,11 +76,13 @@ function productFromApi(raw: unknown, config: VtexSettings): VtexProduct | null 
   for (const key of list(value.allSpecifications).slice(0, 20)) {
     if (typeof key !== "string" || ["__proto__", "constructor", "prototype"].includes(key))
       continue;
+    const cleanKey = plainText(key, 100);
+    if (!cleanKey) continue;
     const description = list(value[key])
-      .map((item) => plainText(item, 300))
+      .map((item) => plainText(item, 1000))
       .filter(Boolean)
       .join("; ");
-    if (description) specifications[plainText(key, 100)] = description.slice(0, 1000);
+    if (description) specifications[cleanKey] = smartTruncate(description, 1000);
   }
   const skus: VtexSku[] = rows(value.items)
     .slice(0, 30)

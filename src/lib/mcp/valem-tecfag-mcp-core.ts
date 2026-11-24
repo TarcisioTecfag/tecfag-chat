@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { client as defaultSqlClient } from "../../db";
 import { requireSession } from "../auth-session";
+import { isSiteConversationId } from "../livechat/site-channel-policy";
 import {
   calculateBusinessPacing,
   isCommercialWinStage,
@@ -1892,8 +1893,15 @@ export async function executeMcpTool(
         returnedCount: rows.length,
         conversations: rows.map((r: any) => ({
           conversationId: r.conversation_id,
+          channel: isSiteConversationId(r.conversation_id)
+            ? "livechat"
+            : r.whatsapp_connection_id
+              ? "whatsapp"
+              : r.main_channel === "livechat"
+                ? "whatsapp"
+                : r.main_channel || "whatsapp",
           whatsappConnectionId: r.whatsapp_connection_id ?? null,
-          isOfficialChannel: !r.whatsapp_connection_id,
+          isOfficialChannel: !r.whatsapp_connection_id && !isSiteConversationId(r.conversation_id),
           queueState: r.queue_state,
           unreadCount: r.unread_count,
           lastMessageText: r.last_message_text,

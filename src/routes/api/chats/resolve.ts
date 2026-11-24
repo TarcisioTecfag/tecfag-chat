@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, notLike, sql } from "drizzle-orm";
 import { db } from "../../../db";
 import {
   contacts,
@@ -38,6 +38,7 @@ export const Route = createFileRoute("/api/chats/resolve")({
             .where(and(
               eq(conversations.tenantId, session.tenantId),
               conversationReadCondition(session),
+              notLike(conversations.id, "conv-lc-%"),
               eq(contacts.tenantId, session.tenantId),
               sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${key}`,
             )).limit(2);
@@ -75,7 +76,11 @@ export const Route = createFileRoute("/api/chats/resolve")({
                 conversationReadCondition(session),
               ),
             )
-            .orderBy(desc(crmConversationDeals.isActive), desc(conversations.lastMessageTime))
+            .orderBy(
+              sql`CASE WHEN ${conversations.id} NOT LIKE 'conv-lc-%' THEN 0 ELSE 1 END`,
+              desc(crmConversationDeals.isActive),
+              desc(conversations.lastMessageTime),
+            )
             .limit(1);
 
           if (linkedConv) {
@@ -102,7 +107,11 @@ export const Route = createFileRoute("/api/chats/resolve")({
                 conversationReadCondition(session),
               ),
             )
-            .orderBy(desc(crmDealContacts.isPrimary), desc(conversations.lastMessageTime))
+            .orderBy(
+              sql`CASE WHEN ${conversations.id} NOT LIKE 'conv-lc-%' THEN 0 ELSE 1 END`,
+              desc(crmDealContacts.isPrimary),
+              desc(conversations.lastMessageTime),
+            )
             .limit(1);
 
           if (contactConv) {

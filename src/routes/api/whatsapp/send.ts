@@ -28,7 +28,7 @@ import {
   metaVideoNeedsConversion,
   META_VIDEO_OUTPUT_MIME,
 } from "../../../lib/whatsapp/video-convert";
-import { isSiteConversationId, SITE_CHANNEL, SITE_PROVIDER } from "../../../lib/livechat/site-channel-policy";
+import { isSiteConversationId, SITE_PROVIDER } from "../../../lib/livechat/site-channel-policy";
 import { sendSiteOperatorText } from "../../../lib/livechat/site-delivery";
 import { SdrDebouncer } from "../../../lib/valentina/sdr-debouncer";
 import { requireConversationWriteAccess, requireConversationAccess } from "../../../lib/access-control/conversation-access";
@@ -250,13 +250,11 @@ export const Route = createFileRoute("/api/whatsapp/send")({
           }
 
           // Canal Site (widget): entrega pelo WebSocket do visitante, não pelo provedor WhatsApp.
+          // O roteamento segue o ID da conversa (`conv-lc-*`), nunca `contacts.mainChannel`,
+          // para permitir que o mesmo contato tenha chat do site e atendimento WhatsApp independentes.
           if (!isInternalNote) {
             SdrDebouncer.getInstance().clearSession(conversationId);
-            const [targetContact] = await db
-              .select({ mainChannel: contacts.mainChannel })
-              .from(contacts)
-              .where(and(eq(contacts.id, conv.contactId), eq(contacts.tenantId, session.tenantId)));
-            if (!conv.whatsappConnectionId && (isSiteConversationId(conv.id) || targetContact?.mainChannel === SITE_CHANNEL)) {
+            if (!conv.whatsappConnectionId && isSiteConversationId(conv.id)) {
               if (templateName || pendingFile || mediaUrl) {
                 return Response.json(
                   { error: "No chat do site, envie apenas mensagens de texto por enquanto.", code: "SITE_TEXT_ONLY" },

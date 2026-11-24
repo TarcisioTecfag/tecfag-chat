@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, notLike, or, sql } from "drizzle-orm";
 import { db } from "../../db";
 import {
   accessGroups,
@@ -2435,8 +2435,8 @@ export async function executeExtendedMcpTool(
       }
 
       const reopenIfExists = args.reopenIfExists !== false;
-      // Busca exclusivamente a conversa do canal corporativo oficial (whatsappConnectionId IS NULL),
-      // evitando reutilizar conversas paralelas de celulares Baileys individuais de vendedores.
+      // Busca exclusivamente a conversa do canal corporativo oficial (whatsappConnectionId IS NULL e nunca conv-lc-*),
+      // evitando reutilizar conversas paralelas de celulares Baileys individuais de vendedores ou chats do site.
       const [existingConv] = await db
         .select()
         .from(conversations)
@@ -2445,6 +2445,7 @@ export async function executeExtendedMcpTool(
             eq(conversations.tenantId, tenantId),
             eq(conversations.contactId, contactId),
             isNull(conversations.whatsappConnectionId),
+            notLike(conversations.id, "conv-lc-%"),
           ),
         )
         .limit(1);

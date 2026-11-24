@@ -18,7 +18,8 @@ import { useChat, getBrtTodayDateStr, extractBrtMessageDateStr, isValentinaMessa
 import { useWhatsappConnections, useContactWhatsappHistory } from "@/hooks/useWhatsappConnections";
 import { WhatsappNumberPicker } from "./WhatsappNumberPicker";
 import type { Message } from "@/lib/mockData";
-import { WhatsappLogo, InstagramLogo, MessengerLogo } from "./ChatList";
+import { WhatsappLogo, InstagramLogo, MessengerLogo, SiteLogo } from "./ChatList";
+import { isSiteConversationId } from "@/lib/livechat/site-channel-policy";
 import { EmojiPicker } from "./EmojiPicker";
 import { QuickResponsesPopover } from "./QuickResponsesPopover";
 import { MetaTemplateSelectModal, Meta24hInfoModal, type ApprovedMetaTemplate } from "./MetaTemplateSelectModal";
@@ -1230,7 +1231,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   const activeProvider = connectionsState.connections.find(connection => connection.id === activeChat?.whatsappConnectionId)?.provider || tenantActiveProvider;
   const [showAllNumbers] = useState(true);
   const [choosingWhatsappNumber, setChoosingWhatsappNumber] = useState(false);
-  const unifiedHistory = useContactWhatsappHistory(tenant, activeChat?.id, connectionsState.enabled && showAllNumbers && activeChat?.channel === "whatsapp" && activeChat.id !== "valentina");
+  const unifiedHistory = useContactWhatsappHistory(tenant, activeChat?.id, connectionsState.enabled && showAllNumbers && activeChat?.channel === "whatsapp" && !isSiteConversationId(activeChat.id) && activeChat.id !== "valentina");
   const openSourceConversation = async (id: string) => {
     await refreshConversations(id);
     setActiveQueue("todos");
@@ -1408,8 +1409,51 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   }, [activeChat?.messages]);
 
   const isAiChat = activeChat?.id === "valentina";
+  const isSiteChat = Boolean(
+    activeChat && (isSiteConversationId(activeChat.id) || activeChat.channel === "livechat"),
+  );
   const isMetaWhatsappChat =
-    !isAiChat && activeProvider === "meta" && activeChat?.channel === "whatsapp";
+    !isAiChat && !isSiteChat && activeProvider === "meta" && activeChat?.channel === "whatsapp";
+  const [openingWhatsappFromSite, setOpeningWhatsappFromSite] = useState(false);
+
+  const handleOpenWhatsappFromSiteChat = async () => {
+    if (!activeChat?.contactId || openingWhatsappFromSite) return;
+    setOpeningWhatsappFromSite(true);
+    try {
+      const response = await fetch(
+        `${BACKEND_URL}/api/contacts/${encodeURIComponent(activeChat.contactId)}/conversations`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            autoCapture: true,
+            ...(dealContext.data?.currentDeal?.id ? { dealId: dealContext.data.currentDeal.id } : {}),
+          }),
+        },
+      );
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.error || "Não foi possível abrir a conversa de WhatsApp.");
+      }
+      if (result.conversationId) {
+        await refreshConversations(result.conversationId);
+        const targetQueue = result.readOnly
+          ? result.queueState === "fila"
+            ? "fila"
+            : result.queueState === "automacao"
+              ? "automacao"
+              : "todos"
+          : "meus";
+        setActiveQueue(targetQueue);
+        setSelectedChatId(result.conversationId);
+      }
+    } catch (error: any) {
+      toast.error(error?.message || "Falha ao abrir atendimento no WhatsApp.");
+    } finally {
+      setOpeningWhatsappFromSite(false);
+    }
+  };
 
   const metaWindow =
     isMetaWhatsappChat && activeChat?.id
@@ -3342,9 +3386,10 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                 </span>
               ) : (
                 <>
-                  {activeChat.channel === "whatsapp" && <WhatsappLogo className="h-2.5 w-2.5" />}
+                  {!isSiteChat && activeChat.channel === "whatsapp" && <WhatsappLogo className="h-2.5 w-2.5" />}
                   {activeChat.channel === "instagram" && <InstagramLogo className="h-2.5 w-2.5" />}
                   {activeChat.channel === "messenger" && <MessengerLogo className="h-2.5 w-2.5" />}
+                  {isSiteChat && <SiteLogo className="h-2.5 w-2.5" />}
                 </>
               )}
             </span>
@@ -5195,6 +5240,35 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                 <div className="absolute inset-0 z-50 flex flex-col items-center justify-center rounded-3xl bg-primary/10 border-2 border-dashed border-primary pointer-events-none backdrop-blur-xs">
                   <Paperclip className="h-10 w-10 text-primary mb-2 animate-bounce" />
                   <p className="text-sm font-bold text-primary">Solte os arquivos aqui</p>
+                </div>
+              )}
+
+              {/* ── 1a. Aviso de Chat do Site + atalho direto para abrir conversa no WhatsApp ── */}
+              {isSiteChat && msgMode === "client" && (
+                <div className="mb-2.5 rounded-xl border border-sky-500/25 bg-sky-500/8 dark:bg-sky-500/12 px-3.5 py-2 text-xs backdrop-blur-xs shadow-2xs">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <SiteLogo className="h-3.5 w-3.5 text-sky-500 shrink-0" />
+                      <span>
+                        Conversa do <strong className="text-foreground">Chat do Site</strong> — entrega somente texto no widget (templates Meta são exclusivos do WhatsApp).
+                      </span>
+                    </div>
+                    {activeChat.contactId && (activeChat.phone || "").replace(/\D/g, "").length >= 8 && (
+                      <button
+                        type="button"
+                        disabled={openingWhatsappFromSite}
+                        onClick={() => void handleOpenWhatsappFromSiteChat()}
+                        className="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 px-2.5 py-1 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 transition-colors cursor-pointer disabled:opacity-60"
+                      >
+                        {openingWhatsappFromSite ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <WhatsappLogo className="h-3 w-3" />
+                        )}
+                        <span>Abrir no WhatsApp</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
 

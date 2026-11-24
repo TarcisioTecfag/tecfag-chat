@@ -32,8 +32,9 @@ import {
   operators,
   rdMarketingReceipts,
 } from "../../../../../db/schema";
-import { isNull, eq, and, desc, asc, or, sql } from "drizzle-orm";
+import { isNull, eq, and, desc, asc, notLike, or, sql } from "drizzle-orm";
 import { setAttendanceActor } from "../../../../../lib/attendance-events";
+import { isSiteConversationId } from "../../../../../lib/livechat/site-channel-policy";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -138,7 +139,13 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
             .orderBy(desc(conversations.lastMessageTime));
 
           const mappedConversations = rows.map((r) => {
-            const mainChan = r.contact?.mainChannel || "whatsapp";
+            const mainChan = isSiteConversationId(r.conversation.id)
+              ? "livechat"
+              : r.conversation.whatsappConnectionId
+                ? "whatsapp"
+                : r.contact?.mainChannel === "livechat"
+                  ? "whatsapp"
+                  : r.contact?.mainChannel || "whatsapp";
             return {
               id: r.conversation.id,
               linkId: r.linkId,
@@ -455,6 +462,7 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
                           and(
                             eq(conversations.tenantId, tenantId),
                             isNull(conversations.whatsappConnectionId),
+                            notLike(conversations.id, "conv-lc-%"),
                             or(...phoneConditions),
                           ),
                         )

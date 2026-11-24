@@ -1175,11 +1175,56 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         }
       }
 
+      // Hidrata anexos de mídia do banco (`media_files`) quando chegaram sem `mediaBase64`
+      // (ex.: imagem/áudio enviado antes da conversa entrar em `automacao` e acionado via `trigger_ai` ou recovery)
+      let hydratedDbAttachments: Awaited<ReturnType<typeof hydrateMediaAttachmentsFromDb>> = [];
+      try {
+        hydratedDbAttachments = await hydrateMediaAttachmentsFromDb({
+          db,
+          tenantId,
+          batchItems,
+          historyMsgs,
+        });
+      } catch (hydrateErr: any) {
+        console.warn("[SdrEngine] Aviso ao hidratar mídia do banco:", hydrateErr?.message || hydrateErr);
+      }
+
+      if (signal?.aborted) return false;
+
+      const hasMediaInBatch =
+        hydratedDbAttachments.length > 0 ||
+        batchItems.some(
+          (i) => i.mediaType === "image" || i.mediaType === "audio" || i.mediaType === "document",
+        );
+      const isClientDeclinedTurn =
+        industrialTriage &&
+        !hasMediaInBatch &&
+        isClientDecliningTriage(combinedBatchText);
+      const clientDeclinedWithFactualQuestion =
+        isClientDeclinedTurn && hasClientFactualQuestionInDecline(combinedBatchText);
+      const storeTurn =
+        industrialTriage && !isClientDeclinedTurn
+          ? await runVtexStoreTurn(db, tenantId, {
+              text: combinedBatchText,
+              siteContext,
+              previous: readVtexEvidence(metaState.vtexLookup) || undefined,
+              channel: isSiteConversationId(conversationId) ? "livechat" : "whatsapp",
+              signal,
+            }).catch(() => null)
+          : null;
+      if (signal?.aborted) return false;
+
+      const useVtexDirectReply = Boolean(
+        storeTurn && (storeTurn.mode !== "ai_context" || !vertexAi.isReady()),
+      );
+
       const promptText =
         industrialTriage
           ? buildTecfagFagnerPrompt({
               aiPersona,
               knowledgeContext,
+              vtexProductContext:
+                storeTurn?.mode === "ai_context" ? storeTurn.aiContext || null : null,
               conversationHistoryText,
               priorConversationHistoryText,
               currentDateTimeBrt: formatSdrDateTimeBrt(promptNow),
@@ -1197,20 +1242,6 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           : valemPromptText;
 
       const multimodalParts: MultimodalPart[] = [{ text: promptText }];
-
-      // Hidrata anexos de mídia do banco (`media_files`) quando chegaram sem `mediaBase64`
-      // (ex.: imagem/áudio enviado antes da conversa entrar em `automacao` e acionado via `trigger_ai` ou recovery)
-      let hydratedDbAttachments: Awaited<ReturnType<typeof hydrateMediaAttachmentsFromDb>> = [];
-      try {
-        hydratedDbAttachments = await hydrateMediaAttachmentsFromDb({
-          db,
-          tenantId,
-          batchItems,
-          historyMsgs,
-        });
-      } catch (hydrateErr: any) {
-        console.warn("[SdrEngine] Aviso ao hidratar mídia do banco:", hydrateErr?.message || hydrateErr);
-      }
 
       // Anexar buffers de imagem, áudio e PDF recebidos no lote com rótulo explícito para leitura direta (NF, etiquetas, comprovantes)
       let attachmentIndex = 0;
@@ -1244,28 +1275,6 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       if (signal?.aborted) return false;
 
       // 6. Consultar o Gemini 2.5 Pro via Vertex AI
-      const hasMediaInBatch =
-        hydratedDbAttachments.length > 0 ||
-        batchItems.some(
-          (i) => i.mediaType === "image" || i.mediaType === "audio" || i.mediaType === "document",
-        );
-      const isClientDeclinedTurn =
-        industrialTriage &&
-        !hasMediaInBatch &&
-        isClientDecliningTriage(combinedBatchText);
-      const clientDeclinedWithFactualQuestion =
-        isClientDeclinedTurn && hasClientFactualQuestionInDecline(combinedBatchText);
-      const storeTurn =
-        industrialTriage && !isClientDeclinedTurn
-          ? await runVtexStoreTurn(db, tenantId, {
-              text: combinedBatchText,
-              siteContext,
-              previous: readVtexEvidence(metaState.vtexLookup) || undefined,
-              channel: isSiteConversationId(conversationId) ? "livechat" : "whatsapp",
-              signal,
-            }).catch(() => null)
-          : null;
-      if (signal?.aborted) return false;
       let aiResult: SdrAiResult | null = null;
       const shouldShortCircuitGenericHuman =
         industrialTriage &&
@@ -1289,8 +1298,8 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         };
       } else if (shouldShortCircuitGenericHuman) {
         aiResult = { subflow: "5A_CLIENTE", messagesToSend: ["Vou acionar a equipe responsável pelo seu atendimento."], isCompleted: true };
-      } else if (storeTurn) {
-        // Consulta factual não conclui coleta, cria card ou depende de uma resposta generativa.
+      } else if (useVtexDirectReply && storeTurn) {
+        // Consulta factual direta (preço/frete/opções/LiveChat ou fallback sem IA) não conclui coleta.
         aiResult = { messagesToSend: storeTurn.messages, isCompleted: false };
       } else if (vertexAi.isReady()) {
         aiResult = await vertexAi.generateStructuredJson<SdrAiResult>(
@@ -1718,20 +1727,20 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         const cordialClosingFromBot =
           !isInformativeResolution &&
           !hasPendingQuestion &&
-          !storeTurn &&
+          !useVtexDirectReply &&
           isBotClosingOrInformativeMessage(aiResult.messagesToSend.join(" "));
         const implicitReadyHandoff =
           Boolean(industrialReadiness?.ready) &&
           !hasPendingQuestion &&
           claimsIndustrialHandoffEffect(aiResult.messagesToSend);
         if (isInformativeResolution) {
-          isCompleted = !storeTurn;
+          isCompleted = !useVtexDirectReply;
         } else if (cordialClosingFromBot) {
           isCordialBotClosingTurn = true;
           isCompleted = true;
         } else {
           isCompleted =
-            !storeTurn &&
+            !useVtexDirectReply &&
             canFinishIndustrialTriage({
               route: industrialRoute,
               data: updatedCollectedData,
@@ -2152,7 +2161,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       }
 
       // ── Salvar interpretação de mídia na mensagem do cliente (memória visual futura) ──
-      if (industrialTriage) aiResult.messagesToSend = guardVtexMessages(aiResult.messagesToSend, storeTurn?.messages || []);
+      if (industrialTriage) aiResult.messagesToSend = guardVtexMessages(aiResult.messagesToSend, useVtexDirectReply ? storeTurn?.messages || [] : []);
       // Se o Gemini retornou uma mediaDescription, salvamos na mensagem do cliente que
       // continha a mídia para que em turnos futuros a Valentina saiba o que foi visto/ouvido
       // sem precisar reenviar o binário da imagem/áudio/PDF.

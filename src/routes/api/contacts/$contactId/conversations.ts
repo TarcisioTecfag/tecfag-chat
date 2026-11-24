@@ -8,7 +8,7 @@ import {
   resolveOrEnsureContactPhoneRow,
 } from "../../../../lib/crm/contact-phones";
 import { createFileRoute } from "@tanstack/react-router";
-import { isNull, and, desc, eq, ne, or, sql } from "drizzle-orm";
+import { isNull, and, desc, eq, ne, notLike, or, sql } from "drizzle-orm";
 import { db } from "../../../../db";
 import {
   channelConfigs,
@@ -156,6 +156,7 @@ export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
                     and(
                       eq(conversations.tenantId, tenantId),
                       isNull(conversations.whatsappConnectionId),
+                      notLike(conversations.id, "conv-lc-%"),
                       ne(contacts.id, contactId),
                       phoneCondition,
                     ),
@@ -303,7 +304,7 @@ export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
                 tenantId,
                 operatorId: assignNewConv ? session.operator.id : null,
                 queueState: assignNewConv ? "meus" : "fila",
-                mainChannel: contact.mainChannel,
+                mainChannel: contact.mainChannel === "livechat" ? "whatsapp" : contact.mainChannel,
               })
             ) {
               throw Object.assign(

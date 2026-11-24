@@ -1,6 +1,13 @@
 import { readSiteContext } from "../livechat/site-context.ts";
 import { resolveIndustrialRoute, requestsHuman } from "../triage/industrial-policy.ts";
-import { type VtexQuery, type VtexResult, type VtexChannel, plainText } from "./contract.ts";
+import {
+  type VtexQuery,
+  type VtexProduct,
+  type VtexResult,
+  type VtexChannel,
+  plainText,
+  smartTruncate,
+} from "./contract.ts";
 const NON_STORE_URL_HOST_PATTERN =
   /(?:^|\.)(?:instagram\.com|facebook\.com|fb\.com|fb\.watch|youtube\.com|youtu\.be|tiktok\.com|wa\.me|whatsapp\.com|linkedin\.com|twitter\.com|x\.com|google\.com(?:\.br)?|goo\.gl|maps\.app\.goo\.gl|mercadolivre\.com\.br|shopee\.com\.br|bit\.ly|linktr\.ee|t\.me)$/i;
 
@@ -149,6 +156,113 @@ export function formatVtexEstimate(value: string) {
     };
   return `${amount} ${units[match[2].toLowerCase()][amount === 1 ? 0 : 1]}`;
 }
+const normalizeVtexCompare = (value: string) =>
+  value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+
+const isDescriptionSpecKey = (key: string) =>
+  /^(?:descricao(?:\s+do\s+produto|\s+geral|\s+tecnica)?|sobre\s+o\s+produto)$/i.test(
+    normalizeVtexCompare(key),
+  );
+
+const isPlaceholderSpecValue = (value: string) =>
+  /^(?:[-–—.]+|n\/a|nao\s+informado|indisponivel|null|undefined)$/i.test(
+    normalizeVtexCompare(value),
+  );
+
+function selectCleanVtexDetails(product: VtexProduct): {
+  description: string;
+  specifications: Array<[string, string]>;
+} {
+  const entries = Object.entries(product.specifications || {});
+  let description = plainText(product.description, 2500);
+  if (!description) {
+    const descSpec = entries.find(([key, val]) => isDescriptionSpecKey(key) && val?.trim());
+    if (descSpec) description = plainText(descSpec[1], 2500);
+  }
+  const normalizedDesc = normalizeVtexCompare(description);
+  const seenKeys = new Set<string>();
+  const specifications: Array<[string, string]> = [];
+
+  for (const [rawKey, rawValue] of entries) {
+    const key = plainText(rawKey, 100);
+    const value = plainText(rawValue, 1000);
+    if (!key || !value || isPlaceholderSpecValue(value)) continue;
+    const normKey = normalizeVtexCompare(key);
+    if (seenKeys.has(normKey)) continue;
+    if (description && isDescriptionSpecKey(key)) continue;
+    const normVal = normalizeVtexCompare(value);
+    if (normalizedDesc && normVal.length >= 40) {
+      const probe = normVal.slice(0, Math.min(80, normVal.length));
+      if (normalizedDesc.includes(probe)) continue;
+    }
+    seenKeys.add(normKey);
+    specifications.push([key, value]);
+  }
+
+  return { description, specifications };
+}
+
+export function formatVtexAiContext(result: VtexResult): string | null {
+  if (
+    result.status !== "matched" &&
+    !(result.status === "choices" && result.products.length === 1)
+  ) {
+    return null;
+  }
+  const product = result.products[0];
+  if (!product) return null;
+
+  const selectedSku = result.selectedSkuId
+    ? product.skus.find((item) => item.id === result.selectedSkuId) || null
+    : null;
+  const { description, specifications } = selectCleanVtexDetails(product);
+
+  const lines: string[] = [
+    "🛒 PRODUTO CONSULTADO NA LOJA OFICIAL VTEX (DADOS OFICIAIS LIMPOS DESTE TURNO):",
+    `- Nome oficial: ${product.name}`,
+  ];
+  if (selectedSku) {
+    lines.push(
+      `- Variante/SKU: ${selectedSku.name ? `${selectedSku.name} ` : ""}(SKU ${selectedSku.id})${selectedSku.reference ? ` · Ref: ${selectedSku.reference}` : ""}`,
+    );
+  } else if (product.skus.length > 0) {
+    const variants = product.skus
+      .slice(0, 6)
+      .map((item) => `${item.name || "Variante"} (SKU ${item.id})`)
+      .join(" | ");
+    lines.push(`- Variantes disponíveis na loja: ${variants}`);
+  }
+  lines.push(`- Link oficial: ${product.url}`);
+  if (description) {
+    lines.push(`- Resumo oficial do produto: ${smartTruncate(description, 600)}`);
+  }
+  if (specifications.length > 0) {
+    lines.push("- Especificações técnicas oficiais:");
+    let budget = 1400;
+    for (const [key, value] of specifications.slice(0, 8)) {
+      const compactVal = smartTruncate(value, 360);
+      if (!compactVal || compactVal.length > budget) continue;
+      lines.push(`  • ${key}: ${compactVal}`);
+      budget -= compactVal.length;
+    }
+  }
+  lines.push(
+    "DIRETRIZES OBRIGATÓRIAS PARA RESPONDER SOBRE ESTE PRODUTO NO WHATSAPP:",
+    "- O cliente consultou/enviou o link deste equipamento específico da loja oficial. Confirme o modelo pelo nome oficial e registre o equipamento em extractedData[\"MÁQUINA / PEÇA / INTERESSE\"].",
+    "- Responda de forma CURTA, humana e escaneável para leitura no WhatsApp (1 a 2 balões curtos; resumo técnico enxuto de no máximo ~350 a 450 caracteres — NUNCA despeje a ficha técnica inteira nem envie paredão de texto).",
+    "- Destaque apenas para que serve e 2 a 4 pontos-chave (ou responda exatamente o que o cliente perguntou). Se houver variantes (ex.: 220V / 380V), mencione brevemente.",
+    "- Conduza naturalmente a próxima etapa da triagem consultiva (ex.: perguntar qual produto/carga vai embalar e a demanda aproximada, ou se deseja avançar para cotação), seguindo as regras normais de triagem.",
+    "- NUNCA informe, estime ou invente preço, valor, desconto, prazo de entrega, frete ou disponibilidade em estoque no WhatsApp — informe que o especialista confirma valores e condições comerciais na proposta.",
+  );
+
+  return lines.join("\n");
+}
+
 export function formatVtexAnswer(
   result: VtexResult,
   intent: "price" | "shipping" | "details",
@@ -191,9 +305,18 @@ export function formatVtexAnswer(
         : "Não há preço público confirmado nesta consulta. A equipe pode verificar o orçamento.",
     );
   if (intent === "details") {
-    if (product.description) lines.push(product.description.slice(0, 1000));
-    for (const [key, value] of Object.entries(product.specifications).slice(0, 8))
-      lines.push(`${key}: ${value}`);
+    const { description, specifications } = selectCleanVtexDetails(product);
+    if (description) lines.push(smartTruncate(description, 320));
+    let remainingSpecBudget = 750;
+    for (const [key, value] of specifications.slice(0, 5)) {
+      if (remainingSpecBudget <= 40) break;
+      const maxVal = Math.min(220, remainingSpecBudget);
+      const compact = smartTruncate(value, maxVal);
+      if (!compact) continue;
+      const line = `${key}: ${compact}`;
+      lines.push(line);
+      remainingSpecBudget -= line.length + 1;
+    }
   }
   if (sku.available !== null)
     lines.push(

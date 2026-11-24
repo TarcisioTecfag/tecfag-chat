@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, notInArray, notLike, or, sql } from "drizzle-orm";
 import { contactPhones, contacts, conversations } from "../../db/schema";
 import {
   computeContactPhoneIdentity,
@@ -310,7 +310,7 @@ export async function syncContactPhones(
     })
     .where(and(eq(contacts.tenantId, tenantId), eq(contacts.id, contactId)));
 
-  // Vincula conversas legadas sem contactPhoneId ao telefone principal
+  // Vincula conversas legadas de WhatsApp sem contactPhoneId ao telefone principal (nunca conversas do site conv-lc-*)
   if (primaryItem) {
     await dbOrTx
       .update(conversations)
@@ -323,6 +323,7 @@ export async function syncContactPhones(
           eq(conversations.tenantId, tenantId),
           eq(conversations.contactId, contactId),
           isNull(conversations.contactPhoneId),
+          notLike(conversations.id, "conv-lc-%"),
         ),
       );
   }
@@ -586,6 +587,7 @@ export async function findConversationForContactPhone(
         eq(conversations.tenantId, tenantId),
         eq(conversations.contactId, contactId),
         connectionCond,
+        notLike(conversations.id, "conv-lc-%"),
       ),
     )
     .orderBy(desc(conversations.lastMessageTime), desc(conversations.createdAt));

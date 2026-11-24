@@ -12,6 +12,7 @@ import { conversationReadRules } from "../../lib/access-control/conversation-pol
 import { getDealContext, recordConversationAction, assertDealContextVersion, DealContextError, findActiveGraceDeal } from "../../lib/crm/conversation-deal-context";
 import { getContactPhonesMap } from "../../lib/crm/contact-phones";
 import { computeContactPhoneIdentity, getContactPhoneTypeLabel } from "../../lib/contact-phone-types";
+import { isSiteConversationId } from "../../lib/livechat/site-channel-policy";
 
 export const Route = createFileRoute("/api/chats")({
   server: {
@@ -833,7 +834,13 @@ export const Route = createFileRoute("/api/chats")({
               cpf: row.contact.cpf || "",
               cnpjDetails: (row.contact as any).cnpjDetails || {},
               tags: row.contact.tags || [],
-              channel: row.conversation.whatsappConnectionId ? "whatsapp" : row.contact.mainChannel || "whatsapp",
+              channel: isSiteConversationId(row.conversation.id)
+                ? "livechat"
+                : row.conversation.whatsappConnectionId
+                  ? "whatsapp"
+                  : row.contact.mainChannel === "livechat"
+                    ? "whatsapp"
+                    : row.contact.mainChannel || "whatsapp",
               siteVisitorId,
               hasSiteJourney,
               siteContext: cf.siteContext || null,

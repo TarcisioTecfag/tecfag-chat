@@ -52,7 +52,7 @@ import {
   agentFlowStates,
   pendingInbounds,
 } from "../../db/schema";
-import { eq, isNull, and, or, inArray, desc, sql } from "drizzle-orm";
+import { eq, isNull, and, or, inArray, desc, notLike, sql } from "drizzle-orm";
 import { SlaEngine } from "../sla-engine";
 import { SdrEngine } from "../valentina/sdr-engine";
 import { SdrDebouncer } from "../valentina/sdr-debouncer";
@@ -1942,7 +1942,9 @@ export class SessionManager {
             .from(conversations)
             .where(and(
               eq(conversations.tenantId, tenantId),
-              isNull(conversations.whatsappConnectionId), inArray(conversations.contactId, matchingContacts.map((item) => item.id))
+              isNull(conversations.whatsappConnectionId),
+              notLike(conversations.id, "conv-lc-%"),
+              inArray(conversations.contactId, matchingContacts.map((item) => item.id))
             ))
             .orderBy(desc(conversations.lastMessageTime))
             .limit(1);

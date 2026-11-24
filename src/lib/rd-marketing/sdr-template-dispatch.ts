@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { and, desc, eq, inArray, isNull, or } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, notLike, or } from "drizzle-orm";
 import { db } from "../../db";
 import {
   agentFlowStates,
@@ -317,6 +317,7 @@ export async function dispatchRdSdrTemplatePostCommit(
               eq(conversations.tenantId, tenantId),
               eq(conversations.contactId, contact.id),
               isNull(conversations.whatsappConnectionId),
+              notLike(conversations.id, "conv-lc-%"),
             ),
           )
           .orderBy(desc(conversations.lastMessageTime))

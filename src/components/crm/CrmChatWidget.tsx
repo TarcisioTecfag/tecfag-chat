@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useTrainingSurface } from "@/hooks/useTrainingSurface";
+import { isSiteConversationId } from "@/lib/livechat/site-channel-policy";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -2265,7 +2266,13 @@ export function CrmChatWidget() {
 
   // Desbloqueio imediato da janela de 24h assim que uma mensagem recente do cliente é detectada
   useEffect(() => {
-    if (!open || activeProvider !== "meta" || selected?.channel !== "whatsapp" || !lastInboundMessage) {
+    if (
+      !open ||
+      activeProvider !== "meta" ||
+      selected?.channel !== "whatsapp" ||
+      isSiteConversationId(selected?.id) ||
+      !lastInboundMessage
+    ) {
       return;
     }
     const sentTime = lastInboundMessage.sentAtISO
@@ -2283,6 +2290,7 @@ export function CrmChatWidget() {
       !open ||
       activeProvider !== "meta" ||
       selected?.channel !== "whatsapp" ||
+      isSiteConversationId(selected?.id) ||
       selected?.id === "valentina" ||
       selected?.id === "__resolving__"
     ) {

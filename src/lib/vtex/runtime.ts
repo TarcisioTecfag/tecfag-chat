@@ -1,7 +1,13 @@
 import type { IndustrialDatabase } from "../triage/industrial-rodizio-store";
 import { readVtexConfig, credentialsForVtex } from "./store";
 import { queryVtex } from "./client";
-import { deriveVtexQuery, formatVtexAnswer, blockedVtexAnswer, safeVtexEvidence } from "./turn";
+import {
+  deriveVtexQuery,
+  formatVtexAnswer,
+  formatVtexAiContext,
+  blockedVtexAnswer,
+  safeVtexEvidence,
+} from "./turn";
 import type { VtexChannel } from "./contract";
 export async function runVtexStoreTurn(
   database: IndustrialDatabase,
@@ -25,13 +31,18 @@ export async function runVtexStoreTurn(
     (request.intent === "price" && !policy.price) ||
     (request.intent === "shipping" && !policy.shipping)
   )
-    return { messages: [blockedVtexAnswer(input.channel, request.intent)], evidence: null };
+    return {
+      messages: [blockedVtexAnswer(input.channel, request.intent)],
+      evidence: null,
+      mode: "direct_reply" as const,
+    };
   if (!request.query)
     return {
       messages: [
         "Pode enviar o link do produto ou informar o SKU para eu consultar a referência correta?",
       ],
       evidence: null,
+      mode: "direct_reply" as const,
     };
   try {
     const result = await queryVtex(state.settings, request.query, input.channel, {
@@ -51,9 +62,19 @@ export async function runVtexStoreTurn(
     ) {
       return null;
     }
+    // Opção A: no WhatsApp em consultas de detalhes/link do produto, entrega dados oficiais limpos
+    // para o Fagner (Gemini) responder de forma curta, consultiva e dar continuidade à triagem.
+    const shouldFeedAiContext =
+      input.channel === "whatsapp" &&
+      request.intent === "details" &&
+      (result.status === "matched" ||
+        (result.status === "choices" && result.products.length === 1));
+    const aiContext = shouldFeedAiContext ? formatVtexAiContext(result) : null;
     return {
       messages: formatVtexAnswer(result, request.intent),
       evidence: safeVtexEvidence(result),
+      mode: aiContext ? ("ai_context" as const) : ("direct_reply" as const),
+      ...(aiContext ? { aiContext } : {}),
     };
   } catch {
     return {
@@ -61,6 +82,7 @@ export async function runVtexStoreTurn(
         "A consulta da loja está indisponível agora. A equipe responsável pode conferir os dados.",
       ],
       evidence: null,
+      mode: "direct_reply" as const,
     };
   }
 }

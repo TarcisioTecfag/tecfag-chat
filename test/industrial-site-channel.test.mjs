@@ -159,7 +159,7 @@ describe("canal Site — contratos de integração (inspeção de código)", () 
   });
 
   it("rota de envio do operador entrega texto ao site após as validações de posse e card", () => {
-    const siteIdx = sendRoute.indexOf("targetContact?.mainChannel === SITE_CHANNEL");
+    const siteIdx = sendRoute.indexOf("isSiteConversationId(conv.id)");
     assert.ok(siteIdx > sendRoute.indexOf("conv.operatorId !== session.operator.id"));
     assert.ok(siteIdx > sendRoute.indexOf("DEAL_REQUIRED"));
     assert.match(sendRoute, /SITE_TEXT_ONLY/);
@@ -405,7 +405,7 @@ describe("fase 2: modal 580px, pré-chat obrigatório com match de telefone, aba
     assert.match(siteAdapter, /findContactByAnyPhone\(tx, tenantId, phone\)/);
     assert.match(siteAdapter, /enrichExistingContactInTx/);
     assert.match(siteAdapter, /eq\(conversations\.id, conversationId\)/);
-    assert.match(sendRoute, /isSiteConversationId\(conv\.id\) \|\| targetContact\?\.mainChannel === SITE_CHANNEL/);
+    assert.match(sendRoute, /!conv\.whatsappConnectionId && isSiteConversationId\(conv\.id\)/);
     assert.match(handoffStore, /const siteContact = isSiteConversationId\(state\.conv\.id\) \|\| contact\.mainChannel === "livechat";/);
   });
 
