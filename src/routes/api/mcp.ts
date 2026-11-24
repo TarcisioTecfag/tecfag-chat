@@ -116,6 +116,7 @@ export const Route = createFileRoute("/api/mcp")({
             tenantId: defaultTenant,
             keyId: access.keyId || "primary",
             isHeavy: HEAVY_MCP_TOOLS.has(directToolName),
+            keyLimits: access.keyLimits,
             signal: request.signal,
           });
           if (!guardRes.allowed) {
@@ -369,6 +370,7 @@ export const Route = createFileRoute("/api/mcp")({
             tenantId: effectiveTenant,
             keyId: access.keyId || "primary",
             isHeavy: inspection.isHeavy,
+            keyLimits: access.keyLimits,
             signal: request.signal,
           });
           if (!guardRes.allowed) {

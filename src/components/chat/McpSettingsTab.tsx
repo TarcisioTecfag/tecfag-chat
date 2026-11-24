@@ -20,6 +20,7 @@ import {
   Search,
   Server,
   Shield,
+  SlidersHorizontal,
   Sparkles,
   Terminal,
   Trash2,
@@ -29,8 +30,24 @@ import { toast } from "sonner";
 import { useChat } from "@/hooks/useChatState";
 import { getAiPersona } from "@/lib/ai-persona";
 import { SystemTooltip } from "@/components/ui/tooltip";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 type McpAccessLevel = "read" | "read_write";
+
+interface McpKeyLimits {
+  rateLimitPerMin?: number | null;
+  maxConcurrent?: number | null;
+  maxHeavyConcurrent?: number | null;
+}
+
+interface McpDefaultLimits {
+  rateLimitPerMin: number;
+  tenantRateLimitPerMin: number;
+  maxConcurrentPerKey: number;
+  maxConcurrentGlobal: number;
+  maxHeavyConcurrentPerKey: number;
+  maxHeavyConcurrentGlobal: number;
+}
 
 interface McpNamedKey {
   id: string;
@@ -42,6 +59,7 @@ interface McpNamedKey {
   usageCount: number;
   active: boolean;
   accessLevel?: McpAccessLevel;
+  limits?: McpKeyLimits;
 }
 
 type McpAuditEventType = "query" | "action" | "connection" | "config_change";
@@ -104,6 +122,7 @@ interface McpSettingsResponse {
   isDefaultPrimaryToken: boolean;
   namedKeys: McpNamedKey[];
   auditLogs?: McpAuditLogEntry[];
+  defaultLimits?: McpDefaultLimits;
   tools: McpToolItem[];
 }
 
@@ -129,6 +148,21 @@ export function McpSettingsTab() {
   const [primaryAccessLevel, setPrimaryAccessLevel] = useState<McpAccessLevel>("read");
   const [isDefaultPrimaryToken, setIsDefaultPrimaryToken] = useState(true);
   const [namedKeys, setNamedKeys] = useState<McpNamedKey[]>([]);
+  const [defaultLimits, setDefaultLimits] = useState<McpDefaultLimits>({
+    rateLimitPerMin: 180,
+    tenantRateLimitPerMin: 300,
+    maxConcurrentPerKey: 8,
+    maxConcurrentGlobal: 12,
+    maxHeavyConcurrentPerKey: 4,
+    maxHeavyConcurrentGlobal: 6,
+  });
+  const [editingLimitsKeyId, setEditingLimitsKeyId] = useState<string | null>(null);
+  const [limitsDraft, setLimitsDraft] = useState<{
+    rateLimitPerMin: string;
+    maxConcurrent: string;
+    maxHeavyConcurrent: string;
+  }>({ rateLimitPerMin: "", maxConcurrent: "", maxHeavyConcurrent: "" });
+  const [savingKeyLimits, setSavingKeyLimits] = useState(false);
   const [auditLogs, setAuditLogs] = useState<McpAuditLogEntry[]>([]);
   const [tools, setTools] = useState<McpToolItem[]>([]);
 
@@ -241,6 +275,9 @@ export function McpSettingsTab() {
         setPrimaryAccessLevel(data.primaryAccessLevel === "read_write" ? "read_write" : "read");
         setIsDefaultPrimaryToken(data.isDefaultPrimaryToken);
         setNamedKeys(Array.isArray(data.namedKeys) ? data.namedKeys : []);
+        if (data.defaultLimits) {
+          setDefaultLimits(data.defaultLimits);
+        }
         setAuditLogs(Array.isArray(data.auditLogs) ? data.auditLogs : []);
         setTools(Array.isArray(data.tools) ? data.tools : []);
         setLastSyncedAt(new Date().toISOString());
@@ -487,6 +524,70 @@ export function McpSettingsTab() {
       }
     } catch {
       toast.error("Erro ao atualizar permissão do link.");
+    }
+  };
+
+  const openLimitsEditor = (item: McpNamedKey) => {
+    setEditingLimitsKeyId(item.id);
+    setLimitsDraft({
+      rateLimitPerMin: item.limits?.rateLimitPerMin ? String(item.limits.rateLimitPerMin) : "",
+      maxConcurrent: item.limits?.maxConcurrent ? String(item.limits.maxConcurrent) : "",
+      maxHeavyConcurrent: item.limits?.maxHeavyConcurrent
+        ? String(item.limits.maxHeavyConcurrent)
+        : "",
+    });
+  };
+
+  const handleSaveNamedKeyLimits = async (
+    keyId: string,
+    label: string,
+    resetToDefault = false,
+  ) => {
+    if (savingKeyLimits) return;
+    setSavingKeyLimits(true);
+    try {
+      const payloadLimits = resetToDefault
+        ? null
+        : {
+            rateLimitPerMin: limitsDraft.rateLimitPerMin.trim()
+              ? Number(limitsDraft.rateLimitPerMin)
+              : null,
+            maxConcurrent: limitsDraft.maxConcurrent.trim()
+              ? Number(limitsDraft.maxConcurrent)
+              : null,
+            maxHeavyConcurrent: limitsDraft.maxHeavyConcurrent.trim()
+              ? Number(limitsDraft.maxHeavyConcurrent)
+              : null,
+          };
+      const res = await fetch("/api/settings/mcp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          action: "set_named_key_limits",
+          keyId,
+          limits: payloadLimits,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.ok && data.settings) {
+        setNamedKeys(data.settings.namedKeys || []);
+        if (Array.isArray(data.settings.auditLogs)) {
+          setAuditLogs(data.settings.auditLogs);
+        }
+        setEditingLimitsKeyId(null);
+        toast.success(
+          resetToDefault
+            ? `Limites de "${label}" restaurados para o padrão do servidor.`
+            : `Limites individuais de "${label}" atualizados com sucesso.`,
+        );
+      } else {
+        toast.error(data.error || "Erro ao salvar limites do link.");
+      }
+    } catch {
+      toast.error("Erro ao salvar limites do link.");
+    } finally {
+      setSavingKeyLimits(false);
     }
   };
 
@@ -1186,6 +1287,29 @@ export function McpSettingsTab() {
                               })}`
                             : " · ainda não utilizado"}
                         </span>
+                        {item.limits &&
+                          (item.limits.rateLimitPerMin ||
+                            item.limits.maxConcurrent ||
+                            item.limits.maxHeavyConcurrent) && (
+                            <SystemTooltip content="Limites customizados ativos para esta chave (sempre respeitando o teto global do banco)">
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/25">
+                                <SlidersHorizontal className="h-2.5 w-2.5" />
+                                {[
+                                  item.limits.rateLimitPerMin
+                                    ? `${item.limits.rateLimitPerMin}/min`
+                                    : null,
+                                  item.limits.maxConcurrent
+                                    ? `${item.limits.maxConcurrent} sim`
+                                    : null,
+                                  item.limits.maxHeavyConcurrent
+                                    ? `${item.limits.maxHeavyConcurrent} pesadas`
+                                    : null,
+                                ]
+                                  .filter(Boolean)
+                                  .join(" · ")}
+                              </span>
+                            </SystemTooltip>
+                          )}
                       </div>
 
                       <div className="text-[11px] font-mono text-muted-foreground truncate">
@@ -1280,6 +1404,136 @@ export function McpSettingsTab() {
                               )}
                             </button>
                           </SystemTooltip>
+
+                          <Popover
+                            open={editingLimitsKeyId === item.id}
+                            onOpenChange={(open) => {
+                              if (open) openLimitsEditor(item);
+                              else if (editingLimitsKeyId === item.id) setEditingLimitsKeyId(null);
+                            }}
+                          >
+                            <SystemTooltip content="Definir limites individuais de taxa (req/min) e concorrência para esta chave">
+                              <PopoverTrigger asChild>
+                                <button
+                                  type="button"
+                                  className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition cursor-pointer ${
+                                    item.limits &&
+                                    (item.limits.rateLimitPerMin ||
+                                      item.limits.maxConcurrent ||
+                                      item.limits.maxHeavyConcurrent)
+                                      ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/15"
+                                      : "bg-card hover:bg-muted text-muted-foreground hover:text-foreground border-border"
+                                  }`}
+                                >
+                                  <SlidersHorizontal className="h-3 w-3" />
+                                  Limites
+                                </button>
+                              </PopoverTrigger>
+                            </SystemTooltip>
+                            <PopoverContent align="end" className="w-80 p-4 space-y-3">
+                              <div className="space-y-0.5">
+                                <p className="text-xs font-extrabold text-foreground">
+                                  Limites da chave: {item.label}
+                                </p>
+                                <p className="text-[11px] text-muted-foreground">
+                                  Deixe em branco para herdar o padrão do servidor. O teto global (
+                                  {defaultLimits.maxConcurrentGlobal} sim /{" "}
+                                  {defaultLimits.maxHeavyConcurrentGlobal} pesadas) sempre protege o
+                                  banco.
+                                </p>
+                              </div>
+
+                              <div className="space-y-2.5">
+                                <div className="space-y-1">
+                                  <label className="block text-[11px] font-bold text-foreground">
+                                    Requisições por minuto (padrão: {defaultLimits.rateLimitPerMin})
+                                  </label>
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    max={5000}
+                                    placeholder={String(defaultLimits.rateLimitPerMin)}
+                                    value={limitsDraft.rateLimitPerMin}
+                                    onChange={(e) =>
+                                      setLimitsDraft((prev) => ({
+                                        ...prev,
+                                        rateLimitPerMin: e.target.value,
+                                      }))
+                                    }
+                                    className="w-full h-8 rounded-lg bg-muted/40 border border-border px-2.5 text-xs text-foreground focus:outline-none focus:border-primary"
+                                  />
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div className="space-y-1">
+                                    <label className="block text-[11px] font-bold text-foreground">
+                                      Simultâneas (padrão: {defaultLimits.maxConcurrentPerKey})
+                                    </label>
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      max={defaultLimits.maxConcurrentGlobal}
+                                      placeholder={String(defaultLimits.maxConcurrentPerKey)}
+                                      value={limitsDraft.maxConcurrent}
+                                      onChange={(e) =>
+                                        setLimitsDraft((prev) => ({
+                                          ...prev,
+                                          maxConcurrent: e.target.value,
+                                        }))
+                                      }
+                                      className="w-full h-8 rounded-lg bg-muted/40 border border-border px-2.5 text-xs text-foreground focus:outline-none focus:border-primary"
+                                    />
+                                  </div>
+
+                                  <div className="space-y-1">
+                                    <label className="block text-[11px] font-bold text-foreground">
+                                      Pesadas (padrão: {defaultLimits.maxHeavyConcurrentPerKey})
+                                    </label>
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      max={defaultLimits.maxHeavyConcurrentGlobal}
+                                      placeholder={String(defaultLimits.maxHeavyConcurrentPerKey)}
+                                      value={limitsDraft.maxHeavyConcurrent}
+                                      onChange={(e) =>
+                                        setLimitsDraft((prev) => ({
+                                          ...prev,
+                                          maxHeavyConcurrent: e.target.value,
+                                        }))
+                                      }
+                                      className="w-full h-8 rounded-lg bg-muted/40 border border-border px-2.5 text-xs text-foreground focus:outline-none focus:border-primary"
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center justify-between gap-2 pt-1">
+                                <button
+                                  type="button"
+                                  disabled={savingKeyLimits}
+                                  onClick={() =>
+                                    handleSaveNamedKeyLimits(item.id, item.label, true)
+                                  }
+                                  className="px-2.5 py-1.5 rounded-lg bg-muted hover:bg-muted/80 text-[11px] font-bold text-muted-foreground hover:text-foreground transition cursor-pointer disabled:opacity-50"
+                                >
+                                  Usar Padrão
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={savingKeyLimits}
+                                  onClick={() =>
+                                    handleSaveNamedKeyLimits(item.id, item.label, false)
+                                  }
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-[11px] font-bold hover:opacity-90 transition cursor-pointer disabled:opacity-50"
+                                >
+                                  {savingKeyLimits && (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  )}
+                                  Salvar Limites
+                                </button>
+                              </div>
+                            </PopoverContent>
+                          </Popover>
 
                           <button
                             type="button"

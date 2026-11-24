@@ -18,9 +18,11 @@ import {
   tenants,
 } from "../src/db/schema";
 import {
+  HEAVY_MCP_TOOLS,
   McpTrafficGuard,
   buildMcpRateLimitedResponse,
   extractMcpPayloadInspection,
+  normalizeMcpKeyLimitOverrides,
 } from "../src/lib/mcp/mcp-guard";
 import {
   clearMcpAuditLogs,
@@ -247,6 +249,145 @@ describe("MCP v3.13.0 — Pool, Guard (Rate Limit + Semáforo), Catálogo e Batc
     expect(snap.active.global).toBe(0);
     expect(snap.active.heavyGlobal).toBe(0);
     expect(snap.active.queued).toBe(0);
+  });
+
+  it("classifica search_conversations, search_crm_deals, search_crm_accounts e search_contacts como ferramentas pesadas (proteção /dev/shm)", () => {
+    for (const toolName of [
+      "search_conversations",
+      "search_crm_deals",
+      "search_crm_accounts",
+      "search_contacts",
+    ]) {
+      expect(HEAVY_MCP_TOOLS.has(toolName)).toBe(true);
+      const inspected = extractMcpPayloadInspection({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: toolName, arguments: { query: "teste" } },
+      });
+      expect(inspected.isHeavy).toBe(true);
+    }
+  });
+
+  it("aplica limites customizados independentes por chave (rate limit e concorrência) sem ultrapassar o teto global do servidor", async () => {
+    expect(normalizeMcpKeyLimitOverrides(null)).toBeUndefined();
+    expect(normalizeMcpKeyLimitOverrides({ rateLimitPerMin: "", maxConcurrent: null })).toBeUndefined();
+    expect(
+      normalizeMcpKeyLimitOverrides({
+        rateLimitPerMin: 99999,
+        maxConcurrent: 0,
+        maxHeavyConcurrent: 2.9,
+      }),
+    ).toEqual({
+      rateLimitPerMin: 5000,
+      maxConcurrent: 1,
+      maxHeavyConcurrent: 2,
+    });
+
+    const guard = new McpTrafficGuard({
+      rateLimitPerMin: 180,
+      tenantRateLimitPerMin: 300,
+      maxConcurrentPerKey: 8,
+      maxConcurrentGlobal: 6,
+      maxHeavyConcurrentPerKey: 4,
+      maxHeavyConcurrentGlobal: 3,
+      queueTimeoutMs: 120,
+      maxQueue: 10,
+    });
+
+    // Chave restrita: apenas 1 chamada pesada simultânea e 2 req/min
+    const restrictedLimits = { rateLimitPerMin: 2, maxConcurrent: 2, maxHeavyConcurrent: 1 };
+    const rA1 = await guard.acquire({
+      tenantId: "tecfag",
+      keyId: "key-restricted",
+      isHeavy: true,
+      keyLimits: restrictedLimits,
+    });
+    expect(rA1.allowed).toBe(true);
+    if (rA1.allowed) {
+      expect(rA1.headers["X-RateLimit-Limit"]).toBe("2");
+      expect(rA1.headers["X-MCP-Concurrency-Limit"]).toBe("1");
+    }
+
+    // 2ª chamada pesada simultânea da mesma chave restrita deve esperar e expirar (limite = 1)
+    const rA2 = await guard.acquire({
+      tenantId: "tecfag",
+      keyId: "key-restricted",
+      isHeavy: true,
+      keyLimits: restrictedLimits,
+    });
+    expect(rA2.allowed).toBe(false);
+    if (!rA2.allowed) {
+      expect(rA2.reason).toBe("concurrency_timeout");
+      expect(rA2.headers["X-MCP-Concurrency-Limit"]).toBe("1");
+    }
+
+    // Enquanto isso, outra chave (key-vip) com limite maior (mesmo tentando pedir 10, respeita o teto global = 3)
+    // consegue adquirir 2 slots pesados simultâneos (1 de key-restricted + 2 de key-vip = 3 global)
+    const vipLimits = { rateLimitPerMin: 100, maxConcurrent: 10, maxHeavyConcurrent: 10 };
+    const rV1 = await guard.acquire({
+      tenantId: "tecfag",
+      keyId: "key-vip",
+      isHeavy: true,
+      keyLimits: vipLimits,
+    });
+    const rV2 = await guard.acquire({
+      tenantId: "tecfag",
+      keyId: "key-vip",
+      isHeavy: true,
+      keyLimits: vipLimits,
+    });
+    expect(rV1.allowed).toBe(true);
+    expect(rV2.allowed).toBe(true);
+    if (rV1.allowed) {
+      expect(rV1.headers["X-MCP-Concurrency-Limit"]).toBe("3"); // capped pelo global 3
+    }
+
+    // 4ª chamada pesada global (mesmo em outra chave/tenant) é protegida pelo teto global = 3
+    const rGlobalCap = await guard.acquire({
+      tenantId: "valem",
+      keyId: "key-valem",
+      isHeavy: true,
+    });
+    expect(rGlobalCap.allowed).toBe(false);
+    if (!rGlobalCap.allowed) expect(rGlobalCap.reason).toBe("concurrency_timeout");
+
+    // Libera slots e testa rate limit customizado (2 req/min) da chave restrita
+    if (rA1.allowed) rA1.release();
+    if (rV1.allowed) rV1.release();
+    if (rV2.allowed) rV2.release();
+
+    const rA3 = await guard.acquire({
+      tenantId: "tecfag",
+      keyId: "key-restricted",
+      isHeavy: false,
+      keyLimits: restrictedLimits,
+    });
+    expect(rA3.allowed).toBe(true);
+    if (rA3.allowed) rA3.release();
+
+    // 3ª requisição no minuto da key-restricted estoura o limite individual dela (2/min)
+    const rA4 = await guard.acquire({
+      tenantId: "tecfag",
+      keyId: "key-restricted",
+      isHeavy: false,
+      keyLimits: restrictedLimits,
+    });
+    expect(rA4.allowed).toBe(false);
+    if (!rA4.allowed) expect(rA4.reason).toBe("rate_limit_key");
+
+    // E a key-vip continua operando livremente sem ser afetada pelo limite da key-restricted
+    const rV3 = await guard.acquire({
+      tenantId: "tecfag",
+      keyId: "key-vip",
+      isHeavy: false,
+      keyLimits: vipLimits,
+    });
+    expect(rV3.allowed).toBe(true);
+    if (rV3.allowed) rV3.release();
+
+    expect(guard.getSnapshot().active.global).toBe(0);
+    expect(guard.getSnapshot().active.heavyGlobal).toBe(0);
   });
 });
 
@@ -585,6 +726,43 @@ describe.skipIf(!RUN_DB_TESTS)(
       const thirdAuth = await getMcpAuthSettings("tecfag");
       expect(thirdAuth).not.toBe(firstAuth);
       expect(thirdAuth.tenantId).toBe("tecfag");
+    });
+
+    it("executa search_conversations sem full-scans concorrentes desnecessários e preserva paginação, queueSummary e isolamento multi-tenant", async () => {
+      // Caminho rápido (offset=0, returned < limit): não precisa de COUNT(*) duplicado
+      const fastRes = await callMcp(
+        "search_conversations",
+        { query: `Contato Escala ${suffix}`, limit: 10, offset: 0 },
+        makeAccess("read", "tecfag"),
+      );
+      expect(fastRes.isError).toBe(false);
+      expect(fastRes.data.returnedCount).toBe(1);
+      expect(fastRes.data.totalMatching).toBe(1);
+      expect(fastRes.data.hasMore).toBe(false);
+      expect(fastRes.data.queueSummary).toBeDefined();
+      expect(typeof fastRes.data.queueSummary.total).toBe("number");
+      expect(fastRes.data.conversations[0].conversationId).toBe(convTecId);
+
+      // Caminho paginado (returned === limit): executa COUNT(*) sequencialmente
+      const pagedRes = await callMcp(
+        "search_conversations",
+        { query: `Contato Escala ${suffix}`, limit: 1, offset: 0 },
+        makeAccess("read", "tecfag"),
+      );
+      expect(pagedRes.isError).toBe(false);
+      expect(pagedRes.data.returnedCount).toBe(1);
+      expect(pagedRes.data.totalMatching).toBe(1);
+      expect(pagedRes.data.hasMore).toBe(false);
+
+      // Isolamento estrito: tenant valem não enxerga conversa do tenant tecfag
+      const valemRes = await callMcp(
+        "search_conversations",
+        { query: `Contato Escala ${suffix}`, limit: 10, offset: 0 },
+        makeAccess("read", "valem"),
+      );
+      expect(valemRes.isError).toBe(false);
+      expect(valemRes.data.returnedCount).toBe(0);
+      expect(valemRes.data.totalMatching).toBe(0);
     });
   },
 );

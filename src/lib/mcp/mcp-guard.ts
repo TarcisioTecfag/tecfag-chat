@@ -10,10 +10,17 @@ export interface McpGuardConfig {
   windowMs: number;
 }
 
+export interface McpKeyLimitOverrides {
+  rateLimitPerMin?: number | null;
+  maxConcurrent?: number | null;
+  maxHeavyConcurrent?: number | null;
+}
+
 export interface McpGuardAcquireParams {
   tenantId: "tecfag" | "valem";
   keyId: string;
   isHeavy: boolean;
+  keyLimits?: McpKeyLimitOverrides;
   signal?: AbortSignal;
 }
 
@@ -47,6 +54,10 @@ export type McpGuardResult =
     };
 
 export const HEAVY_MCP_TOOLS = new Set<string>([
+  "search_conversations",
+  "search_crm_deals",
+  "search_crm_accounts",
+  "search_contacts",
   "get_crm_deal_details",
   "get_crm_deals_batch",
   "get_operator_conversations_messages",
@@ -57,6 +68,35 @@ export const HEAVY_MCP_TOOLS = new Set<string>([
   "batch_upsert_crm_deals",
   "query_knowledge_rag",
 ]);
+
+export function normalizeMcpKeyLimitOverrides(raw: unknown): McpKeyLimitOverrides | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const obj = raw as Record<string, unknown>;
+  const parseBound = (val: unknown, min: number, max: number): number | undefined => {
+    if (val === null || val === undefined || val === "") return undefined;
+    const n = Number(val);
+    if (!Number.isFinite(n)) return undefined;
+    return Math.max(min, Math.min(max, Math.floor(n)));
+  };
+
+  const rateLimitPerMin = parseBound(obj.rateLimitPerMin, 1, 5000);
+  const maxConcurrent = parseBound(obj.maxConcurrent, 1, 50);
+  const maxHeavyConcurrent = parseBound(obj.maxHeavyConcurrent, 1, 20);
+
+  if (
+    rateLimitPerMin === undefined &&
+    maxConcurrent === undefined &&
+    maxHeavyConcurrent === undefined
+  ) {
+    return undefined;
+  }
+
+  return {
+    ...(rateLimitPerMin !== undefined ? { rateLimitPerMin } : {}),
+    ...(maxConcurrent !== undefined ? { maxConcurrent } : {}),
+    ...(maxHeavyConcurrent !== undefined ? { maxHeavyConcurrent } : {}),
+  };
+}
 
 function readEnvPositiveInt(name: string, fallback: number, min: number, max: number): number {
   const raw = process.env[name];
@@ -123,9 +163,16 @@ export function extractMcpPayloadInspection(payload: unknown): {
   };
 }
 
+interface ResolvedKeyLimits {
+  rateLimitPerMin: number;
+  maxConcurrent: number;
+  maxHeavyConcurrent: number;
+}
+
 interface PendingWaiter {
   keyScope: string;
   isHeavy: boolean;
+  limits: ResolvedKeyLimits;
   enqueuedAt: number;
   resolve: (granted: boolean, reason?: "concurrency_timeout" | "aborted") => void;
   timer: ReturnType<typeof setTimeout>;
@@ -183,14 +230,33 @@ export class McpTrafficGuard {
     return firstValidIdx > 0 ? bucket.slice(firstValidIdx) : bucket;
   }
 
-  private canAcquire(keyScope: string, isHeavy: boolean): boolean {
+  private resolveEffectiveKeyLimits(overrides?: McpKeyLimitOverrides): ResolvedKeyLimits {
+    const normalized = normalizeMcpKeyLimitOverrides(overrides);
+    const rateLimitPerMin = normalized?.rateLimitPerMin ?? this.cfg.rateLimitPerMin;
+    const maxConcurrent = Math.min(
+      normalized?.maxConcurrent ?? this.cfg.maxConcurrentPerKey,
+      this.cfg.maxConcurrentGlobal,
+    );
+    const maxHeavyConcurrent = Math.min(
+      normalized?.maxHeavyConcurrent ?? this.cfg.maxHeavyConcurrentPerKey,
+      maxConcurrent,
+      this.cfg.maxHeavyConcurrentGlobal,
+    );
+    return {
+      rateLimitPerMin,
+      maxConcurrent: Math.max(1, maxConcurrent),
+      maxHeavyConcurrent: Math.max(1, maxHeavyConcurrent),
+    };
+  }
+
+  private canAcquire(keyScope: string, isHeavy: boolean, limits: ResolvedKeyLimits): boolean {
     if (this.activeGlobal >= this.cfg.maxConcurrentGlobal) return false;
     const keyActive = this.activeByKey.get(keyScope) || 0;
-    if (keyActive >= this.cfg.maxConcurrentPerKey) return false;
+    if (keyActive >= limits.maxConcurrent) return false;
     if (isHeavy) {
       if (this.activeHeavyGlobal >= this.cfg.maxHeavyConcurrentGlobal) return false;
       const keyHeavy = this.activeHeavyByKey.get(keyScope) || 0;
-      if (keyHeavy >= this.cfg.maxHeavyConcurrentPerKey) return false;
+      if (keyHeavy >= limits.maxHeavyConcurrent) return false;
     }
     return true;
   }
@@ -223,7 +289,7 @@ export class McpTrafficGuard {
   private promoteWaiters(): void {
     for (let i = 0; i < this.waitQueue.length; ) {
       const waiter = this.waitQueue[i];
-      if (this.canAcquire(waiter.keyScope, waiter.isHeavy)) {
+      if (this.canAcquire(waiter.keyScope, waiter.isHeavy, waiter.limits)) {
         this.waitQueue.splice(i, 1);
         clearTimeout(waiter.timer);
         waiter.cleanupAbort?.();
@@ -240,17 +306,16 @@ export class McpTrafficGuard {
     keyRemaining: number,
     resetEpochSeconds: number,
     isHeavy: boolean,
+    limits: ResolvedKeyLimits,
     retryAfterSeconds?: number,
   ): McpGuardHeaders {
-    const concurrencyLimit = isHeavy
-      ? this.cfg.maxHeavyConcurrentPerKey
-      : this.cfg.maxConcurrentPerKey;
+    const concurrencyLimit = isHeavy ? limits.maxHeavyConcurrent : limits.maxConcurrent;
     const concurrencyActive = isHeavy
       ? this.activeHeavyByKey.get(keyScope) || 0
       : this.activeByKey.get(keyScope) || 0;
 
     const headers: McpGuardHeaders = {
-      "X-RateLimit-Limit": String(this.cfg.rateLimitPerMin),
+      "X-RateLimit-Limit": String(limits.rateLimitPerMin),
       "X-RateLimit-Remaining": String(Math.max(0, keyRemaining)),
       "X-RateLimit-Reset": String(resetEpochSeconds),
       "X-MCP-Concurrency-Limit": String(concurrencyLimit),
@@ -266,6 +331,7 @@ export class McpTrafficGuard {
     const now = Date.now();
     const keyScope = `${params.tenantId}:${params.keyId || "primary"}`;
     const tenantScope = params.tenantId;
+    const keyLimits = this.resolveEffectiveKeyLimits(params.keyLimits);
 
     const keyWindow = this.pruneWindow(this.keyHits.get(keyScope) || [], now);
     const tenantWindow = this.pruneWindow(this.tenantHits.get(tenantScope) || [], now);
@@ -273,7 +339,7 @@ export class McpTrafficGuard {
     const oldestKeyTs = keyWindow[0] ?? now;
     const resetEpochSeconds = Math.ceil((oldestKeyTs + this.cfg.windowMs) / 1000);
 
-    if (keyWindow.length >= this.cfg.rateLimitPerMin) {
+    if (keyWindow.length >= keyLimits.rateLimitPerMin) {
       this.keyHits.set(keyScope, keyWindow);
       const retryAfterSeconds = Math.max(
         1,
@@ -283,8 +349,15 @@ export class McpTrafficGuard {
         allowed: false,
         reason: "rate_limit_key",
         retryAfterSeconds,
-        message: `Rate limit excedido para esta chave MCP (${this.cfg.rateLimitPerMin} req/min). Aguarde ${retryAfterSeconds}s e tente novamente.`,
-        headers: this.buildHeaders(keyScope, 0, resetEpochSeconds, params.isHeavy, retryAfterSeconds),
+        message: `Rate limit excedido para esta chave MCP (${keyLimits.rateLimitPerMin} req/min). Aguarde ${retryAfterSeconds}s e tente novamente.`,
+        headers: this.buildHeaders(
+          keyScope,
+          0,
+          resetEpochSeconds,
+          params.isHeavy,
+          keyLimits,
+          retryAfterSeconds,
+        ),
       };
     }
 
@@ -299,12 +372,19 @@ export class McpTrafficGuard {
         reason: "rate_limit_tenant",
         retryAfterSeconds,
         message: `Rate limit global do tenant '${params.tenantId}' excedido (${this.cfg.tenantRateLimitPerMin} req/min). Aguarde ${retryAfterSeconds}s.`,
-        headers: this.buildHeaders(keyScope, 0, resetEpochSeconds, params.isHeavy, retryAfterSeconds),
+        headers: this.buildHeaders(
+          keyScope,
+          0,
+          resetEpochSeconds,
+          params.isHeavy,
+          keyLimits,
+          retryAfterSeconds,
+        ),
       };
     }
 
     // Registra timestamp na janela antes da fila de concorrência apenas se puder entrar ou enfileirar
-    if (!this.canAcquire(keyScope, params.isHeavy)) {
+    if (!this.canAcquire(keyScope, params.isHeavy, keyLimits)) {
       if (params.signal?.aborted) {
         return {
           allowed: false,
@@ -313,9 +393,10 @@ export class McpTrafficGuard {
           message: "Requisição cancelada pelo cliente enquanto aguardava slot de concorrência.",
           headers: this.buildHeaders(
             keyScope,
-            this.cfg.rateLimitPerMin - keyWindow.length,
+            keyLimits.rateLimitPerMin - keyWindow.length,
             resetEpochSeconds,
             params.isHeavy,
+            keyLimits,
             1,
           ),
         };
@@ -329,9 +410,10 @@ export class McpTrafficGuard {
           message: `Servidor MCP com concorrência máxima ativa (fila de espera cheia: ${this.cfg.maxQueue}). Reduza o paralelismo e tente novamente.`,
           headers: this.buildHeaders(
             keyScope,
-            this.cfg.rateLimitPerMin - keyWindow.length,
+            keyLimits.rateLimitPerMin - keyWindow.length,
             resetEpochSeconds,
             params.isHeavy,
+            keyLimits,
             2,
           ),
         };
@@ -344,6 +426,7 @@ export class McpTrafficGuard {
         const waiter: PendingWaiter = {
           keyScope,
           isHeavy: params.isHeavy,
+          limits: keyLimits,
           enqueuedAt,
           resolve: (granted, reason) => {
             if (granted) {
@@ -383,12 +466,13 @@ export class McpTrafficGuard {
           message:
             waitResult.reason === "aborted"
               ? "Requisição cancelada pelo cliente."
-              : `Limite de chamadas simultâneas do MCP atingido (${params.isHeavy ? this.cfg.maxHeavyConcurrentPerKey : this.cfg.maxConcurrentPerKey} paralelas por chave). Reduza a concorrência e tente novamente.`,
+              : `Limite de chamadas simultâneas do MCP atingido (${params.isHeavy ? keyLimits.maxHeavyConcurrent : keyLimits.maxConcurrent} paralelas para esta chave). Reduza a concorrência e tente novamente.`,
           headers: this.buildHeaders(
             keyScope,
-            this.cfg.rateLimitPerMin - keyWindow.length,
+            keyLimits.rateLimitPerMin - keyWindow.length,
             resetEpochSeconds,
             params.isHeavy,
+            keyLimits,
             retrySec,
           ),
         };
@@ -417,9 +501,10 @@ export class McpTrafficGuard {
         waitedMs: waitResult.waitedMs,
         headers: this.buildHeaders(
           keyScope,
-          this.cfg.rateLimitPerMin - updatedKeyWindow.length,
+          keyLimits.rateLimitPerMin - updatedKeyWindow.length,
           Math.ceil(((updatedKeyWindow[0] ?? hitAt) + this.cfg.windowMs) / 1000),
           params.isHeavy,
+          keyLimits,
         ),
       };
     }
@@ -444,9 +529,10 @@ export class McpTrafficGuard {
       waitedMs: 0,
       headers: this.buildHeaders(
         keyScope,
-        this.cfg.rateLimitPerMin - keyWindow.length,
+        keyLimits.rateLimitPerMin - keyWindow.length,
         Math.ceil(((keyWindow[0] ?? now) + this.cfg.windowMs) / 1000),
         params.isHeavy,
+        keyLimits,
       ),
     };
   }

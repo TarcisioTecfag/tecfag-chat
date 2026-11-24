@@ -38,6 +38,11 @@ import {
 } from "./valem-tecfag-mcp-write-tools";
 import { resolveTriageAuditDateWindow } from "./valem-tecfag-mcp-triage-tools";
 import {
+  normalizeMcpKeyLimitOverrides,
+  type McpKeyLimitOverrides,
+} from "./mcp-guard";
+export { normalizeMcpKeyLimitOverrides, type McpKeyLimitOverrides } from "./mcp-guard";
+import {
   LIST_CRM_CUSTOM_FIELDS_TOOL_SCHEMA,
   buildAccountFilledFieldSqlCondition,
   buildHasCustomFieldsSqlCondition,
@@ -87,6 +92,7 @@ export interface McpNamedKey {
   usageCount: number;
   active: boolean;
   accessLevel: McpAccessLevel;
+  limits?: McpKeyLimitOverrides;
 }
 
 export type McpAuditEventType = "query" | "action" | "connection" | "config_change";
@@ -129,6 +135,7 @@ export interface McpAccessContext {
   accessLevel?: McpAccessLevel;
   keyId?: string;
   keyLabel?: string;
+  keyLimits?: McpKeyLimitOverrides;
   skipAuditLog?: boolean;
   clientIp?: string;
   userAgent?: string;
@@ -765,6 +772,79 @@ const mcpAuthSettingsInFlight = new Map<
   Promise<McpAuthSettingsSnapshot>
 >();
 
+type ConversationQueueSummary = {
+  total: number;
+  automacao: number;
+  fila: number;
+  meus: number;
+  finalizados: number;
+};
+
+const QUEUE_SUMMARY_CACHE_TTL_MS = 15_000;
+const conversationQueueSummaryCache = new Map<
+  "tecfag" | "valem",
+  { data: ConversationQueueSummary; expiresAt: number }
+>();
+const conversationQueueSummaryInFlight = new Map<
+  "tecfag" | "valem",
+  Promise<ConversationQueueSummary>
+>();
+
+async function getCachedConversationQueueSummary(
+  sqlClient: any,
+  tenantId: "tecfag" | "valem",
+): Promise<ConversationQueueSummary> {
+  const useCache = sqlClient === defaultSqlClient;
+  const now = Date.now();
+  if (useCache) {
+    const cached = conversationQueueSummaryCache.get(tenantId);
+    if (cached && cached.expiresAt > now) {
+      return cached.data;
+    }
+    const inFlight = conversationQueueSummaryInFlight.get(tenantId);
+    if (inFlight) {
+      return inFlight;
+    }
+  }
+
+  const loader = (async (): Promise<ConversationQueueSummary> => {
+    const summaryRows = await sqlClient`
+      SELECT
+        COUNT(*)::int AS total,
+        COUNT(*) FILTER (WHERE queue_state = 'automacao')::int AS automacao,
+        COUNT(*) FILTER (WHERE queue_state = 'fila')::int AS fila,
+        COUNT(*) FILTER (WHERE queue_state = 'meus')::int AS meus,
+        COUNT(*) FILTER (WHERE queue_state = 'finalizados')::int AS finalizados
+      FROM conversations
+      WHERE tenant_id = ${tenantId}
+    `;
+    const row = summaryRows?.[0] || {};
+    return {
+      total: Number(row.total ?? 0),
+      automacao: Number(row.automacao ?? 0),
+      fila: Number(row.fila ?? 0),
+      meus: Number(row.meus ?? 0),
+      finalizados: Number(row.finalizados ?? 0),
+    };
+  })();
+
+  if (useCache) {
+    conversationQueueSummaryInFlight.set(tenantId, loader);
+    try {
+      const data = await loader;
+      conversationQueueSummaryCache.set(tenantId, {
+        data,
+        expiresAt: Date.now() + QUEUE_SUMMARY_CACHE_TTL_MS,
+      });
+      return data;
+    } finally {
+      conversationQueueSummaryInFlight.delete(tenantId);
+    }
+  }
+
+  return loader;
+}
+
 const KEY_USAGE_FLUSH_INTERVAL_MS = 10_000;
 const pendingKeyUsage = new Map<
   string,
@@ -794,6 +874,9 @@ function parseNamedKeysFromConfig(cfg: Record<string, unknown>): McpNamedKey[] {
       usageCount: Number(k.usageCount || 0),
       active: k.active !== false,
       accessLevel: normalizeMcpAccessLevel(k.accessLevel),
+      ...(normalizeMcpKeyLimitOverrides(k.limits)
+        ? { limits: normalizeMcpKeyLimitOverrides(k.limits) }
+        : {}),
     }))
     .filter((k) => Boolean(k.id && k.token));
 }
@@ -1143,10 +1226,15 @@ async function persistMcpTenantSettingsUnlocked(
   const primaryAccessLevel = normalizeMcpAccessLevel(
     settings.primaryAccessLevel ?? previousSnapshot?.primaryAccessLevel,
   );
-  const normalizedNamedKeys: McpNamedKey[] = settings.namedKeys.map((k) => ({
-    ...k,
-    accessLevel: normalizeMcpAccessLevel(k.accessLevel),
-  }));
+  const normalizedNamedKeys: McpNamedKey[] = settings.namedKeys.map((k) => {
+    const normalizedLimits = normalizeMcpKeyLimitOverrides(k.limits);
+    const { limits: _ignored, ...rest } = k;
+    return {
+      ...rest,
+      accessLevel: normalizeMcpAccessLevel(k.accessLevel),
+      ...(normalizedLimits ? { limits: normalizedLimits } : {}),
+    };
+  });
 
   // Mantém o JSONB em agent_configs permanentemente enxuto (sem auditLogs embutidos).
   const configJson = {
@@ -1398,6 +1486,7 @@ export async function resolveMcpAccess(request: Request): Promise<McpAccessConte
           accessLevel: matchedNamedKey.accessLevel,
           keyId: matchedNamedKey.id,
           keyLabel: matchedNamedKey.label,
+          keyLimits: matchedNamedKey.limits,
         });
       }
       return null;
@@ -1535,6 +1624,7 @@ export async function resolveMcpAccess(request: Request): Promise<McpAccessConte
       return finalizeAccess({
         ...existingSession.access,
         accessLevel: liveAccessLevel,
+        keyLimits: liveNamedKey ? liveNamedKey.limits : undefined,
       });
     }
     closeMcpSession(sessionId);
@@ -2172,76 +2262,70 @@ export async function executeMcpTool(
         idx === 0 ? curr : sql`${acc} AND ${curr}`,
       );
 
-      const [rows, countRows, queueSummaryRows] = await Promise.all([
-        sql`
-          SELECT
-            conv.id AS conversation_id,
-            conv.whatsapp_connection_id,
-            conv.queue_state,
-            conv.unread_count,
-            conv.last_message_text,
-            conv.last_message_time,
-            conv.created_at,
-            c.id AS contact_id,
-            c.name AS contact_name,
-            c.phone AS contact_phone,
-            c.email AS contact_email,
-            c.main_channel,
-            c.wallet_operator_id,
-            c.responsible_name,
-            c.account_id,
-            acc.name AS account_name,
-            acc.trade_name AS account_trade_name,
-            acc.document AS account_document,
-            op.id AS operator_id,
-            op.name AS operator_name,
-            s.id AS sector_id,
-            s.name AS sector_name,
-            (
-              SELECT jsonb_agg(jsonb_build_object(
-                'dealId', d.id,
-                'title', d.title,
-                'value', d.value,
-                'status', d.status
-              ))
-              FROM crm_conversation_deals cd
-              JOIN crm_deals d ON d.id = cd.deal_id AND d.tenant_id = conv.tenant_id
-              WHERE cd.conversation_id = conv.id
-                AND cd.tenant_id = conv.tenant_id
-                AND cd.is_active = true
-            ) AS linked_deals
-          FROM conversations conv
-          JOIN contacts c ON c.id = conv.contact_id AND c.tenant_id = conv.tenant_id
-          LEFT JOIN crm_accounts acc ON acc.id = c.account_id AND acc.tenant_id = conv.tenant_id
-          LEFT JOIN operators op ON op.id = conv.operator_id AND op.tenant_id = conv.tenant_id
-          LEFT JOIN sectors s ON s.id = conv.sector_id AND s.tenant_id = conv.tenant_id
-          WHERE ${whereClause}
-          ORDER BY conv.last_message_time DESC NULLS LAST, conv.id DESC
-          LIMIT ${limit}
-          OFFSET ${offset}
-        `,
-        sql`
+      // Executa a busca principal primeiro e evita disparar 3 full-scans simultâneos em Promise.all
+      // (reduz drasticamente a alocação concorrente de parallel workers em /dev/shm do PostgreSQL).
+      const rows = await sql`
+        SELECT
+          conv.id AS conversation_id,
+          conv.whatsapp_connection_id,
+          conv.queue_state,
+          conv.unread_count,
+          conv.last_message_text,
+          conv.last_message_time,
+          conv.created_at,
+          c.id AS contact_id,
+          c.name AS contact_name,
+          c.phone AS contact_phone,
+          c.email AS contact_email,
+          c.main_channel,
+          c.wallet_operator_id,
+          c.responsible_name,
+          c.account_id,
+          acc.name AS account_name,
+          acc.trade_name AS account_trade_name,
+          acc.document AS account_document,
+          op.id AS operator_id,
+          op.name AS operator_name,
+          s.id AS sector_id,
+          s.name AS sector_name,
+          (
+            SELECT jsonb_agg(jsonb_build_object(
+              'dealId', d.id,
+              'title', d.title,
+              'value', d.value,
+              'status', d.status
+            ))
+            FROM crm_conversation_deals cd
+            JOIN crm_deals d ON d.id = cd.deal_id AND d.tenant_id = conv.tenant_id
+            WHERE cd.conversation_id = conv.id
+              AND cd.tenant_id = conv.tenant_id
+              AND cd.is_active = true
+          ) AS linked_deals
+        FROM conversations conv
+        JOIN contacts c ON c.id = conv.contact_id AND c.tenant_id = conv.tenant_id
+        LEFT JOIN crm_accounts acc ON acc.id = c.account_id AND acc.tenant_id = conv.tenant_id
+        LEFT JOIN operators op ON op.id = conv.operator_id AND op.tenant_id = conv.tenant_id
+        LEFT JOIN sectors s ON s.id = conv.sector_id AND s.tenant_id = conv.tenant_id
+        WHERE ${whereClause}
+        ORDER BY conv.last_message_time DESC NULLS LAST, conv.id DESC
+        LIMIT ${limit}
+        OFFSET ${offset}
+      `;
+
+      let totalMatching = rows.length;
+      if (offset > 0 || rows.length >= limit) {
+        const countRows = await sql`
           SELECT COUNT(*)::int AS total
           FROM conversations conv
-          JOIN contacts c ON c.id = conv.contact_id AND c.tenant_id = conv.tenant_id
-          LEFT JOIN crm_accounts acc ON acc.id = c.account_id AND acc.tenant_id = conv.tenant_id
-          LEFT JOIN operators op ON op.id = conv.operator_id AND op.tenant_id = conv.tenant_id
+          ${query ? sql`JOIN contacts c ON c.id = conv.contact_id AND c.tenant_id = conv.tenant_id` : sql``}
+          ${query ? sql`LEFT JOIN crm_accounts acc ON acc.id = c.account_id AND acc.tenant_id = conv.tenant_id` : sql``}
+          ${operatorName ? sql`LEFT JOIN operators op ON op.id = conv.operator_id AND op.tenant_id = conv.tenant_id` : sql``}
           WHERE ${whereClause}
-        `,
-        sql`
-          SELECT
-            COUNT(*)::int AS total,
-            COUNT(*) FILTER (WHERE queue_state = 'automacao')::int AS automacao,
-            COUNT(*) FILTER (WHERE queue_state = 'fila')::int AS fila,
-            COUNT(*) FILTER (WHERE queue_state = 'meus')::int AS meus,
-            COUNT(*) FILTER (WHERE queue_state = 'finalizados')::int AS finalizados
-          FROM conversations
-          WHERE tenant_id = ${tenantId}
-        `,
-      ]);
+        `;
+        totalMatching = Number(countRows[0]?.total ?? rows.length);
+      }
 
-      const totalMatching = Number(countRows[0]?.total ?? rows.length);
-      const queueSummary = queueSummaryRows[0];
+      const queueSummary = await getCachedConversationQueueSummary(sql, tenantId);
       const hasMore = offset + rows.length < totalMatching;
 
       return {
@@ -2776,64 +2860,66 @@ export async function executeMcpTool(
                 ? sql`d.created_at ASC NULLS LAST, d.id ASC`
                 : sql`COALESCE(d.won_at, d.closed_at, d.updated_at, d.created_at) DESC, d.id DESC`;
 
-      const [rows, countRows] = await Promise.all([
-        sql`
-          SELECT
-            d.id,
-            d.rd_deal_id,
-            d.rd_deal_url,
-            d.title,
-            d.value,
-            d.currency,
-            d.status,
-            d.loss_reason,
-            d.paused_reason,
-            d.entry_channel,
-            d.source,
-            d.campaign,
-            d.utm_source,
-            d.utm_medium,
-            d.utm_campaign,
-            d.utm_content,
-            d.utm_term,
-            d.click_id,
-            d.original_pipeline_id,
-            d.sector_origin,
-            d.sector_current,
-            d.rating,
-            d.ai_priority_score,
-            d.ai_priority_level,
-            d.expected_close_date,
-            d.won_at,
-            d.lost_at,
-            d.closed_at,
-            d.is_legacy,
-            d.is_test,
-            d.created_at,
-            d.updated_at,
-            p.id AS pipeline_id,
-            p.name AS pipeline_name,
-            st.id AS stage_id,
-            st.name AS stage_name,
-            st.is_win_stage,
-            st.is_loss_stage,
-            op.id AS operator_id,
-            op.name AS operator_name,
-            acc.id AS account_id,
-            acc.name AS account_name,
-            acc.trade_name AS account_trade_name,
-            acc.document AS account_document
-          FROM crm_deals d
-          JOIN crm_pipelines p ON p.id = d.pipeline_id AND p.tenant_id = d.tenant_id
-          JOIN crm_stages st ON st.id = d.stage_id AND st.tenant_id = d.tenant_id
-          LEFT JOIN operators op ON op.id = d.operator_id AND op.tenant_id = d.tenant_id
-          LEFT JOIN crm_accounts acc ON acc.id = d.account_id AND acc.tenant_id = d.tenant_id
-          WHERE ${whereClause}
-          ORDER BY ${orderByClause}
-          LIMIT ${limit}
-          OFFSET ${offset}
-        `,
-        sql`
+      const rows = await sql`
+        SELECT
+          d.id,
+          d.rd_deal_id,
+          d.rd_deal_url,
+          d.title,
+          d.value,
+          d.currency,
+          d.status,
+          d.loss_reason,
+          d.paused_reason,
+          d.entry_channel,
+          d.source,
+          d.campaign,
+          d.utm_source,
+          d.utm_medium,
+          d.utm_campaign,
+          d.utm_content,
+          d.utm_term,
+          d.click_id,
+          d.original_pipeline_id,
+          d.sector_origin,
+          d.sector_current,
+          d.rating,
+          d.ai_priority_score,
+          d.ai_priority_level,
+          d.expected_close_date,
+          d.won_at,
+          d.lost_at,
+          d.closed_at,
+          d.is_legacy,
+          d.is_test,
+          d.created_at,
+          d.updated_at,
+          p.id AS pipeline_id,
+          p.name AS pipeline_name,
+          st.id AS stage_id,
+          st.name AS stage_name,
+          st.is_win_stage,
+          st.is_loss_stage,
+          op.id AS operator_id,
+          op.name AS operator_name,
+          acc.id AS account_id,
+          acc.name AS account_name,
+          acc.trade_name AS account_trade_name,
+          acc.document AS account_document
+        FROM crm_deals d
+        JOIN crm_pipelines p ON p.id = d.pipeline_id AND p.tenant_id = d.tenant_id
+        JOIN crm_stages st ON st.id = d.stage_id AND st.tenant_id = d.tenant_id
+        LEFT JOIN operators op ON op.id = d.operator_id AND op.tenant_id = d.tenant_id
+        LEFT JOIN crm_accounts acc ON acc.id = d.account_id AND acc.tenant_id = d.tenant_id
+        WHERE ${whereClause}
+        ORDER BY ${orderByClause}
+        LIMIT ${limit}
+        OFFSET ${offset}
+      `;
+
+      let totalMatching = rows.length;
+      if (offset > 0 || rows.length >= limit) {
+        const countRows = await sql`
           SELECT COUNT(*)::int AS total
           FROM crm_deals d
           JOIN crm_pipelines p ON p.id = d.pipeline_id AND p.tenant_id = d.tenant_id
@@ -2841,10 +2927,9 @@ export async function executeMcpTool(
           LEFT JOIN operators op ON op.id = d.operator_id AND op.tenant_id = d.tenant_id
           LEFT JOIN crm_accounts acc ON acc.id = d.account_id AND acc.tenant_id = d.tenant_id
           WHERE ${whereClause}
-        `,
-      ]);
-
-      const totalMatching = Number(countRows[0]?.total ?? rows.length);
+        `;
+        totalMatching = Number(countRows[0]?.total ?? rows.length);
+      }
       const hasMore = offset + rows.length < totalMatching;
 
       return {
@@ -3319,41 +3404,42 @@ export async function executeMcpTool(
         idx === 0 ? curr : sql`${acc} AND ${curr}`,
       );
 
-      const [countRows, rows] = await Promise.all([
-        sql`
+      const rows = await sql`
+        SELECT
+          acc.id,
+          acc.type,
+          acc.name,
+          acc.trade_name,
+          acc.segment,
+          acc.document_type,
+          acc.document,
+          acc.phone,
+          acc.email,
+          acc.website,
+          acc.address,
+          acc.custom_fields,
+          acc.notes,
+          acc.rd_organization_id,
+          acc.created_at,
+          acc.updated_at,
+          (SELECT COUNT(*)::int FROM contacts c WHERE c.tenant_id = acc.tenant_id AND c.account_id = acc.id) AS contacts_count,
+          (SELECT COUNT(*)::int FROM crm_deals d WHERE d.tenant_id = acc.tenant_id AND d.account_id = acc.id) AS deals_count
+        FROM crm_accounts acc
+        WHERE ${whereClause}
+        ORDER BY acc.updated_at DESC, acc.id ASC
+        LIMIT ${limit}
+        OFFSET ${offset}
+      `;
+
+      let totalMatching = rows.length;
+      if (offset > 0 || rows.length >= limit) {
+        const countRows = await sql`
           SELECT COUNT(*)::int AS total
           FROM crm_accounts acc
           WHERE ${whereClause}
-        `,
-        sql`
-          SELECT
-            acc.id,
-            acc.type,
-            acc.name,
-            acc.trade_name,
-            acc.segment,
-            acc.document_type,
-            acc.document,
-            acc.phone,
-            acc.email,
-            acc.website,
-            acc.address,
-            acc.custom_fields,
-            acc.notes,
-            acc.rd_organization_id,
-            acc.created_at,
-            acc.updated_at,
-            (SELECT COUNT(*)::int FROM contacts c WHERE c.tenant_id = acc.tenant_id AND c.account_id = acc.id) AS contacts_count,
-            (SELECT COUNT(*)::int FROM crm_deals d WHERE d.tenant_id = acc.tenant_id AND d.account_id = acc.id) AS deals_count
-          FROM crm_accounts acc
-          WHERE ${whereClause}
-          ORDER BY acc.updated_at DESC, acc.id ASC
-          LIMIT ${limit}
-          OFFSET ${offset}
-        `,
-      ]);
-
-      const totalMatching = Number(countRows?.[0]?.total ?? rows.length);
+        `;
+        totalMatching = Number(countRows?.[0]?.total ?? rows.length);
+      }
 
       return {
         tenantId,
@@ -3439,46 +3525,47 @@ export async function executeMcpTool(
           )`
         : sql``;
 
-      const [rows, countRows] = await Promise.all([
-        sql`
-          SELECT
-            c.id,
-            c.name,
-            c.phone,
-            c.email,
-            c.custom_fields,
-            c.cnpj,
-            c.cpf,
-            c.main_channel,
-            c.responsible_name,
-            c.tags,
-            c.account_id,
-            acc.name AS account_name,
-            acc.trade_name AS account_trade_name,
-            acc.document AS account_document,
-            conv.id AS conversation_id,
-            conv.queue_state,
-            conv.last_message_time
-          FROM contacts c
-          LEFT JOIN crm_accounts acc ON acc.id = c.account_id AND acc.tenant_id = c.tenant_id
-          LEFT JOIN conversations conv ON conv.contact_id = c.id AND conv.tenant_id = c.tenant_id
-          WHERE c.tenant_id = ${tenantId}
-            ${whereContactFilter}
-          ORDER BY COALESCE(conv.last_message_time, c.created_at) DESC, c.id DESC
-          LIMIT ${limit}
-          OFFSET ${offset}
-        `,
-        sql`
+      const rows = await sql`
+        SELECT
+          c.id,
+          c.name,
+          c.phone,
+          c.email,
+          c.custom_fields,
+          c.cnpj,
+          c.cpf,
+          c.main_channel,
+          c.responsible_name,
+          c.tags,
+          c.account_id,
+          acc.name AS account_name,
+          acc.trade_name AS account_trade_name,
+          acc.document AS account_document,
+          conv.id AS conversation_id,
+          conv.queue_state,
+          conv.last_message_time
+        FROM contacts c
+        LEFT JOIN crm_accounts acc ON acc.id = c.account_id AND acc.tenant_id = c.tenant_id
+        LEFT JOIN conversations conv ON conv.contact_id = c.id AND conv.tenant_id = c.tenant_id
+        WHERE c.tenant_id = ${tenantId}
+          ${whereContactFilter}
+        ORDER BY COALESCE(conv.last_message_time, c.created_at) DESC, c.id DESC
+        LIMIT ${limit}
+        OFFSET ${offset}
+      `;
+
+      let totalMatching = rows.length;
+      if (offset > 0 || rows.length >= limit) {
+        const countRows = await sql`
           SELECT COUNT(*)::int AS total
           FROM contacts c
           LEFT JOIN crm_accounts acc ON acc.id = c.account_id AND acc.tenant_id = c.tenant_id
           LEFT JOIN conversations conv ON conv.contact_id = c.id AND conv.tenant_id = c.tenant_id
           WHERE c.tenant_id = ${tenantId}
             ${whereContactFilter}
-        `,
-      ]);
-
-      const totalMatching = Number(countRows[0]?.total ?? rows.length);
+        `;
+        totalMatching = Number(countRows[0]?.total ?? rows.length);
+      }
       const hasMore = offset + rows.length < totalMatching;
 
       return {

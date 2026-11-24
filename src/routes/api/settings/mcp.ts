@@ -10,6 +10,7 @@ import {
   getDefaultPrimaryToken,
   getMcpTenantSettings,
   normalizeMcpAccessLevel,
+  normalizeMcpKeyLimitOverrides,
   processMcpJsonRpcPayload,
   revokeMcpSessions,
   saveMcpTenantSettings,
@@ -17,6 +18,7 @@ import {
   type McpAuditLogEntry,
   type McpNamedKey,
 } from "../../../lib/mcp/valem-tecfag-mcp-core";
+import { defaultMcpGuard } from "../../../lib/mcp/mcp-guard";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -82,6 +84,7 @@ export const Route = createFileRoute("/api/settings/mcp")({
           isDefaultPrimaryToken: settings.primaryToken === getDefaultPrimaryToken(tenantId),
           namedKeys: settings.namedKeys,
           auditLogs: settings.auditLogs,
+          defaultLimits: defaultMcpGuard.getConfig(),
           tools: MCP_TOOLS.map((t) => ({
             name: t.name,
             access: t.access,
@@ -299,6 +302,7 @@ export const Route = createFileRoute("/api/settings/mcp")({
           }
           const accessLevel = normalizeMcpAccessLevel(body.accessLevel);
           const accessLabel = accessLevel === "read_write" ? "Leitura + Escrita" : "Somente Leitura";
+          const limits = normalizeMcpKeyLimitOverrides(body.limits);
           const newKey: McpNamedKey = {
             id: `mcp-key-${crypto.randomBytes(6).toString("hex")}`,
             label: label.slice(0, 80),
@@ -309,6 +313,7 @@ export const Route = createFileRoute("/api/settings/mcp")({
             usageCount: 0,
             active: true,
             accessLevel,
+            ...(limits ? { limits } : {}),
           };
           const logEntry = buildConfigAuditEntry({
             operatorName,
@@ -413,6 +418,59 @@ export const Route = createFileRoute("/api/settings/mcp")({
               label: targetKey.label,
               previousAccessLevel: targetKey.accessLevel,
               newAccessLevel: accessLevel,
+            },
+          });
+          const updated = await saveMcpTenantSettings(tenantId, {
+            ...current,
+            namedKeys: updatedKeys,
+            auditLogs: undefined,
+            appendAuditLog: logEntry,
+          });
+          return jsonResponse({
+            ok: true,
+            settings: updated,
+          });
+        }
+
+        if (action === "set_named_key_limits") {
+          const keyId = String(body.keyId || "").trim();
+          const targetKey = current.namedKeys.find((k) => k.id === keyId);
+          if (!targetKey) {
+            return jsonResponse({ error: "Link individual não encontrado." }, 404);
+          }
+          const limits = normalizeMcpKeyLimitOverrides(body.limits);
+          const updatedKeys = current.namedKeys.map((k) => {
+            if (k.id !== keyId) return k;
+            const { limits: _prev, ...rest } = k;
+            return limits ? { ...rest, limits } : rest;
+          });
+          const summaryParts: string[] = [];
+          if (limits?.rateLimitPerMin) summaryParts.push(`${limits.rateLimitPerMin} req/min`);
+          if (limits?.maxConcurrent) summaryParts.push(`${limits.maxConcurrent} simult.`);
+          if (limits?.maxHeavyConcurrent) summaryParts.push(`${limits.maxHeavyConcurrent} pesadas`);
+          const limitsSummary = summaryParts.length > 0 ? summaryParts.join(" · ") : "Padrão do servidor";
+
+          const logEntry = buildConfigAuditEntry({
+            operatorName,
+            clientIp,
+            toolName: "config_set_named_key_limits",
+            toolLabel: "Alteração de Limites de Link Individual",
+            argumentsSummary: `Limites de "${targetKey.label}" definidos como ${limitsSummary}`,
+            argumentsRaw: {
+              action,
+              keyId,
+              label: targetKey.label,
+              previousLimits: targetKey.limits ?? null,
+              newLimits: limits ?? null,
+            },
+            resultSummary: `Limites da chave "${targetKey.label}" atualizados (${limitsSummary}) por ${operatorName}`,
+            responsePreview: {
+              action: "set_named_key_limits",
+              operator: operatorName,
+              keyId,
+              label: targetKey.label,
+              previousLimits: targetKey.limits ?? null,
+              newLimits: limits ?? null,
             },
           });
           const updated = await saveMcpTenantSettings(tenantId, {
