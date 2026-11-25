@@ -16,6 +16,7 @@ import {
   assertDealContextVersion,
   DealContextError,
   isCurrentDealEligible,
+  isTrashedDeal,
   resolveDealSelection,
   findActiveGraceDeal,
   getDealPostCloseGraceExpiresAt,
@@ -98,37 +99,41 @@ export async function getDealContext(
     )
     .for("update")
     .limit(1);
-  const deals = (await getContactDealRows(tx, tenantId, conversation.contactId)).map(
-    ({
-      id,
-      title,
-      status,
-      pipelineId,
-      pipelineName,
-      stageId,
-      stageName,
-      operatorId,
-      operatorName,
-      rdDealId,
-      isLinked,
-      closedAt,
-      closedByOperatorId,
-    }) => ({
-      id,
-      title,
-      status,
-      pipelineId,
-      pipelineName,
-      stageId,
-      stageName,
-      operatorId,
-      operatorName,
-      rdDealId,
-      isLinked,
-      closedAt,
-      closedByOperatorId: closedByOperatorId ?? null,
-    }),
-  );
+  const deals = (await getContactDealRows(tx, tenantId, conversation.contactId))
+    .filter((d) => !isTrashedDeal(d))
+    .map(
+      ({
+        id,
+        title,
+        status,
+        pausedReason,
+        pipelineId,
+        pipelineName,
+        stageId,
+        stageName,
+        operatorId,
+        operatorName,
+        rdDealId,
+        isLinked,
+        closedAt,
+        closedByOperatorId,
+      }) => ({
+        id,
+        title,
+        status,
+        pausedReason: pausedReason ?? null,
+        pipelineId,
+        pipelineName,
+        stageId,
+        stageName,
+        operatorId,
+        operatorName,
+        rdDealId,
+        isLinked,
+        closedAt,
+        closedByOperatorId: closedByOperatorId ?? null,
+      }),
+    );
 
   // Fallback seguro para cards encerrados antes da coluna closed_by_operator_id:
   // resolve o autor da última transição para won/lost a partir de crm_deal_events.

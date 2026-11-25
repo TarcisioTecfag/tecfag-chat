@@ -1206,6 +1206,7 @@ export function CrmView() {
           if (mode === "permanent" || (mode === "trash" && statusFilter !== "all" && statusFilter !== "paused")) {
             setDeals((prev) => prev.filter((d) => d.id !== deletedId));
           }
+          window.dispatchEvent(new Event("crm-deals-changed"));
           fetchDeals();
           fetchStagesSummary();
         }}

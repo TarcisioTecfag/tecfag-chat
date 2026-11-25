@@ -5,6 +5,7 @@ import { isCurrentDealEligible } from "@/lib/crm/conversation-deal-policy";
 import {
   cachedDealContext,
   fetchDealContext,
+  invalidateAllDealContextCaches,
   markConversationDealSatisfied,
   type ConversationDealContext as Context,
 } from "@/lib/crm/conversation-deal-client";
@@ -52,11 +53,15 @@ export function useConversationDealContext(conversationId?: string) {
     }
     void refresh();
     const timer = window.setInterval(refresh, 15000);
-    window.addEventListener("crm-deals-changed", refresh);
+    const refreshWithCacheReset = () => {
+      invalidateAllDealContextCaches();
+      void refresh();
+    };
+    window.addEventListener("crm-deals-changed", refreshWithCacheReset);
     window.addEventListener("conversation-deal-context-changed", refresh);
     return () => {
       window.clearInterval(timer);
-      window.removeEventListener("crm-deals-changed", refresh);
+      window.removeEventListener("crm-deals-changed", refreshWithCacheReset);
       window.removeEventListener("conversation-deal-context-changed", refresh);
     };
   }, [refresh, tenant, currentOperatorId, conversationId, requestKey]);

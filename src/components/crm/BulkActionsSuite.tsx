@@ -941,6 +941,7 @@ export function BulkActionsSuite({
       `${targetDeleteDealCount} negociação(ões) enviada(s) para a lixeira.`
     );
     if (ok) {
+      window.dispatchEvent(new Event("crm-deals-changed"));
       setIsDeleteModalOpen(false);
       resetDeleteModalState();
       onClearSelection();
@@ -1047,6 +1048,7 @@ export function BulkActionsSuite({
       toast.success(
         data.message || `${targetCount} negociação(ões) excluída(s) permanentemente.`
       );
+      window.dispatchEvent(new Event("crm-deals-changed"));
       setIsDeleteModalOpen(false);
       resetDeleteModalState();
       onClearSelection();

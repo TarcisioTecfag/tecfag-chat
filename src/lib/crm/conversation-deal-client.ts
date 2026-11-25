@@ -87,6 +87,13 @@ export const cachedDealRequirement = (
   return requirementCache.get(requirementKey(conversationId, tenantId, operatorId));
 };
 
+export function invalidateAllDealContextCaches() {
+  cache.clear();
+  inFlightContext.clear();
+  requirementCache.clear();
+  inFlightRequirement.clear();
+}
+
 export function invalidateDealContextCache(conversationId?: string | null) {
   if (!conversationId) return;
   mutationEpoch.set(conversationId, (mutationEpoch.get(conversationId) || 0) + 1);

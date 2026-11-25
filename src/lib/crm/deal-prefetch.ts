@@ -164,9 +164,11 @@ export async function fetchDealDetailWithCache(dealId: string): Promise<any> {
 export function invalidateDealCache(dealId?: string): void {
   if (dealId) {
     dealCache.delete(dealId);
+    dealPreviewCache.delete(dealId);
     inFlightDealFetches.delete(dealId);
   } else {
     dealCache.clear();
+    dealPreviewCache.clear();
     inFlightDealFetches.clear();
   }
 }

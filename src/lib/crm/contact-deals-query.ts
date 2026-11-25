@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, exists, inArray, or, sql } from "drizzle-orm";
 import {
+  contactPhones,
   contacts,
   conversations,
   crmAccounts,
@@ -10,8 +11,39 @@ import {
   crmStages,
   operators,
 } from "../../db/schema";
+import { computeContactPhoneIdentity } from "../contact-phone-types";
 import type { DealTransaction } from "./deal-associations";
 import { isAccountEligibleForCrossContactPropagation } from "./generic-account-guard";
+
+/**
+ * Exclui negociações enviadas à Lixeira (soft-delete: status='paused' + pausedReason iniciando com "Lixeira").
+ */
+export const notTrashedDealCondition = sql`NOT (
+  ${crmDeals.status} = 'paused'
+  AND (
+    lower(trim(coalesce(${crmDeals.pausedReason}, ''))) = 'lixeira'
+    OR lower(trim(coalesce(${crmDeals.pausedReason}, ''))) LIKE 'lixeira %'
+    OR lower(trim(coalesce(${crmDeals.pausedReason}, ''))) LIKE 'lixeira-%'
+    OR lower(trim(coalesce(${crmDeals.pausedReason}, ''))) LIKE 'lixeira—%'
+    OR lower(trim(coalesce(${crmDeals.pausedReason}, ''))) LIKE 'lixeira–%'
+    OR lower(trim(coalesce(${crmDeals.pausedReason}, ''))) LIKE 'lixeira:%'
+  )
+)`;
+
+function buildPhoneLookupVariants(rawPhone?: string | null): string[] {
+  if (!rawPhone) return [];
+  const trimmed = rawPhone.trim();
+  const digits = trimmed.replace(/\D/g, "");
+  if (digits.length < 8) return [];
+  const variants = new Set<string>(buildPhoneDigitsVariants(digits));
+  if (trimmed) variants.add(trimmed);
+  for (const v of Array.from(variants)) {
+    if (/^\d+$/.test(v)) {
+      variants.add(`+${v}`);
+    }
+  }
+  return [...variants];
+}
 
 function buildPhoneDigitsVariants(rawPhone?: string | null): string[] {
   if (!rawPhone) return [];
@@ -73,44 +105,72 @@ export async function resolveRelatedContactIds(
 
     if (baseContact) {
       const phoneVariants = buildPhoneDigitsVariants(baseContact.phone);
+      const exactPhoneVariants = buildPhoneLookupVariants(baseContact.phone);
+      const phoneIdentity = computeContactPhoneIdentity(baseContact.phone);
       const suffix8 =
         phoneVariants[0] && phoneVariants[0].length >= 8 ? phoneVariants[0].slice(-8) : null;
       const normEmail = baseContact.email?.trim().toLowerCase() || null;
 
-      const matchConditions = [];
-      if (suffix8) {
-        matchConditions.push(
-          sql`regexp_replace(coalesce(${contacts.phone}, ''), '\\D', '', 'g') LIKE ${`%${suffix8}`}`,
-        );
-      }
-      if (normEmail) {
-        matchConditions.push(sql`lower(trim(${contacts.email})) = ${normEmail}`);
-      }
-
-      if (matchConditions.length > 0) {
-        const candidates = await reader
+      // 1. Busca indexada em contacts.phone (idx_contacts_tenant_phone) — evita full table scan com regexp_replace
+      if (exactPhoneVariants.length > 0) {
+        const phoneCandidates = await reader
           .select({
             id: contacts.id,
             phone: contacts.phone,
+          })
+          .from(contacts)
+          .where(and(eq(contacts.tenantId, tenantId), inArray(contacts.phone, exactPhoneVariants)))
+          .limit(25);
+        for (const candidate of phoneCandidates) {
+          if (candidate.id) relatedIds.add(candidate.id);
+        }
+      }
+
+      // 2. Busca indexada em contact_phones.phone_identity (idx_contact_phones_tenant_identity)
+      // Cobre telefones formatados (ex.: "(14) 99836-4338"), com/sem 9º dígito e telefones secundários.
+      if (phoneIdentity) {
+        try {
+          const identityMatches = await reader
+            .select({ contactId: contactPhones.contactId })
+            .from(contactPhones)
+            .where(
+              and(
+                eq(contactPhones.tenantId, tenantId),
+                eq(contactPhones.phoneIdentity, phoneIdentity),
+              ),
+            )
+            .limit(25);
+          for (const row of identityMatches) {
+            if (row.contactId) relatedIds.add(row.contactId);
+          }
+        } catch {
+          // Em mocks unitários parciais sem tabela contact_phones, segue com segurança
+        }
+      }
+
+      // 3. Busca por e-mail normalizado em query dedicada (evita OR desabilitar o índice de telefone)
+      if (normEmail) {
+        const emailCandidates = await reader
+          .select({
+            id: contacts.id,
             email: contacts.email,
           })
           .from(contacts)
-          .where(and(eq(contacts.tenantId, tenantId), or(...matchConditions)))
+          .where(
+            and(
+              eq(contacts.tenantId, tenantId),
+              sql`lower(trim(${contacts.email})) = ${normEmail}`,
+            ),
+          )
           .limit(25);
-
-        for (const candidate of candidates) {
-          const cDigits = (candidate.phone || "").replace(/\D/g, "");
+        for (const candidate of emailCandidates) {
           const cEmail = candidate.email?.trim().toLowerCase() || null;
-          const phoneMatches =
-            Boolean(cDigits) &&
-            (phoneVariants.includes(cDigits) ||
-              Boolean(suffix8 && cDigits.endsWith(suffix8) && cDigits.length >= 10));
-          const emailMatches = Boolean(normEmail && cEmail && cEmail === normEmail);
-          if (phoneMatches || emailMatches) {
+          if (cEmail && cEmail === normEmail) {
             relatedIds.add(candidate.id);
           }
         }
       }
+      void suffix8;
     }
 
     // Inclui também co-participantes de negociações que já estão vinculadas diretamente a este contato ou às conversas dele
@@ -182,13 +242,63 @@ export async function getContactDealRows(
   reader: Pick<DealTransaction, "select">,
   tenantId: string,
   contactId: string,
-  options?: { includeAccountDeals?: boolean },
+  options?: { includeAccountDeals?: boolean; includeTrashed?: boolean },
 ) {
   const contactIds = await resolveRelatedContactIds(reader, tenantId, contactId);
   if (contactIds.length === 0) return [];
+  return queryDealRowsForResolvedContactIds(reader, tenantId, contactIds, options);
+}
 
-  let relatedAccountIds: string[] = [];
-  if (options?.includeAccountDeals !== false) {
+/**
+ * Busca consolidada em lote das negociações de múltiplos contatos (ex.: ficha do card no CRM),
+ * evitando N+1 chamadas sequenciais de `getContactDealRows`.
+ */
+export async function getContactsDealRows(
+  reader: Pick<DealTransaction, "select">,
+  tenantId: string,
+  seedContactIds: string[],
+  options?: {
+    includeAccountDeals?: boolean;
+    includeTrashed?: boolean;
+    extraAccountIds?: string[];
+  },
+) {
+  const uniqueSeeds = Array.from(new Set(seedContactIds.filter(Boolean)));
+  if (uniqueSeeds.length === 0 && (!options?.extraAccountIds || options.extraAccountIds.length === 0)) {
+    return [];
+  }
+
+  // Para poucos contatos diretos (ex.: participantes de um card), resolve aliases em paralelo;
+  // para listas grandes, usa os próprios IDs sem multiplicar queries.
+  let resolvedIds = uniqueSeeds;
+  if (uniqueSeeds.length > 0 && uniqueSeeds.length <= 5) {
+    const expanded = await Promise.all(
+      uniqueSeeds.map((id) => resolveRelatedContactIds(reader, tenantId, id)),
+    );
+    resolvedIds = Array.from(new Set(expanded.flat()));
+  }
+
+  return queryDealRowsForResolvedContactIds(reader, tenantId, resolvedIds, options);
+}
+
+async function queryDealRowsForResolvedContactIds(
+  reader: Pick<DealTransaction, "select">,
+  tenantId: string,
+  contactIds: string[],
+  options?: {
+    includeAccountDeals?: boolean;
+    includeTrashed?: boolean;
+    extraAccountIds?: string[];
+  },
+) {
+  if (contactIds.length === 0 && (!options?.extraAccountIds || options.extraAccountIds.length === 0)) {
+    return [];
+  }
+
+  let relatedAccountIds: string[] = Array.from(
+    new Set((options?.extraAccountIds || []).filter((id): id is string => Boolean(id))),
+  );
+  if (options?.includeAccountDeals !== false && contactIds.length > 0) {
     try {
       const contactAccounts = await reader
         .select({ accountId: contacts.accountId })
@@ -202,7 +312,10 @@ export async function getContactDealRows(
           ),
         );
       const rawAccountIds = Array.from(
-        new Set(contactAccounts.map((c) => c.accountId).filter((id): id is string => Boolean(id))),
+        new Set([
+          ...relatedAccountIds,
+          ...contactAccounts.map((c) => c.accountId).filter((id): id is string => Boolean(id)),
+        ]),
       );
       if (rawAccountIds.length > 0) {
         try {
@@ -264,52 +377,67 @@ export async function getContactDealRows(
   const contactFilter = (column: typeof crmDealContacts.contactId | typeof conversations.contactId) =>
     contactIds.length === 1 ? eq(column, contactIds[0]) : inArray(column, contactIds);
 
-  const participant = exists(
-    reader
-      .select({ id: crmDealContacts.id })
-      .from(crmDealContacts)
-      .where(
-        and(
-          eq(crmDealContacts.tenantId, tenantId),
-          contactFilter(crmDealContacts.contactId),
-          eq(crmDealContacts.dealId, crmDeals.id),
-        ),
-      ),
-  );
-  const conversationLink = (activeOnly: boolean) =>
-    exists(
-      reader
-        .select({ id: crmConversationDeals.id })
-        .from(crmConversationDeals)
-        .innerJoin(
-          conversations,
-          and(
-            eq(conversations.tenantId, tenantId),
-            eq(conversations.id, crmConversationDeals.conversationId),
-          ),
+  const participant =
+    contactIds.length > 0
+      ? exists(
+          reader
+            .select({ id: crmDealContacts.id })
+            .from(crmDealContacts)
+            .where(
+              and(
+                eq(crmDealContacts.tenantId, tenantId),
+                contactFilter(crmDealContacts.contactId),
+                eq(crmDealContacts.dealId, crmDeals.id),
+              ),
+            ),
         )
-        .where(
-          and(
-            eq(crmConversationDeals.tenantId, tenantId),
-            eq(conversations.tenantId, tenantId),
-            contactFilter(conversations.contactId),
-            eq(crmConversationDeals.dealId, crmDeals.id),
-            activeOnly ? eq(crmConversationDeals.isActive, true) : undefined,
-          ),
-        ),
-    );
+      : undefined;
+  const conversationLink = (activeOnly: boolean) =>
+    contactIds.length > 0
+      ? exists(
+          reader
+            .select({ id: crmConversationDeals.id })
+            .from(crmConversationDeals)
+            .innerJoin(
+              conversations,
+              and(
+                eq(conversations.tenantId, tenantId),
+                eq(conversations.id, crmConversationDeals.conversationId),
+              ),
+            )
+            .where(
+              and(
+                eq(crmConversationDeals.tenantId, tenantId),
+                eq(conversations.tenantId, tenantId),
+                contactFilter(conversations.contactId),
+                eq(crmConversationDeals.dealId, crmDeals.id),
+                activeOnly ? eq(crmConversationDeals.isActive, true) : undefined,
+              ),
+            ),
+        )
+      : undefined;
   const accountMatch =
     relatedAccountIds.length > 0
       ? relatedAccountIds.length === 1
         ? eq(crmDeals.accountId, relatedAccountIds[0])
         : inArray(crmDeals.accountId, relatedAccountIds)
       : undefined;
-  const isLinkedExpr = accountMatch
-    ? sql<boolean>`(${participant} OR ${conversationLink(true)} OR (${accountMatch} AND NOT ${conversationLink(false)}))`
-    : sql<boolean>`(${participant} OR ${conversationLink(true)})`;
-  const whereMatch = accountMatch
-    ? or(participant, conversationLink(false), accountMatch)
-    : or(participant, conversationLink(false));
+
+  const convLinkTrue = conversationLink(true);
+  const convLinkAny = conversationLink(false);
+
+  const isLinkedExpr =
+    participant && convLinkTrue && convLinkAny
+      ? accountMatch
+        ? sql<boolean>`(${participant} OR ${convLinkTrue} OR (${accountMatch} AND NOT ${convLinkAny}))`
+        : sql<boolean>`(${participant} OR ${convLinkTrue})`
+      : accountMatch
+        ? sql<boolean>`(${accountMatch})`
+        : sql<boolean>`false`;
+
+  const matchParts = [participant, convLinkAny, accountMatch].filter(Boolean);
+  if (matchParts.length === 0) return [];
+  const whereMatch = matchParts.length === 1 ? matchParts[0]! : or(...(matchParts as any));
 
   const rows = await reader
     .select({
@@ -335,7 +463,13 @@ export async function getContactDealRows(
       operators,
       and(eq(operators.tenantId, tenantId), eq(operators.id, crmDeals.operatorId)),
     )
-    .where(and(eq(crmDeals.tenantId, tenantId), whereMatch))
+    .where(
+      and(
+        eq(crmDeals.tenantId, tenantId),
+        whereMatch,
+        options?.includeTrashed ? undefined : notTrashedDealCondition,
+      ),
+    )
     .orderBy(
       sql`CASE WHEN ${crmDeals.status} = 'open' THEN 0 WHEN ${crmDeals.status} = 'paused' THEN 1 ELSE 2 END`,
       desc(crmDeals.createdAt),

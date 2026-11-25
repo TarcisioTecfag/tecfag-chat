@@ -85,7 +85,8 @@ import type {
 } from "../../db/schema";
 import { vertexAi } from "../vertex-ai";
 import { getAiPersona } from "../ai-persona";
-import { getContactDealRows } from "./contact-deals-query";
+import { getContactDealRows, getContactsDealRows } from "./contact-deals-query";
+import { isAccountEligibleForCrossContactPropagation } from "./generic-account-guard";
 import type { DealTransaction } from "./deal-associations";
 import {
   diffCustomFieldValues,
@@ -3605,17 +3606,23 @@ export class CrmService {
           const existingConvIds = new Set(existingLinks.map((l) => l.conversationId));
           const missingConvs = contactConvs.filter((c) => !existingConvIds.has(c.id));
 
-          for (const missingConv of missingConvs) {
-            await db.insert(crmConversationDeals).values({
-              id: `cd-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-              tenantId,
-              conversationId: missingConv.id,
-              dealId,
-              origin: "crm",
-              createdByOperatorId: null,
-              isActive: true,
-              createdAt: new Date(),
-            });
+          if (missingConvs.length > 0) {
+            const nowLink = new Date();
+            await db
+              .insert(crmConversationDeals)
+              .values(
+                missingConvs.map((missingConv) => ({
+                  id: `cd-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+                  tenantId,
+                  conversationId: missingConv.id,
+                  dealId,
+                  origin: "crm" as const,
+                  createdByOperatorId: null,
+                  isActive: true,
+                  createdAt: nowLink,
+                })),
+              )
+              .onConflictDoNothing();
           }
         }
       }
@@ -3704,10 +3711,38 @@ export class CrmService {
     });
     const nextTask: any = nextTasks[0] || null;
 
-    // Garante vínculo de contexto de atendimento para conversas ativas quando esta negociação está em andamento ou pausada
-    if (linkedConvIds.length > 0 && (deal.status === "open" || deal.status === "paused")) {
+    // Garante vínculo de contexto apenas para conversas ATIVAS ainda sem contexto definido
+    // (evita abrir dezenas de transações sequenciais em conversas finalizadas durante a leitura da ficha).
+    const activeLinkedConvIds = Array.from(
+      new Set(
+        convDealsRaw
+          .filter((r) => r.conversation?.id && r.conversation.queueState !== "finalizados")
+          .map((r) => r.conversation.id),
+      ),
+    );
+    if (activeLinkedConvIds.length > 0 && (deal.status === "open" || deal.status === "paused")) {
       try {
-        for (const convId of linkedConvIds) {
+        const existingContexts = await db
+          .select({
+            conversationId: conversationDealContexts.conversationId,
+            currentDealId: conversationDealContexts.currentDealId,
+            selectionRequired: conversationDealContexts.selectionRequired,
+          })
+          .from(conversationDealContexts)
+          .where(
+            and(
+              eq(conversationDealContexts.tenantId, tenantId),
+              inArray(conversationDealContexts.conversationId, activeLinkedConvIds),
+            ),
+          );
+        const contextByConvId = new Map(existingContexts.map((c) => [c.conversationId, c]));
+        const convIdsNeedingContext = activeLinkedConvIds
+          .filter((convId) => {
+            const ctx = contextByConvId.get(convId);
+            return !ctx || (!ctx.currentDealId && !ctx.selectionRequired);
+          })
+          .slice(0, 5);
+        for (const convId of convIdsNeedingContext) {
           await db.transaction((tx) => getDealContext(tx, tenantId, convId, deal.operatorId || null));
         }
       } catch {
@@ -4193,32 +4228,43 @@ export class CrmService {
     let contactDeals: any[] = [];
     let savedRdJourneyContactIds: string[] = [];
     try {
-      const participantIdsSet = new Set([
+      const directParticipantIdsSet = new Set([
         ...mappedContacts.map((c) => c.contactId).filter(Boolean),
         ...mappedConversations.map((c: any) => c.contactId).filter(Boolean),
       ]);
+      const directParticipantIds = Array.from(directParticipantIdsSet);
+      const journeyContactIdsSet = new Set(directParticipantIds);
+
+      let eligibleAccountIdForDeals: string | null = null;
       if (deal.accountId) {
         const accountContacts = await db
           .select({ id: contacts.id })
           .from(contacts)
           .where(and(eq(contacts.tenantId, tenantId), eq(contacts.accountId, deal.accountId)));
-        for (const ac of accountContacts) {
-          if (ac.id) participantIdsSet.add(ac.id);
-        }
-      }
-      const participantIds = Array.from(participantIdsSet);
-      if (participantIds.length > 0) {
-        const seenDealIds = new Set<string>();
-        for (const cId of participantIds) {
-          const rows = await getContactDealRows(db, tenantId, cId);
-          for (const row of rows) {
-            if (!seenDealIds.has(row.id)) {
-              seenDealIds.add(row.id);
-              contactDeals.push(row);
-            }
+        const eligibleForPropagation = account
+          ? isAccountEligibleForCrossContactPropagation({
+              name: account.name,
+              tradeName: account.tradeName,
+              document: account.document,
+              contactCount: accountContacts.length,
+            })
+          : false;
+        if (eligibleForPropagation) {
+          eligibleAccountIdForDeals = deal.accountId;
+          for (const ac of accountContacts) {
+            if (ac.id) journeyContactIdsSet.add(ac.id);
           }
         }
+      }
 
+      if (directParticipantIds.length > 0 || eligibleAccountIdForDeals) {
+        contactDeals = await getContactsDealRows(db, tenantId, directParticipantIds, {
+          extraAccountIds: eligibleAccountIdForDeals ? [eligibleAccountIdForDeals] : undefined,
+        });
+      }
+
+      const journeyContactIds = Array.from(journeyContactIdsSet);
+      if (journeyContactIds.length > 0) {
         const savedLinks = await db
           .select({
             contactId: rdMarketingJourneyLinks.contactId,
@@ -4238,28 +4284,30 @@ export class CrmService {
           .where(
             and(
               eq(rdMarketingJourneyLinks.tenantId, tenantId),
-              inArray(rdMarketingJourneyLinks.contactId, participantIds)
+              inArray(rdMarketingJourneyLinks.contactId, journeyContactIds)
             )
           );
 
         if (savedLinks.length > 0) {
-          const validSavedIds: string[] = [];
-          for (const link of savedLinks) {
-            const [hasPage] = await db
-              .select({ id: rdMarketingJourneyPages.id })
-              .from(rdMarketingJourneyPages)
-              .where(
-                and(
-                  eq(rdMarketingJourneyPages.tenantId, tenantId),
-                  eq(rdMarketingJourneyPages.linkId, link.linkId),
-                  eq(rdMarketingJourneyPages.snapshotId, link.snapshotId)
-                )
-              )
-              .limit(1);
-            if (hasPage) {
-              validSavedIds.push(link.contactId);
-            }
-          }
+          const linkIds = Array.from(new Set(savedLinks.map((l) => l.linkId)));
+          const existingPages = await db
+            .select({
+              linkId: rdMarketingJourneyPages.linkId,
+              snapshotId: rdMarketingJourneyPages.snapshotId,
+            })
+            .from(rdMarketingJourneyPages)
+            .where(
+              and(
+                eq(rdMarketingJourneyPages.tenantId, tenantId),
+                inArray(rdMarketingJourneyPages.linkId, linkIds),
+              ),
+            );
+          const validPairKeys = new Set(
+            existingPages.map((p) => `${p.linkId}::${p.snapshotId}`),
+          );
+          const validSavedIds = savedLinks
+            .filter((link) => validPairKeys.has(`${link.linkId}::${link.snapshotId}`))
+            .map((link) => link.contactId);
           savedRdJourneyContactIds = Array.from(new Set(validSavedIds));
         }
       }
@@ -6570,6 +6618,23 @@ export class CrmService {
               lastActivityAt: now,
             })
             .where(and(eq(crmDeals.tenantId, tenantId), inArray(crmDeals.id, chunk)));
+
+          // Libera o contexto ativo de conversas que apontavam para negociações enviadas à lixeira
+          await tx
+            .update(conversationDealContexts)
+            .set({
+              previousDealId: sql`COALESCE(${conversationDealContexts.currentDealId}, ${conversationDealContexts.previousDealId})`,
+              currentDealId: null,
+              selectionRequired: true,
+              version: sql`${conversationDealContexts.version} + 1`,
+              updatedAt: now,
+            })
+            .where(
+              and(
+                eq(conversationDealContexts.tenantId, tenantId),
+                inArray(conversationDealContexts.currentDealId, chunk),
+              ),
+            );
         }
 
         // Inserção em lotes de 500 eventos de status (evita milhares de round-trips sequenciais no banco)

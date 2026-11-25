@@ -46,7 +46,7 @@ import {
 import { normalizePipelineId } from "@/lib/crm/custom-field-common";
 import { ConversationDealContext, useConversationDealContext } from "./ConversationDealContext";
 import { fetchDealContext, markConversationDealSatisfied } from "@/lib/crm/conversation-deal-client";
-import { sortContactDeals } from "@/lib/crm/conversation-deal-policy";
+import { isTrashedDeal, sortContactDeals } from "@/lib/crm/conversation-deal-policy";
 
 const conversationDealsCache = new Map<
   string,
@@ -295,7 +295,9 @@ export function ConversationDealsPanel({
       if (!res.ok) throw new Error("Erro ao carregar negociações da conversa.");
       const data = await res.json();
       if (conversationRef.current !== conversationId) return;
-      const loadedDeals = sortContactDeals(Array.isArray(data?.deals) ? data.deals : []);
+      const loadedDeals = sortContactDeals(
+        (Array.isArray(data?.deals) ? data.deals : []).filter((d: any) => !isTrashedDeal(d)),
+      );
       setDeals(loadedDeals);
       if (notify) window.dispatchEvent(new Event("crm-deals-changed"));
 
@@ -344,12 +346,16 @@ export function ConversationDealsPanel({
     }
     void fetchLinkedDeals(false, Boolean(cached));
     const refresh = () => { void fetchLinkedDeals(false, true); };
+    const refreshAfterExternalMutation = () => {
+      conversationDealsCache.clear();
+      void fetchLinkedDeals(false, true);
+    };
     const timer = window.setInterval(refresh, 15000);
-    window.addEventListener("crm-deals-changed", refresh);
+    window.addEventListener("crm-deals-changed", refreshAfterExternalMutation);
     window.addEventListener("conversation-deal-context-changed", refresh);
     return () => {
       window.clearInterval(timer);
-      window.removeEventListener("crm-deals-changed", refresh);
+      window.removeEventListener("crm-deals-changed", refreshAfterExternalMutation);
       window.removeEventListener("conversation-deal-context-changed", refresh);
     };
   }, [conversationId, fetchLinkedDeals]);

@@ -8648,6 +8648,7 @@ export function DealDetailModal({
           onClose={() => setIsDeleteModalOpen(false)}
           onDeleted={(deletedId) => {
             invalidateDealCache(deletedId);
+            window.dispatchEvent(new Event("crm-deals-changed"));
             onDealUpdated();
             onClose();
           }}

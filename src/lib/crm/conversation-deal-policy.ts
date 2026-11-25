@@ -75,7 +75,29 @@ export function findActiveGraceDeal<
   return candidates[0] || null;
 }
 
-export function isCurrentDealEligible(deal: { status: string; isLinked?: boolean }) {
+export function isTrashedDeal(deal: {
+  status?: string | null;
+  pausedReason?: string | null;
+}): boolean {
+  if (deal.status !== "paused") return false;
+  const reason = (deal.pausedReason || "").trim().toLowerCase();
+  if (!reason) return false;
+  return (
+    reason === "lixeira" ||
+    reason.startsWith("lixeira ") ||
+    reason.startsWith("lixeira-") ||
+    reason.startsWith("lixeira—") ||
+    reason.startsWith("lixeira–") ||
+    reason.startsWith("lixeira:")
+  );
+}
+
+export function isCurrentDealEligible(deal: {
+  status: string;
+  isLinked?: boolean;
+  pausedReason?: string | null;
+}) {
+  if (isTrashedDeal(deal)) return false;
   return (deal.status === "open" || deal.status === "paused") && deal.isLinked !== false;
 }
 
