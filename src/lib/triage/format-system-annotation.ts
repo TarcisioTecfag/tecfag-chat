@@ -2,6 +2,7 @@ export interface SystemAnnotationItem {
   label: string;
   value: string;
   fullWidth?: boolean;
+  isCode?: boolean;
 }
 
 export interface FormattedSystemAnnotation {
@@ -17,11 +18,16 @@ export interface FormattedSystemAnnotation {
   items: SystemAnnotationItem[];
   /** Avisos complementares relevantes (ex: pendências ou revisão necessária) */
   alerts: string[];
+  /** Variante semântica para destacar notas de ponte Site → WhatsApp */
+  variant?: "default" | "site_handoff";
 }
 
 const IGNORED_EXACT_LINES = new Set([
   "briefing final da triagem",
   "resumo da triagem em andamento",
+  "dados coletados no site",
+  "dados coletados no site:",
+  "triagem concluída no site e transferida para o whatsapp",
   "dados ainda sem revisão humana registrada.",
   "dados ainda sem revisão humana registrada",
   "dados registrados (não comprovam validação cadastral ou titularidade):",
@@ -36,13 +42,20 @@ const IGNORED_EXACT_LINES = new Set([
   "navegação e consulta de produto não confirmam compra ou adequação técnica",
   "origem do site (declarada pelo navegador):",
   "origem do site (declarada pelo navegador)",
+  "origem do site:",
+  "origem do site",
 ]);
 
-const FIELD_LABEL_MAP: Record<string, { canonicalKey: string; label: string; order: number }> = {
-  "destino": { canonicalKey: "destino", label: "Destino", order: 1 },
-  "destino registrado": { canonicalKey: "destino", label: "Destino", order: 1 },
-  "setor / funil de destino": { canonicalKey: "destino", label: "Destino", order: 1 },
-  "funil de destino": { canonicalKey: "destino", label: "Destino", order: 1 },
+const FIELD_LABEL_MAP: Record<
+  string,
+  { canonicalKey: string; label: string; order: number; priority?: number; isCode?: boolean }
+> = {
+  "fluxo/destino": { canonicalKey: "destino", label: "Destino", order: 1, priority: 2 },
+  "fluxo / destino": { canonicalKey: "destino", label: "Destino", order: 1, priority: 2 },
+  "destino": { canonicalKey: "destino", label: "Destino", order: 1, priority: 2 },
+  "destino registrado": { canonicalKey: "destino", label: "Destino", order: 1, priority: 2 },
+  "setor / funil de destino": { canonicalKey: "destino", label: "Destino", order: 1, priority: 1 },
+  "funil de destino": { canonicalKey: "destino", label: "Destino", order: 1, priority: 1 },
   "responsável no encaminhamento": { canonicalKey: "responsavel", label: "Responsável", order: 2 },
   "responsável": { canonicalKey: "responsavel", label: "Responsável", order: 2 },
   "nome completo": { canonicalKey: "cliente", label: "Cliente", order: 3 },
@@ -53,6 +66,10 @@ const FIELD_LABEL_MAP: Record<string, { canonicalKey: string; label: string; ord
   "cpf ou cnpj": { canonicalKey: "documento", label: "CPF / CNPJ", order: 4 },
   "cnpj": { canonicalKey: "documento", label: "CNPJ", order: 4 },
   "cpf": { canonicalKey: "documento", label: "CPF", order: 4 },
+  "email": { canonicalKey: "email", label: "E-mail", order: 4.2 },
+  "e-mail": { canonicalKey: "email", label: "E-mail", order: 4.2 },
+  "telefone": { canonicalKey: "telefone", label: "Telefone", order: 4.4 },
+  "whatsapp": { canonicalKey: "telefone", label: "Telefone", order: 4.4 },
   "empresa": { canonicalKey: "empresa", label: "Empresa", order: 5 },
   "razão social": { canonicalKey: "empresa", label: "Empresa", order: 5 },
   "máquina / peça / interesse": { canonicalKey: "interesse", label: "Interesse", order: 6 },
@@ -62,6 +79,9 @@ const FIELD_LABEL_MAP: Record<string, { canonicalKey: string; label: string; ord
   "aplicação / produto": { canonicalKey: "aplicacao", label: "Aplicação", order: 7 },
   "aplicação": { canonicalKey: "aplicacao", label: "Aplicação", order: 7 },
   "produto a embalar": { canonicalKey: "aplicacao", label: "Aplicação", order: 7 },
+  "ramo / o que embala": { canonicalKey: "aplicacao", label: "Aplicação", order: 7 },
+  "ramo": { canonicalKey: "aplicacao", label: "Aplicação", order: 7 },
+  "o que embala": { canonicalKey: "aplicacao", label: "Aplicação", order: 7 },
   "volume / produção": { canonicalKey: "producao", label: "Produção", order: 8 },
   "produção": { canonicalKey: "producao", label: "Produção", order: 8 },
   "cidade / uf": { canonicalKey: "localidade", label: "Localidade", order: 9 },
@@ -73,7 +93,22 @@ const FIELD_LABEL_MAP: Record<string, { canonicalKey: string; label: string; ord
   "campanha de entrada": { canonicalKey: "campanha", label: "Campanha", order: 13 },
   "revisão humana": { canonicalKey: "revisao", label: "Revisão Humana", order: 14 },
   "motivo": { canonicalKey: "motivo_revisao", label: "Motivo da Revisão", order: 15 },
+  "template enviado": { canonicalKey: "template", label: "Template", order: 16, isCode: true },
+  "template": { canonicalKey: "template", label: "Template", order: 16, isCode: true },
 };
+
+/** Remove marcadores de lista (•, -, *) e envoltórios Markdown (**, __, `, *) de linhas/chaves/valores. */
+function cleanMarkdownToken(raw: string): string {
+  let text = (raw || "").trim();
+  // Remove emojis decorativos comuns no início (ex.: 🌐) e bullets (-, •, *)
+  text = text.replace(/^(?:🌐|💬|🤖|📋|📌|✅|⚠️)\s*/u, "");
+  text = text.replace(/^(?:[•–—-]\s+|\*\s+)/, "");
+  // Remove pares/sobras de **, __ e crases que sobram quando o ":" ficou dentro do negrito (**CHAVE:** val)
+  text = text.replace(/\*\*/g, "").replace(/__/g, "").replace(/`/g, "");
+  // Remove asteriscos soltos envolvendo todo o token (ex.: *fagner_site_continuacao_v1*)
+  text = text.replace(/^\*+([^*]+)\*+$/, "$1");
+  return text.trim();
+}
 
 function formatDocumentValue(raw: string): string {
   const digits = raw.replace(/\D/g, "");
@@ -85,6 +120,22 @@ function formatDocumentValue(raw: string): string {
     return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5, 8)}/${digits.slice(8, 12)}-${digits.slice(12, 14)}`;
   }
   return raw.trim();
+}
+
+function formatPhoneValue(raw: string): string {
+  const trimmed = raw.trim();
+  if (!/^[\d+\s().-]+$/.test(trimmed)) return trimmed;
+  let digits = trimmed.replace(/\D/g, "");
+  if (digits.startsWith("55") && (digits.length === 12 || digits.length === 13)) {
+    digits = digits.slice(2);
+  }
+  if (digits.length === 11) {
+    return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
+  }
+  if (digits.length === 10) {
+    return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
+  }
+  return trimmed;
 }
 
 function extractTimeShort(rawDateStr: string): string | null {
@@ -112,6 +163,7 @@ export function formatSystemAnnotation(rawText: string): FormattedSystemAnnotati
       singleLineText: "",
       items: [],
       alerts: [],
+      variant: "default",
     };
   }
 
@@ -120,11 +172,13 @@ export function formatSystemAnnotation(rawText: string): FormattedSystemAnnotati
     .map((line) => line.trim())
     .filter(Boolean);
 
-  const firstLineLower = (rawLines[0] || "").toLowerCase();
+  const firstLineClean = cleanMarkdownToken(rawLines[0] || "");
+  const firstLineLower = firstLineClean.toLowerCase();
 
   // Eventos simples de 1 linha (ex: "Novo ciclo de triagem iniciado", "Atendimento capturado por...")
   if (rawLines.length === 1 && !firstLineLower.includes("resumo legado preservado")) {
     let badgeTitle = "Registro do Sistema";
+    let variant: "default" | "site_handoff" = "default";
     if (firstLineLower.includes("novo ciclo de triagem")) {
       badgeTitle = "Novo Ciclo de Triagem";
     } else if (firstLineLower.includes("transferid")) {
@@ -133,17 +187,22 @@ export function formatSystemAnnotation(rawText: string): FormattedSystemAnnotati
       badgeTitle = "Atendimento Iniciado";
     } else if (firstLineLower.includes("finalizad") || firstLineLower.includes("encerrad")) {
       badgeTitle = "Atendimento Encerrado";
-    } else if (firstLineLower.includes("continuidade")) {
-      badgeTitle = "Continuidade no WhatsApp";
+    } else if (
+      firstLineLower.includes("continuidade") ||
+      firstLineLower.includes("continuou no whatsapp o atendimento iniciado no chat do site")
+    ) {
+      badgeTitle = "Continuidade Site → WhatsApp";
+      variant = "site_handoff";
     }
 
     return {
       badgeTitle,
-      tooltipSummary: rawLines[0],
+      tooltipSummary: firstLineClean,
       isSingleLine: true,
-      singleLineText: rawLines[0],
+      singleLineText: firstLineClean,
       items: [],
       alerts: [],
+      variant,
     };
   }
 
@@ -151,8 +210,12 @@ export function formatSystemAnnotation(rawText: string): FormattedSystemAnnotati
   let badgeTitle = "Relatório da Triagem";
   let isCollectionOnly = false;
   let isLegacySummary = false;
+  let variant: "default" | "site_handoff" = "default";
 
-  if (firstLineLower.startsWith("coleta atualizada")) {
+  if (firstLineLower.startsWith("triagem concluída no site e transferida para o whatsapp")) {
+    badgeTitle = "Triagem do Site → WhatsApp";
+    variant = "site_handoff";
+  } else if (firstLineLower.startsWith("coleta atualizada")) {
     badgeTitle = "Coleta da Triagem";
     isCollectionOnly = true;
   } else if (firstLineLower.startsWith("situação do encaminhamento atualizada")) {
@@ -167,7 +230,8 @@ export function formatSystemAnnotation(rawText: string): FormattedSystemAnnotati
   } else if (firstLineLower.startsWith("triagem interrompida pelo operador")) {
     badgeTitle = "Triagem Interrompida";
   } else if (firstLineLower.startsWith("continuidade entre canais registrada")) {
-    badgeTitle = "Continuidade entre Canais";
+    badgeTitle = "Continuidade Site → WhatsApp";
+    variant = "site_handoff";
   } else if (firstLineLower.startsWith("situação do ciclo atualizada")) {
     badgeTitle = "Status da Triagem";
   } else if (firstLineLower.startsWith("briefing final da triagem")) {
@@ -178,7 +242,7 @@ export function formatSystemAnnotation(rawText: string): FormattedSystemAnnotati
 
   const collectedMap = new Map<
     string,
-    { label: string; value: string; order: number; fullWidth?: boolean }
+    { label: string; value: string; order: number; priority: number; fullWidth?: boolean; isCode?: boolean }
   >();
   const alerts: string[] = [];
   let startTimeShort: string | null = null;
@@ -187,13 +251,15 @@ export function formatSystemAnnotation(rawText: string): FormattedSystemAnnotati
   let nonDestFieldsCount = 0;
 
   for (let i = 0; i < rawLines.length; i++) {
-    const line = rawLines[i];
+    const line = cleanMarkdownToken(rawLines[i]);
+    if (!line) continue;
     const lower = line.toLowerCase();
 
     // Ignorar primeira linha se for o cabeçalho da ação já mapeado
     if (
       i === 0 &&
-      (lower.startsWith("coleta atualizada") ||
+      (lower.startsWith("triagem concluída no site e transferida para o whatsapp") ||
+        lower.startsWith("coleta atualizada") ||
         lower.startsWith("situação do encaminhamento atualizada") ||
         lower.startsWith("ciclo de triagem arquivado") ||
         lower.startsWith("resumo legado preservado") ||
@@ -222,11 +288,16 @@ export function formatSystemAnnotation(rawText: string): FormattedSystemAnnotati
       continue;
     }
 
-    const rawKey = line.slice(0, colonIdx).trim();
-    const rawVal = line.slice(colonIdx + 1).trim();
+    const rawKey = cleanMarkdownToken(line.slice(0, colonIdx));
+    const rawVal = cleanMarkdownToken(line.slice(colonIdx + 1));
     const keyLower = rawKey.toLowerCase();
 
-    if (!rawVal || rawVal.toLowerCase() === "não definido" || rawVal.toLowerCase() === "ainda não definido") {
+    if (
+      !rawKey ||
+      !rawVal ||
+      rawVal.toLowerCase() === "não definido" ||
+      rawVal.toLowerCase() === "ainda não definido"
+    ) {
       continue;
     }
 
@@ -271,11 +342,14 @@ export function formatSystemAnnotation(rawText: string): FormattedSystemAnnotati
       canonicalKey: keyLower,
       label: toTitleCaseLabel(rawKey),
       order: 20,
+      priority: 1,
     };
 
     let cleanValue = rawVal;
     if (mapped.canonicalKey === "documento") {
       cleanValue = formatDocumentValue(rawVal);
+    } else if (mapped.canonicalKey === "telefone") {
+      cleanValue = formatPhoneValue(rawVal);
     } else if (mapped.canonicalKey === "revisao") {
       // Remove "(Brasília)" verboso da linha de revisão
       cleanValue = rawVal.replace(/\s*\(Brasília\)/gi, "");
@@ -285,17 +359,29 @@ export function formatSystemAnnotation(rawText: string): FormattedSystemAnnotati
       nonDestFieldsCount++;
     }
 
-    // Se já existe e o novo valor for "Pendente", não sobrescreve um valor preenchido
+    const priority = mapped.priority ?? 1;
     const existing = collectedMap.get(mapped.canonicalKey);
-    if (existing && cleanValue.toLowerCase().startsWith("pendente")) {
+    // Se já existe e o novo valor for "Pendente", ou se já temos uma fonte de maior prioridade (ex: Fluxo/Destino > Setor legado), não sobrescreve
+    if (existing && (cleanValue.toLowerCase().startsWith("pendente") || existing.priority > priority)) {
       continue;
     }
+
+    const isCodeTemplate = Boolean(
+      mapped.isCode && /^[a-z0-9_.-]{3,80}$/i.test(cleanValue),
+    );
 
     collectedMap.set(mapped.canonicalKey, {
       label: mapped.label,
       value: cleanValue,
       order: mapped.order,
-      fullWidth: cleanValue.length > 34 || mapped.canonicalKey === "revisao" || mapped.canonicalKey === "interesse",
+      priority,
+      isCode: isCodeTemplate,
+      fullWidth:
+        cleanValue.length > 34 ||
+        mapped.canonicalKey === "revisao" ||
+        (mapped.canonicalKey === "template" && cleanValue.length > 24) ||
+        (mapped.canonicalKey === "email" && cleanValue.length > 26) ||
+        (mapped.canonicalKey === "interesse" && cleanValue.length > 24),
     });
   }
 
@@ -304,7 +390,7 @@ export function formatSystemAnnotation(rawText: string): FormattedSystemAnnotati
   if (isCollectionOnly && nonDestFieldsCount > 0 && collectedMap.has("destino")) {
     // Só mantém Destino na coleta se o único campo alterado na rodada tiver sido o próprio destino
     const hadExplicitSectorField = rawLines.some((l) =>
-      l.toLowerCase().startsWith("setor / funil de destino:")
+      cleanMarkdownToken(l).toLowerCase().startsWith("setor / funil de destino:")
     );
     if (!hadExplicitSectorField) {
       collectedMap.delete("destino");
@@ -322,6 +408,7 @@ export function formatSystemAnnotation(rawText: string): FormattedSystemAnnotati
       label: "Status",
       value: cycleStatus,
       order: 0,
+      priority: 1,
     });
   }
 
@@ -340,12 +427,18 @@ export function formatSystemAnnotation(rawText: string): FormattedSystemAnnotati
       label: "Período",
       value: `${startTimeShort} às ${endTimeShort}`,
       order: 30,
+      priority: 1,
     });
   }
 
   const items = Array.from(collectedMap.values())
     .sort((a, b) => a.order - b.order)
-    .map(({ label, value, fullWidth }) => ({ label, value, fullWidth }));
+    .map(({ label, value, fullWidth, isCode }) => ({
+      label,
+      value,
+      ...(fullWidth ? { fullWidth } : {}),
+      ...(isCode ? { isCode } : {}),
+    }));
 
   // Caso seja uma nota sem nenhum item extraído, trata como linha única
   if (items.length === 0 && alerts.length === 0) {
@@ -356,6 +449,7 @@ export function formatSystemAnnotation(rawText: string): FormattedSystemAnnotati
       singleLineText: badgeTitle,
       items: [],
       alerts: [],
+      variant,
     };
   }
 
@@ -370,5 +464,6 @@ export function formatSystemAnnotation(rawText: string): FormattedSystemAnnotati
     singleLineText: `${badgeTitle} — ${summaryParts.join(" · ")}`,
     items,
     alerts,
+    variant,
   };
 }

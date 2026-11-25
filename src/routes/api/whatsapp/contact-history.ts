@@ -180,6 +180,7 @@ export const Route = createFileRoute("/api/whatsapp/contact-history")({
                 status: m.status,
                 provider: m.provider,
                 externalId: m.externalId,
+                metaDetails: (m.metaDetails as Record<string, any> | null) || null,
                 reactions: readReactions(m.metaDetails),
               })),
             nextCursor:

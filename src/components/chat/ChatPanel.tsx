@@ -20,6 +20,10 @@ import { WhatsappNumberPicker } from "./WhatsappNumberPicker";
 import type { Message } from "@/lib/mockData";
 import { WhatsappLogo, InstagramLogo, MessengerLogo, SiteLogo } from "./ChatList";
 import { isSiteConversationId } from "@/lib/livechat/site-channel-policy";
+import {
+  computeChannelBoundaryMarkers,
+  isSiteOriginMessage,
+} from "@/lib/chat/message-channel-origin";
 import { EmojiPicker } from "./EmojiPicker";
 import { QuickResponsesPopover } from "./QuickResponsesPopover";
 import { MetaTemplateSelectModal, Meta24hInfoModal, type ApprovedMetaTemplate } from "./MetaTemplateSelectModal";
@@ -4464,7 +4468,8 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               isSystemMsg(msg) ||
               msg.isInternalNote ||
               msg.isWarning ||
-              msg.id === "val_welcome"
+              msg.id === "val_welcome" ||
+              isSiteOriginMessage(msg)
             ) {
               return null;
             }
@@ -4526,6 +4531,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             const dateA = getMessageDateStr(a);
             const dateB = getMessageDateStr(b);
             if (dateA && dateB && dateA !== dateB) return false;
+            if (isSiteOriginMessage(a) !== isSiteOriginMessage(b)) return false;
             const connA = showSystemInfo ? (resolveMessageConnectionInfo(a)?.key ?? null) : null;
             const connB = showSystemInfo ? (resolveMessageConnectionInfo(b)?.key ?? null) : null;
             if (connA !== connB) return false;
@@ -4547,6 +4553,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             );
           };
 
+          const channelBoundaries = computeChannelBoundaryMarkers(displayed, activeChat);
           let lastRenderedDate: string | null = null;
           const renderedDates = new Set<string>();
           let lastRenderedConnectionKey: string | null = null;
@@ -4556,6 +4563,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             const next = i < displayed.length - 1 ? displayed[i + 1] : null;
             const isSystem = isSystemMsg(m);
             const currDate = getMessageDateStr(m);
+            const boundary = channelBoundaries[i];
 
             // Se for mensagem de sistema e a anterior imediata (no mesmo dia) também for de sistema,
             // ela já foi agrupada no primeiro ícone (?) da sequência.
@@ -4564,12 +4572,16 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             }
 
             let systemGroup: Array<{ id: string; text: string; time: string }> | undefined;
+            let systemAfterDivider = boundary?.afterDivider ?? null;
             if (isSystem) {
               systemGroup = [];
               for (let j = i; j < displayed.length; j++) {
                 const candidate = displayed[j];
                 if (!isSystemMsg(candidate)) break;
                 if (getMessageDateStr(candidate) !== currDate) break;
+                if (channelBoundaries[j]?.afterDivider) {
+                  systemAfterDivider = channelBoundaries[j].afterDivider;
+                }
                 systemGroup.push({
                   id: candidate.clientMessageId || candidate.id || `sys-${j}`,
                   text: candidate.text,
@@ -4702,6 +4714,9 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                 gap={gap}
                 dateLabel={dateLabel}
                 connectionBanner={connectionBanner}
+                isSiteOriginInWhatsapp={boundary?.isSiteOriginInWhatsapp ?? false}
+                channelDividerBefore={boundary?.beforeDivider ?? null}
+                channelDividerAfter={isSystem ? systemAfterDivider : boundary?.afterDivider ?? null}
                 systemGroup={systemGroup}
                 groupKnowledgeSources={
                   activeChat.id === "valentina" && !isMe && !isSystem && isLast && prevLinked

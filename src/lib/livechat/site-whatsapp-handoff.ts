@@ -95,22 +95,68 @@ export interface SiteWhatsappHandoffResult {
   preservedHumanOperator?: boolean;
 }
 
-function summarizeSiteTriageNote(input: SiteWhatsappHandoffInput, templateName: string): string {
+export function summarizeSiteTriageNote(
+  input: SiteWhatsappHandoffInput,
+  templateName: string,
+  templateActuallySent = true,
+): string {
   const lines = [
-    `🌐 **Triagem concluída no Site e transferida para o WhatsApp**`,
-    `• **Template enviado:** \`${templateName}\``,
-    `• **Fluxo/Destino:** ${input.route.targetFunnel || input.route.subflow || "Triagem SDR"}`,
+    `Triagem concluída no Site e transferida para o WhatsApp`,
+    `Fluxo / Destino: ${input.route.targetFunnel || input.route.subflow || "Triagem SDR"}`,
+    `Template enviado: ${
+      templateActuallySent
+        ? templateName
+        : "Não enviado (atendimento humano já ativo no WhatsApp)"
+    }`,
   ];
   const entries = Object.entries(input.data || {}).filter(
     ([k, v]) => !k.startsWith("_") && typeof v?.value === "string" && v.value.trim().length > 0,
   );
   if (entries.length > 0) {
-    lines.push("", "**Dados coletados no site:**");
+    lines.push("", "Dados coletados no site:");
     for (const [k, v] of entries) {
-      lines.push(`- **${k}:** ${v.value!.trim()}`);
+      lines.push(`${k}: ${v.value!.trim()}`);
     }
   }
   return lines.join("\n");
+}
+
+/**
+ * Garante a ordem cronológica exata no histórico do WhatsApp:
+ * mensagens do site → despedida do bot no site → relatório da triagem → template oficial no WhatsApp.
+ */
+export function computeSiteHandoffMirrorTimestamps(params: {
+  lastSiteMsgMs?: number | null;
+  templateSentAtMs?: number | null;
+  nowMs: number;
+}): { closingSentAt: Date; summaryNoteSentAt: Date } {
+  const { lastSiteMsgMs, templateSentAtMs, nowMs } = params;
+  const siteTailMs = typeof lastSiteMsgMs === "number" && Number.isFinite(lastSiteMsgMs) ? lastSiteMsgMs : null;
+
+  if (typeof templateSentAtMs === "number" && Number.isFinite(templateSentAtMs)) {
+    const floorMs = siteTailMs !== null ? siteTailMs + 1 : templateSentAtMs - 1000;
+    const latestClosingMs = templateSentAtMs - 2;
+    const preferredClosingMs = Math.max(siteTailMs !== null ? siteTailMs + 200 : templateSentAtMs - 1000, templateSentAtMs - 1000);
+    const closingMs =
+      latestClosingMs >= floorMs
+        ? Math.min(latestClosingMs, preferredClosingMs)
+        : Math.max(templateSentAtMs - 2, 0);
+    const summaryMs = Math.min(templateSentAtMs - 1, Math.max(closingMs + 1, templateSentAtMs - 500));
+    return {
+      closingSentAt: new Date(closingMs),
+      summaryNoteSentAt: new Date(Math.max(summaryMs, closingMs)),
+    };
+  }
+
+  const closingMs =
+    siteTailMs !== null
+      ? Math.max(siteTailMs + 200, nowMs - 200)
+      : nowMs - 200;
+  const summaryMs = Math.max(closingMs + 100, nowMs);
+  return {
+    closingSentAt: new Date(closingMs),
+    summaryNoteSentAt: new Date(summaryMs),
+  };
 }
 
 export function resolveTemplateTopicSummary(
@@ -367,6 +413,7 @@ export async function dispatchSiteTriageToWhatsApp(
     topicSummary: resolveTemplateTopicSummary(input),
   });
 
+  let templateSentAtMs: number | null = null;
   if (!waPrep.hasActiveHuman) {
     const sendResult = await outboundQueue.enqueueAndSend({
       tenantId,
@@ -390,40 +437,79 @@ export async function dispatchSiteTriageToWhatsApp(
         templateName: templateRow.name,
       };
     }
+    const parsedSentAt = sendResult.sentAtISO ? Date.parse(sendResult.sentAtISO) : NaN;
+    templateSentAtMs = Number.isFinite(parsedSentAt) ? parsedSentAt : Date.now();
   }
 
-  // 6. Pós-envio confirmado: copiar histórico do site, criar card no funil correto,
-  //    estacionar WhatsApp em `awaiting_approval` herdando 100% da triagem e concluir ciclo do site.
+  const closingMessageForSite = buildSiteToWhatsappClosingMessage(
+    input.clientName || contact.name,
+    { hasActiveHuman: waPrep.hasActiveHuman },
+  );
+
+  // 6. Pós-envio confirmado: copiar histórico do site (incluindo despedida do bot no site),
+  //    criar card no funil correto, estacionar WhatsApp em `awaiting_approval` herdando 100%
+  //    da triagem e concluir ciclo do site.
   const committed = await database.transaction(async (tx) => {
     const now = new Date();
 
-    // 6.1 Copiar mensagens do site para a conversa de WhatsApp (idempotente) + nota interna de resumo
+    // 6.1 Copiar mensagens do site + despedida de encerramento do site + nota interna de resumo (ordem cronológica estrita)
     const siteMsgs = await readSiteContinuationHistory(tx, tenantId, siteConversationId);
-    if (siteMsgs.length > 0) {
-      await tx
-        .insert(messages)
-        .values(
-          siteMsgs.map((m) => ({
-            id: `lcx-${sha256Hex(`${waConversationId}:${m.id}`).slice(0, 40)}`,
-            tenantId,
-            conversationId: waConversationId,
-            senderType: m.senderType,
-            senderName: m.senderName,
-            content: m.content,
-            isInternalNote: false,
-            mediaInterpretation: m.mediaInterpretation,
-            provider: m.provider || SITE_CHANNEL,
-            direction: m.direction,
-            status: m.status === "pending" || m.status === "sending" ? "accepted" : m.status,
-            metaDetails: {
-              ...(siteContextFromMessages([m]) ? { siteContext: siteContextFromMessages([m]) } : {}),
-              copiedFrom: { channel: SITE_CHANNEL, conversationId: siteConversationId, messageId: m.id },
-            },
-            sentAt: m.sentAt,
-            updatedAt: now,
-          })),
-        )
-        .onConflictDoNothing();
+    const lastSiteMsgMs =
+      siteMsgs.length > 0 ? new Date(siteMsgs[siteMsgs.length - 1].sentAt).getTime() : null;
+    const { closingSentAt, summaryNoteSentAt } = computeSiteHandoffMirrorTimestamps({
+      lastSiteMsgMs,
+      templateSentAtMs,
+      nowMs: now.getTime(),
+    });
+
+    const mirroredRows = siteMsgs.map((m) => ({
+      id: `lcx-${sha256Hex(`${waConversationId}:${m.id}`).slice(0, 40)}`,
+      tenantId,
+      conversationId: waConversationId,
+      senderType: m.senderType,
+      senderName: m.senderName,
+      content: m.content,
+      isInternalNote: false,
+      mediaInterpretation: m.mediaInterpretation,
+      provider: m.provider || SITE_CHANNEL,
+      direction: m.direction,
+      status: m.status === "pending" || m.status === "sending" ? "accepted" : m.status,
+      metaDetails: {
+        ...(siteContextFromMessages([m]) ? { siteContext: siteContextFromMessages([m]) } : {}),
+        copiedFrom: { channel: SITE_CHANNEL, conversationId: siteConversationId, messageId: m.id },
+      },
+      sentAt: m.sentAt,
+      updatedAt: now,
+    }));
+
+    // Espelha também a mensagem de finalização enviada ao cliente no site para evitar impressão de vácuo na conversa do WhatsApp
+    const closingMirrorId = `lcx-close-${sha256Hex(`${waConversationId}:${siteConversationId}:${cycle}`).slice(0, 34)}`;
+    mirroredRows.push({
+      id: closingMirrorId,
+      tenantId,
+      conversationId: waConversationId,
+      senderType: "bot",
+      senderName: `${persona.name} (SDR)`,
+      content: closingMessageForSite,
+      isInternalNote: false,
+      mediaInterpretation: null,
+      provider: SITE_CHANNEL,
+      direction: "outbound",
+      status: "accepted",
+      metaDetails: {
+        copiedFrom: {
+          channel: SITE_CHANNEL,
+          conversationId: siteConversationId,
+          messageId: `site-closing:${siteConversationId}:${cycle}`,
+        },
+        siteClosingMessage: true,
+      },
+      sentAt: closingSentAt,
+      updatedAt: now,
+    });
+
+    if (mirroredRows.length > 0) {
+      await tx.insert(messages).values(mirroredRows).onConflictDoNothing();
     }
 
     const summaryNoteId = `note-swa-${sha256Hex(`${tenantId}:${siteConversationId}:${cycle}`).slice(0, 32)}`;
@@ -435,12 +521,12 @@ export async function dispatchSiteTriageToWhatsApp(
         conversationId: waConversationId,
         senderType: "system",
         senderName: `${persona.name} (Site → WhatsApp)`,
-        content: summarizeSiteTriageNote(input, templateRow.name),
+        content: summarizeSiteTriageNote(input, templateRow.name, !waPrep.hasActiveHuman),
         isInternalNote: true,
         provider: "internal",
         direction: "outbound",
         status: "delivered",
-        sentAt: now,
+        sentAt: summaryNoteSentAt,
         updatedAt: now,
       })
       .onConflictDoNothing();
@@ -602,6 +688,7 @@ export async function dispatchSiteTriageToWhatsApp(
         handoffStatus: "continued_to_whatsapp",
         whatsappConversationId: waConversationId,
         siteWhatsappTemplateSent: true,
+        siteWhatsappTemplateDispatched: !waPrep.hasActiveHuman,
         siteWhatsappTemplateName: templateRow.name,
         ...(suggestion.dealId ? { localCrmDealId: suggestion.dealId } : {}),
         ...(dealResult.dealTitle ? { localCrmDealTitle: dealResult.dealTitle } : {}),
@@ -650,10 +737,6 @@ export async function dispatchSiteTriageToWhatsApp(
       console.warn("[Site→WhatsApp] Aviso ao notificar SDR sobre aprovação pendente:", err?.message),
     );
   }
-
-  const closingMessageForSite = waPrep.hasActiveHuman
-    ? `${buildSiteToWhatsappClosingMessage(input.clientName || contact.name).split("!")[0]}! Já reuni as informações do seu atendimento e repassei tudo para a nossa equipe que já está falando com você no WhatsApp dar continuidade por lá.`
-    : buildSiteToWhatsappClosingMessage(input.clientName || contact.name);
 
   return {
     handedOff: true,

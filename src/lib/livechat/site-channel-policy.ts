@@ -87,7 +87,10 @@ export function isCommercialSiteDestination(destinationKey?: string | null): boo
 }
 
 /** Mensagem limpa exibida no chat do site após o disparo confirmado do template oficial no WhatsApp. */
-export function buildSiteToWhatsappClosingMessage(clientName?: string | null): string {
+export function buildSiteToWhatsappClosingMessage(
+  clientName?: string | null,
+  options?: { hasActiveHuman?: boolean },
+): string {
   const clean = (clientName || "").trim();
   const isGeneric =
     !clean ||
@@ -95,7 +98,10 @@ export function buildSiteToWhatsappClosingMessage(clientName?: string | null): s
     /^\+?\d{6,20}$/.test(clean.replace(/[\s().-]/g, ""));
   const first = !isGeneric ? clean.split(/\s+/)[0]?.replace(/[^\p{L}'-]/gu, "") || "" : "";
   const greeting = first.length >= 2 ? `Perfeito, ${first}!` : "Perfeito!";
-  return `${greeting} Já reuni as informações do seu atendimento e acabei de te enviar uma mensagem no seu WhatsApp para darmos continuidade por lá com a nossa equipe.`;
+  if (options?.hasActiveHuman) {
+    return `${greeting} Já reuni as informações do seu atendimento e repassei tudo no seu atendimento que já está aberto no WhatsApp para darmos continuidade por lá.`;
+  }
+  return `${greeting} Já reuni as informações do seu atendimento e eu mesmo acabei de te chamar no seu WhatsApp para darmos continuidade por lá.`;
 }
 
 /** Origem ausente só é aceita quando não há lista configurada. */

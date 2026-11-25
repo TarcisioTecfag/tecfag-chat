@@ -53,6 +53,8 @@ import {
   isMetaUndeliverableError,
 } from "@/lib/whatsapp/meta-template-common";
 import { SystemAnnotationBubble, type SystemAnnotationItem } from "./SystemAnnotationBubble";
+import { ChannelTransitionDivider, SiteOriginTag } from "./ChannelOriginIndicators";
+import type { ChannelDividerKind } from "@/lib/chat/message-channel-origin";
 import { AgenticThoughtTrace } from "@/components/valentina/chat-blocks/AgenticThoughtTrace";
 import {
   Message,
@@ -781,6 +783,9 @@ export interface ChatMessageBubbleProps {
   gap: string;
   dateLabel: string | null;
   connectionBanner?: ConnectionBannerInfo | null;
+  isSiteOriginInWhatsapp?: boolean;
+  channelDividerBefore?: ChannelDividerKind | null;
+  channelDividerAfter?: ChannelDividerKind | null;
   systemGroup?: SystemAnnotationItem[];
   groupKnowledgeSources?: KnowledgeSourceItem[];
   isMe: boolean;
@@ -843,6 +848,9 @@ function ChatMessageBubbleComponent({
   gap,
   dateLabel,
   connectionBanner,
+  isSiteOriginInWhatsapp,
+  channelDividerBefore,
+  channelDividerAfter,
   systemGroup,
   groupKnowledgeSources,
   isMe,
@@ -904,6 +912,7 @@ function ChatMessageBubbleComponent({
           gap={gap}
           renderText={(val) => renderTextWithLinks(val)}
         />
+        {channelDividerAfter && <ChannelTransitionDivider kind={channelDividerAfter} />}
       </div>
     );
   }
@@ -1042,6 +1051,7 @@ function ChatMessageBubbleComponent({
             </span>
           </div>
         )}
+        {channelDividerBefore && <ChannelTransitionDivider kind={channelDividerBefore} />}
         <ConnectionBannerPill
           banner={connectionBanner}
           onOpenSourceConversation={onOpenSourceConversation}
@@ -1053,6 +1063,7 @@ function ChatMessageBubbleComponent({
           transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
           className={`flex flex-col items-end group relative w-full ${gap}`}
         >
+          {isSiteOriginInWhatsapp && isFirst && <SiteOriginTag side="out" className="mb-1" />}
           <div className="flex items-center gap-2 max-w-[80%] justify-end relative">
             <SystemTooltip content="Reagir">
               <button
@@ -1265,6 +1276,7 @@ function ChatMessageBubbleComponent({
               <span className="mr-1 mt-1 flex items-center gap-1 text-[10px] text-muted-foreground font-medium animate-in fade-in slide-in-from-top-1 duration-150">
                 {isExpanded && (
                   <span>
+                    {isSiteOriginInWhatsapp ? "Via Site · " : ""}
                     {m.author} · {m.time}
                   </span>
                 )}
@@ -1275,6 +1287,7 @@ function ChatMessageBubbleComponent({
             );
           })()}
         </motion.div>
+        {channelDividerAfter && <ChannelTransitionDivider kind={channelDividerAfter} />}
       </div>
     );
   }
@@ -1289,6 +1302,7 @@ function ChatMessageBubbleComponent({
           </span>
         </div>
       )}
+      {channelDividerBefore && <ChannelTransitionDivider kind={channelDividerBefore} />}
       <ConnectionBannerPill
         banner={connectionBanner}
         onOpenSourceConversation={onOpenSourceConversation}
@@ -1325,6 +1339,7 @@ function ChatMessageBubbleComponent({
         )}
 
         <div className="min-w-0 max-w-[80%] flex-1">
+          {isSiteOriginInWhatsapp && isFirst && <SiteOriginTag side="in" className="mb-1" />}
           <div className="flex items-center gap-2 relative min-w-0 max-w-full">
             {isSticker ? (
               <div className="leading-relaxed">
@@ -1418,6 +1433,8 @@ function ChatMessageBubbleComponent({
                           ? "border-l-violet-500"
                           : "border-l-primary"
                       } text-foreground text-[11px]`
+                    : isSiteOriginInWhatsapp
+                    ? "bg-sky-500/[0.04] dark:bg-sky-500/[0.07] border-border border-l-2 border-l-sky-500/75 text-foreground text-sm"
                     : "bg-card border-border text-foreground text-sm"
                 } border px-4 py-2.5 leading-relaxed shadow-soft text-left cursor-pointer transition-all duration-300 ${
                   isMatch ? "scale-[1.01] shadow-lg" : ""
@@ -2201,11 +2218,13 @@ function ChatMessageBubbleComponent({
 
           {isExpanded && (
             <span className="ml-1 mt-1 block text-[10px] text-muted-foreground font-medium animate-in fade-in slide-in-from-top-1 duration-150">
+              {isSiteOriginInWhatsapp ? "Via Site · " : ""}
               {m.author} · {m.time}
             </span>
           )}
         </div>
       </motion.div>
+      {channelDividerAfter && <ChannelTransitionDivider kind={channelDividerAfter} />}
     </div>
   );
 }
@@ -2226,6 +2245,13 @@ export const ChatMessageBubble = memo(
     if (prev.isFirst !== next.isFirst || prev.isLast !== next.isLast) return false;
     if (prev.prevLinked !== next.prevLinked || prev.nextLinked !== next.nextLinked) return false;
     if (prev.gap !== next.gap || prev.dateLabel !== next.dateLabel) return false;
+    if (
+      prev.isSiteOriginInWhatsapp !== next.isSiteOriginInWhatsapp ||
+      prev.channelDividerBefore !== next.channelDividerBefore ||
+      prev.channelDividerAfter !== next.channelDividerAfter
+    ) {
+      return false;
+    }
     if ((prev.systemGroup?.length ?? 0) !== (next.systemGroup?.length ?? 0)) return false;
     if ((prev.groupKnowledgeSources?.length ?? 0) !== (next.groupKnowledgeSources?.length ?? 0)) return false;
     if (

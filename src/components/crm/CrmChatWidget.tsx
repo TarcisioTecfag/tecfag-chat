@@ -57,6 +57,8 @@ import {
   WhatsappLogo,
 } from "@/components/chat/ChatList";
 import { SystemAnnotationBubble } from "@/components/chat/SystemAnnotationBubble";
+import { ChannelTransitionDivider, SiteOriginTag } from "@/components/chat/ChannelOriginIndicators";
+import { computeChannelBoundaryMarkers } from "@/lib/chat/message-channel-origin";
 import { getVigosPhoneLink } from "@/lib/utils";
 export { getVigosPhoneLink };
 import {
@@ -3221,18 +3223,30 @@ export function CrmChatWidget() {
                               Nenhuma mensagem registrada nesta conversa.
                             </p>
                           </div>
-                        ) : (
-                          threadMessages.map((message: any, i: number) => {
+                        ) : (() => {
+                          const visibleThread = showSystemInfo
+                            ? threadMessages
+                            : threadMessages.filter(
+                                (m: any) => !(m.author === "Sistema" || m.senderType === "system"),
+                              );
+                          const channelBoundaries = computeChannelBoundaryMarkers(visibleThread, {
+                            id: selected.id,
+                            channel: selected.channel,
+                          });
+                          return visibleThread.map((message: any, i: number) => {
                             const isMe = message.side === "out";
                             const isSystem =
                               message.author === "Sistema" || message.senderType === "system";
+                            const boundary = channelBoundaries[i];
+                            const prevBoundary = i > 0 ? channelBoundaries[i - 1] : null;
+                            const prevReal = i > 0 ? visibleThread[i - 1] : null;
+                            const isFirstInSiteRun =
+                              Boolean(boundary?.isSiteOriginInWhatsapp) &&
+                              (!prevBoundary?.isSiteOriginInWhatsapp || prevReal?.side !== message.side);
 
                             // Mensagem de Sistema (oculta por padrão quando o botão ? está desativado, agrupada quando em sequência)
                             if (isSystem) {
-                              if (!showSystemInfo) {
-                                return null;
-                              }
-                              const prevMsg = i > 0 ? threadMessages[i - 1] : null;
+                              const prevMsg = i > 0 ? visibleThread[i - 1] : null;
                               const prevIsSystem = Boolean(
                                 prevMsg &&
                                   (prevMsg.author === "Sistema" || prevMsg.senderType === "system"),
@@ -3243,13 +3257,17 @@ export function CrmChatWidget() {
 
                               const systemGroup: Array<{ id: string; text: string; time: string }> =
                                 [];
-                              for (let j = i; j < threadMessages.length; j++) {
-                                const cand = threadMessages[j];
+                              let systemAfterDivider = boundary?.afterDivider ?? null;
+                              for (let j = i; j < visibleThread.length; j++) {
+                                const cand = visibleThread[j];
                                 if (
                                   !cand ||
                                   (cand.author !== "Sistema" && cand.senderType !== "system")
                                 ) {
                                   break;
+                                }
+                                if (channelBoundaries[j]?.afterDivider) {
+                                  systemAfterDivider = channelBoundaries[j].afterDivider;
                                 }
                                 systemGroup.push({
                                   id: cand.id || `mini-sys-${j}`,
@@ -3259,12 +3277,16 @@ export function CrmChatWidget() {
                               }
 
                               return (
-                                <SystemAnnotationBubble
-                                  key={message.id || i}
-                                  text={message.text}
-                                  time={message.time}
-                                  items={systemGroup}
-                                />
+                                <React.Fragment key={message.id || i}>
+                                  <SystemAnnotationBubble
+                                    text={message.text}
+                                    time={message.time}
+                                    items={systemGroup}
+                                  />
+                                  {systemAfterDivider && (
+                                    <ChannelTransitionDivider kind={systemAfterDivider} compact />
+                                  )}
+                                </React.Fragment>
                               );
                             }
 
@@ -3332,7 +3354,7 @@ export function CrmChatWidget() {
                                 effectiveStatus === "failed" &&
                                 (isMetaUndeliverableError(effectiveError) ||
                                   isMetaExperimentError(effectiveError))
-                                  ? threadMessages.slice(i + 1).some((later: any) => {
+                                  ? visibleThread.slice(i + 1).some((later: any) => {
                                       if (
                                         later.isInternalNote ||
                                         later.author === "Sistema" ||
@@ -3367,8 +3389,13 @@ export function CrmChatWidget() {
                                   : false;
 
                               return (
-                                <div key={message.id || i} className="flex flex-col items-end w-full group">
-                                  <div className="max-w-[85%] rounded-2xl rounded-br-xs bg-primary px-3.5 py-2.5 text-primary-foreground shadow-sm text-xs leading-relaxed select-text">
+                                <React.Fragment key={message.id || i}>
+                                  {boundary?.beforeDivider && (
+                                    <ChannelTransitionDivider kind={boundary.beforeDivider} compact />
+                                  )}
+                                  <div className="flex flex-col items-end w-full group">
+                                    {isFirstInSiteRun && <SiteOriginTag side="out" compact className="mb-1" />}
+                                    <div className="max-w-[85%] rounded-2xl rounded-br-xs bg-primary px-3.5 py-2.5 text-primary-foreground shadow-sm text-xs leading-relaxed select-text">
                                     {resolvedQuotedContent && (
                                       <QuotedMessagePreview
                                         sender={resolvedQuotedSender}
@@ -3438,7 +3465,11 @@ export function CrmChatWidget() {
                                       )}
                                     </div>
                                   )}
-                                </div>
+                                  </div>
+                                  {boundary?.afterDivider && (
+                                    <ChannelTransitionDivider kind={boundary.afterDivider} compact />
+                                  )}
+                                </React.Fragment>
                               );
                             }
 
@@ -3485,7 +3516,13 @@ export function CrmChatWidget() {
 
                             // Mensagem do Cliente / Assistente IA (Recebida) com Foto ao Lado
                             return (
-                              <div key={message.id || i} className="flex items-end gap-2 w-full min-w-0 group">
+                              <React.Fragment key={message.id || i}>
+                                {boundary?.beforeDivider && (
+                                  <ChannelTransitionDivider kind={boundary.beforeDivider} compact />
+                                )}
+                                <div className="flex flex-col items-start w-full min-w-0">
+                                  {isFirstInSiteRun && <SiteOriginTag side="in" compact className="mb-1 ml-8" />}
+                                  <div className="flex items-end gap-2 w-full min-w-0 group">
                                 {selected.id === "valentina" ? (
                                   <AiAvatar
                                     tenantId={tenant}
@@ -3519,6 +3556,8 @@ export function CrmChatWidget() {
                                             ? "border-l-violet-500"
                                             : "border-l-primary"
                                         } bg-card text-foreground text-[11px]`
+                                      : boundary?.isSiteOriginInWhatsapp
+                                      ? "max-w-[85%] border border-border/80 border-l-2 border-l-sky-500/75 bg-sky-500/[0.04] dark:bg-sky-500/[0.07] text-foreground text-xs"
                                       : "max-w-[85%] border border-border/80 bg-card text-foreground text-xs"
                                   } px-3.5 py-2.5 shadow-xs leading-relaxed select-text`}
                                 >
@@ -4272,7 +4311,7 @@ export function CrmChatWidget() {
                                     return null;
                                   }
                                   const nextMsg =
-                                    i < threadMessages.length - 1 ? threadMessages[i + 1] : null;
+                                    i < visibleThread.length - 1 ? visibleThread[i + 1] : null;
                                   const isLinkedToNext = Boolean(
                                     nextMsg &&
                                       nextMsg.side !== "out" &&
@@ -4288,7 +4327,7 @@ export function CrmChatWidget() {
                                   const mergedSources: any[] = [];
                                   let k = i;
                                   while (k >= 0) {
-                                    const gm = threadMessages[k];
+                                    const gm = visibleThread[k];
                                     if (
                                       !gm ||
                                       gm.side === "out" ||
@@ -4303,7 +4342,7 @@ export function CrmChatWidget() {
                                     k--;
                                   }
                                   for (let idx = k + 1; idx <= i; idx++) {
-                                    const gm = threadMessages[idx];
+                                    const gm = visibleThread[idx];
                                     if (Array.isArray(gm?.knowledgeSources)) {
                                       for (const src of gm.knowledgeSources) {
                                         const key = src.id || `${src.kind}:${src.title}`;
@@ -4328,10 +4367,15 @@ export function CrmChatWidget() {
                                     </div>
                                   );
                                 })()}
-                              </div>
+                                  </div>
+                                </div>
+                                {boundary?.afterDivider && (
+                                  <ChannelTransitionDivider kind={boundary.afterDivider} compact />
+                                )}
+                              </React.Fragment>
                             );
-                          })
-                        )}
+                          });
+                        })()}
 
                         {selected?.id === "valentina" &&
                           isValentinaTyping &&
