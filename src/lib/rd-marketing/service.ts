@@ -459,6 +459,22 @@ export async function receiveLeads(flow: Flow, payload: unknown) {
   }
   const settings = await validateFlow(tenantId, parsed.data);
   const templateJobs: RdTemplateDispatchJob[] = [];
+  const webhookDealJobs: Array<{
+    event: "deal.created" | "deal.updated";
+    dealId: string;
+    title: string;
+    pipelineId: string;
+    stageId: string;
+    status: string;
+    value?: string | number | null;
+    operatorId?: string | null;
+    accountId?: string | null;
+    contactId?: string | null;
+    source?: string | null;
+    campaign?: string | null;
+    origin: string;
+    changedFields?: string[];
+  }> = [];
   // Card, contato e recibo são confirmados juntos. Reenvios simultâneos aguardam o índice único.
   const outcomes = await db.transaction(async (tx) => {
     const txOutcomes = [];
@@ -704,10 +720,26 @@ export async function receiveLeads(flow: Flow, payload: unknown) {
         });
 
         deal = { id: existingDeal.id, accountId: enrichedAccountId };
+        webhookDealJobs.push({
+          event: "deal.updated",
+          dealId: existingDeal.id,
+          title: isWeakTitle && incomingTitle ? incomingTitle : existingDeal.title,
+          pipelineId: existingDeal.pipelineId,
+          stageId: existingDeal.stageId,
+          status: existingDeal.status,
+          value: existingDeal.value || (mapped.deal.value ? String(mapped.deal.value) : null),
+          operatorId: existingDeal.operatorId || settings.operatorId,
+          accountId: enrichedAccountId,
+          contactId: contact.id,
+          source: dealSource || existingDeal.source,
+          campaign: mapped.deal.campaign ? String(mapped.deal.campaign) : existingDeal.campaign,
+          origin: "rd_webhook_dedup_sdr",
+          changedFields: ["source", "campaign", "customFields"],
+        });
         dealActionMessage =
           "Contato vinculado ao card já aberto no funil pelo WhatsApp/SDR (duplicação evitada e dados RD enriquecidos).";
       } else {
-        deal = await crmService.createDeal(
+        const createdRdDeal = await crmService.createDeal(
           tenantId,
           null,
           {
@@ -745,6 +777,22 @@ export async function receiveLeads(flow: Flow, payload: unknown) {
           },
           tx,
         );
+        deal = createdRdDeal;
+        webhookDealJobs.push({
+          event: "deal.created",
+          dealId: createdRdDeal.id,
+          title: createdRdDeal.title,
+          pipelineId: createdRdDeal.pipelineId,
+          stageId: createdRdDeal.stageId,
+          status: createdRdDeal.status,
+          value: createdRdDeal.value,
+          operatorId: createdRdDeal.operatorId,
+          accountId: createdRdDeal.accountId,
+          contactId: contact.id,
+          source: createdRdDeal.source,
+          campaign: createdRdDeal.campaign,
+          origin: "rd_marketing",
+        });
 
         // Se o contato já possui conversa ativa em automação onde o SDR já respondeu, vincula o card e avança para CONTATANDO
         const [activeAutoConv] = await tx
@@ -832,6 +880,32 @@ export async function receiveLeads(flow: Flow, payload: unknown) {
     }
     return txOutcomes;
   });
+
+  // Disparo pós-commit dos webhooks de saída (`deal.created` / `deal.updated`)
+  if (webhookDealJobs.length > 0) {
+    void import("../webhooks/dispatcher")
+      .then(({ dispatchDealWebhook }) => {
+        for (const whJob of webhookDealJobs) {
+          void dispatchDealWebhook(tenantId, whJob.event, {
+            dealId: whJob.dealId,
+            title: whJob.title,
+            pipelineId: whJob.pipelineId,
+            stageId: whJob.stageId,
+            status: whJob.status,
+            value: whJob.value,
+            operatorId: whJob.operatorId,
+            accountId: whJob.accountId,
+            contactId: whJob.contactId,
+            source: whJob.source,
+            campaign: whJob.campaign,
+            entryChannel: "rd_webhook",
+            origin: whJob.origin,
+            changedFields: whJob.changedFields,
+          }).catch(() => {});
+        }
+      })
+      .catch(() => {});
+  }
 
   // Disparo pós-commit do template WhatsApp pelo Fagner/SDR + movimentação CONTATAR -> CONTATANDO no CWR
   for (const job of templateJobs) {

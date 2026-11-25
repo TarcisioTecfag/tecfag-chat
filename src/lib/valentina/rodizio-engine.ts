@@ -658,13 +658,14 @@ export class RodizioEngine {
 
       if (targetDealIds.size > 0) {
         const dealIdList = Array.from(targetDealIds);
-        await db
+        const updatedDeals = await db
           .update(crmDeals)
           .set({
             operatorId: toOperatorId,
             updatedAt: now,
           })
-          .where(and(eq(crmDeals.tenantId, tenantId), inArray(crmDeals.id, dealIdList)));
+          .where(and(eq(crmDeals.tenantId, tenantId), inArray(crmDeals.id, dealIdList)))
+          .returning();
 
         const { ensureLeadTransferTaskOnDeal } = await import("./sdr-crm-local");
         const aiPersona = getAiPersona(tenantId);
@@ -691,6 +692,28 @@ export class RodizioEngine {
             },
             createdAt: now,
           });
+        }
+
+        if (updatedDeals.length > 0) {
+          void import("../webhooks/dispatcher")
+            .then(({ dispatchDealWebhook }) => {
+              for (const d of updatedDeals) {
+                void dispatchDealWebhook(tenantId, "deal.updated", {
+                  dealId: d.id,
+                  title: d.title,
+                  pipelineId: d.pipelineId,
+                  stageId: d.stageId,
+                  status: d.status,
+                  value: d.value,
+                  operatorId: d.operatorId,
+                  accountId: d.accountId,
+                  changedFields: ["operatorId"],
+                  origin: "rodizio_reassignment",
+                  version: d.version,
+                }).catch(() => {});
+              }
+            })
+            .catch(() => {});
         }
       }
 

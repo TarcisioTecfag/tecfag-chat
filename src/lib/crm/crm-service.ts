@@ -4275,7 +4275,7 @@ export class CrmService {
       throw new CrmValidationError("Funil (pipelineId) e Etapa (stageId) são obrigatórios.");
     }
 
-    return await executor.transaction(async (tx) => {
+    const createdDeal = await executor.transaction(async (tx) => {
       // 1. Validação estrita do Funil no tenant
       const [pipeline] = await tx
         .select({ id: crmPipelines.id })
@@ -4917,6 +4917,33 @@ export class CrmService {
       if (!data.marketingOrigin) await enqueueRdCommercial(tx, tenantId, deal, null);
       return deal;
     });
+
+    if (executor === db) {
+      void import("../webhooks/dispatcher")
+        .then(({ dispatchDealWebhook }) =>
+          dispatchDealWebhook(tenantId, "deal.created", {
+            dealId: createdDeal.id,
+            title: createdDeal.title,
+            pipelineId: createdDeal.pipelineId,
+            stageId: createdDeal.stageId,
+            status: createdDeal.status,
+            value: createdDeal.value,
+            operatorId: createdDeal.operatorId,
+            accountId: createdDeal.accountId,
+            contactId: data.contactId ?? null,
+            source: createdDeal.source,
+            campaign: createdDeal.campaign,
+            entryChannel: createdDeal.entryChannel,
+            sectorCurrent: createdDeal.sectorCurrent,
+            actorOperatorId: operatorId,
+            origin: data.marketingOrigin ? "rd_marketing" : "crm",
+            version: createdDeal.version,
+          }),
+        )
+        .catch(() => {});
+    }
+
+    return createdDeal;
   }
 
   /**
@@ -4945,7 +4972,7 @@ export class CrmService {
     copiedProductsCount: number;
     omittedUniqueFields: string[];
   }> {
-    return await executor.transaction(async (tx) => {
+    const duplicated = await executor.transaction(async (tx) => {
       const [original] = await tx
         .select()
         .from(crmDeals)
@@ -5296,6 +5323,32 @@ export class CrmService {
         omittedUniqueFields,
       };
     });
+
+    if (executor === db) {
+      void import("../webhooks/dispatcher")
+        .then(({ dispatchDealWebhook }) =>
+          dispatchDealWebhook(tenantId, "deal.created", {
+            dealId: duplicated.deal.id,
+            title: duplicated.deal.title,
+            pipelineId: duplicated.deal.pipelineId,
+            stageId: duplicated.deal.stageId,
+            status: duplicated.deal.status,
+            value: duplicated.deal.value,
+            operatorId: duplicated.deal.operatorId,
+            accountId: duplicated.deal.accountId,
+            source: duplicated.deal.source,
+            campaign: duplicated.deal.campaign,
+            entryChannel: duplicated.deal.entryChannel,
+            sectorCurrent: duplicated.deal.sectorCurrent,
+            actorOperatorId: operatorId,
+            origin: "deal_duplicated",
+            version: duplicated.deal.version,
+          }),
+        )
+        .catch(() => {});
+    }
+
+    return duplicated;
   }
 
   /**
@@ -5337,7 +5390,17 @@ export class CrmService {
     },
     authorizedOperatorId?: string
   ): Promise<CrmDeal> {
-    return await db.transaction(async (tx) => {
+    let webhookDiff: {
+      previousPipelineId: string;
+      previousStageId: string;
+      previousStatus: string;
+      previousOperatorId: string | null;
+      changedFields: string[];
+      becameWon: boolean;
+      becameLost: boolean;
+    } | null = null;
+
+    const updatedDeal = await db.transaction(async (tx) => {
       const [current] = await tx
         .select()
         .from(crmDeals)
@@ -6033,8 +6096,78 @@ export class CrmService {
             .catch(() => {});
         }
       }
+
+      const changedFields: string[] = [];
+      if (setPayload.title !== undefined && setPayload.title !== current.title) changedFields.push("title");
+      if (setPayload.value !== undefined && setPayload.value !== current.value) changedFields.push("value");
+      if (setPayload.rating !== undefined && setPayload.rating !== current.rating) changedFields.push("rating");
+      if (setPayload.operatorId !== undefined && setPayload.operatorId !== current.operatorId) changedFields.push("operatorId");
+      if (setPayload.expectedCloseDate !== undefined) changedFields.push("expectedCloseDate");
+      if (setPayload.source !== undefined && (setPayload.source || null) !== (current.source || null)) changedFields.push("source");
+      if (setPayload.campaign !== undefined && (setPayload.campaign || null) !== (current.campaign || null)) changedFields.push("campaign");
+      if (setPayload.accountId !== undefined && setPayload.accountId !== current.accountId) changedFields.push("accountId");
+      if (updates.customFields !== undefined) changedFields.push("customFields");
+      if (pipelineChanged) changedFields.push("pipelineId");
+      if (stageChanged) changedFields.push("stageId");
+      if (statusChanged) changedFields.push("status");
+
+      webhookDiff = {
+        previousPipelineId: current.pipelineId,
+        previousStageId: current.stageId,
+        previousStatus: current.status,
+        previousOperatorId: current.operatorId,
+        changedFields,
+        becameWon:
+          (statusChanged && effectiveNewStatus === "won") ||
+          (current.wonAt === null && updated.wonAt !== null),
+        becameLost: statusChanged && effectiveNewStatus === "lost",
+      };
+
       return updated;
     });
+
+    const diff = webhookDiff;
+    if (diff) {
+      const baseDealPayload = {
+        dealId: updatedDeal.id,
+        title: updatedDeal.title,
+        pipelineId: updatedDeal.pipelineId,
+        stageId: updatedDeal.stageId,
+        status: updatedDeal.status,
+        value: updatedDeal.value,
+        operatorId: updatedDeal.operatorId,
+        accountId: updatedDeal.accountId,
+        source: updatedDeal.source,
+        campaign: updatedDeal.campaign,
+        entryChannel: updatedDeal.entryChannel,
+        sectorCurrent: updatedDeal.sectorCurrent,
+        previousPipelineId: diff.previousPipelineId,
+        previousStageId: diff.previousStageId,
+        previousStatus: diff.previousStatus,
+        previousOperatorId: diff.previousOperatorId,
+        changedFields: diff.changedFields,
+        lossReason: updatedDeal.lossReason ?? null,
+        winReason: updates.winReason ?? null,
+        pausedReason: updatedDeal.pausedReason ?? null,
+        actorOperatorId: operatorId,
+        origin: "crm",
+        version: updatedDeal.version,
+      };
+
+      void import("../webhooks/dispatcher")
+        .then(({ dispatchDealWebhook }) => {
+          void dispatchDealWebhook(tenantId, "deal.updated", baseDealPayload).catch(() => {});
+          if (diff.becameWon) {
+            void dispatchDealWebhook(tenantId, "deal.won", baseDealPayload).catch(() => {});
+          }
+          if (diff.becameLost) {
+            void dispatchDealWebhook(tenantId, "deal.lost", baseDealPayload).catch(() => {});
+          }
+        })
+        .catch(() => {});
+    }
+
+    return updatedDeal;
   }
 
   /**

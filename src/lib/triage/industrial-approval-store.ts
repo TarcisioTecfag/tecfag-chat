@@ -1304,6 +1304,27 @@ export async function approveIndustrialTriage(
     console.warn("[IndustrialApproval] Erro ao emitir SSE pós-aprovação:", sseErr?.message);
   }
 
+  if (committed.dealResult?.dealId && committed.dealResult.pipelineId && committed.dealResult.stageId) {
+    const dealEvent =
+      committed.dealResult.action === "created_new" ? "deal.created" : "deal.updated";
+    void import("../webhooks/dispatcher")
+      .then(({ dispatchDealWebhook }) =>
+        dispatchDealWebhook(tenantId, dealEvent, {
+          dealId: committed.dealResult!.dealId,
+          title: committed.dealResult!.dealTitle || committed.clientName,
+          pipelineId: committed.dealResult!.pipelineId,
+          stageId: committed.dealResult!.stageId,
+          status: "open",
+          operatorId: committed.operator.id,
+          contactId: committed.contactId,
+          actorOperatorId: actor.id,
+          origin: "sdr_human_approval",
+          changedFields: dealEvent === "deal.updated" ? ["pipelineId", "stageId", "operatorId"] : undefined,
+        }),
+      )
+      .catch(() => {});
+  }
+
   let clientNotified = false;
   if (committed.confirmationText) {
     try {
@@ -1491,6 +1512,21 @@ export async function completeIndustrialTriageWithoutTransfer(
     }
 
     // Ação opcional no card CRM vinculado
+    let dismissedDealSnapshot: {
+      dealId: string;
+      title: string;
+      pipelineId: string;
+      stageId: string;
+      previousPipelineId: string;
+      previousStageId: string;
+      previousStatus: string;
+      status: string;
+      operatorId: string | null;
+      accountId: string | null;
+      lossReason: string | null;
+      markedLost: boolean;
+    } | null = null;
+
     if (input.dealAction === "mark_lost" || input.dealAction === "move_stage") {
       const [linked] = await tx
         .select({ deal: crmDeals })
@@ -1524,6 +1560,21 @@ export async function completeIndustrialTriageWithoutTransfer(
             })
             .where(and(eq(crmDeals.tenantId, tenantId), eq(crmDeals.id, linked.deal.id)));
 
+          dismissedDealSnapshot = {
+            dealId: linked.deal.id,
+            title: linked.deal.title,
+            pipelineId: linked.deal.pipelineId,
+            stageId: linked.deal.stageId,
+            previousPipelineId: linked.deal.pipelineId,
+            previousStageId: linked.deal.stageId,
+            previousStatus: linked.deal.status,
+            status: "lost",
+            operatorId: linked.deal.operatorId ?? null,
+            accountId: linked.deal.accountId ?? null,
+            lossReason: reasonText || null,
+            markedLost: true,
+          };
+
           await tx.insert(crmDealEvents).values({
             id: `ev-dismiss-${Date.now()}-${crypto.randomUUID().slice(0, 6)}`,
             tenantId,
@@ -1550,6 +1601,21 @@ export async function completeIndustrialTriageWithoutTransfer(
               updatedAt: now,
             })
             .where(and(eq(crmDeals.tenantId, tenantId), eq(crmDeals.id, linked.deal.id)));
+
+          dismissedDealSnapshot = {
+            dealId: linked.deal.id,
+            title: linked.deal.title,
+            pipelineId: input.targetPipelineId,
+            stageId: input.targetStageId,
+            previousPipelineId: linked.deal.pipelineId,
+            previousStageId: linked.deal.stageId,
+            previousStatus: linked.deal.status,
+            status: linked.deal.status,
+            operatorId: linked.deal.operatorId ?? null,
+            accountId: linked.deal.accountId ?? null,
+            lossReason: null,
+            markedLost: false,
+          };
 
           await tx.insert(crmDealEvents).values({
             id: `ev-dismiss-mv-${Date.now()}-${crypto.randomUUID().slice(0, 6)}`,
@@ -1587,7 +1653,7 @@ export async function completeIndustrialTriageWithoutTransfer(
       updatedAt: now,
     });
 
-    return { conversation: updatedConv };
+    return { conversation: updatedConv, dismissedDealSnapshot };
   });
 
   SdrDebouncer.getInstance().clearSession(conversationId);
@@ -1609,6 +1675,34 @@ export async function completeIndustrialTriageWithoutTransfer(
     });
   } catch {
     // Não bloqueia resposta
+  }
+
+  if (result.dismissedDealSnapshot) {
+    const snap = result.dismissedDealSnapshot;
+    const payload = {
+      dealId: snap.dealId,
+      title: snap.title,
+      pipelineId: snap.pipelineId,
+      stageId: snap.stageId,
+      status: snap.status,
+      operatorId: snap.operatorId,
+      accountId: snap.accountId,
+      previousPipelineId: snap.previousPipelineId,
+      previousStageId: snap.previousStageId,
+      previousStatus: snap.previousStatus,
+      lossReason: snap.lossReason,
+      actorOperatorId: actor.id,
+      origin: "sdr_human_dismiss",
+      changedFields: snap.markedLost ? ["status", "lossReason"] : ["pipelineId", "stageId"],
+    };
+    void import("../webhooks/dispatcher")
+      .then(({ dispatchDealWebhook }) => {
+        void dispatchDealWebhook(tenantId, "deal.updated", payload).catch(() => {});
+        if (snap.markedLost) {
+          void dispatchDealWebhook(tenantId, "deal.lost", payload).catch(() => {});
+        }
+      })
+      .catch(() => {});
   }
 
   return { success: true, conversationId, queueState: result.conversation.queueState };

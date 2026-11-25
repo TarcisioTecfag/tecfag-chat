@@ -1116,7 +1116,27 @@ export async function ensureLocalCrmDealBeforeTransfer(
       };
     };
     // O handoff industrial compartilha a mesma transação do card, carteira e rodízio.
-    return transaction ? await operation(transaction) : await db.transaction(operation);
+    const result = transaction ? await operation(transaction) : await db.transaction(operation);
+    if (!transaction && result.success && result.dealId && result.pipelineId && result.stageId) {
+      const eventType = result.createdNew ? "deal.created" : "deal.updated";
+      void import("../webhooks/dispatcher")
+        .then(({ dispatchDealWebhook }) =>
+          dispatchDealWebhook(tenantId, eventType, {
+            dealId: result.dealId,
+            title: result.dealTitle,
+            pipelineId: result.pipelineId!,
+            stageId: result.stageId,
+            status: "open",
+            operatorId: targetOperatorId || null,
+            accountId: result.accountId,
+            contactId: contactId || null,
+            origin: "auto_sdr",
+            changedFields: eventType === "deal.updated" ? ["operatorId", "accountId", "customFields"] : undefined,
+          }),
+        )
+        .catch(() => {});
+    }
+    return result;
   } catch (err: any) {
     if (transaction) throw err; // O chamador precisa reverter a transação inteira.
     console.error(`[SdrCrmLocal] ❌ Erro ao criar/vincular card no CRM Local para conversa ${conversationId}:`, err);

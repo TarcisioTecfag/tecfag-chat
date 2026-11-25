@@ -426,7 +426,24 @@ export async function ensureCwrDealOnContacting(
   };
 
   if (typeof (txOrDb as any).transaction === "function") {
-    return await (txOrDb as IndustrialDatabase).transaction((innerTx) => runInTx(innerTx));
+    const res = await (txOrDb as IndustrialDatabase).transaction((innerTx) => runInTx(innerTx));
+    if (res.ok && res.action === "created_in_contacting" && res.dealId && res.pipelineId && res.stageId) {
+      void import("../webhooks/dispatcher")
+        .then(({ dispatchDealWebhook }) =>
+          dispatchDealWebhook(tenantId, "deal.created", {
+            dealId: res.dealId!,
+            title: res.dealTitle || "Lead WhatsApp",
+            pipelineId: res.pipelineId!,
+            stageId: res.stageId!,
+            status: "open",
+            operatorId: null,
+            contactId: params.contactId ?? null,
+            origin: "auto_sdr_cwr",
+          }),
+        )
+        .catch(() => {});
+    }
+    return res;
   }
   return await runInTx(txOrDb);
 }
