@@ -4,6 +4,7 @@ import fs from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
 import crypto from "node:crypto";
+import * as React from "react";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import * as jsxRuntime from "react/jsx-runtime";
@@ -339,21 +340,57 @@ describe("WebSocket real com sessão de visitante e dependências isoladas", () 
 });
 
 describe("componente de origem do site", () => {
-  it("renderiza campanha e consulta com texto escapado e links protegidos", () => {
-    const { SiteContextPanel } = loadModule("src/components/valentina/SiteContextPanel.tsx", {
+  const loadSiteContextPanel = () =>
+    loadModule("src/components/valentina/SiteContextPanel.tsx", {
+      react: React,
       "react/jsx-runtime": jsxRuntime,
       "@/lib/livechat/site-context": contextPolicy,
+      "lucide-react": {
+        ChevronDown: () => createElement("svg", { "data-icon": "chevron-down" }),
+        ChevronUp: () => createElement("svg", { "data-icon": "chevron-up" }),
+        Globe: () => createElement("svg", { "data-icon": "globe" }),
+      },
+      "@/components/ui/tooltip": {
+        SystemTooltip: ({ children }) => children,
+      },
+      "framer-motion": {
+        AnimatePresence: ({ children }) => children,
+        motion: {
+          div: ({ children, id, className }) => createElement("div", { id, className }, children),
+        },
+      },
     });
+
+  it("inicia minimizado por padrão com botão de expandir e texto escapado", () => {
+    const { SiteContextPanel } = loadSiteContextPanel();
     const value = capture(true);
     value.product.name = '<script>alert("x")</script>';
-    const html = renderToStaticMarkup(createElement(SiteContextPanel, { context: value }));
+    const collapsedHtml = renderToStaticMarkup(createElement(SiteContextPanel, { context: value }));
+    assert.match(collapsedHtml, /Origem e contexto do site/);
+    assert.match(collapsedHtml, /aria-expanded="false"/);
+    assert.match(collapsedHtml, /data-icon="chevron-down"/);
+    assert.doesNotMatch(collapsedHtml, /Campanha: envase/);
+    assert.doesNotMatch(collapsedHtml, /SKU informado: S100/);
+    assert.match(collapsedHtml, /&lt;script&gt;/);
+    assert.doesNotMatch(collapsedHtml, /<script>/);
+    assert.equal(renderToStaticMarkup(createElement(SiteContextPanel, { context: null })), "");
+  });
+
+  it("renderiza campanha e consulta com texto escapado e links protegidos quando expandido", () => {
+    const { SiteContextPanel } = loadSiteContextPanel();
+    const value = capture(true);
+    value.product.name = '<script>alert("x")</script>';
+    const html = renderToStaticMarkup(
+      createElement(SiteContextPanel, { context: value, defaultExpanded: true }),
+    );
     assert.match(html, /Origem e contexto do site/);
+    assert.match(html, /aria-expanded="true"/);
+    assert.match(html, /data-icon="chevron-up"/);
     assert.match(html, /Campanha: envase/);
     assert.match(html, /SKU informado: S100/);
     assert.match(html, /noopener noreferrer/);
     assert.match(html, /&lt;script&gt;/);
     assert.doesNotMatch(html, /<script>/);
-    assert.equal(renderToStaticMarkup(createElement(SiteContextPanel, { context: null })), "");
   });
 });
 
