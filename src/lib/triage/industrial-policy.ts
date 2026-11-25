@@ -265,6 +265,83 @@ function isTechnicalDocument(text: string): boolean {
   );
 }
 
+/**
+ * Remove menções de "peça(s)" / "insumo(s)" que representam o produto que o cliente embala,
+ * o ramo de atuação (ex.: autopeças, frigorífico, laticínios), dimensões físicas ou unidade de
+ * produtividade — evitando confundir compra de máquina com setor de Peças de reposição.
+ */
+export function stripNonReplacementPartsContext(normalizedText: string): string {
+  if (!normalizedText) return "";
+  return normalizedText
+    // 1. Objeto de verbo/substantivo de embalagem ou processamento ("embalar peças de carro", "embalagem de peças")
+    .replace(
+      /\b(?:embalar|empacotar|ensacar|selar|envasar|dosar|rotular|datar|codificar|encaixotar|enfardar|encolher|processar|plastificar|etiquetar|contar|(?:embalagem|embalagens)\s+(?:de|para))\s+(?:as\s+|os\s+|umas?\s+|uns\s+|minhas?\s+|meus?\s+|nossas?\s+|nossos?\s+|varias?\s+|diversas?\s+|\d+(?:[.,]\d+)?\s+)?(?:pecas?|insumos?|correias?|sensores?|resistencias?|roletes?)\b(?:\s+(?:de|da|do|das|dos|automotiv[ao]s?|plastic[ao]s?|metalic[ao]s?|agricolas?|hospitalares?|alimentici[ao]s?|pequen[ao]s?|grandes?|usinad[ao]s?|injetad[ao]s?|avuls[ao]s?)(?:\s+[a-z0-9]+){0,2})?/g,
+      " ",
+    )
+    // 2. "peças (pequenas) para embalar/empacotar/selar..."
+    .replace(
+      /\b(?:pecas?|insumos?)(?:\s+(?:pequen[ao]s?|grandes?|avuls[ao]s?|divers[ao]s?|variad[ao]s?|individuais?|automotiv[ao]s?|plastic[ao]s?|metalic[ao]s?))?\s+para\s+(?:embalar|empacotar|ensacar|selar|envasar|dosar|rotular|datar|codificar|encaixotar|enfardar|encolher|plastificar|etiquetar)\b/g,
+      " ",
+    )
+    // 3. Máquina/solução/linha PARA peças ("máquina para peças automotivas", "seladora a vácuo para peças")
+    .replace(
+      /\b(?:maquinas?|equipamentos?|soluc(?:ao|oes)|linhas?|seladoras?|envasadoras?|dosadoras?|empacotadoras?|rotuladoras?|embaladoras?|datador\w*|tuneis|tunel|personnalite|personalite)\s+(?:[a-z0-9]+\s+){0,4}para\s+(?:as\s+|os\s+)?(?:pecas?|insumos?)\b/g,
+      (match) => match.replace(/\bpara\s+(?:as\s+|os\s+)?(?:pecas?|insumos?)\b$/, ""),
+    )
+    // 4. Unidade de produtividade/contagem ("500 peças por hora", "300 peças/dia", "quantas peças")
+    .replace(
+      /\b(?:\d+(?:[.,]\d+)*(?:\s*(?:a|ate|mil))?\s*(?:\d+(?:[.,]\d+)*)?|quantas?|cerca de \d+|aproximadamente \d+)\s*pecas?\s*(?:\/|por\s+|ao\s+|na\s+|no\s+|a\s+)(?:min(?:uto)?s?|h|hr|horas?|dias?|semanas?|mes(?:es)?|turnos?|lotes?|caixas?|pacotes?|embalagens?|sacos?)\b/g,
+      " ",
+    )
+    .replace(/\bquantas?\s+pecas?\b/g, " ")
+    // 5. Medidas / peso do produto do cliente ("altura da peça", "a peça pesa 30g", "cada peça mede 14x14")
+    .replace(
+      /\b(?:altura|largura|comprimento|espessura|tamanho|dimens(?:ao|oes)|medidas?|peso)\s+(?:aproximad[ao]s?\s+)?(?:da|das|de cada)\s+pecas?\b/g,
+      " ",
+    )
+    .replace(
+      /\b(?:a|as|cada|essa|essas|esta|estas|nossa|nossas)\s+pecas?\s+(?:tem|mede|medem|pesa|pesam|possui|possuem|e de|sao de)\b/g,
+      " ",
+    )
+    // 6. Ramos / produtos não-reposição ("auto peças", "peças de carro/carne/queijo/roupa", "insumos agrícolas")
+    .replace(
+      /\b(?:auto\s*pecas?|moto\s*pecas?|pecas?\s+(?:automotiv[ao]s?|de\s+(?:carro|carros|moto|motos|caminhao|caminhoes|veiculo|veiculos|automovel|automoveis|bicicleta|bicicletas|roupa|roupas|vestuario|tecido|carne|carnes|queijo|queijos|frango|peixe|bacalhau|frios|embutidos|madeira|plastico|metal|ferro|aco|aluminio|vidro|ceramica|borracha|decoracao|artesanato|bijuteria|joia|joias|moveis)|intim[ao]s?|plastic[ao]s?|metalic[ao]s?|usinad[ao]s?|injetad[ao]s?|textil|texteis|confeccao))\b/g,
+      " ",
+    )
+    .replace(
+      /\binsumos?\s+(?:agricolas?|agropecuarios?|veterinarios?|alimenticios?|hospitalares?|farmaceuticos?|quimicos?|odontologicos?|cosmeticos?|de\s+construcao)\b/g,
+      " ",
+    )
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const REPLACEMENT_PARTS_ANY_RE =
+  /\b(?:pecas?|insumos?|consumiveis|reposicao|ribbon|ink ?roll|teflon|resistencia(?:s)?|correias?|roletes?|sensor(?:es)?|clp)\b/;
+
+const REPLACEMENT_PARTS_EXPLICIT_RE =
+  /\b(?:reposicao|consumiveis|ribbon|ink ?roll|teflon|resistencia(?:s)?|correias?|roletes?|sensor(?:es)?|clp|pistao|vedac(?:ao|oes))\b/;
+
+const REPLACEMENT_PARTS_PHRASE_RE =
+  /\b(?:(?:pecas?|insumos?)\s+(?:de\s+reposicao|(?:para|pra)\s+(?:a\s+|o\s+|minha\s+|meu\s+|nossa\s+|nosso\s+)?(?:maquina|seladora|envasadora|dosadora|empacotadora|rotuladora|embaladora|datador\w*|tunel|equipamento|linha)|d[ao]\s+(?:minha\s+|meu\s+|nossa\s+|nosso\s+)?(?:maquina|seladora|envasadora|dosadora|empacotadora|rotuladora|embaladora|datador\w*|tunel|equipamento))|(?:setor|departamento|area|equipe|vendedor|cotacao|orcamento)\s+de\s+pecas|(?:preciso|quero|gostaria|comprar|cotar|trocar|substituir)\s+(?:de\s+)?(?:uma?\s+|umas?\s+|algumas?\s+)?pecas?)\b/;
+
+/** Não confundir compra de máquina para embalar peças/insumos com compra de peças de reposição. */
+export function isReplacementPartsIntent(raw: string): boolean {
+  const cleaned = stripNonReplacementPartsContext(normalizeTriageText(raw));
+  if (!cleaned) return false;
+  return REPLACEMENT_PARTS_ANY_RE.test(cleaned);
+}
+
+/**
+ * Indica intenção inequívoca de peça de reposição/consumível (capaz de sobrepor um fluxo comercial
+ * já classificado pelo LLM, diferente de uma resposta ambígua como apenas "Peças").
+ */
+export function isExplicitReplacementPartsIntent(raw: string): boolean {
+  const cleaned = stripNonReplacementPartsContext(normalizeTriageText(raw));
+  if (!cleaned) return false;
+  return REPLACEMENT_PARTS_EXPLICIT_RE.test(cleaned) || REPLACEMENT_PARTS_PHRASE_RE.test(cleaned);
+}
+
 function textSubflow(raw: string): IndustrialSubflow | null {
   const text = normalizeTriageText(raw);
   if (!text) return null;
@@ -318,12 +395,7 @@ function textSubflow(raw: string): IndustrialSubflow | null {
     /\b(?:pos venda|comprei|compramos|efetuamos um pedido|fizemos um pedido)\b/.test(text)
   )
     return "POS_VENDA";
-  if (
-    /\b(?:pecas?|insumos?|consumiveis|reposicao|ribbon|ink ?roll|teflon|resistencia|correias?|roletes?|sensor|clp)\b/.test(
-      text,
-    )
-  )
-    return "PECAS";
+  if (isReplacementPartsIntent(text)) return "PECAS";
   if (
     /\b(?:maquinas?|seladoras?|envasadoras?|dosadoras?|empacotadoras?|rotuladoras?|embaladoras?|datador\w*|encapsuladoras?|tuneis|tunel|personnalite|personalite|orcamento|cotacao|quero comprar)\b/.test(
       text,
@@ -566,12 +638,31 @@ export function resolveIndustrialRoute(input: ResolveIndustrialRouteInput): Indu
   const fromCurrentText = textSubflow(input.text || "");
   const declared = declaredSubflow(input.aiSubflow) || declaredSubflow(input.aiTargetFunnel);
   const fromFields = textSubflow(interest);
-  // Uma intenção específica é soberana sobre a linha/produto comercial declarado pelo LLM.
+  // Uma intenção específica é soberana sobre a linha/produto comercial declarado pelo LLM,
+  // exceto quando há apenas menção ambígua de "peça(s)" sem contexto de reposição enquanto o LLM
+  // já classificou o atendimento como comercial (ex.: resposta "Peças" à pergunta do que embala).
   const commercial = new Set<IndustrialSubflow>(["MAQUINAS", "PERSONNALITE"]);
-  const specificFieldIntent = fromFields && !commercial.has(fromFields) ? fromFields : null;
-  let subflow = fromCurrentText || specificFieldIntent || declared || fromFields;
+  const effectiveCurrentText =
+    fromCurrentText === "PECAS" &&
+    declared &&
+    commercial.has(declared) &&
+    !isExplicitReplacementPartsIntent(input.text || "")
+      ? null
+      : fromCurrentText;
+  const specificFieldIntent =
+    fromFields &&
+    !commercial.has(fromFields) &&
+    !(
+      fromFields === "PECAS" &&
+      declared &&
+      commercial.has(declared) &&
+      !isExplicitReplacementPartsIntent(interest)
+    )
+      ? fromFields
+      : null;
+  let subflow = effectiveCurrentText || specificFieldIntent || declared || fromFields;
   let reason: IndustrialRoute["reason"] =
-    fromCurrentText || specificFieldIntent || fromFields ? "intent" : "declared_route";
+    effectiveCurrentText || specificFieldIntent || fromFields ? "intent" : "declared_route";
   if (!subflow) {
     subflow =
       declaredSubflow(collectedValue(input.collectedData, "SETOR / FUNIL DE DESTINO", "SETOR")) ||

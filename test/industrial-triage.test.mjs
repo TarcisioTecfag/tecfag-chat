@@ -779,4 +779,125 @@ describe("adaptação dinâmica de campos por setor e confirmação de empresa r
   });
 });
 
+describe("regressão: não confundir máquina para embalar peças com setor de Peças de reposição", () => {
+  it("caso real Daiane Takahama (AUTOPLAST): mantém rota comercial Personnalité/Máquinas em todos os turnos", () => {
+    const turn1 = resolveIndustrialRoute({
+      text: "Olá! Gostaria de saber mais sobre as soluções da Tecfag Personnalité.",
+      aiSubflow: "MAQUINAS",
+      collectedData: fields({
+        "MÁQUINA / PEÇA / INTERESSE": "soluções da Tecfag Personnalité",
+      }),
+    });
+    assert.equal(turn1.subflow, "MAQUINAS");
+    assert.equal(turn1.targetFunnel, "Máquinas");
+
+    const turn2 = resolveIndustrialRoute({
+      text: "Oi\nPreciso embalar peças de carro",
+      aiSubflow: "MAQUINAS",
+      existingSubflow: turn1.subflow,
+      existingFunnel: turn1.targetFunnel,
+      collectedData: fields({
+        "MÁQUINA / PEÇA / INTERESSE": "soluções da Tecfag Personnalité",
+        "RAMO / O QUE EMBALA": "peças de carro",
+      }),
+    });
+    assert.equal(turn2.subflow, "MAQUINAS");
+    assert.notEqual(turn2.targetFunnel, "Peças");
+
+    const turnFinal = resolveIndustrialRoute({
+      text: "Sim",
+      aiSubflow: "PERSONNALITE",
+      existingSubflow: "MAQUINAS",
+      collectedData: fields({
+        "NOME COMPLETO": "Daiane Takahama",
+        "CNPJ OU CPF": "05.851.127/0001-38",
+        EMPRESA: "AUTOPLAST INDUSTRIA E COMERCIO DE AUTO PECAS LTDA",
+        "RAMO / O QUE EMBALA": "peças de carro",
+        "VOLUME / PRODUÇÃO": "Não sabe, mas busca aumentar a produtividade",
+        "MÁQUINA / PEÇA / INTERESSE":
+          "Solução totalmente automatizada (linha Personnalité) para embalar peças de carro com 14x14x7 cm e 30g",
+      }),
+    });
+    assert.equal(turnFinal.subflow, "MAQUINAS");
+    assert.equal(turnFinal.needsReview, true);
+    assert.notEqual(turnFinal.targetFunnel, "Peças");
+  });
+
+  for (const [text, expectedSubflow] of [
+    ["Quero uma máquina para embalar peças de carro", "MAQUINAS"],
+    ["Quero uma seladora para embalar peças de carne", "MAQUINAS"],
+    ["Preciso de uma embaladora para peças de queijo", "MAQUINAS"],
+    ["Quero uma seladora a vácuo para peças automotivas", "MAQUINAS"],
+    ["Empacotadora para insumos agrícolas", "MAQUINAS"],
+    ["Quero comprar uma máquina para peças pequenas", "MAQUINAS"],
+    ["Seladora para peças pequenas para embalar a vácuo", "MAQUINAS"],
+  ]) {
+    it(`classifica compra de máquina como ${expectedSubflow}: "${text}"`, () => {
+      assert.equal(route(text).subflow, expectedSubflow);
+    });
+  }
+
+  for (const text of [
+    "Preciso embalar peças de carro",
+    "500 peças por hora",
+    "300 peças/dia",
+    "A peça tem 7 cm e pesa 30 gramas",
+    "Cada peça mede 14x14 cm",
+    "Trabalho com auto peças",
+    "Peças de roupa",
+    "Peças",
+  ]) {
+    it(`não sequestra triagem comercial já ativa para Peças com: "${text}"`, () => {
+      const result = resolveIndustrialRoute({
+        text,
+        aiSubflow: "MAQUINAS",
+        existingSubflow: "MAQUINAS",
+        collectedData: fields({
+          "MÁQUINA / PEÇA / INTERESSE": "Seladora a vácuo para embalar peças",
+        }),
+      });
+      assert.equal(result.subflow, "MAQUINAS");
+      assert.equal(result.targetFunnel, "Máquinas");
+    });
+  }
+
+  for (const text of [
+    "Preciso de peças de reposição",
+    "Peças de reposição para linha Personnalité",
+    "Preciso de uma peça para minha seladora",
+    "Preciso de uma peça para minha máquina de embalar",
+    "Quero comprar peças",
+    "Preciso de fita de teflon para reposição",
+    "Cinto teflon de dupla camada para seladora FRD1000/SF150",
+    "Correia dentada para Seladora Contínua FRD1000 W - INOX",
+    "Resistência para seladora",
+    "Quero cotar ribbon",
+    "Preciso de ink roll",
+    "Peças",
+  ]) {
+    it(`mantém classificação PECAS para reposição real: "${text}"`, () => {
+      assert.equal(route(text).subflow, "PECAS");
+    });
+  }
+
+  it("classificador legado também diferencia seladora para embalar peças de peça de reposição", () => {
+    assert.equal(
+      resolveLegacySdrStageAndFunnel({
+        collectedData: fields({
+          "MÁQUINA / PEÇA / INTERESSE": "Seladora a vácuo para embalar peças de queijo",
+        }),
+      }).funnelStage,
+      "maquinas",
+    );
+    assert.equal(
+      resolveLegacySdrStageAndFunnel({
+        collectedData: fields({
+          "MÁQUINA / PEÇA / INTERESSE": "Resistência de reposição para seladora",
+        }),
+      }).funnelStage,
+      "pecas",
+    );
+  });
+});
+
 

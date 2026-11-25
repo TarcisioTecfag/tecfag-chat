@@ -15,6 +15,7 @@ import {
   MessageSquareOff,
 } from "lucide-react";
 import type { SdrTriageSession } from "./SdrTab";
+import { isReplacementPartsIntent } from "../../lib/triage/industrial-policy";
 
 export type KanbanColumnKey =
   | "triagem"
@@ -543,10 +544,21 @@ export function classifySessionToColumn(session: SdrTriageSession): KanbanColumn
   }
 
   // 2. Setores Específicos
-  if (qualif.includes("peca") || prod.includes("peca") || step.includes("peca")) {
+  if (
+    qualif.includes("peca") ||
+    step.includes("peca") ||
+    isReplacementPartsIntent(prod)
+  ) {
     return "pecas";
   }
-  if (qualif.includes("personalite") || prod.includes("personalite") || resp.includes("personalite")) {
+  if (
+    qualif.includes("personalite") ||
+    qualif.includes("personnalite") ||
+    prod.includes("personalite") ||
+    prod.includes("personnalite") ||
+    resp.includes("personalite") ||
+    resp.includes("personnalite")
+  ) {
     return "personalite";
   }
   if (qualif.includes("maquina") || prod.includes("maquina") || prod.includes("seladora") || prod.includes("embaladora") || resp.includes("maquina")) {

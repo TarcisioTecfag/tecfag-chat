@@ -553,6 +553,7 @@ REGRAS DE CLASSIFICAÇÃO:
 - A intenção é soberana sobre o nome do equipamento. Boleto da seladora é 2A_BOLETO; manual/esquema elétrico é 3_AT; manutenção de máquina Personnalité também é 3_AT.
 - NF relacionada a pedido/entrega é 4B_NF; documento fiscal financeiro sem contexto de pedido é 2B_NF.
 - Quero devolver/cancelar uma compra é POS_VENDA; estorno/reembolso de máquina já devolvida é 2C_OUTROS.
+- PECAS é EXCLUSIVO para compra de peças de reposição ou consumíveis para máquinas (ex.: resistência, fita teflon, correia, ribbon, ink roll, sensor, pistão, vedação, mola). Se o cliente quer uma máquina/equipamento para embalar, selar, empacotar ou processar "peças" do próprio negócio (ex.: peças automotivas/de carro, peças de carne/queijo, peças de roupa, peças plásticas/metálicas, insumos agrícolas), o subfluxo é MAQUINAS (nunca PECAS).
 - Personnalité é linha industrial automática/de alto desempenho. NÃO é fabricação de sachês, bobinas ou embalagens personalizadas.
 - Uma campanha ou a palavra Personnalité NÃO comprova porte, capacidade nem classificação final. Use MAQUINAS enquanto coleta a aplicação/volume; classificação de linha depende de catálogo e validação do servidor. Nunca invente uma decisão do Decisor/LMS.
 - Pedido genérico de humano ("quero falar com um atendente"): 5A_CLIENTE, sem insistir em documento ou qualificação. Uma cotação sem pedido de humano segue o comercial.

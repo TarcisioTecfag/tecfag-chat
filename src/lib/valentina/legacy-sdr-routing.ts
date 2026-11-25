@@ -1,5 +1,6 @@
 // Compatibilidade do classificador anterior usado pela operação existente.
 // A política industrial nova não altera esta projeção para outros perfis.
+import { stripNonReplacementPartsContext } from "../triage/industrial-policy.ts";
 
 export type TecfagKanbanStageId =
   | "triagem"
@@ -117,15 +118,16 @@ export function resolveLegacySdrStageAndFunnel(params: {
     return { funnelStage: "pos_venda", targetFunnel: "Pós-Venda Geral" };
   }
 
-  // 5. Peças de Reposição
+  // 5. Peças de Reposição (sem confundir "máquina para embalar peças de carro/carne/queijo")
+  const partsCombined = stripNonReplacementPartsContext(combined);
   if (
-    combined.includes("peca") ||
-    combined.includes("reposicao") ||
-    combined.includes("resistencia") ||
-    combined.includes("teflon") ||
-    combined.includes("correia") ||
-    combined.includes("sensor") ||
-    combined.includes("clp")
+    partsCombined.includes("peca") ||
+    partsCombined.includes("reposicao") ||
+    partsCombined.includes("resistencia") ||
+    partsCombined.includes("teflon") ||
+    partsCombined.includes("correia") ||
+    partsCombined.includes("sensor") ||
+    partsCombined.includes("clp")
   ) {
     return { funnelStage: "pecas", targetFunnel: "Peças" };
   }

@@ -167,6 +167,25 @@ describe("SDR Kanban Board — Funis de Triagem", () => {
       messages: [],
     };
     expect(classifySessionToColumn(sessionAssistencia)).toBe("assistencia_tecnica");
+
+    const sessionMaquinaEmbalarPecas = {
+      id: "test-6b",
+      conversationId: "conv-6b",
+      contactName: "Daiane Takahama",
+      company: "AUTOPLAST INDUSTRIA E COMERCIO DE AUTO PECAS LTDA",
+      phone: "5511925408141",
+      currentStep: "Em Qualificação",
+      collectedData: {
+        "MÁQUINA / PEÇA / INTERESSE": {
+          value: "Solução totalmente automatizada (linha Personnalité) para embalar peças de carro com 14x14x7 cm e 30g",
+          status: "filled" as const,
+        },
+      },
+      startedAt: new Date().toISOString(),
+      status: "active" as const,
+      messages: [],
+    };
+    expect(classifySessionToColumn(sessionMaquinaEmbalarPecas)).toBe("personalite");
   });
 
   it("deve classificar atendimentos concluídos genéricos na coluna outros", () => {
