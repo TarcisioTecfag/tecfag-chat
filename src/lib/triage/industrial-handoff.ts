@@ -186,14 +186,28 @@ export function industrialHandoffMessage(
   return null;
 }
 
-/** Evita anunciar efeitos que só o servidor pode confirmar, inclusive com coleta incompleta. */
-export function industrialClientMessages(params: {
+export interface EvaluatedIndustrialClientMessages {
+  messages: string[];
+  needsGeminiRewrite: boolean;
+  rewriteMode: "collecting_missing_fields" | "awaiting_approval" | "resolved" | null;
+  missingFields: import("./industrial-policy.ts").RequiredField[];
+  safeBubbles: string[];
+}
+
+/**
+ * Avalia e sanitiza as mensagens geradas pelo Gemini sem NUNCA injetar perguntas prontas/robóticas
+ * hardcoded durante a coleta.
+ * Quando uma promessa prematura de encaminhamento é removida durante `collecting` ou quando não
+ * sobra nenhum balão aproveitável em `awaiting_approval`/`resolved`, sinaliza `needsGeminiRewrite: true`
+ * para que o Gemini redija a continuação 100% contextualizada.
+ */
+export function evaluateIndustrialClientMessages(params: {
   result: IndustrialHandoffResult;
   route: IndustrialRoute;
   data: CollectedFields;
   messages: string[];
   knownCompanyToConfirm?: string | null;
-}): string[] {
+}): EvaluatedIndustrialClientMessages {
   const isOperatorAbsent = Boolean(
     params.result.operator?.isAbsent || params.route.targetOperator?.isAbsent,
   );
@@ -208,6 +222,7 @@ export function industrialClientMessages(params: {
     { isOperatorAbsent, isHumanRequestOnly, isDirectOperatorTransfer },
   );
   const claimsEffectPattern = INDUSTRIAL_CLAIMS_EFFECT_PATTERN;
+
   if (params.result.status === "resolved") {
     const cleaned = params.messages
       .map((m) => String(m || "").trim())
@@ -218,10 +233,15 @@ export function industrialClientMessages(params: {
           m !== INDUSTRIAL_HUMAN_REQUEST_APPROVAL_MESSAGE &&
           !claimsEffectPattern.test(m),
       );
-    return cleaned.length > 0
-      ? cleaned
-      : ["Entendido! Agradeço o retorno. Caso precise de algo no futuro, continuamos à disposição."];
+    return {
+      messages: cleaned,
+      needsGeminiRewrite: cleaned.length === 0,
+      rewriteMode: cleaned.length === 0 ? "resolved" : null,
+      missingFields: [],
+      safeBubbles: cleaned,
+    };
   }
+
   if (params.result.status === "awaiting_approval") {
     // Preserva integralmente as mensagens naturais e contextualizadas do Fagner (ex.: explicação
     // técnica + aviso natural de encaminhamento ao setor), SEM anexar nenhuma bolha genérica fixa.
@@ -236,15 +256,15 @@ export function industrialClientMessages(params: {
           !INDUSTRIAL_FALSE_SYSTEM_CLAIM_PATTERN.test(m),
       )
       .slice(0, 4);
-    if (cleanedReplies.length > 0) {
-      return cleanedReplies;
-    }
-    return [
-      isHumanRequestOnly
-        ? INDUSTRIAL_HUMAN_REQUEST_APPROVAL_MESSAGE
-        : INDUSTRIAL_AWAITING_APPROVAL_CLIENT_MESSAGE,
-    ];
+    return {
+      messages: cleanedReplies,
+      needsGeminiRewrite: cleanedReplies.length === 0,
+      rewriteMode: cleanedReplies.length === 0 ? "awaiting_approval" : null,
+      missingFields: [],
+      safeBubbles: cleanedReplies,
+    };
   }
+
   if (confirmation) {
     if (params.result.status === "transferred") {
       // Preserva balões informativos gerados pelo modelo para responder perguntas finais do cliente
@@ -260,54 +280,74 @@ export function industrialClientMessages(params: {
         )
         .slice(0, 3);
       if (informativeReplies.length > 0) {
-        return [...informativeReplies, confirmation];
+        return {
+          messages: [...informativeReplies, confirmation],
+          needsGeminiRewrite: false,
+          rewriteMode: null,
+          missingFields: [],
+          safeBubbles: informativeReplies,
+        };
       }
     }
-    return [confirmation];
+    return {
+      messages: [confirmation],
+      needsGeminiRewrite: false,
+      rewriteMode: null,
+      missingFields: [],
+      safeBubbles: [],
+    };
   }
+
   const claimsSuccess = claimsIndustrialHandoffEffect(params.messages);
-  if (!claimsSuccess) return params.messages;
-  const next = assessIndustrialReadiness(params.route, params.data).missing[0];
-  const pendingKnownCompany = params.knownCompanyToConfirm?.trim() || "";
-  const questions = {
-    name: "Pode me informar seu nome?",
-    document: pendingKnownCompany
-      ? `Para agilizar, sua empresa é a ${pendingKnownCompany}, certo? Caso seja outra, pode me informar o CNPJ ou CPF.`
-      : "Pode me informar o CNPJ ou CPF para localizar o cadastro?",
-    request: "Pode me contar qual é sua necessidade?",
-    application: "O que você produz ou pretende embalar?",
-    production: "Qual é o volume aproximado da sua produção?",
-  };
+  if (!claimsSuccess) {
+    return {
+      messages: params.messages,
+      needsGeminiRewrite: false,
+      rewriteMode: null,
+      missingFields: [],
+      safeBubbles: params.messages,
+    };
+  }
+
+  const missingFields = assessIndustrialReadiness(params.route, params.data).missing;
+
   // Filtragem cirúrgica por balão: remove APENAS o(s) balão(ões) com promessa prematura de
   // encaminhamento, preservando integralmente empatia, respostas técnicas e perguntas contextuais
-  // já geradas pela IA (evitando destruir a conversa com 1 frase seca fora de contexto).
+  // já geradas pela IA. NUNCA cola pergunta pronta/robótica hardcoded!
   const safeBubbles = params.messages
     .map((m) => String(m || "").trim())
     .filter((m) => Boolean(m) && !isPrematureIndustrialHandoffBubble(m));
 
-  if (safeBubbles.length > 0) {
-    const alreadyAsksQuestion = safeBubbles.some((m) => m.includes("?"));
-    if (alreadyAsksQuestion || !next) {
-      return safeBubbles;
-    }
-    return [...safeBubbles, questions[next]];
+  const alreadyAsksQuestion = safeBubbles.some((m) => m.includes("?"));
+  if (safeBubbles.length > 0 && alreadyAsksQuestion) {
+    return {
+      messages: safeBubbles,
+      needsGeminiRewrite: false,
+      rewriteMode: null,
+      missingFields,
+      safeBubbles,
+    };
   }
 
-  if (next) {
-    return [questions[next]];
-  }
+  return {
+    messages: safeBubbles,
+    needsGeminiRewrite: true,
+    rewriteMode: "collecting_missing_fields",
+    missingFields,
+    safeBubbles,
+  };
+}
 
-  // Durante `collecting` sem campo pendente mapeado (ex.: subflow ainda indefinido),
-  // NUNCA emitir frase fantasma afirmando que "as informações estão registradas e a equipe dará continuidade".
-  const hasCollectedNeed = Boolean(
-    params.data["MÁQUINA / PEÇA / INTERESSE"]?.value?.trim() ||
-      params.data["SOLICITAÇÃO"]?.value?.trim() ||
-      params.data["ASSUNTO"]?.value?.trim() ||
-      params.data["NECESSIDADE"]?.value?.trim(),
-  );
-  return [
-    hasCollectedNeed
-      ? "Para darmos sequência ao seu atendimento, pode me confirmar mais detalhes da sua solicitação?"
-      : "Como posso te ajudar hoje? Você busca uma máquina nova, peças de reposição ou precisa de assistência técnica?",
-  ];
+/**
+ * Versão síncrona pura (sem chamadas externas): devolve apenas balões seguros produzidos pela IA,
+ * sem nunca injetar perguntas prontas hardcoded durante a coleta.
+ */
+export function industrialClientMessages(params: {
+  result: IndustrialHandoffResult;
+  route: IndustrialRoute;
+  data: CollectedFields;
+  messages: string[];
+  knownCompanyToConfirm?: string | null;
+}): string[] {
+  return evaluateIndustrialClientMessages(params).messages;
 }

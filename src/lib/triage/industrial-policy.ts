@@ -391,11 +391,14 @@ function textSubflow(raw: string): IndustrialSubflow | null {
     if (!/\b(?:quero comprar|gostaria de comprar|quero adquirir)\b/.test(text)) return "3_AT";
   }
   if (
-    /\b(?:rastre\w*|transportadora|entrega|pedido (?:chegou|existente)|proposta \d+|ainda nao recebi|nao recebi (?:a|as|o|os|minha|meu)|nao chegou|ainda nao chegou|cade (?:meu|o|a|as|os) (?:pedido|maquina|seladora|envasadora|equipamento|encomenda))\b/.test(
+    /\b(?:rastre\w*|transportadora|entrega|pedido (?:chegou|existente)|ainda nao recebi|nao recebi (?:a|as|o|os|minha|meu)|nao chegou|ainda nao chegou|cade (?:meu|o|a|as|os) (?:pedido|maquina|seladora|envasadora|equipamento|encomenda))\b/.test(
       text,
     )
   )
     return "4A_RASTREAR";
+  if (isExistingCommercialProposalInquiry(text)) {
+    return "5A_CLIENTE";
+  }
   const boughtElsewhere =
     /\b(?:comprei|compramos|adquiri|adquirimos|fechei|fechamos|fiz(?:emos)? a compra)\s+(?:na\s+shopee|no\s+mercado\s*livre|na\s+amazon|na\s+magalu|com\s+outr[ao]|em\s+outr[ao]|por\s+fora|no\s+concorrente|na\s+concorrencia)\b/.test(
       text,
@@ -431,6 +434,26 @@ export function isPastPersonReference(raw: string): boolean {
   );
 }
 
+/**
+ * Detecta cliente referenciando proposta/orçamento comercial já emitido (ex.: "proposta comercial 0022524-01",
+ * "na proposta já consta isso") — nesses casos NÃO faz sentido exigir aplicação/produção do zero.
+ */
+export function isExistingCommercialProposalInquiry(raw: string): boolean {
+  const text = normalizeTriageText(raw);
+  if (!text) return false;
+  return (
+    /\b(?:proposta|orcamento|cotacao)\s+(?:comercial\s+)?(?:n(?:o|umero)?\.?\s*)?\d[\d./-]{2,}\b/.test(
+      text,
+    ) ||
+    /\b(?:na|nessa|nesta|da|essa|esta)\s+proposta\s+(?:ja\s+)?(?:consta|tem|esta|estao|enviei|passei|informei)\b/.test(
+      text,
+    ) ||
+    /\bcom\s+quem\s+(?:converso|falo|trato)\s+sobre\s+(?:a|essa|esta|minha|nossa)\s+(?:proposta|cotacao)\b/.test(
+      text,
+    )
+  );
+}
+
 /** Detecta pedido genérico de atendimento humano (sem citar nome de pessoa específica). */
 export function requestsGenericHuman(raw: string): boolean {
   const text = normalizeTriageText(raw);
@@ -439,7 +462,14 @@ export function requestsGenericHuman(raw: string): boolean {
   return (
     /\b(?:quero|prefiro|preciso|posso|gostaria de|pode me|me) (?:falar|conversar|passar|transferir|transfere|passa|conecte|conectar)\b.*\b(?:humano|humana|atendente|alguem|equipe)\b/.test(
       text,
-    ) || /\b(?:nao quero|pare de) (?:falar|conversar) com (?:robo|ia|bot)\b/.test(text)
+    ) ||
+    /\b(?:nao quero|pare de) (?:falar|conversar) com (?:robo|ia|bot)\b/.test(text) ||
+    /\b(?:preciso|quero)\s+(?:apenas|so|somente)\s+(?:falar|conversar)\s+com\s+(?:o|a|um|uma)?\s*(?:consultor|vendedor|especialista|atendente|responsavel)\b/.test(
+      text,
+    ) ||
+    /\b(?:so|apenas|somente)\s+(?:preciso|quero)\s+(?:falar|conversar)\s+com\s+(?:o|a|um|uma)?\s*(?:consultor|vendedor|especialista|atendente|responsavel)\b/.test(
+      text,
+    )
   );
 }
 

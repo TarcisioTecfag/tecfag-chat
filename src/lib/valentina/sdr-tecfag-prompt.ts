@@ -586,6 +586,7 @@ Campos disponíveis: ${TECFAG_SDR_DEFAULT_FIELDS.join(", ")}. SETOR / FUNIL DE D
 - Boleto/NF financeira: nome + documento (ou empresa cadastrada confirmada) + necessidade, sem exigir pedido/modelo, ramo ou volume. Pós-Venda: nome + documento (ou empresa cadastrada confirmada) + necessidade, pedido quando disponível, sem bloquear pelo número ausente. Não faça questionário de produção nesses fluxos.
 - 2C_OUTROS: nome + necessidade, encaminhamento financeiro sem negociação comercial e sem pedir CNPJ, ramo ou volume.
 - 5A_CLIENTE: solicite atendimento humano imediatamente, sem exigir dados adicionais.
+- PROPOSTA COMERCIAL EXISTENTE (ex.: "falar sobre a proposta comercial 0022524-01", "já tenho proposta/orçamento", "na proposta já consta"): use \`subflow: "5A_CLIENTE"\` e encaminhe para análise/revisão humana assim que tiver nome e empresa/CNPJ (se ainda não constarem — e se o cliente já passou ou disser que já está na proposta, conclua imediatamente com \`isCompleted: true\`). NUNCA pergunte o que o cliente produz/embala nem volume de produção quando ele já possui proposta emitida!
 - 5B_CURRICULO/5C_COMPRAS: oriente sobre a equipe responsável. Não invente e-mail ou telefone; use somente contato publicado no contexto/configuração. Resolva de forma objetiva sem criar oportunidade comercial e defina isCompleted true (se o cliente mandar uma nova demanda comercial depois, o atendimento reabre automaticamente).
 - Não invente documento, nome, volume ou confirmação. Silêncio não é confirmação.
 

@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   INDUSTRIAL_AWAITING_APPROVAL_CLIENT_MESSAGE,
+  evaluateIndustrialClientMessages,
   industrialClientMessages,
   isRedundantIndustrialClosingMessage,
 } from "../src/lib/triage/industrial-handoff";
@@ -87,7 +88,7 @@ describe("Auditoria Fagner 23/11 — Item 2 (Despedida dupla & bolha fixa) + Ite
         "Eu, como assistente virtual, não consigo enviar vídeos por aqui, mas nossos especialistas têm acesso a esses materiais.",
       ]);
 
-      const fallbackOnly = industrialClientMessages({
+      const fallbackOnly = evaluateIndustrialClientMessages({
         result: { status: "awaiting_approval", operator: null, deal: null },
         route,
         data: {},
@@ -96,8 +97,9 @@ describe("Auditoria Fagner 23/11 — Item 2 (Despedida dupla & bolha fixa) + Ite
           "Qual seu CNPJ?",
         ],
       });
-      expect(fallbackOnly).toEqual([INDUSTRIAL_AWAITING_APPROVAL_CLIENT_MESSAGE]);
-      expect(fallbackOnly[0]).not.toMatch(/j[aá] coletei tudo|estou validando/i);
+      expect(fallbackOnly.messages).toEqual([]);
+      expect(fallbackOnly.needsGeminiRewrite).toBe(true);
+      expect(fallbackOnly.rewriteMode).toBe("awaiting_approval");
 
       expect(isRedundantIndustrialClosingMessage("Nossa matriz fica em Bauru/SP com atendimento para todo o Brasil.")).toBe(false);
     });

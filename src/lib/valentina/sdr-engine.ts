@@ -34,6 +34,7 @@ import {
   INDUSTRIAL_POLICY_VERSION,
   INDUSTRIAL_REVIEW_FUNNEL,
   resolveIndustrialRoute,
+  type IndustrialRoute,
   assessIndustrialReadiness,
   canFinishIndustrialTriage,
   hasPendingTriageQuestion,
@@ -69,10 +70,11 @@ import { readVtexEvidence } from "../vtex/contract";
 import { parseIndustrialAiResult } from "../triage/industrial-ai-result";
 import {
   claimsIndustrialHandoffEffect,
+  evaluateIndustrialClientMessages,
   industrialHandoffOutcome,
-  industrialClientMessages,
   type IndustrialHandoffResult,
 } from "../triage/industrial-handoff";
+import { rewriteIndustrialReplyWithGemini } from "../triage/industrial-reply-rewriter";
 import { createIndustrialHandoffStore } from "../triage/industrial-handoff-store";
 import {
   evaluateIndustrialSdrOwnershipGuard,
@@ -1478,31 +1480,13 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
       if (signal?.aborted) return false;
 
-      // 6. Consultar o Gemini 2.5 Pro via Vertex AI
+      // 6. Consultar o Gemini 2.5 Pro via Vertex AI (100% Gemini — sem respostas prontas hardcoded)
       let aiResult: SdrAiResult | null = null;
-      const shouldShortCircuitGenericHuman =
+      const shouldEscalateGenericHuman =
         industrialTriage &&
         !isClientDeclinedTurn &&
         (vertexAi.isReady() ? requestsGenericHuman(combinedBatchText) : requestsHuman(combinedBatchText));
-      if (isClientDeclinedTurn && !clientDeclinedWithFactualQuestion) {
-        const boughtElsewhere =
-          /\b(?:comprei|compramos|adquiri|adquirimos|fechei|fechamos|compra)\s+(?:na\s+shopee|no\s+mercado\s*livre|na\s+amazon|na\s+magalu|com\s+outr[ao]|em\s+outr[ao]|por\s+fora|no\s+concorrente|na\s+concorrencia)\b/i.test(
-            combinedBatchText
-              .normalize("NFD")
-              .replace(/[\u0300-\u036f]/g, ""),
-          );
-        aiResult = {
-          subflow: null,
-          messagesToSend: [
-            boughtElsewhere
-              ? "Entendido! Que pena que não conseguimos fechar desta vez, mas desejamos sucesso com o equipamento. Se precisar de peças, assistência ou outra solução no futuro, continuamos à disposição."
-              : "Entendido! Agradeço o retorno. Caso precise de alguma solução ou equipamento no futuro, continuamos à disposição.",
-          ],
-          isCompleted: true,
-        };
-      } else if (shouldShortCircuitGenericHuman) {
-        aiResult = { subflow: "5A_CLIENTE", messagesToSend: ["Vou acionar a equipe responsável pelo seu atendimento."], isCompleted: true };
-      } else if (useVtexDirectReply && storeTurn) {
+      if (useVtexDirectReply && storeTurn) {
         // Consulta factual direta (preço/frete/opções/LiveChat ou fallback sem IA) não conclui coleta.
         aiResult = { messagesToSend: storeTurn.messages, isCompleted: false };
       } else if (vertexAi.isReady()) {
@@ -1538,6 +1522,14 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         return false;
       }
 
+      // Garantias de roteamento do servidor mantendo 100% a redação natural do Gemini:
+      if (isClientDeclinedTurn && !clientDeclinedWithFactualQuestion) {
+        aiResult.isCompleted = true;
+      } else if (shouldEscalateGenericHuman) {
+        aiResult.subflow = "5A_CLIENTE";
+        aiResult.isCompleted = true;
+      }
+
       const resolvedDirectOperator: ResolvedDirectOperator | undefined = industrialTriage
         ? resolveDirectOperatorRequest(aiResult.directOperatorRequest || null, systemOperators)
         : undefined;
@@ -1553,10 +1545,20 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           const opName = resolvedDirectOperator.operator.name;
           const asksChoice = aiResult.messagesToSend.some((m) => m.includes("?"));
           if (!asksChoice) {
-            aiResult.messagesToSend = [
-              `${opName} está ausente no momento.`,
-              "Você prefere falar com outro consultor da nossa equipe agora ou prefere aguardar o retorno?",
-            ];
+            const rewritten = await rewriteIndustrialReplyWithGemini({
+              tenantId,
+              conversationId,
+              aiPersona,
+              rewriteMode: "direct_operator_absent",
+              conversationHistoryText,
+              batchSummary,
+              collectedData: existingCollectedData,
+              directOperatorContext: { operatorName: opName, citedName: resolvedDirectOperator.citedName },
+              signal,
+            });
+            if (rewritten?.messagesToSend.length) {
+              aiResult.messagesToSend = rewritten.messagesToSend;
+            }
           }
           console.log(
             `[SdrEngine] ⏸️ Operador nominal ausente (${opName}) — perguntando ao cliente se prefere outro consultor ou aguardar.`
@@ -1566,9 +1568,20 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           const opName = resolvedDirectOperator.operator.name;
           const asksConfirmation = aiResult.messagesToSend.some((m) => m.includes("?"));
           if (!asksConfirmation) {
-            aiResult.messagesToSend = [
-              `Gostaria que eu te transferisse para ${opName} para continuar de onde pararam?`,
-            ];
+            const rewritten = await rewriteIndustrialReplyWithGemini({
+              tenantId,
+              conversationId,
+              aiPersona,
+              rewriteMode: "direct_operator_offer",
+              conversationHistoryText,
+              batchSummary,
+              collectedData: existingCollectedData,
+              directOperatorContext: { operatorName: opName, citedName: resolvedDirectOperator.citedName },
+              signal,
+            });
+            if (rewritten?.messagesToSend.length) {
+              aiResult.messagesToSend = rewritten.messagesToSend;
+            }
           }
           console.log(
             `[SdrEngine] 💬 Menção em aberto detectada para ${opName} — oferecendo transferência direta antes de transferir.`
@@ -1582,24 +1595,46 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
             (m) => m.includes("?") || /\b(j[aá]\s+(?:estou\s+te\s+)?transferindo|transferi\s+para)\b/i.test(m),
           );
           if (hasQuestionOrFalseTransfer || aiResult.messagesToSend.length === 0) {
-            aiResult.messagesToSend = [
-              `Não localizei ${cited} diretamente aqui na minha lista, mas já acionei nossa equipe para localizar e te encaminhar certinho.`,
-            ];
+            const rewritten = await rewriteIndustrialReplyWithGemini({
+              tenantId,
+              conversationId,
+              aiPersona,
+              rewriteMode: "direct_operator_not_found",
+              conversationHistoryText,
+              batchSummary,
+              collectedData: existingCollectedData,
+              directOperatorContext: { citedName: cited },
+              signal,
+            });
+            if (rewritten?.messagesToSend.length) {
+              aiResult.messagesToSend = rewritten.messagesToSend;
+            }
           }
           console.log(
             `[SdrEngine] 🛑 Usuário nominal não localizado ("${cited}") — encerrando triagem em parada segura (revisão humana) sem forçar barra.`
           );
         } else if (resolvedDirectOperator.status === "ambiguous_homonym") {
           aiResult.isCompleted = false;
-          const homonymNames = (resolvedDirectOperator.homonyms || []).map((h) => h.name).join(" ou ");
+          const homonymNames = (resolvedDirectOperator.homonyms || []).map((h) => h.name);
           const asksClarification = aiResult.messagesToSend.some((m) => m.includes("?"));
           if (!asksClarification) {
-            aiResult.messagesToSend = [
-              homonymNames
-                ? `Temos mais de uma pessoa com esse nome na nossa equipe (${homonymNames}).`
-                : "Temos mais de uma pessoa com esse nome na nossa equipe.",
-              "Com qual deles você gostaria de falar?",
-            ];
+            const rewritten = await rewriteIndustrialReplyWithGemini({
+              tenantId,
+              conversationId,
+              aiPersona,
+              rewriteMode: "direct_operator_homonym",
+              conversationHistoryText,
+              batchSummary,
+              collectedData: existingCollectedData,
+              directOperatorContext: {
+                citedName: resolvedDirectOperator.citedName,
+                homonymNames,
+              },
+              signal,
+            });
+            if (rewritten?.messagesToSend.length) {
+              aiResult.messagesToSend = rewritten.messagesToSend;
+            }
           }
         } else if (resolvedDirectOperator.status === "past_reference_only") {
           console.log(
@@ -1932,7 +1967,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         }
         industrialRoute = applyMachineDecision(industrialRoute, machineDecision);
       }
-      const stageAndFunnel = industrialRoute || resolveLegacySdrStageAndFunnel({ ...routeInput, existingFunnel: metaState.targetFunnel || "Máquinas" });
+      let stageAndFunnel = industrialRoute || resolveLegacySdrStageAndFunnel({ ...routeInput, existingFunnel: metaState.targetFunnel || "Máquinas" });
       const industrialReadiness = industrialRoute ? assessIndustrialReadiness(industrialRoute, updatedCollectedData) : null;
       const isIndustrialReviewRoute = Boolean(
         industrialTriage &&
@@ -2386,10 +2421,6 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           return false;
         }
       }
-      const flowOutcome = industrialTriage
-        ? industrialHandoffOutcome(industrialHandoff.status)
-        : isCompleted ? (wasAlreadyCompleted ? flowState?.outcome : "transferred") : "in_progress";
-      const flowIsFinished = flowOutcome === "transferred" || flowOutcome === "completed";
       if (industrialTriage && industrialRoute) {
         const pendingKnownCompanyToConfirm =
           knownClient &&
@@ -2397,15 +2428,113 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           isValidKnownCompanyName(knownClient.companyName)
             ? knownClient.companyName
             : null;
-        aiResult.messagesToSend = siteWhatsappHandoffMessage
-          ? [siteWhatsappHandoffMessage]
-          : industrialClientMessages({
-              result: industrialHandoff,
-              route: industrialRoute,
-              data: updatedCollectedData,
-              messages: aiResult.messagesToSend,
+        if (siteWhatsappHandoffMessage) {
+          aiResult.messagesToSend = [siteWhatsappHandoffMessage];
+        } else {
+          const evaluated = evaluateIndustrialClientMessages({
+            result: industrialHandoff,
+            route: industrialRoute,
+            data: updatedCollectedData,
+            messages: aiResult.messagesToSend,
+            knownCompanyToConfirm: pendingKnownCompanyToConfirm,
+          });
+          if (evaluated.needsGeminiRewrite && evaluated.rewriteMode) {
+            const rewritten = await rewriteIndustrialReplyWithGemini({
+              tenantId,
+              conversationId,
+              aiPersona,
+              rewriteMode: evaluated.rewriteMode,
+              conversationHistoryText,
+              batchSummary,
+              collectedData: updatedCollectedData,
+              missingFields: evaluated.missingFields,
               knownCompanyToConfirm: pendingKnownCompanyToConfirm,
+              safeBubbles: evaluated.safeBubbles,
+              originalMessages: aiResult.messagesToSend,
+              signal,
             });
+            if (signal?.aborted) return false;
+
+            if (
+              rewritten?.shouldEscalateToReview &&
+              industrialHandoff.status === "collecting" &&
+              flowState
+            ) {
+              // Escape hatch inteligente do Gemini: cliente resistiu ao questionário ou indicou
+              // que os dados já constam na proposta — escala imediatamente para revisão humana!
+              const reviewRoute: IndustrialRoute = {
+                subflow: "5A_CLIENTE",
+                funnelStage: "outros",
+                targetFunnel: "Análise e revisão humana",
+                needsReview: true,
+                reason: "specialist_review",
+              };
+              const { prepareIndustrialApproval, notifySdrTeamApprovalPending } = await import(
+                "../triage/industrial-approval-store"
+              );
+              const approvalPrep = await prepareIndustrialApproval(
+                db,
+                {
+                  tenantId,
+                  conversationId,
+                  flowId: flowState.id,
+                  cycle: flowState.startedAt.toISOString(),
+                },
+                {
+                  route: reviewRoute,
+                  data: updatedCollectedData,
+                  clientName: updatedCollectedData["NOME COMPLETO"]?.value || "Cliente WhatsApp",
+                  companyName: updatedCollectedData["EMPRESA"]?.value || "Empresa não informada",
+                  contactId: convCheck?.contactId || null,
+                  machineDecision,
+                  siteContext,
+                },
+              );
+              if (approvalPrep.prepared && approvalPrep.suggestion) {
+                industrialRoute = reviewRoute;
+                stageAndFunnel = {
+                  funnelStage: reviewRoute.funnelStage,
+                  targetFunnel: reviewRoute.targetFunnel,
+                };
+                industrialHandoff = {
+                  status: "awaiting_approval",
+                  operator: null,
+                  deal: approvalPrep.suggestion.dealId
+                    ? {
+                        dealId: approvalPrep.suggestion.dealId,
+                        dealTitle: updatedCollectedData["NOME COMPLETO"]?.value || "Cliente WhatsApp",
+                        action: "reused_within_3h",
+                        funnelId: approvalPrep.suggestion.suggestedPipelineId || "",
+                        stageId: approvalPrep.suggestion.suggestedStageId || "",
+                      }
+                    : null,
+                };
+                industrialHandoffPersisted = true;
+                allocatedOp = null;
+                localCrmResult = industrialHandoff.deal;
+                void notifySdrTeamApprovalPending(db, {
+                  tenantId,
+                  conversationId,
+                  suggestion: approvalPrep.suggestion,
+                }).catch((err: any) =>
+                  console.warn("[SdrEngine] Aviso ao notificar setor SDR após escape hatch Gemini:", err?.message),
+                );
+              }
+              aiResult.messagesToSend = rewritten.messagesToSend;
+            } else if (rewritten?.messagesToSend?.length) {
+              aiResult.messagesToSend = rewritten.messagesToSend;
+            } else if (evaluated.safeBubbles.length > 0) {
+              aiResult.messagesToSend = evaluated.safeBubbles;
+            } else {
+              console.warn(
+                `[SdrEngine] ⚠️ Rewrite Gemini (${evaluated.rewriteMode}) não retornou balões seguros para ${conversationId}; silenciando sem fallback pronto.`,
+              );
+              return false;
+            }
+          } else {
+            aiResult.messagesToSend = evaluated.messages;
+          }
+        }
         if (industrialHandoff.status === "transferred") {
           const scheduleCfg = parseIndustrialScheduleConfig(configData);
           if (scheduleCfg.enabled && !isWithinIndustrialSchedule(now, scheduleCfg)) {
@@ -2416,6 +2545,10 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           }
         }
       }
+      const flowOutcome = industrialTriage
+        ? industrialHandoffOutcome(industrialHandoff.status)
+        : isCompleted ? (wasAlreadyCompleted ? flowState?.outcome : "transferred") : "in_progress";
+      const flowIsFinished = flowOutcome === "transferred" || flowOutcome === "completed";
 
       if (flowState) {
         const industrialProgress = industrialTriage

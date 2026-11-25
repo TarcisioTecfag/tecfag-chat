@@ -18,6 +18,7 @@ import {
 import {
   INDUSTRIAL_AWAITING_APPROVAL_CLIENT_MESSAGE,
   INDUSTRIAL_HUMAN_REQUEST_APPROVAL_MESSAGE,
+  evaluateIndustrialClientMessages,
   industrialClientMessages,
 } from "../src/lib/triage/industrial-handoff";
 import {
@@ -197,14 +198,15 @@ describe("Correções P1/P2 da Auditoria Fagner — Itens 2, 3, 4 e 5 (23/11/202
       expect(msgs).toEqual(["Compreendido. Um de nossos especialistas irá assumir o atendimento."]);
       expect(msgs[0]).not.toMatch(/j[aá] coletei tudo|estou validando/i);
 
-      const fallbackMsgs = industrialClientMessages({
+      const fallbackEval = evaluateIndustrialClientMessages({
         result: { status: "awaiting_approval", operator: null, deal: null },
         route,
         data: {},
         messages: [],
       });
-      expect(fallbackMsgs).toEqual([INDUSTRIAL_HUMAN_REQUEST_APPROVAL_MESSAGE]);
-      expect(fallbackMsgs[0]).not.toMatch(/j[aá] coletei tudo|estou validando/i);
+      expect(fallbackEval.messages).toEqual([]);
+      expect(fallbackEval.needsGeminiRewrite).toBe(true);
+      expect(fallbackEval.rewriteMode).toBe("awaiting_approval");
     });
 
     it("para status 'resolved' (currículo 5B_CURRICULO ou recusa), NÃO injeta 'Perfeito, já coletei tudo!'", () => {

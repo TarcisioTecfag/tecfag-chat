@@ -9,7 +9,8 @@ import {
   type KnownClientProfile,
 } from "../src/lib/triage/known-client-lookup";
 import { isIndustrialOwnerStillValidForSend } from "../src/lib/triage/industrial-ownership-guard";
-import { industrialClientMessages } from "../src/lib/triage/industrial-handoff";
+import { evaluateIndustrialClientMessages } from "../src/lib/triage/industrial-handoff";
+import { buildIndustrialReplyRewritePrompt } from "../src/lib/triage/industrial-reply-rewriter";
 import {
   isVagueIndustrialProductionValue,
   resolveIndustrialRoute,
@@ -141,9 +142,9 @@ describe("Pacote de 8 correções da triagem Site → WhatsApp do Fagner", () =>
     expect(rejectedDirective).toContain("CNPJ ou CPF");
     expect(rejectedDirective).toContain('NUNCA peça "o nome da empresa ou o CNPJ"');
 
-    // Se ainda estiver pending e industrialClientMessages precisar pedir documento, oferece confirmação da empresa conhecida
+    // Se ainda estiver pending e o Gemini precisar reescrever para pedir documento, o prompt de reescrita orienta confirmar a empresa conhecida
     const route = resolveIndustrialRoute({ text: "quero seladora", collectedData: {} });
-    const fallbackMsgs = industrialClientMessages({
+    const evaluated = evaluateIndustrialClientMessages({
       result: { status: "collecting", operator: null, deal: null },
       route,
       data: {
@@ -155,7 +156,20 @@ describe("Pacote de 8 correções da triagem Site → WhatsApp do Fagner", () =>
       messages: ["Vou encaminhar para nossa equipe."],
       knownCompanyToConfirm: annaKnownClient.companyName,
     });
-    expect(fallbackMsgs.join(" ")).toContain("ANNA KARLA BERNARDES LTDA");
+    expect(evaluated.needsGeminiRewrite).toBe(true);
+    expect(evaluated.missingFields).toEqual(["document"]);
+    const rewritePrompt = buildIndustrialReplyRewritePrompt({
+      tenantId: "tecfag",
+      conversationId: "conv-test-anna",
+      aiPersona: { name: "Fagner", company: "Grupo Tecfag", segment: "Máquinas", tone: "consultivo", gender: "male" },
+      rewriteMode: "collecting_missing_fields",
+      conversationHistoryText: "",
+      batchSummary: "quero seladora",
+      collectedData: {},
+      missingFields: evaluated.missingFields,
+      knownCompanyToConfirm: annaKnownClient.companyName,
+    });
+    expect(rewritePrompt).toContain("ANNA KARLA BERNARDES LTDA");
   });
 
   it("P1 #3: Decisor aceita alternativas separadas por '/' ou 'ou' (ex.: 'Seladora / Empacotadora automática para trigo')", async () => {

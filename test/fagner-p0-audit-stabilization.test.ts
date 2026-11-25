@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   claimsIndustrialHandoffEffect,
+  evaluateIndustrialClientMessages,
   industrialClientMessages,
   isPrematureIndustrialHandoffBubble,
 } from "../src/lib/triage/industrial-handoff";
@@ -43,7 +44,7 @@ describe("Pacote P0 — Estabilização das triagens do Fagner (auditoria 25/11/
       ]);
     });
 
-    it("preserva balão informativo e acrescenta apenas a pergunta faltante quando a IA não fez pergunta", () => {
+    it("preserva balão informativo e aciona reescrita contextual via Gemini sem injetar pergunta pronta quando a IA não fez pergunta", () => {
       const route = resolveIndustrialRoute({
         text: "Quero uma envasadora para creme cosmético",
         collectedData: {
@@ -55,7 +56,7 @@ describe("Pacote P0 — Estabilização das triagens do Fagner (auditoria 25/11/
         "Vou direcionar sua solicitação para um de nossos especialistas comerciais.",
       ];
 
-      const sanitized = industrialClientMessages({
+      const evaluated = evaluateIndustrialClientMessages({
         result: { status: "collecting", operator: null, deal: null },
         route,
         data: {
@@ -64,10 +65,12 @@ describe("Pacote P0 — Estabilização das triagens do Fagner (auditoria 25/11/
         messages,
       });
 
-      expect(sanitized).toEqual([
+      expect(evaluated.safeBubbles).toEqual([
         "Entendido! Temos envasadoras pneumáticas e elétricas para creme cosmético.",
-        "Pode me informar seu nome?",
       ]);
+      expect(evaluated.needsGeminiRewrite).toBe(true);
+      expect(evaluated.rewriteMode).toBe("collecting_missing_fields");
+      expect(evaluated.missingFields[0]).toBe("name");
     });
 
     it("NÃO considera pergunta contextual com '?' como promessa prematura (exceto alegação falsa de servidor)", () => {
@@ -94,15 +97,16 @@ describe("Pacote P0 — Estabilização das triagens do Fagner (auditoria 25/11/
         collectedData: {},
       });
 
-      const sanitized = industrialClientMessages({
+      const evaluated = evaluateIndustrialClientMessages({
         result: { status: "collecting", operator: null, deal: null },
         route,
         data: {},
         messages: ["Vou direcionar seu atendimento para a equipe responsável."],
       });
 
-      expect(sanitized.join(" ")).not.toContain("informações do atendimento estão registradas");
-      expect(sanitized[0]).toContain("?");
+      expect(evaluated.messages.join(" ")).not.toContain("informações do atendimento estão registradas");
+      expect(evaluated.needsGeminiRewrite).toBe(true);
+      expect(evaluated.rewriteMode).toBe("collecting_missing_fields");
     });
   });
 

@@ -7,6 +7,7 @@ import {
 } from "../src/lib/triage/industrial-ownership-guard";
 import {
   claimsIndustrialHandoffEffect,
+  evaluateIndustrialClientMessages,
   industrialClientMessages,
 } from "../src/lib/triage/industrial-handoff";
 import { resolveIndustrialRoute } from "../src/lib/triage/industrial-policy";
@@ -125,17 +126,20 @@ describe("Correções P0 — Auditoria das 70 triagens do Fagner (20–23/11/202
 
       for (const msgs of falsePromises) {
         expect(claimsIndustrialHandoffEffect(msgs)).toBe(true);
-        const sanitized = industrialClientMessages({
+        const evaluated = evaluateIndustrialClientMessages({
           result: { status: "collecting", operator: null, deal: null },
           route,
           data,
           messages: msgs,
         });
-        expect(sanitized).toEqual(["Pode me informar seu nome?"]);
+        expect(evaluated.messages).toEqual([]);
+        expect(evaluated.needsGeminiRewrite).toBe(true);
+        expect(evaluated.rewriteMode).toBe("collecting_missing_fields");
+        expect(evaluated.missingFields).toEqual(["name"]);
       }
     });
 
-    it("intercepta promessas de encaminhamento sem documento (casos Glaucio, Roselio, Mauro) e pede o dado faltante", () => {
+    it("intercepta promessas de encaminhamento sem documento (casos Glaucio, Roselio, Mauro) e aciona reescrita Gemini sem texto pronto", () => {
       const routeMaq = resolveIndustrialRoute({
         text: "Quero uma envasadora para galões",
         collectedData: {
@@ -158,13 +162,16 @@ describe("Correções P0 — Auditoria das 70 triagens do Fagner (20–23/11/202
         "Em instantes, um especialista retornará o contato com essa informação para você.",
       ]) {
         expect(claimsIndustrialHandoffEffect([msg])).toBe(true);
-        const sanitized = industrialClientMessages({
+        const evaluated = evaluateIndustrialClientMessages({
           result: { status: "collecting", operator: null, deal: null },
           route: routeMaq,
           data: dataMaq,
           messages: [msg],
         });
-        expect(sanitized).toEqual(["Pode me informar o CNPJ ou CPF para localizar o cadastro?"]);
+        expect(evaluated.messages).toEqual([]);
+        expect(evaluated.needsGeminiRewrite).toBe(true);
+        expect(evaluated.rewriteMode).toBe("collecting_missing_fields");
+        expect(evaluated.missingFields).toEqual(["document"]);
       }
     });
 
