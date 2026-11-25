@@ -83,16 +83,29 @@ export async function runVtexStoreTurn(
     ) {
       return null;
     }
-    // Opção A: no WhatsApp em consultas de detalhes/link do produto, entrega dados oficiais limpos
-    // para o Fagner (Gemini) responder de forma curta, consultiva e dar continuidade à triagem.
+    // Em consultas de detalhes/link/ficha do produto (tanto no WhatsApp quanto no Site/LiveChat),
+    // entrega os dados oficiais limpos para o Fagner (Gemini) responder de forma curta, consultiva
+    // e obrigatoriamente com uma pergunta de continuidade da triagem (evitando texto truncado sem gancho).
     const shouldFeedAiContext =
-      input.channel === "whatsapp" &&
+      (input.channel === "whatsapp" || input.channel === "livechat") &&
       request.intent === "details" &&
       (result.status === "matched" ||
         (result.status === "choices" && result.products.length === 1));
-    const aiContext = shouldFeedAiContext ? formatVtexAiContext(result) : null;
+    const aiContext = shouldFeedAiContext ? formatVtexAiContext(result, input.channel) : null;
+    const baseMessages = formatVtexAnswer(result, request.intent);
+    const livechatNeedsHook =
+      input.channel === "livechat" &&
+      !aiContext &&
+      result.status === "matched" &&
+      !(request.intent === "shipping" && result.shippingStatus === "needs_postal_code");
+    const messages = livechatNeedsHook
+      ? [
+          ...baseMessages,
+          "Para eu confirmar se este equipamento atende bem a sua operação, o que você pretende embalar/processar e qual a produção aproximada?",
+        ]
+      : baseMessages;
     return {
-      messages: formatVtexAnswer(result, request.intent),
+      messages,
       evidence: safeVtexEvidence(result),
       mode: aiContext ? ("ai_context" as const) : ("direct_reply" as const),
       ...(aiContext ? { aiContext } : {}),

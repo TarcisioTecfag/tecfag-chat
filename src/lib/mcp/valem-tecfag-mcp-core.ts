@@ -2498,6 +2498,9 @@ export async function executeMcpTool(
 
       const sqlLimit = hasDateArgs ? 1000 : 200;
 
+      const startIso = dateWindow.startUtc ? dateWindow.startUtc.toISOString() : null;
+      const endIso = dateWindow.endUtc ? dateWindow.endUtc.toISOString() : null;
+
       const flows = await sql`
         WITH current_flows AS (
           SELECT DISTINCT ON (af.conversation_id)
@@ -2524,12 +2527,20 @@ export async function executeMcpTool(
           ORDER BY af.conversation_id, af.started_at DESC, af.id DESC
         )
         SELECT * FROM current_flows
+        WHERE TRUE
         ${
-          dateWindow.startUtc && dateWindow.endUtc
-            ? sql`WHERE (
-                (started_at >= ${dateWindow.startUtc} AND started_at <= ${dateWindow.endUtc})
-                OR (last_interaction_at >= ${dateWindow.startUtc} AND last_interaction_at <= ${dateWindow.endUtc})
-                OR (completed_at >= ${dateWindow.startUtc} AND completed_at <= ${dateWindow.endUtc})
+          channelFilter === "site"
+            ? sql`AND (conversation_id LIKE 'conv-lc-%' OR main_channel IN ('livechat', 'site'))`
+            : channelFilter === "whatsapp"
+              ? sql`AND conversation_id NOT LIKE 'conv-lc-%' AND COALESCE(main_channel, 'whatsapp') NOT IN ('livechat', 'site')`
+              : sql``
+        }
+        ${
+          startIso && endIso
+            ? sql`AND (
+                (started_at >= ${startIso}::timestamptz AND started_at <= ${endIso}::timestamptz)
+                OR (last_interaction_at >= ${startIso}::timestamptz AND last_interaction_at <= ${endIso}::timestamptz)
+                OR (completed_at >= ${startIso}::timestamptz AND completed_at <= ${endIso}::timestamptz)
               )`
             : sql``
         }
@@ -2543,8 +2554,11 @@ export async function executeMcpTool(
       let matchedTotal = 0;
 
       for (const row of flows) {
-        const normalizedChannel: "whatsapp" | "site" =
-          row.main_channel === "livechat" || row.main_channel === "site" ? "site" : "whatsapp";
+        const isSiteRow =
+          (typeof row.conversation_id === "string" && row.conversation_id.startsWith("conv-lc-")) ||
+          row.main_channel === "livechat" ||
+          row.main_channel === "site";
+        const normalizedChannel: "whatsapp" | "site" = isSiteRow ? "site" : "whatsapp";
         if (channelFilter && normalizedChannel !== channelFilter) continue;
 
         const meta = (row.metadata && typeof row.metadata === "object" ? row.metadata : {}) as Record<string, any>;

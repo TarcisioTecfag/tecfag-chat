@@ -19,6 +19,8 @@ import {
   selectRecentCycleMessages,
 } from "../triage/industrial-silence-policy";
 import { decideIndustrialFollowUpWithAi } from "../triage/industrial-followup-ai";
+import { isSiteConversationId } from "../livechat/site-channel-policy";
+import { findActiveWhatsappSessionForSiteContact } from "../livechat/site-cross-channel-guard";
 
 /**
  * Motor Autônomo de Follow-up de Silêncio (Reengajamento Ativo)
@@ -140,6 +142,71 @@ export class SdrFollowupEngine {
               eq(conversations.tenantId, tenantId),
             ),
           );
+
+        // Trava cross-channel Site × WhatsApp: se o mesmo contato já está em triagem/aprovação/atendimento
+        // ativo no WhatsApp oficial, encerra o ciclo paralelo do Site sem disparar follow-up nem criar card duplicado.
+        if (isSiteConversationId(flow.conversationId) && conv?.contactId) {
+          try {
+            const crossChannel = await findActiveWhatsappSessionForSiteContact(db, {
+              tenantId,
+              contactId: conv.contactId,
+              siteConversationId: flow.conversationId,
+              now,
+            });
+            if (crossChannel.suppressed) {
+              const metaFlow = (flow.metadata as Record<string, any>) || {};
+              await db
+                .update(agentFlowStates)
+                .set({
+                  currentStep: "Em Atendimento no WhatsApp",
+                  outcome: "transferred",
+                  completedAt: now,
+                  lastInteractionAt: now,
+                  metadata: {
+                    ...metaFlow,
+                    followUpStage: 0,
+                    handoffStatus: "continued_to_whatsapp",
+                    whatsappConversationId: crossChannel.whatsappConversationId,
+                    crossChannelSuppressedReason: crossChannel.reason,
+                    crossChannelSuppressedAt: now.toISOString(),
+                  },
+                })
+                .where(
+                  and(
+                    eq(agentFlowStates.id, flow.id),
+                    eq(agentFlowStates.tenantId, tenantId),
+                    eq(agentFlowStates.outcome, "in_progress"),
+                    isNull(agentFlowStates.completedAt),
+                  ),
+                );
+              if (!conv.operatorId && conv.queueState !== "finalizados") {
+                await db
+                  .update(conversations)
+                  .set({
+                    queueState: "finalizados",
+                    updatedAt: now,
+                    version: sql`${conversations.version} + 1`,
+                  })
+                  .where(
+                    and(
+                      eq(conversations.tenantId, tenantId),
+                      eq(conversations.id, flow.conversationId),
+                      isNull(conversations.operatorId),
+                    ),
+                  );
+              }
+              console.log(
+                `[SdrFollowupEngine] 🛑 Follow-up do site ${flow.conversationId} cancelado (atendimento ativo no WhatsApp ${crossChannel.whatsappConversationId}: ${crossChannel.reason}).`,
+              );
+              continue;
+            }
+          } catch (crossErr: any) {
+            console.warn(
+              `[SdrFollowupEngine] Aviso ao checar cross-channel Site×WhatsApp (${flow.conversationId}):`,
+              crossErr?.message,
+            );
+          }
+        }
 
         const rawCycleMsgs = await db
           .select({

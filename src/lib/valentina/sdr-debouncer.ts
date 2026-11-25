@@ -2,6 +2,7 @@ import { runtimeSingleton } from "../runtime-singleton";
 import { SdrEngine } from "./sdr-engine";
 import { sendBotPresence } from "./sdr-channel-sender";
 import { getAiPersona } from "../ai-persona";
+import { isSiteConversationId } from "../livechat/site-channel-policy";
 
 export interface QueuedMessageItem {
   messageId?: string;
@@ -26,7 +27,8 @@ interface DebounceSession {
 export class SdrDebouncer {
   private static instance: SdrDebouncer;
   private sessions: Map<string, DebounceSession> = new Map();
-  private readonly DEBOUNCE_DELAY_MS = 15000; // 15 segundos
+  private readonly DEBOUNCE_DELAY_MS = 15000; // 15 segundos (WhatsApp)
+  private readonly SITE_DEBOUNCE_DELAY_MS = 5000; // 5 segundos (chat ao vivo no site)
 
   private constructor() {}
 
@@ -103,13 +105,16 @@ export class SdrDebouncer {
     // Adicionar mensagem à fila do lote
     session.messagesQueue.push(messageItem);
 
-    // Regra 2: Aguarda 15 segundos sem NENHUMA nova mensagem do cliente antes de disparar
+    // Regra 2: Aguarda silêncio do cliente (5s no site ao vivo; 15s no WhatsApp) antes de disparar
+    const delayMs = isSiteConversationId(conversationId)
+      ? this.SITE_DEBOUNCE_DELAY_MS
+      : this.DEBOUNCE_DELAY_MS;
     session.timer = setTimeout(() => {
       this.processDebouncedBatch(conversationId);
-    }, this.DEBOUNCE_DELAY_MS);
+    }, delayMs);
 
     const personaName = getAiPersona(tenantId).name;
-    console.log(`[SdrDebouncer] ⏳ Mensagem enfileirada. ${personaName} aguardará 15s de silêncio para a conversa ${conversationId}...`);
+    console.log(`[SdrDebouncer] ⏳ Mensagem enfileirada. ${personaName} aguardará ${Math.round(delayMs / 1000)}s de silêncio para a conversa ${conversationId}...`);
   }
 
   /**

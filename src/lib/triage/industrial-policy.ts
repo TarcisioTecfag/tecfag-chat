@@ -1047,6 +1047,7 @@ export function canFinishIndustrialTriage(params: {
     (params.route.reason === "direct_operator_requested" && Boolean(params.route.targetOperator?.id))
   )
     return true;
+  if (ready.action === "inform") return true;
   return ready.ready && params.isCompleted === true && !params.hasPendingQuestion;
 }
 

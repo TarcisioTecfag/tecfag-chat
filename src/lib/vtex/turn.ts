@@ -231,7 +231,10 @@ function selectCleanVtexDetails(product: VtexProduct): {
   return { description, specifications };
 }
 
-export function formatVtexAiContext(result: VtexResult): string | null {
+export function formatVtexAiContext(
+  result: VtexResult,
+  channel: VtexChannel = "whatsapp",
+): string | null {
   if (
     result.status !== "matched" &&
     !(result.status === "choices" && result.products.length === 1)
@@ -275,14 +278,25 @@ export function formatVtexAiContext(result: VtexResult): string | null {
       budget -= compactVal.length;
     }
   }
-  lines.push(
-    "DIRETRIZES OBRIGATÓRIAS PARA RESPONDER SOBRE ESTE PRODUTO NO WHATSAPP:",
-    "- O cliente consultou/enviou o link deste equipamento específico da loja oficial. Confirme o modelo pelo nome oficial e registre o equipamento em extractedData[\"MÁQUINA / PEÇA / INTERESSE\"].",
-    "- Responda de forma CURTA, humana e escaneável para leitura no WhatsApp (1 a 2 balões curtos; resumo técnico enxuto de no máximo ~350 a 450 caracteres — NUNCA despeje a ficha técnica inteira nem envie paredão de texto).",
-    "- Destaque apenas para que serve e 2 a 4 pontos-chave (ou responda exatamente o que o cliente perguntou). Se houver variantes (ex.: 220V / 380V), mencione brevemente.",
-    "- Conduza naturalmente a próxima etapa da triagem consultiva (ex.: perguntar qual produto/carga vai embalar e a demanda aproximada, ou se deseja avançar para cotação), seguindo as regras normais de triagem.",
-    "- NUNCA informe, estime ou invente preço, valor, desconto, prazo de entrega, frete ou disponibilidade em estoque no WhatsApp — informe que o especialista confirma valores e condições comerciais na proposta.",
-  );
+  if (channel === "livechat") {
+    lines.push(
+      "DIRETRIZES OBRIGATÓRIAS PARA RESPONDER SOBRE ESTE PRODUTO NO CHAT DO SITE:",
+      "- O visitante clicou/perguntou sobre este equipamento específico da loja oficial. Confirme o modelo pelo nome oficial e registre o equipamento em extractedData[\"MÁQUINA / PEÇA / INTERESSE\"].",
+      "- Responda de forma CURTA, humana e escaneável (1 a 2 balões curtos; resumo técnico enxuto de no máximo ~350 a 450 caracteres — NUNCA despeje a ficha técnica inteira nem envie texto cortado com reticências).",
+      "- Destaque apenas para que serve e 2 a 4 diferenciais/especificações principais (ou responda diretamente à dúvida do visitante). Se houver variantes de voltagem (ex.: 110V / 220V), mencione brevemente.",
+      "- OBRIGATÓRIO: encerre o último balão com UMA pergunta consultiva curta e natural para continuar a triagem (ex.: o que vai embalar/processar e qual a produção aproximada por hora ou dia) — NUNCA devolva apenas a ficha do produto sem uma pergunta de continuidade.",
+      "- NUNCA invente preço, desconto, prazo de entrega, frete ou disponibilidade em estoque — se o cliente quiser orçamento ou frete, informe que seguimos com a qualificação para a equipe confirmar ou que pode informar CEP/voltagem para consulta.",
+    );
+  } else {
+    lines.push(
+      "DIRETRIZES OBRIGATÓRIAS PARA RESPONDER SOBRE ESTE PRODUTO NO WHATSAPP:",
+      "- O cliente consultou/enviou o link deste equipamento específico da loja oficial. Confirme o modelo pelo nome oficial e registre o equipamento em extractedData[\"MÁQUINA / PEÇA / INTERESSE\"].",
+      "- Responda de forma CURTA, humana e escaneável para leitura no WhatsApp (1 a 2 balões curtos; resumo técnico enxuto de no máximo ~350 a 450 caracteres — NUNCA despeje a ficha técnica inteira nem envie paredão de texto).",
+      "- Destaque apenas para que serve e 2 a 4 pontos-chave (ou responda exatamente o que o cliente perguntou). Se houver variantes (ex.: 220V / 380V), mencione brevemente.",
+      "- Conduza naturalmente a próxima etapa da triagem consultiva (ex.: perguntar qual produto/carga vai embalar e a demanda aproximada, ou se deseja avançar para cotação), seguindo as regras normais de triagem.",
+      "- NUNCA informe, estime ou invente preço, valor, desconto, prazo de entrega, frete ou disponibilidade em estoque no WhatsApp — informe que o especialista confirma valores e condições comerciais na proposta.",
+    );
+  }
 
   return lines.join("\n");
 }

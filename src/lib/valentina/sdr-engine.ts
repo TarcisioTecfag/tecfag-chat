@@ -104,6 +104,7 @@ import {
 } from "./sdr-channel-sender";
 import { getAiPersona, isSdrTenant } from "../ai-persona";
 import { buildSiteCatalogMediaUrl, isSiteConversationId } from "../livechat/site-channel-policy";
+import { findActiveWhatsappSessionForSiteContact } from "../livechat/site-cross-channel-guard";
 import { pushSiteTyping } from "../livechat/site-delivery";
 import { triggerOutboundCallInternal } from "../voice/outbound-call-service";
 import { generateDynamicPttAudio } from "../voice/elevenlabs-dynamic-tts";
@@ -424,6 +425,92 @@ export class SdrEngine {
           return false;
         }
         shouldReopenCompletedIndustrialFlow = Boolean(guard.reopenCompletedFlow);
+
+        // 🛑 TRAVA CROSS-CHANNEL SITE × WHATSAPP:
+        // Se este visitante do Site (`conv-lc-*`) já possui triagem ativa, aprovação SDR pendente
+        // ou atendimento humano recente no canal oficial de WhatsApp para o mesmo `contactId`,
+        // encerra a sessão paralela do Site para nunca rodar dois Fagners simultaneamente.
+        if (isSiteConversationId(conversationId) && convCheck?.contactId) {
+          try {
+            const latestBatchTs = batchItems.reduce<Date | null>((maxDt, item) => {
+              const dt = item.receivedAt ? new Date(item.receivedAt) : null;
+              if (!dt || Number.isNaN(dt.getTime())) return maxDt;
+              return !maxDt || dt.getTime() > maxDt.getTime() ? dt : maxDt;
+            }, null);
+            const crossChannel = await findActiveWhatsappSessionForSiteContact(db, {
+              tenantId,
+              contactId: convCheck.contactId,
+              siteConversationId: conversationId,
+              siteLatestClientMessageAt: latestBatchTs,
+              now: new Date(),
+            });
+            if (crossChannel.suppressed) {
+              const suppressNow = new Date();
+              if (
+                !crossChannel.silentClose &&
+                !flowMetaCheck.crossChannelWhatsappNoticeSent &&
+                !convCheck.operatorId &&
+                !signal?.aborted
+              ) {
+                try {
+                  await sendSdrChannelText({
+                    tenantId,
+                    conversationId,
+                    phone: contactPhone,
+                    text: "Já estamos dando continuidade ao seu atendimento pelo WhatsApp! Pode seguir por lá com a nossa equipe para não duplicar informações.",
+                    idempotencyMessageId: `msg-site-xch-${(flowState?.id || conversationId).slice(0, 32)}`,
+                    expectedOperatorId: null,
+                  });
+                } catch {}
+              }
+              if (flowState && flowState.outcome === "in_progress" && !flowState.completedAt) {
+                await db
+                  .update(agentFlowStates)
+                  .set({
+                    currentStep: "Em Atendimento no WhatsApp",
+                    outcome: "transferred",
+                    completedAt: suppressNow,
+                    lastInteractionAt: suppressNow,
+                    metadata: {
+                      ...flowMetaCheck,
+                      followUpStage: 0,
+                      handoffStatus: "continued_to_whatsapp",
+                      whatsappConversationId: crossChannel.whatsappConversationId,
+                      crossChannelSuppressedReason: crossChannel.reason,
+                      crossChannelSuppressedAt: suppressNow.toISOString(),
+                      crossChannelWhatsappNoticeSent: true,
+                    },
+                  })
+                  .where(and(eq(agentFlowStates.tenantId, tenantId), eq(agentFlowStates.id, flowState.id)));
+              }
+              if (!convCheck.operatorId && convCheck.queueState !== "finalizados") {
+                await db
+                  .update(conversations)
+                  .set({
+                    queueState: "finalizados",
+                    updatedAt: suppressNow,
+                    version: sql`${conversations.version} + 1`,
+                  })
+                  .where(
+                    and(
+                      eq(conversations.tenantId, tenantId),
+                      eq(conversations.id, conversationId),
+                      isNull(conversations.operatorId),
+                    ),
+                  );
+              }
+              console.log(
+                `[SdrEngine] 🛑 TRAVA CROSS-CHANNEL SITE×WHATSAPP (${crossChannel.reason}): Sessão do site ${conversationId} encerrada em favor do WhatsApp ${crossChannel.whatsappConversationId}.`,
+              );
+              return false;
+            }
+          } catch (crossErr: any) {
+            console.warn(
+              `[SdrEngine] Aviso ao checar trava cross-channel Site×WhatsApp (${conversationId}):`,
+              crossErr?.message,
+            );
+          }
+        }
       } else if (
         convCheck?.operatorId ||
         convCheck?.queueState === "meus" ||

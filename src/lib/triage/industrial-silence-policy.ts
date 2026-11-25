@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { isOwnSdrOutboundSender } from "./industrial-ownership-guard";
+import { isOwnSdrOutboundSender } from "./industrial-ownership-guard.ts";
 
 function isExternalHumanAgentMessage(msg: {
   senderType: string;
@@ -494,10 +494,24 @@ export function buildIndustrialFollowUpText(params: {
     : "Vou deixar nosso atendimento em aberto por aqui para não te incomodar. Quando quiser continuar, é só mandar mensagem!";
 }
 
+const SUBSTANTIVE_PARTIAL_LEAD_KEYS = new Set([
+  "MÁQUINA / PEÇA / INTERESSE",
+  "RAMO / O QUE EMBALA",
+  "VOLUME / PRODUÇÃO",
+  "EMPRESA",
+  "CNPJ OU CPF",
+  "CNPJ",
+  "CPF",
+  "SOLICITAÇÃO",
+  "PRODUTO DE INTERESSE",
+  "QUAL O TIPO DE PRODUTO?",
+]);
+
 function hasPartialCollectedData(collectedData?: Record<string, unknown> | null): boolean {
   if (!collectedData || typeof collectedData !== "object") return false;
   for (const [key, raw] of Object.entries(collectedData)) {
     if (key.startsWith("_")) continue;
+    if (!SUBSTANTIVE_PARTIAL_LEAD_KEYS.has(key)) continue;
     const entry = raw as { value?: unknown } | null;
     const val = typeof entry?.value === "string" ? entry.value.trim() : "";
     if (val && !/^(aguardando|n[aã]o informado|-|\?)$/i.test(val)) return true;

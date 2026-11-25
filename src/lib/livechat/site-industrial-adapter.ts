@@ -31,10 +31,12 @@ import {
   siteIdentityIds,
   type SiteChannelSettings,
 } from "./site-channel-policy";
+import { isValidIndustrialPersonName } from "../triage/industrial-policy";
 
 function isGenericSiteContactName(name: string | null | undefined): boolean {
   const trimmed = (name || "").trim();
   if (!trimmed) return true;
+  if (!isValidIndustrialPersonName(trimmed)) return true;
   const lower = trimmed.toLowerCase();
   if (lower === "visitante do site" || lower === "visitante" || lower === "sem nome") return true;
   return /^[\d\s()+-]+$/.test(trimmed);

@@ -156,7 +156,10 @@ describe("Evolução dos Follow-ups Industriais — Timing Inteligente + Persona
           lastInteractionAt: botAt,
           outcome: "in_progress",
           followUpStage: stage,
-          collectedData: { "NOME COMPLETO": { value: "BRUNA GABRIELE", status: "filled" } },
+          collectedData: {
+            "NOME COMPLETO": { value: "BRUNA GABRIELE", status: "filled" },
+            "MÁQUINA / PEÇA / INTERESSE": { value: "Seladora", status: "filled" },
+          },
           metadata: { followUpStage: stage },
         },
         conversation: { id: "conv-lc-site-short-1", queueState: "automacao", operatorId: null },

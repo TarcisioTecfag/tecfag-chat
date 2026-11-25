@@ -2,7 +2,7 @@
  * Regras puras do canal Site (widget) quando o tenant usa o núcleo de triagem industrial.
  * Sem IO: compartilhado pelo adaptador WebSocket, pelo SdrEngine e pelos testes.
  */
-import { isValidTriageDocument } from "../triage/industrial-policy.ts";
+import { isValidIndustrialPersonName, isValidTriageDocument } from "../triage/industrial-policy.ts";
 
 /** Canal registrado em `contacts.mainChannel` — mesmo valor já reconhecido pela UI e pelo Supervisor. */
 export const SITE_CHANNEL = "livechat";
@@ -148,10 +148,11 @@ export function sanitizeSiteIdentity(
   phone?: unknown,
 ) {
   const cleanName = typeof name === "string" ? name.replace(/\s+/g, " ").trim().slice(0, 120) : "";
+  const validName = cleanName.length >= 2 && isValidIndustrialPersonName(cleanName) ? cleanName : "";
   const digits = typeof doc === "string" ? doc.replace(/\D/g, "") : "";
   const validDoc = digits && isValidTriageDocument(digits) ? digits : "";
   return {
-    name: cleanName.length >= 2 ? cleanName : "",
+    name: validName,
     cpf: validDoc.length === 11 ? validDoc : null,
     cnpj: validDoc.length === 14 ? validDoc : null,
     email: normalizeSiteEmail(email),
