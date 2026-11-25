@@ -16,9 +16,35 @@ type MetaStatus = {
 
 const statusRank: Record<string, number> = { sending: 0, accepted: 1, delivered: 2, read: 3 };
 
+export type NormalizedMetaDeliveryStatus = "accepted" | "delivered" | "read" | "failed";
+
+export function normalizeMetaDeliveryStatus(
+  rawStatus: string | undefined,
+): NormalizedMetaDeliveryStatus | null {
+  switch (rawStatus) {
+    case "sent":
+      return "accepted";
+    case "delivered":
+      return "delivered";
+    case "read":
+    case "played":
+      // Meta envia status="played" quando o destinatário reproduz um áudio enviado.
+      // Internamente equivale a "read" (rank 3) sem alterar o enum de messages.status.
+      return "read";
+    case "failed":
+      return "failed";
+    default:
+      return null;
+  }
+}
+
+export function isIgnorableMetaStatus(rawStatus: string | undefined): boolean {
+  return rawStatus === "deleted" || rawStatus === "warning";
+}
+
 export async function applyMetaStatus(tenantId: string, statusObj: MetaStatus, persistUnmatched = true): Promise<boolean> {
-  if (!statusObj.id || !statusObj.status) return false;
-  if (!["sent", "delivered", "read", "failed"].includes(statusObj.status)) return false;
+  const receivedStatus = normalizeMetaDeliveryStatus(statusObj.status);
+  if (!statusObj.id || !receivedStatus) return false;
   for (let attempt = 0; attempt < 3; attempt++) {
     const [existing] = await db.select({
       id: messages.id,
@@ -50,7 +76,6 @@ export async function applyMetaStatus(tenantId: string, statusObj: MetaStatus, p
       return false;
     }
 
-    const receivedStatus = statusObj.status === "sent" ? "accepted" : statusObj.status;
     const nextStatus = receivedStatus === "failed"
       ? ((statusRank[existing.status] || 0) >= 2 ? existing.status : "failed")
       : existing.status === "failed" && receivedStatus === "accepted" ? "failed"

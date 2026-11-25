@@ -5,7 +5,11 @@ import { channelConfigs, contacts, pendingInbounds } from "../../../db/schema";
 import { eq, and } from "drizzle-orm";
 import { inboundProcessor } from "../../../lib/whatsapp/inbound";
 import { metaAdapter } from "../../../lib/whatsapp/adapters/meta";
-import { applyMetaStatus } from "../../../lib/whatsapp/meta-status";
+import {
+  applyMetaStatus,
+  isIgnorableMetaStatus,
+  normalizeMetaDeliveryStatus,
+} from "../../../lib/whatsapp/meta-status";
 import { resolveMetaSenderIdentity } from "../../../lib/whatsapp/meta-identity";
 import { describeNonMediaMetaMessage, isIgnorableMetaMessage, isMetaMediaType } from "../../../lib/whatsapp/meta-message-text";
 import { applyMetaReaction } from "../../../lib/whatsapp/meta-reactions";
@@ -603,10 +607,21 @@ export const Route = createFileRoute("/api/webhooks/meta")({
               // 4.2. Atualizações de Status de Mensagens Enviadas (statuses)
               if (Array.isArray(statuses) && statuses.length > 0) {
                 for (const statusObj of statuses) {
-                  if (!statusObj?.id || !["sent", "delivered", "read", "failed"].includes(statusObj.status)) {
+                  if (!statusObj?.id) {
                     unprocessableItemsCount++;
                     unprocessableErrors.push(
-                      `Status Meta não reconhecido (id=${String(statusObj?.id ?? "ausente")}, status=${String(statusObj?.status ?? "ausente")})`,
+                      `Status Meta sem ID (status=${String(statusObj?.status ?? "ausente")})`,
+                    );
+                    continue;
+                  }
+                  if (isIgnorableMetaStatus(statusObj.status)) {
+                    processedStatusesCount++;
+                    continue;
+                  }
+                  if (!normalizeMetaDeliveryStatus(statusObj.status)) {
+                    unprocessableItemsCount++;
+                    unprocessableErrors.push(
+                      `Status Meta não reconhecido (id=${String(statusObj.id)}, status=${String(statusObj.status ?? "ausente")})`,
                     );
                     continue;
                   }
