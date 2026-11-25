@@ -28,6 +28,7 @@ import {
   tasks,
 } from "../../db/schema";
 import { crmService } from "../crm/crm-service";
+import { recordCrmAction } from "../crm/action-history";
 import { resolveAccountCustomFieldsInput } from "./valem-tecfag-mcp-account-fields";
 import {
   conflictsWithStandardField,
@@ -1553,7 +1554,7 @@ export async function executeExtendedMcpTool(
         }
       }
 
-      const deal = await crmService.createDeal(tenantId, operator?.id ?? null, {
+      const deal = await crmService.createDeal(tenantId, null, {
         title,
         pipelineId,
         stageId,
@@ -1620,7 +1621,7 @@ export async function executeExtendedMcpTool(
         stageName: stageNameArg,
       });
 
-      const updated = await crmService.updateDeal(tenantId, dealId, operator?.id ?? null, {
+      const updated = await crmService.updateDeal(tenantId, dealId, null, {
         pipelineId: target.pipelineId,
         stageId: target.stageId,
       });
@@ -1646,7 +1647,7 @@ export async function executeExtendedMcpTool(
       }
 
       const targetOp = await assertOperatorInTenant(tenantId, operatorId);
-      const updated = await crmService.updateDeal(tenantId, dealId, targetOp?.id ?? null, {
+      const updated = await crmService.updateDeal(tenantId, dealId, null, {
         operatorId: targetOp!.id,
       });
 
@@ -1670,7 +1671,7 @@ export async function executeExtendedMcpTool(
         await resolvePipelineAndStage(tenantId, { stageId });
       }
 
-      const updated = await crmService.updateDeal(tenantId, dealId, operator?.id ?? null, {
+      const updated = await crmService.updateDeal(tenantId, dealId, null, {
         status: "won",
         winReason: asTrimmedString(args.winReason) ?? null,
         ...(stageId ? { stageId } : {}),
@@ -1695,7 +1696,7 @@ export async function executeExtendedMcpTool(
       }
 
       const operator = await assertOperatorInTenant(tenantId, asTrimmedString(args.operatorId));
-      const updated = await crmService.updateDeal(tenantId, dealId, operator?.id ?? null, {
+      const updated = await crmService.updateDeal(tenantId, dealId, null, {
         status: "lost",
         lossReason,
       });
@@ -1757,6 +1758,17 @@ export async function executeExtendedMcpTool(
           await syncContactPhones(tx, tenantId, id, [{ phone, isPrimary: true, label: "Principal" }]);
         }
       });
+
+      void recordCrmAction({
+        tenantId,
+        operatorId: null,
+        operatorName: "MCP",
+        action: "create_contact",
+        entityType: "contact",
+        entityId: id,
+        itemCount: 1,
+        details: { contactId: id, name: contactName, phone, email, accountId },
+      }).catch(() => {});
 
       return {
         success: true,
@@ -1833,6 +1845,21 @@ export async function executeExtendedMcpTool(
         }
         return row;
       });
+
+      void recordCrmAction({
+        tenantId,
+        operatorId: null,
+        operatorName: "MCP",
+        action: "update_contact",
+        entityType: "contact",
+        entityId: updated.id,
+        itemCount: 1,
+        details: {
+          contactId: updated.id,
+          name: updated.name,
+          changedFields: Object.keys(updates).filter((k) => k !== "updatedAt"),
+        },
+      }).catch(() => {});
 
       return {
         success: true,
@@ -1962,7 +1989,7 @@ export async function executeExtendedMcpTool(
         const activity = await crmService.createDealActivity(
           tenantId,
           dealId,
-          assignedOp?.id ?? null,
+          null,
           {
             type: taskType,
             title,
@@ -2003,6 +2030,17 @@ export async function executeExtendedMcpTool(
         createdAt: now,
         updatedAt: now,
       });
+
+      void recordCrmAction({
+        tenantId,
+        operatorId: null,
+        operatorName: "MCP",
+        action: "create_task",
+        entityType: "task",
+        entityId: taskId,
+        itemCount: 1,
+        details: { taskId, title, type: taskType, conversationId, assignedToEmail: assignedOp?.email ?? null },
+      }).catch(() => {});
 
       return {
         success: true,
@@ -2055,7 +2093,7 @@ export async function executeExtendedMcpTool(
           tenantId,
           existingActivity.dealId,
           taskId,
-          assignedOp?.id ?? null,
+          null,
           {
             ...(statusArg ? { status: statusArg } : {}),
             ...(args.title !== undefined ? { title: asTrimmedString(args.title) } : {}),
@@ -2112,6 +2150,22 @@ export async function executeExtendedMcpTool(
       if (!updatedTask) {
         throw new Error(`Tarefa '${taskId}' não encontrada no tenant '${tenantId}'.`);
       }
+
+      void recordCrmAction({
+        tenantId,
+        operatorId: null,
+        operatorName: "MCP",
+        action: "update_task",
+        entityType: "task",
+        entityId: updatedTask.id,
+        itemCount: 1,
+        details: {
+          taskId: updatedTask.id,
+          title: updatedTask.name,
+          status: updatedTask.status,
+          changedFields: Object.keys(taskUpdates).filter((k) => k !== "updatedAt"),
+        },
+      }).catch(() => {});
 
       return {
         success: true,
@@ -2256,6 +2310,17 @@ export async function executeExtendedMcpTool(
           sentAt: result.sentAtISO || new Date().toISOString(),
         },
       });
+
+      void recordCrmAction({
+        tenantId,
+        operatorId: null,
+        operatorName: "MCP",
+        action: "create_internal_note",
+        entityType: "note",
+        entityId: result.messageId || conversationId,
+        itemCount: 1,
+        details: { conversationId, messageId: result.messageId, isInternalNote: true },
+      }).catch(() => {});
 
       return {
         success: true,
@@ -2413,6 +2478,25 @@ export async function executeExtendedMcpTool(
         version: updated.version,
       });
 
+      void recordCrmAction({
+        tenantId,
+        operatorId: null,
+        operatorName: "MCP",
+        action: "transfer_conversation",
+        entityType: "conversation",
+        entityId: conversationId,
+        itemCount: 1,
+        details: {
+          conversationId,
+          queueState: updated.queueState,
+          toOperatorId: updated.operatorId,
+          toOperatorName: targetOp?.name ?? null,
+          toSectorId: updated.sectorId,
+          toSectorName: targetSector?.name ?? null,
+          reason: reason ?? null,
+        },
+      }).catch(() => {});
+
       return {
         success: true,
         tenantId,
@@ -2473,6 +2557,17 @@ export async function executeExtendedMcpTool(
         operatorId: null,
         version: updated.version,
       });
+
+      void recordCrmAction({
+        tenantId,
+        operatorId: null,
+        operatorName: "MCP",
+        action: "close_conversation",
+        entityType: "conversation",
+        entityId: updated.id,
+        itemCount: 1,
+        details: { conversationId: updated.id, queueState: updated.queueState, reason: reason ?? null },
+      }).catch(() => {});
 
       return {
         success: true,
@@ -3727,7 +3822,7 @@ export async function executeExtendedMcpTool(
           throw new Error("Em 'product', informe 'name' ou um 'productId' válido do catálogo.");
         }
 
-        addedProduct = await crmService.addDealProduct(tenantId, dealId, actorOp?.id ?? null, {
+        addedProduct = await crmService.addDealProduct(tenantId, dealId, null, {
           productId: prodId ?? null,
           name: prodName,
           quantity: productArg.quantity !== undefined ? Number(productArg.quantity) : 1,
@@ -3740,7 +3835,7 @@ export async function executeExtendedMcpTool(
       }
 
       if (Object.keys(updatePayload).length > 0) {
-        await crmService.updateDeal(tenantId, dealId, actorOp?.id ?? null, updatePayload);
+        await crmService.updateDeal(tenantId, dealId, null, updatePayload);
       }
 
       const [freshDeal] = await db

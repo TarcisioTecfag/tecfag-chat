@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { client as defaultSqlClient } from "../../db";
 import { requireSession } from "../auth-session";
+import { runWithAuditContext } from "../audit/audit-context";
 import { isSiteConversationId } from "../livechat/site-channel-policy";
 import {
   calculateBusinessPacing,
@@ -720,6 +721,8 @@ export function summarizeMcpToolResult(toolName: string, data: any): string {
       }
       case "get_deal_audit_log":
         return `Auditoria do card ${data.dealId}: ${Number(data.returnedEvents ?? 0)}/${Number(data.totalEvents ?? 0)} evento(s), ${Number(data.adminActionsCount ?? 0)} ação(ões) administrativa(s)`;
+      case "search_crm_audit_logs":
+        return `Auditoria unificada: ${Number(data.returnedEntries ?? 0)} registro(s) retornado(s)`;
       default:
         return "Dados retornados com sucesso";
     }
@@ -2222,13 +2225,37 @@ export async function executeMcpTool(
     );
   }
 
-  if (isExtendedMcpTool(toolName)) {
-    return await executeExtendedMcpTool(toolName, args, tenantId, {
-      keyId: access?.keyId,
-      keyLabel: access?.keyLabel,
-      clientName: access?.clientName,
-    });
-  }
+  const auditCtx = {
+    actorType: access?.authMode === "session" ? ("human" as const) : ("system" as const),
+    sourceChannel: "mcp" as const,
+    actorOperatorId: null,
+    actorName: access?.keyLabel ? `MCP (${access.keyLabel})` : "MCP",
+    clientIp: access?.clientIp ?? null,
+    mcpKeyId: access?.keyId ?? null,
+    mcpKeyLabel: access?.keyLabel ?? null,
+    mcpToolName: toolName,
+  };
+
+  return await runWithAuditContext(auditCtx, async () => {
+    if (isExtendedMcpTool(toolName)) {
+      return await executeExtendedMcpTool(toolName, args, tenantId, {
+        keyId: access?.keyId,
+        keyLabel: access?.keyLabel,
+        clientName: access?.clientName,
+      });
+    }
+
+    return await executeCoreMcpToolBody(toolName, args, tenantId, access, sql);
+  });
+}
+
+async function executeCoreMcpToolBody(
+  toolName: string,
+  args: Record<string, any>,
+  tenantId: "tecfag" | "valem",
+  access?: McpAccessContext,
+  sql: any = defaultSqlClient,
+) {
 
   switch (toolName) {
     case "search_conversations": {

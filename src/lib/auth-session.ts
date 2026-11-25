@@ -6,6 +6,11 @@ import { normalizeGroupPermissions } from "./rbac.js";
 import { getAvailableTenants } from "./platform-access.js";
 import { effectiveLegacyGroup } from "./access-control/legacy-session-group";
 import { getBrtDateKey, touchOperatorPresence } from "./operator-presence.js";
+import {
+  enterAuditContext,
+  extractAuditClientIp,
+  inferHttpSourceChannel,
+} from "./audit/audit-context";
 
 export const SESSION_COOKIE_NAME = "session_token";
 export const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000; // 7 dias
@@ -449,6 +454,13 @@ export async function requireSession(request: Request): Promise<{ session: AuthS
       ),
     };
   }
+  enterAuditContext({
+    actorType: "human",
+    sourceChannel: inferHttpSourceChannel(request),
+    actorOperatorId: session.operator.id,
+    actorName: session.operator.name,
+    clientIp: extractAuditClientIp(request),
+  });
   return { session };
 }
 

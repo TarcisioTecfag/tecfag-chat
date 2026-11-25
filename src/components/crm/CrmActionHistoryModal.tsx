@@ -131,6 +131,8 @@ export function CrmActionHistoryModal({
   const [actionFilter, setActionFilter] = useState<string>("all");
   const [entityGroup, setEntityGroup] = useState<ActionEntityGroup>("all");
   const [operatorFilter, setOperatorFilter] = useState<string>("all");
+  const [actorTypeFilter, setActorTypeFilter] = useState<string>("all");
+  const [sourceChannelFilter, setSourceChannelFilter] = useState<string>("all");
   const [period, setPeriod] = useState<ActionPeriodPreset>("all");
   const [dateFrom, setDateFrom] = useState<string>("");
   const [dateTo, setDateTo] = useState<string>("");
@@ -175,6 +177,8 @@ export function CrmActionHistoryModal({
         if (actionFilter !== "all") params.set("action", actionFilter);
         if (entityGroup !== "all") params.set("entityGroup", entityGroup);
         if (operatorFilter !== "all") params.set("operator", operatorFilter);
+        if (actorTypeFilter !== "all") params.set("actorType", actorTypeFilter);
+        if (sourceChannelFilter !== "all") params.set("sourceChannel", sourceChannelFilter);
         if (debouncedSearch) params.set("q", debouncedSearch);
 
         if (period !== "all") {
@@ -216,6 +220,8 @@ export function CrmActionHistoryModal({
       actionFilter,
       entityGroup,
       operatorFilter,
+      actorTypeFilter,
+      sourceChannelFilter,
       debouncedSearch,
       period,
       dateFrom,
@@ -320,9 +326,11 @@ export function CrmActionHistoryModal({
     if (actionFilter !== "all") count += 1;
     if (entityGroup !== "all") count += 1;
     if (operatorFilter !== "all") count += 1;
+    if (actorTypeFilter !== "all") count += 1;
+    if (sourceChannelFilter !== "all") count += 1;
     if (period !== "all") count += 1;
     return count;
-  }, [search, actionFilter, entityGroup, operatorFilter, period]);
+  }, [search, actionFilter, entityGroup, operatorFilter, actorTypeFilter, sourceChannelFilter, period]);
 
   const clearAllFilters = () => {
     setSearch("");
@@ -330,6 +338,8 @@ export function CrmActionHistoryModal({
     setActionFilter("all");
     setEntityGroup("all");
     setOperatorFilter("all");
+    setActorTypeFilter("all");
+    setSourceChannelFilter("all");
     setPeriod("all");
     setDateFrom("");
     setDateTo("");
@@ -771,6 +781,55 @@ export function CrmActionHistoryModal({
               </div>
             </div>
 
+            {/* Filtros de Origem da Auditoria (Quem agiu + Canal) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 pt-1">
+              <div className="space-y-1">
+                <label className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Quem agiu
+                </label>
+                <Select value={actorTypeFilter} onValueChange={setActorTypeFilter}>
+                  <SystemTooltip content="Filtrar por tipo de autor (Humano, IA ou Sistema)">
+                    <SelectTrigger
+                      aria-label="Filtrar por quem agiu"
+                      className="h-8 w-full rounded-lg border border-border bg-background px-2.5 text-xs text-foreground focus:outline-none focus:border-primary"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                  </SystemTooltip>
+                  <SelectContent className="z-[150]">
+                    <SelectItem value="all" className="text-xs">Todos os autores</SelectItem>
+                    <SelectItem value="human" className="text-xs">Humano</SelectItem>
+                    <SelectItem value="ai" className="text-xs">Inteligência Artificial (IA)</SelectItem>
+                    <SelectItem value="system" className="text-xs">Sistema</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Canal de origem
+                </label>
+                <Select value={sourceChannelFilter} onValueChange={setSourceChannelFilter}>
+                  <SystemTooltip content="Filtrar por canal de origem da ação">
+                    <SelectTrigger
+                      aria-label="Filtrar por canal de origem"
+                      className="h-8 w-full rounded-lg border border-border bg-background px-2.5 text-xs text-foreground focus:outline-none focus:border-primary"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                  </SystemTooltip>
+                  <SelectContent className="z-[150]">
+                    <SelectItem value="all" className="text-xs">Todos os canais</SelectItem>
+                    <SelectItem value="crm_ui" className="text-xs">Interface do CRM</SelectItem>
+                    <SelectItem value="api" className="text-xs">API</SelectItem>
+                    <SelectItem value="mcp" className="text-xs">MCP</SelectItem>
+                    <SelectItem value="webhook" className="text-xs">Webhook</SelectItem>
+                    <SelectItem value="import" className="text-xs">Importação</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
             {/* Datas personalizadas quando period === "custom" */}
             {period === "custom" && (
               <div className="flex flex-wrap items-center gap-3 border-t border-border pt-3">
@@ -901,13 +960,41 @@ export function CrmActionHistoryModal({
                         </td>
 
                         <td className="p-3.5 whitespace-nowrap">
-                          <div className="flex items-center gap-2">
-                            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">
-                              {getInitials(entry.operatorName)}
-                            </span>
-                            <span className="font-medium text-foreground">
-                              {entry.operatorName}
-                            </span>
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">
+                                {getInitials(entry.actorName || entry.operatorName)}
+                              </span>
+                              <span className="font-medium text-foreground">
+                                {entry.actorName || entry.operatorName}
+                              </span>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1">
+                              {entry.actorTypeLabel && (
+                                <span className="rounded-full border border-border bg-muted/60 px-1.5 py-0.5 text-[9px] font-semibold text-muted-foreground">
+                                  {entry.actorTypeLabel}
+                                </span>
+                              )}
+                              {entry.sourceChannelLabel && (
+                                <span
+                                  className={`rounded-full border px-1.5 py-0.5 text-[9px] font-semibold ${
+                                    entry.sourceChannel === "mcp"
+                                      ? "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/25"
+                                      : entry.sourceChannel === "webhook"
+                                      ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/25"
+                                      : "bg-muted/60 text-muted-foreground border-border"
+                                  }`}
+                                >
+                                  {entry.sourceChannelLabel}
+                                  {entry.mcpKeyLabel ? ` · ${entry.mcpKeyLabel}` : ""}
+                                </span>
+                              )}
+                              {entry.clientIp && (
+                                <span className="rounded bg-muted/60 px-1.5 py-0.5 text-[9px] font-mono text-muted-foreground">
+                                  IP {entry.clientIp}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </td>
 

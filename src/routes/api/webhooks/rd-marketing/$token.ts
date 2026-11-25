@@ -7,6 +7,7 @@ import { CrmError } from "../../../../lib/crm/crm-service";
 import { hashToken } from "../../../../lib/rd-marketing/service";
 import { claimRdEvent, processRdEvent, storeRdWebhook } from "../../../../lib/rd-marketing/inbox";
 import { integrationError, readIntegrationJson } from "../../../../lib/rd-marketing/http";
+import { extractAuditClientIp, runWithAuditContext } from "../../../../lib/audit/audit-context";
 
 export const Route = createFileRoute("/api/webhooks/rd-marketing/$token")({
   server: {
@@ -58,11 +59,22 @@ export const Route = createFileRoute("/api/webhooks/rd-marketing/$token")({
             return Response.json({ accepted: true, ignored: "Evento comercial recebido; utilize o webhook da jornada." }, { status: 202 });
           }
           const receipt = await storeRdWebhook(flow, payload);
+          const clientIp = extractAuditClientIp(request);
           if (!process.env.IS_TEST && process.env.NODE_ENV !== "test") {
             const tenantId = flow.tenantId;
-            void claimRdEvent(tenantId, receipt.eventId)
-              .then((claimed) => (claimed ? processRdEvent(claimed) : undefined))
-              .catch((err) => console.error("[RD Marketing] Erro ao processar evento recebido:", err));
+            void runWithAuditContext(
+              {
+                actorType: "system",
+                sourceChannel: "webhook",
+                actorOperatorId: null,
+                actorName: `Webhook RD Marketing (${flow.settings.name})`,
+                clientIp,
+              },
+              () =>
+                claimRdEvent(tenantId, receipt.eventId)
+                  .then((claimed) => (claimed ? processRdEvent(claimed) : undefined))
+                  .catch((err) => console.error("[RD Marketing] Erro ao processar evento recebido:", err)),
+            );
           }
           return Response.json(receipt, { status: 202 });
         } catch (error) {

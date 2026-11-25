@@ -17,14 +17,41 @@ export interface ActionHistoryEntry {
   id: string;
   action: string;
   entityType: string;
+  entityId?: string | null;
   operatorId?: string | null;
   operatorName: string;
+  actorType?: "human" | "ai" | "system" | null;
+  actorTypeLabel?: string | null;
+  sourceChannel?: "crm_ui" | "api" | "mcp" | "webhook" | "import" | null;
+  sourceChannelLabel?: string | null;
+  actorName?: string | null;
+  clientIp?: string | null;
+  mcpKeyId?: string | null;
+  mcpKeyLabel?: string | null;
+  createdAtBrt?: string | null;
   itemCount: number;
   details: Record<string, unknown>;
   createdAt: string;
 }
 
 export const ACTION_HISTORY_LABELS: Record<string, string> = {
+  create_deal: "Negociação criada",
+  update_deal: "Negociação atualizada",
+  mark_deal_won: "Negociação marcada como ganha",
+  mark_deal_lost: "Negociação marcada como perdida",
+  create_contact: "Contato criado",
+  update_contact: "Contato atualizado",
+  create_account: "Empresa criada",
+  update_account: "Empresa atualizada",
+  create_task: "Tarefa criada",
+  update_task: "Tarefa atualizada",
+  create_deal_note: "Nota comercial criada",
+  update_deal_note: "Nota comercial atualizada",
+  create_internal_note: "Nota interna criada",
+  create_conversation: "Conversa criada",
+  update_conversation: "Conversa atualizada",
+  transfer_conversation: "Conversa transferida",
+  close_conversation: "Conversa encerrada",
   delete_permanent: "Exclusão definitiva de negociações",
   delete_trash: "Negociações enviadas à lixeira",
   delete_contact: "Contato excluído",
@@ -66,6 +93,9 @@ export const ACTION_HISTORY_LABELS: Record<string, string> = {
 export const ENTITY_TYPE_LABELS: Record<string, string> = {
   deal: "Negociações",
   deal_activity: "Atividade de negociação",
+  task: "Tarefa",
+  note: "Nota",
+  conversation: "Conversa",
   deal_product: "Produto da negociação",
   deal_file: "Arquivo da negociação",
   pipeline: "Funil de vendas",

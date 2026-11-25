@@ -4,6 +4,13 @@ import { db } from "../../../db";
 import { crmActionHistory } from "../../../db/schema";
 import { requireSession } from "../../../lib/auth-session";
 import {
+  extractAuditOriginFromStoredRecord,
+  formatAuditTimestampBrt,
+  normalizeAuditActorType,
+  normalizeAuditSourceChannel,
+} from "../../../lib/audit/audit-context";
+import { ensureAuditOriginSchema } from "../../../lib/audit/audit-schema";
+import {
   type ActionEntityGroup,
   BULK_ACTION_CODES,
   findMatchingActionCodes,
@@ -35,10 +42,17 @@ export const Route = createFileRoute("/api/crm/action-history")({
           return Response.json({ error: "Permissão insuficiente.", code: "FORBIDDEN" }, { status: 403 });
         }
 
+        await ensureAuditOriginSchema().catch(() => {});
+
         const url = new URL(request.url);
         const kind = url.searchParams.get("kind");
         const actionFilter = url.searchParams.get("action")?.trim() || "";
         const entityGroup = (url.searchParams.get("entityGroup")?.trim() || "all") as ActionEntityGroup;
+        const entityTypeFilter = url.searchParams.get("entityType")?.trim() || "";
+        const entityIdFilter = url.searchParams.get("entityId")?.trim() || "";
+        const actorTypeRaw = url.searchParams.get("actorType")?.trim() || "";
+        const sourceChannelRaw = url.searchParams.get("sourceChannel")?.trim() || "";
+        const clientIpFilter = url.searchParams.get("clientIp")?.trim() || "";
         const operatorFilter = url.searchParams.get("operator")?.trim() || "";
         const searchQuery = (url.searchParams.get("q") ?? url.searchParams.get("search") ?? "").trim();
         const dateFromRaw = url.searchParams.get("dateFrom")?.trim() || "";
@@ -56,6 +70,13 @@ export const Route = createFileRoute("/api/crm/action-history")({
         if (!Number.isSafeInteger(offset) || offset < 0 || offset > 100000) {
           return Response.json({ error: "Página inválida." }, { status: 400 });
         }
+
+        const actorTypeFilter =
+          actorTypeRaw && actorTypeRaw !== "all" ? normalizeAuditActorType(actorTypeRaw) : null;
+        const sourceChannelFilter =
+          sourceChannelRaw && sourceChannelRaw !== "all"
+            ? normalizeAuditSourceChannel(sourceChannelRaw)
+            : null;
 
         const groupEntityTypes =
           entityGroup && entityGroup !== "all" ? getEntityTypesForGroup(entityGroup) : [];
@@ -82,6 +103,9 @@ export const Route = createFileRoute("/api/crm/action-history")({
             ilike(crmActionHistory.operatorName, pattern),
             ilike(crmActionHistory.action, pattern),
             ilike(crmActionHistory.entityType, pattern),
+            ilike(crmActionHistory.entityId, pattern),
+            ilike(crmActionHistory.clientIp, pattern),
+            ilike(crmActionHistory.mcpKeyLabel, pattern),
             sql`CAST(${crmActionHistory.details} AS text) ILIKE ${pattern}`,
             matchingActions.length > 0 ? inArray(crmActionHistory.action, matchingActions) : undefined,
             matchingEntities.length > 0 ? inArray(crmActionHistory.entityType, matchingEntities) : undefined,
@@ -109,6 +133,21 @@ export const Route = createFileRoute("/api/crm/action-history")({
                   actionFilter && actionFilter !== "all"
                     ? eq(crmActionHistory.action, actionFilter)
                     : undefined,
+                  entityTypeFilter && entityTypeFilter !== "all"
+                    ? eq(crmActionHistory.entityType, entityTypeFilter)
+                    : undefined,
+                  entityIdFilter
+                    ? eq(crmActionHistory.entityId, entityIdFilter)
+                    : undefined,
+                  actorTypeFilter
+                    ? eq(crmActionHistory.actorType, actorTypeFilter)
+                    : undefined,
+                  sourceChannelFilter
+                    ? eq(crmActionHistory.sourceChannel, sourceChannelFilter)
+                    : undefined,
+                  clientIpFilter
+                    ? ilike(crmActionHistory.clientIp, `%${clientIpFilter}%`)
+                    : undefined,
                   groupEntityTypes.length > 0
                     ? inArray(crmActionHistory.entityType, groupEntityTypes)
                     : undefined,
@@ -135,8 +174,36 @@ export const Route = createFileRoute("/api/crm/action-history")({
               .orderBy(asc(crmActionHistory.action)),
           ]);
 
+          const entries = rows.slice(0, limit).map((row) => {
+            const origin = extractAuditOriginFromStoredRecord(
+              {
+                actorType: row.actorType,
+                sourceChannel: row.sourceChannel,
+                clientIp: row.clientIp,
+                mcpKeyId: row.mcpKeyId,
+                mcpKeyLabel: row.mcpKeyLabel,
+                operatorId: row.operatorId,
+                operatorName: row.operatorName,
+                details: row.details as Record<string, unknown>,
+              },
+              tenantId,
+            );
+            return {
+              ...row,
+              actorType: origin.actorType,
+              actorTypeLabel: origin.actorTypeLabel,
+              sourceChannel: origin.sourceChannel,
+              sourceChannelLabel: origin.sourceChannelLabel,
+              actorName: origin.actorName || row.operatorName,
+              clientIp: origin.clientIp,
+              mcpKeyId: origin.mcpKeyId,
+              mcpKeyLabel: origin.mcpKeyLabel,
+              createdAtBrt: formatAuditTimestampBrt(row.createdAt),
+            };
+          });
+
           return Response.json({
-            entries: rows.slice(0, limit),
+            entries,
             hasMore: rows.length > limit,
             operators: operatorRows.map((r) => r.operatorName).filter(Boolean),
             actions: actionRows.map((r) => r.action).filter(Boolean),

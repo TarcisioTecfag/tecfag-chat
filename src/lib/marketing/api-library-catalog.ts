@@ -3578,6 +3578,47 @@ export function getApiLibraryCatalog(tenantId: string): ApiCatalogEntry[] {
         { key: "limit", label: "limit", placeholder: "50", defaultValue: "50" },
       ],
     },
+    {
+      id: "mcp-search-crm-audit-logs",
+      kind: "mcp",
+      categoryLabel: "Conector MCP · Governança & Regras do Funil",
+      method: "MCP",
+      pathOrTool: "search_crm_audit_logs",
+      mcpToolName: "search_crm_audit_logs",
+      mcpDefaultArgs: { limit: 50, order: "desc" },
+      title: "MCP · search_crm_audit_logs",
+      shortSummary: `Consulta unificada de auditoria (CRM & Chat) para oportunidades, contatos, empresas, tarefas, notas e conversas — com quem agiu (human/ai/${persona.name}/system), canal (crm_ui/api/mcp/webhook/import), data/hora (ISO e BRT) e IP.`,
+      detailedExplanation: "Permite auditar qualquer criação ou alteração em `crm_action_history` filtrando por `entityType`, `entityId`, `action`, `actorType`, `sourceChannel`, `operatorId`, `clientIp`, busca livre e período.",
+      useCases: [
+        "Auditar quem criou ou alterou oportunidades, contatos, empresas, tarefas, notas ou conversas e por qual canal (Interface do CRM, API, MCP, Webhook ou Importação)",
+        "Rastrear ações feitas por chaves MCP específicas com IP de origem e timestamp exato",
+      ],
+      businessRules: [
+        "Somente leitura (`read`), estritamente isolado por `tenantId`.",
+        "Transferências ou alterações feitas via MCP nunca creditam a ação ao vendedor de destino; exibem `sourceChannel='mcp'` e `mcpKeyLabel`.",
+      ],
+      params: [
+        { name: "entityType / entityId", location: "argument", type: "string", description: "Filtra por tipo (`deal`, `contact`, `account`, `task`, `note`, `conversation`) e ID da entidade." },
+        { name: "actorType", location: "argument", type: "string", description: "'human', 'ai' ou 'system'." },
+        { name: "sourceChannel", location: "argument", type: "string", description: "'crm_ui', 'api', 'mcp', 'webhook' ou 'import'." },
+        { name: "clientIp / operatorId / search", location: "argument", type: "string", description: "Filtros por IP, operador ou busca livre." },
+        { name: "startDate / endDate / limit / offset", location: "argument", type: "string", description: "Janela de datas e paginação (1..200)." },
+      ],
+      responseFields: [
+        { name: "returnedEntries / hasMore / entries[]", type: "object", description: "Registros auditados com `actorType`, `sourceChannel`, `actorName`, `clientIp`, `mcpKeyLabel`, `createdAt` e `createdAtBrt`." },
+      ],
+      sampleResponsePayload: {
+        returnedEntries: 1,
+        hasMore: false,
+        entries: [{ id: "aud-1", entityType: "deal", entityId: "deal-123", action: "update_deal", actorType: "system", sourceChannel: "mcp", actorName: "MCP (Central)", clientIp: "189.10.20.30", createdAtBrt: "25/11/2026 10:30:00 BRT" }],
+      },
+      supportsLivePlayground: true,
+      playgroundParams: [
+        { key: "entityType", label: "entityType", placeholder: "deal, contact, account, task, note, conversation", defaultValue: "" },
+        { key: "sourceChannel", label: "sourceChannel", placeholder: "crm_ui, api, mcp, webhook, import", defaultValue: "" },
+        { key: "limit", label: "limit", placeholder: "50", defaultValue: "50" },
+      ],
+    },
 
     // ═══════════════════════════════════════════════════════════════════════════
     // 3. WEBHOOKS DE ENTRADA & SAÍDA (POST / WS)

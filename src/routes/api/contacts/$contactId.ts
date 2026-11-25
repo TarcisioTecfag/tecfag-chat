@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../db";
 import { contacts, crmDealContacts, crmDealEvents } from "../../../db/schema";
 import { and, eq, ilike, ne, or, sql } from "drizzle-orm";
+import { recordCrmAction } from "../../../lib/crm/action-history";
 import { requireSession } from "../../../lib/auth-session";
 import { requireConversationWriteAccess } from "../../../lib/access-control/conversation-access";
 import { getDealContext, DealContextError } from "../../../lib/crm/conversation-deal-context";
@@ -374,6 +375,23 @@ export const Route = createFileRoute("/api/contacts/$contactId")({
             .from(contacts)
             .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, session.tenantId)))
             .limit(1);
+
+          if (updatedContact) {
+            void recordCrmAction({
+              tenantId: session.tenantId,
+              operatorId: session.operator.id,
+              operatorName: session.operator.name,
+              action: "update_contact",
+              entityType: "contact",
+              entityId: updatedContact.id,
+              itemCount: 1,
+              details: {
+                contactId: updatedContact.id,
+                name: updatedContact.name,
+                changedFields: Object.keys(updates).filter((k) => k !== "updatedAt"),
+              },
+            }).catch(() => {});
+          }
 
           const updatedPhones = updatedContact
             ? await getContactPhonesList(db, session.tenantId, contactId, updatedContact)

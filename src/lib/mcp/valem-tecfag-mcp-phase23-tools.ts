@@ -1324,7 +1324,7 @@ export async function executePhase23McpTool(
               const updated = await crmService.updateDeal(
                 tenantId,
                 dealId,
-                defaultActorOp?.id ?? null,
+                null,
                 patch,
               );
 
@@ -1385,7 +1385,7 @@ export async function executePhase23McpTool(
 
               const created = await crmService.createDeal(
                 tenantId,
-                defaultActorOp?.id ?? ownerOp?.id ?? null,
+                null,
                 {
                   title,
                   pipelineId: target.pipelineId,

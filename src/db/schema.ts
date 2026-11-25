@@ -1172,9 +1172,16 @@ export const crmDealEvents = pgTable("crm_deal_events", {
   toStatus: text("to_status"),
   metadata: jsonb("metadata").default({}).notNull(),
   operatorId: text("operator_id").references(() => operators.id, { onDelete: "set null" }),
+  actorType: text("actor_type"), // 'human' | 'ai' | 'system'
+  sourceChannel: text("source_channel"), // 'crm_ui' | 'api' | 'mcp' | 'webhook' | 'import'
+  actorName: text("actor_name"),
+  clientIp: text("client_ip"),
+  mcpKeyId: text("mcp_key_id"),
+  mcpKeyLabel: text("mcp_key_label"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({
   tenantDealCreatedIdx: index("idx_crm_deal_events_tenant_deal_created").on(table.tenantId, table.dealId, table.createdAt),
+  tenantChannelCreatedIdx: index("idx_crm_deal_events_tenant_channel_created").on(table.tenantId, table.sourceChannel, table.createdAt),
 }));
 
 // Histórico administrativo independente dos registros de origem, inclusive após exclusão definitiva.
@@ -1185,11 +1192,19 @@ export const crmActionHistory = pgTable("crm_action_history", {
   operatorName: text("operator_name").notNull(),
   action: text("action").notNull(),
   entityType: text("entity_type").notNull(),
+  entityId: text("entity_id"),
+  actorType: text("actor_type"), // 'human' | 'ai' | 'system'
+  sourceChannel: text("source_channel"), // 'crm_ui' | 'api' | 'mcp' | 'webhook' | 'import'
+  clientIp: text("client_ip"),
+  mcpKeyId: text("mcp_key_id"),
+  mcpKeyLabel: text("mcp_key_label"),
   itemCount: integer("item_count").notNull(),
   details: jsonb("details").$type<Record<string, unknown>>().default({}).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({
   tenantCreatedIdx: index("idx_crm_action_history_tenant_created").on(table.tenantId, table.createdAt),
+  tenantEntityIdCreatedIdx: index("idx_crm_action_history_tenant_entity_id_created").on(table.tenantId, table.entityType, table.entityId, table.createdAt),
+  tenantChannelCreatedIdx: index("idx_crm_action_history_tenant_channel_created").on(table.tenantId, table.sourceChannel, table.createdAt),
 }));
 
 // ─── 14.11. PRODUTOS & CATÁLOGO COMERCIAL ─────────────────────────────────────
@@ -1566,6 +1581,11 @@ export const attendanceEvents = pgTable("attendance_events", {
   description: text("description").notNull(),
   actorName: text("actor_name").notNull(),
   operatorId: text("operator_id").references(() => operators.id, { onDelete: "set null" }),
+  actorType: text("actor_type"), // 'human' | 'ai' | 'system'
+  sourceChannel: text("source_channel"), // 'crm_ui' | 'api' | 'mcp' | 'webhook' | 'import'
+  clientIp: text("client_ip"),
+  mcpKeyId: text("mcp_key_id"),
+  mcpKeyLabel: text("mcp_key_label"),
   dealId: text("deal_id").references(() => crmDeals.id, { onDelete: "set null" }),
   pendingBinding: boolean("pending_binding").notNull().default(false),
   metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),

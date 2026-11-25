@@ -15,6 +15,7 @@ import {
 import { eq, and, count, desc, ilike, inArray, or, sql } from "drizzle-orm";
 import { shouldIgnoreJid } from "../../lib/baileys/jid-validator.js";
 import { requireSession } from "../../lib/auth-session.js";
+import { recordCrmAction } from "../../lib/crm/action-history";
 import {
   normalizeCanonicalPhone,
   buildPhoneSearchTerms,
@@ -623,6 +624,24 @@ export const Route = createFileRoute("/api/contacts")({
               { status: 409 },
             );
           }
+
+          void recordCrmAction({
+            tenantId,
+            operatorId: session.operator.id,
+            operatorName: session.operator.name,
+            action: "create_contact",
+            entityType: "contact",
+            entityId: finalContactId,
+            itemCount: 1,
+            details: {
+              contactId: finalContactId,
+              conversationId: finalConversationId,
+              name: name.trim(),
+              phone: normalizedPhone || null,
+              email: normalizedEmail || null,
+              accountId: accountId || null,
+            },
+          }).catch(() => {});
 
           return new Response(
             JSON.stringify({

@@ -39,6 +39,13 @@ import {
   contactChannelIdentities,
 } from "../../db/schema";
 import { getDealContext } from "./conversation-deal-context";
+import { recordCrmAction } from "./action-history";
+import {
+  extractAuditOriginFromStoredRecord,
+  formatAuditTimestampBrt,
+  resolveAuditOrigin,
+} from "../audit/audit-context";
+import { ensureAuditOriginSchema } from "../audit/audit-schema";
 import { normalizeLossReasonInput, resolveRequiredLossReason } from "./loss-reason-policy";
 import {
   findContactByAnyPhone,
@@ -1728,7 +1735,36 @@ export class CrmService {
       })
       .returning();
 
+    this.emitUnifiedActionAudit({
+      tenantId,
+      operatorId: null,
+      action: "create_account",
+      entityType: "account",
+      entityId: account.id,
+      details: { accountId: account.id, accountName: account.name, type: account.type, document: account.document },
+    });
+
     return account;
+  }
+
+  private emitUnifiedActionAudit(params: {
+    tenantId: string;
+    operatorId: string | null;
+    action: string;
+    entityType: string;
+    entityId: string;
+    details?: Record<string, unknown>;
+  }): void {
+    void recordCrmAction({
+      tenantId: params.tenantId,
+      operatorId: params.operatorId,
+      operatorName: params.operatorId ? "Operador" : "Sistema",
+      action: params.action,
+      entityType: params.entityType,
+      entityId: params.entityId,
+      itemCount: 1,
+      details: params.details,
+    }).catch(() => {});
   }
 
   /**
@@ -2063,6 +2099,17 @@ export class CrmService {
           changes,
         });
       }
+    }
+
+    if (changes.length > 0) {
+      this.emitUnifiedActionAudit({
+        tenantId,
+        operatorId,
+        action: "update_account",
+        entityType: "account",
+        entityId: accountId,
+        details: { accountId, accountName: updated.name, changes },
+      });
     }
 
     return updated;
@@ -4059,11 +4106,42 @@ export class CrmService {
         operatorAvatar = op.avatar;
       }
 
+      const auditOrigin = extractAuditOriginFromStoredRecord(
+        {
+          actorType: (ev as any).actorType ?? null,
+          sourceChannel: (ev as any).sourceChannel ?? null,
+          actorName: (ev as any).actorName ?? null,
+          clientIp: (ev as any).clientIp ?? null,
+          mcpKeyId: (ev as any).mcpKeyId ?? null,
+          mcpKeyLabel: (ev as any).mcpKeyLabel ?? null,
+          operatorId: ev.operatorId,
+          operatorName,
+          metadata: meta,
+        },
+        tenantId,
+      );
+
+      if (auditOrigin.sourceChannel === "mcp" && auditOrigin.actorName) {
+        operatorName = auditOrigin.actorName;
+        operatorAvatar = null;
+      } else if (!operatorName && auditOrigin.actorName) {
+        operatorName = auditOrigin.actorName;
+      }
+
       return {
         ...ev,
         metadata: meta,
         operatorName,
         operatorAvatar,
+        actorType: auditOrigin.actorType,
+        actorTypeLabel: auditOrigin.actorTypeLabel,
+        sourceChannel: auditOrigin.sourceChannel,
+        sourceChannelLabel: auditOrigin.sourceChannelLabel,
+        actorName: auditOrigin.actorName || operatorName,
+        clientIp: auditOrigin.clientIp,
+        mcpKeyId: auditOrigin.mcpKeyId,
+        mcpKeyLabel: auditOrigin.mcpKeyLabel,
+        createdAtBrt: formatAuditTimestampBrt(ev.createdAt),
       };
     });
 
@@ -4919,6 +4997,22 @@ export class CrmService {
     });
 
     if (executor === db) {
+      this.emitUnifiedActionAudit({
+        tenantId,
+        operatorId,
+        action: "create_deal",
+        entityType: "deal",
+        entityId: createdDeal.id,
+        details: {
+          dealId: createdDeal.id,
+          title: createdDeal.title,
+          pipelineId: createdDeal.pipelineId,
+          stageId: createdDeal.stageId,
+          operatorId: createdDeal.operatorId,
+          value: createdDeal.value,
+          entryChannel: createdDeal.entryChannel,
+        },
+      });
       void import("../webhooks/dispatcher")
         .then(({ dispatchDealWebhook }) =>
           dispatchDealWebhook(tenantId, "deal.created", {
@@ -6153,6 +6247,32 @@ export class CrmService {
         origin: "crm",
         version: updatedDeal.version,
       };
+
+      this.emitUnifiedActionAudit({
+        tenantId,
+        operatorId,
+        action: diff.becameWon
+          ? "mark_deal_won"
+          : diff.becameLost
+            ? "mark_deal_lost"
+            : "update_deal",
+        entityType: "deal",
+        entityId: updatedDeal.id,
+        details: {
+          dealId: updatedDeal.id,
+          title: updatedDeal.title,
+          pipelineId: updatedDeal.pipelineId,
+          stageId: updatedDeal.stageId,
+          status: updatedDeal.status,
+          operatorId: updatedDeal.operatorId,
+          previousPipelineId: diff.previousPipelineId,
+          previousStageId: diff.previousStageId,
+          previousStatus: diff.previousStatus,
+          previousOperatorId: diff.previousOperatorId,
+          changedFields: diff.changedFields,
+          lossReason: updatedDeal.lossReason ?? null,
+        },
+      });
 
       void import("../webhooks/dispatcher")
         .then(({ dispatchDealWebhook }) => {
@@ -7420,7 +7540,7 @@ export class CrmService {
       pinnedByOperatorName?: string | null;
     }
   > {
-    return await db.transaction(async (tx) => {
+    const updatedResult = await db.transaction(async (tx) => {
       // 1. Verifica a negociação no tenant
       const [deal] = await tx
         .select({ id: crmDeals.id })
@@ -7886,13 +8006,31 @@ export class CrmService {
         if (orderedNames.length > 0) combinedAssignedName = orderedNames.join(", ");
       }
 
-      return {
+      const result = {
         ...fullActivity.activity,
         assignedToOperatorIds: finalIds,
         operatorName: fullActivity.operatorName || null,
         assignedToOperatorName: combinedAssignedName,
       };
+      return result;
     });
+
+    this.emitUnifiedActionAudit({
+      tenantId,
+      operatorId,
+      action: updatedResult.type === "note" ? "update_deal_note" : "update_task",
+      entityType: updatedResult.type === "note" ? "note" : "task",
+      entityId: updatedResult.id,
+      details: {
+        dealId,
+        activityId: updatedResult.id,
+        title: updatedResult.title,
+        type: updatedResult.type,
+        status: updatedResult.status,
+      },
+    });
+
+    return updatedResult;
   }
 
   /**
@@ -7988,7 +8126,7 @@ export class CrmService {
       throw new CrmValidationError("Tipo de atividade é obrigatório.");
     }
 
-    return await db.transaction(async (tx) => {
+    const createdResult = await db.transaction(async (tx) => {
       // 1. Valida existência do Deal no tenant
       const [deal] = await tx
         .select({ id: crmDeals.id })
@@ -8121,6 +8259,23 @@ export class CrmService {
             : fullActivity.assignedToOperatorName || null,
       };
     });
+
+    this.emitUnifiedActionAudit({
+      tenantId,
+      operatorId,
+      action: createdResult.type === "note" ? "create_deal_note" : "create_task",
+      entityType: createdResult.type === "note" ? "note" : "task",
+      entityId: createdResult.id,
+      details: {
+        dealId,
+        activityId: createdResult.id,
+        title: createdResult.title,
+        type: createdResult.type,
+        status: createdResult.status,
+      },
+    });
+
+    return createdResult;
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -10779,17 +10934,39 @@ export class CrmService {
     executor: any = db
   ): Promise<void> {
     try {
+      await ensureAuditOriginSchema().catch(() => {});
+      const origin = resolveAuditOrigin({
+        tenantId,
+        operatorId,
+        metadata,
+      });
+      const enrichedMetadata: Record<string, any> = {
+        ...metadata,
+        actorType: origin.actorType,
+        sourceChannel: origin.sourceChannel,
+        actorName: origin.actorName,
+        ...(origin.clientIp ? { clientIp: origin.clientIp } : {}),
+        ...(origin.mcpKeyId ? { mcpKeyId: origin.mcpKeyId } : {}),
+        ...(origin.mcpKeyLabel ? { mcpKeyLabel: origin.mcpKeyLabel } : {}),
+        ...(origin.mcpToolName ? { mcpToolName: origin.mcpToolName } : {}),
+      };
       await executor.insert(crmDealEvents).values({
         id: `evt-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
         tenantId,
         dealId,
         eventType,
-        fromStageId: metadata.fromStageId || null,
-        toStageId: metadata.toStageId || null,
-        fromStatus: metadata.fromStatus || null,
-        toStatus: metadata.toStatus || null,
-        metadata,
-        operatorId,
+        fromStageId: enrichedMetadata.fromStageId || null,
+        toStageId: enrichedMetadata.toStageId || null,
+        fromStatus: enrichedMetadata.fromStatus || null,
+        toStatus: enrichedMetadata.toStatus || null,
+        metadata: enrichedMetadata,
+        operatorId: origin.actorOperatorId,
+        actorType: origin.actorType,
+        sourceChannel: origin.sourceChannel,
+        actorName: origin.actorName,
+        clientIp: origin.clientIp,
+        mcpKeyId: origin.mcpKeyId,
+        mcpKeyLabel: origin.mcpKeyLabel,
         createdAt: new Date(),
       });
     } catch (e: any) {

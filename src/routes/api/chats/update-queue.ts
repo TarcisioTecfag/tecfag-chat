@@ -5,6 +5,7 @@ import { conversations, contacts, messages, operators, sectors, agentFlowStates 
 import { eq, and, sql, isNull } from "drizzle-orm";
 import { SessionManager } from "../../../lib/baileys/session-manager";
 import { auditService } from "../../../lib/audit-service";
+import { recordCrmAction } from "../../../lib/crm/action-history";
 import { requireSession } from "../../../lib/auth-session";
 import { getAiPersona } from "../../../lib/ai-persona";
 import { recordCommercialTransfer } from "../../../lib/commercial/tma";
@@ -440,6 +441,28 @@ export const Route = createFileRoute("/api/chats/update-queue")({
           }
 
           if (conv.operatorId !== targetOpId || conv.queueState !== queueState || redirectedChannel) {
+            void recordCrmAction({
+              tenantId: session.tenantId,
+              operatorId: session.operator.id,
+              operatorName: session.operator.name,
+              action:
+                queueState === "finalizados"
+                  ? "close_conversation"
+                  : targetOpId && targetOpId !== conv.operatorId
+                    ? "transfer_conversation"
+                    : "update_conversation",
+              entityType: "conversation",
+              entityId: effectiveConversationId,
+              itemCount: 1,
+              details: {
+                conversationId: effectiveConversationId,
+                previousQueueState: conv.queueState,
+                queueState,
+                previousOperatorId: conv.operatorId,
+                toOperatorId: targetOpId ?? null,
+                sectorId: sectorId ?? updatedConv.sectorId ?? null,
+              },
+            }).catch(() => {});
             try {
               await recordCommercialTransfer(session.tenantId, effectiveConversationId, queueState === "meus" ? targetOpId : null, updatedConv.version, updatedConv.updatedAt);
             } catch (tmaError) {

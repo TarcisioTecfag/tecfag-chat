@@ -1,5 +1,12 @@
-import { and, asc, desc, eq, gte, inArray, isNotNull, lte, notInArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, inArray, isNotNull, lte, notInArray, or, sql } from "drizzle-orm";
 import { db } from "../../db";
+import {
+  extractAuditOriginFromStoredRecord,
+  formatAuditTimestampBrt,
+  normalizeAuditActorType,
+  normalizeAuditSourceChannel,
+} from "../audit/audit-context";
+import { ensureAuditOriginSchema } from "../audit/audit-schema";
 import {
   commercialSettings,
   contacts,
@@ -191,7 +198,7 @@ export const MCP_WAVE1_TOOLS: McpToolDefinition[] = [
     name: "get_deal_audit_log",
     access: "read",
     description:
-      "Consulta o log de auditoria de um card (crm_deal_events e crm_action_history): mudanças de etapa, mudanças de status, motivo de perda, autor, data/hora e metadados, inclusive registros administrativos de arquivamento/exclusão.",
+      "Consulta o log de auditoria completo de um card (crm_deal_events e crm_action_history): quem agiu (human/ai/system), canal (crm_ui/api/mcp/webhook/import), nome do autor, chave MCP, IP de origem, data/hora exata (ISO e BRT), mudanças de etapa, status e metadados.",
     inputSchema: {
       type: "object",
       required: ["dealId"],
@@ -203,6 +210,16 @@ export const MCP_WAVE1_TOOLS: McpToolDefinition[] = [
           items: { type: "string" },
           description:
             "Opcional: filtra por tipos de evento (ex: ['stage_changed', 'status_changed', 'created']).",
+        },
+        actorType: {
+          type: "string",
+          enum: ["human", "ai", "system"],
+          description: "Opcional: filtra por quem agiu ('human', 'ai' ou 'system').",
+        },
+        sourceChannel: {
+          type: "string",
+          enum: ["crm_ui", "api", "mcp", "webhook", "import"],
+          description: "Opcional: filtra pelo canal de origem ('crm_ui', 'api', 'mcp', 'webhook', 'import').",
         },
         includeAdminActions: {
           type: "boolean",
@@ -229,6 +246,76 @@ export const MCP_WAVE1_TOOLS: McpToolDefinition[] = [
       },
     },
   },
+  {
+    name: "search_crm_audit_logs",
+    access: "read",
+    description:
+      "Consulta o log unificado de auditoria do CRM e Atendimento para TODAS as entidades (deal, contact, account, task, note, conversation), filtrável por quem agiu (human/ai/system), canal (crm_ui/api/mcp/webhook/import), IP, entidade, operador e período, retornando data/hora exata (ISO e BRT), autor, chave MCP e detalhes.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        tenantId: TENANT_ID_PROP,
+        entityType: {
+          type: "string",
+          description: "Opcional: tipo da entidade ('deal', 'contact', 'account', 'task', 'note', 'conversation', etc.).",
+        },
+        entityId: {
+          type: "string",
+          description: "Opcional: ID exato do registro auditado (dealId, contactId, accountId, taskId, conversationId).",
+        },
+        action: {
+          type: "string",
+          description: "Opcional: código da ação (ex: 'create_deal', 'update_deal', 'create_contact', 'transfer_conversation').",
+        },
+        actorType: {
+          type: "string",
+          enum: ["human", "ai", "system"],
+          description: "Opcional: filtra por quem agiu ('human', 'ai' ou 'system').",
+        },
+        sourceChannel: {
+          type: "string",
+          enum: ["crm_ui", "api", "mcp", "webhook", "import"],
+          description: "Opcional: filtra por canal ('crm_ui', 'api', 'mcp', 'webhook', 'import').",
+        },
+        operatorId: {
+          type: "string",
+          description: "Opcional: ID do operador humano autor da ação.",
+        },
+        clientIp: {
+          type: "string",
+          description: "Opcional: filtro parcial ou exato pelo endereço IP de origem.",
+        },
+        search: {
+          type: "string",
+          description: "Opcional: busca livre em nome do autor, entidade, ID, chave MCP ou detalhes.",
+        },
+        startDate: {
+          type: "string",
+          description: "Opcional: data/hora inicial ISO 8601 ou YYYY-MM-DD.",
+        },
+        endDate: {
+          type: "string",
+          description: "Opcional: data/hora final ISO 8601 ou YYYY-MM-DD.",
+        },
+        order: {
+          type: "string",
+          enum: ["desc", "asc"],
+          default: "desc",
+          description: "Ordenação cronológica ('desc' = mais recente primeiro; 'asc' = mais antigo primeiro).",
+        },
+        limit: {
+          type: "number",
+          default: 50,
+          description: "Máximo de registros retornados (1 a 200, padrão: 50).",
+        },
+        offset: {
+          type: "number",
+          default: 0,
+          description: "Deslocamento para paginação (padrão: 0).",
+        },
+      },
+    },
+  },
 ];
 
 export const MCP_WAVE1_TOOL_LABELS_PT: Record<string, string> = {
@@ -237,6 +324,7 @@ export const MCP_WAVE1_TOOL_LABELS_PT: Record<string, string> = {
   check_operator_schedule_conflict: "Checagem de Conflito de Agenda do Operador",
   get_stage_queue: "Fila de Espera e SLA da Etapa (CRM)",
   get_deal_audit_log: "Log de Auditoria do Card (CRM)",
+  search_crm_audit_logs: "Consulta Unificada de Auditoria (CRM & Chat)",
 };
 
 const WAVE1_TOOL_NAMES = new Set(MCP_WAVE1_TOOLS.map((t) => t.name));
@@ -1231,6 +1319,7 @@ export async function executeWave1McpTool(
 
     // ── 5. GET DEAL AUDIT LOG (READ — ITEM 17 PARCIAL) ───────────────────────
     case "get_deal_audit_log": {
+      await ensureAuditOriginSchema().catch(() => {});
       const dealId = asTrimmedString(args.dealId);
       if (!dealId) {
         throw new Error("Campo obrigatório: 'dealId'.");
@@ -1239,6 +1328,8 @@ export async function executeWave1McpTool(
       const eventTypes = Array.isArray(args.eventTypes)
         ? args.eventTypes.map((e) => String(e || "").trim()).filter(Boolean)
         : [];
+      const actorTypeFilter = args.actorType ? normalizeAuditActorType(args.actorType) : null;
+      const sourceChannelFilter = args.sourceChannel ? normalizeAuditSourceChannel(args.sourceChannel) : null;
       const includeAdminActions = args.includeAdminActions !== false;
       const orderDir = args.order === "asc" ? "asc" : "desc";
       const limit = clampInt(args.limit, 100, 1, 300);
@@ -1267,7 +1358,12 @@ export async function executeWave1McpTool(
             .where(
               and(
                 eq(crmActionHistory.tenantId, tenantId),
-                sql`${crmActionHistory.details}::text LIKE ${`%${dealId}%`}`,
+                or(
+                  eq(crmActionHistory.entityId, dealId),
+                  sql`${crmActionHistory.details}::text LIKE ${`%${dealId}%`}`,
+                ),
+                actorTypeFilter ? eq(crmActionHistory.actorType, actorTypeFilter) : undefined,
+                sourceChannelFilter ? eq(crmActionHistory.sourceChannel, sourceChannelFilter) : undefined,
               ),
             )
             .orderBy(orderDir === "asc" ? asc(crmActionHistory.createdAt) : desc(crmActionHistory.createdAt))
@@ -1275,6 +1371,7 @@ export async function executeWave1McpTool(
         : [];
 
       const matchingAdminActions = adminActionRows.filter((row) => {
+        if (row.entityId === dealId) return true;
         const d = row.details as Record<string, unknown> | null;
         if (!d || typeof d !== "object") return false;
         if (d.dealId === dealId) return true;
@@ -1293,6 +1390,12 @@ export async function executeWave1McpTool(
       ];
       if (eventTypes.length > 0) {
         eventConditions.push(inArray(crmDealEvents.eventType, eventTypes));
+      }
+      if (actorTypeFilter) {
+        eventConditions.push(eq(crmDealEvents.actorType, actorTypeFilter));
+      }
+      if (sourceChannelFilter) {
+        eventConditions.push(eq(crmDealEvents.sourceChannel, sourceChannelFilter));
       }
 
       const [countRow, rawEvents] = deal
@@ -1348,6 +1451,20 @@ export async function executeWave1McpTool(
             ? (ev.metadata as Record<string, unknown>)
             : {};
         const op = ev.operatorId ? opMap.get(ev.operatorId) : undefined;
+        const origin = extractAuditOriginFromStoredRecord(
+          {
+            actorType: ev.actorType,
+            sourceChannel: ev.sourceChannel,
+            actorName: ev.actorName,
+            clientIp: ev.clientIp,
+            mcpKeyId: ev.mcpKeyId,
+            mcpKeyLabel: ev.mcpKeyLabel,
+            operatorId: ev.operatorId,
+            operatorName: op?.name ?? null,
+            metadata: meta,
+          },
+          tenantId,
+        );
         const lossReason =
           typeof meta.lossReason === "string"
             ? meta.lossReason
@@ -1359,8 +1476,17 @@ export async function executeWave1McpTool(
           id: ev.id,
           eventType: ev.eventType,
           createdAt: ev.createdAt.toISOString(),
+          createdAtBrt: formatAuditTimestampBrt(ev.createdAt),
+          actorType: origin.actorType,
+          actorTypeLabel: origin.actorTypeLabel,
+          sourceChannel: origin.sourceChannel,
+          sourceChannelLabel: origin.sourceChannelLabel,
+          actorName: origin.actorName,
+          clientIp: origin.clientIp,
+          mcpKeyId: origin.mcpKeyId,
+          mcpKeyLabel: origin.mcpKeyLabel,
           operatorId: ev.operatorId,
-          operatorName: op?.name ?? (typeof meta.actorName === "string" ? meta.actorName : null),
+          operatorName: origin.sourceChannel === "mcp" ? origin.actorName : (op?.name ?? origin.actorName),
           operatorEmail: op?.email ?? null,
           fromStageId: ev.fromStageId,
           fromStageName: ev.fromStageId ? (stageMap.get(ev.fromStageId) ?? null) : null,
@@ -1390,15 +1516,173 @@ export async function executeWave1McpTool(
         returnedEvents: events.length,
         events,
         adminActionsCount: matchingAdminActions.length,
-        adminActions: matchingAdminActions.map((a) => ({
-          id: a.id,
-          action: a.action,
-          entityType: a.entityType,
-          operatorId: a.operatorId,
-          operatorName: a.operatorName,
-          createdAt: a.createdAt.toISOString(),
-          details: a.details,
-        })),
+        adminActions: matchingAdminActions.map((a) => {
+          const origin = extractAuditOriginFromStoredRecord(
+            {
+              actorType: a.actorType,
+              sourceChannel: a.sourceChannel,
+              clientIp: a.clientIp,
+              mcpKeyId: a.mcpKeyId,
+              mcpKeyLabel: a.mcpKeyLabel,
+              operatorId: a.operatorId,
+              operatorName: a.operatorName,
+              details: a.details as Record<string, unknown>,
+            },
+            tenantId,
+          );
+          return {
+            id: a.id,
+            action: a.action,
+            entityType: a.entityType,
+            entityId: a.entityId ?? null,
+            actorType: origin.actorType,
+            actorTypeLabel: origin.actorTypeLabel,
+            sourceChannel: origin.sourceChannel,
+            sourceChannelLabel: origin.sourceChannelLabel,
+            actorName: origin.actorName || a.operatorName,
+            clientIp: origin.clientIp,
+            mcpKeyId: origin.mcpKeyId,
+            mcpKeyLabel: origin.mcpKeyLabel,
+            operatorId: a.operatorId,
+            operatorName: a.operatorName,
+            createdAt: a.createdAt.toISOString(),
+            createdAtBrt: formatAuditTimestampBrt(a.createdAt),
+            details: a.details,
+          };
+        }),
+      };
+    }
+
+    // ── 6. SEARCH CRM AUDIT LOGS (READ — AUDITORIA UNIFICADA 6 ENTIDADES) ────
+    case "search_crm_audit_logs": {
+      await ensureAuditOriginSchema().catch(() => {});
+      const entityType = asTrimmedString(args.entityType);
+      const entityId = asTrimmedString(args.entityId);
+      const action = asTrimmedString(args.action);
+      const actorType = args.actorType ? normalizeAuditActorType(args.actorType) : null;
+      const sourceChannel = args.sourceChannel ? normalizeAuditSourceChannel(args.sourceChannel) : null;
+      const operatorId = asTrimmedString(args.operatorId);
+      const clientIp = asTrimmedString(args.clientIp);
+      const search = asTrimmedString(args.search);
+      const startDateRaw = asTrimmedString(args.startDate);
+      const endDateRaw = asTrimmedString(args.endDate);
+      const orderDir = args.order === "asc" ? "asc" : "desc";
+      const limit = clampInt(args.limit, 50, 1, 200);
+      const offset = clampInt(args.offset, 0, 0, 50_000);
+
+      let startDate: Date | undefined;
+      if (startDateRaw) {
+        const parsed = new Date(startDateRaw.includes("T") ? startDateRaw : `${startDateRaw}T00:00:00-03:00`);
+        if (Number.isNaN(parsed.getTime())) {
+          throw new Error(`Data inválida em 'startDate': '${startDateRaw}'.`);
+        }
+        startDate = parsed;
+      }
+
+      let endDate: Date | undefined;
+      if (endDateRaw) {
+        const parsed = new Date(endDateRaw.includes("T") ? endDateRaw : `${endDateRaw}T23:59:59.999-03:00`);
+        if (Number.isNaN(parsed.getTime())) {
+          throw new Error(`Data inválida em 'endDate': '${endDateRaw}'.`);
+        }
+        endDate = parsed;
+      }
+
+      const conditions = [eq(crmActionHistory.tenantId, tenantId)];
+      if (entityType) conditions.push(eq(crmActionHistory.entityType, entityType));
+      if (entityId) {
+        conditions.push(
+          or(
+            eq(crmActionHistory.entityId, entityId),
+            sql`CAST(${crmActionHistory.details} AS text) ILIKE ${`%${entityId}%`}`,
+          )!,
+        );
+      }
+      if (action) conditions.push(eq(crmActionHistory.action, action));
+      if (actorType) conditions.push(eq(crmActionHistory.actorType, actorType));
+      if (sourceChannel) conditions.push(eq(crmActionHistory.sourceChannel, sourceChannel));
+      if (operatorId) conditions.push(eq(crmActionHistory.operatorId, operatorId));
+      if (clientIp) conditions.push(ilike(crmActionHistory.clientIp, `%${clientIp}%`));
+      if (startDate) conditions.push(gte(crmActionHistory.createdAt, startDate));
+      if (endDate) conditions.push(lte(crmActionHistory.createdAt, endDate));
+      if (search) {
+        const pattern = `%${search}%`;
+        conditions.push(
+          or(
+            ilike(crmActionHistory.operatorName, pattern),
+            ilike(crmActionHistory.action, pattern),
+            ilike(crmActionHistory.entityType, pattern),
+            ilike(crmActionHistory.entityId, pattern),
+            ilike(crmActionHistory.clientIp, pattern),
+            ilike(crmActionHistory.mcpKeyLabel, pattern),
+            sql`CAST(${crmActionHistory.details} AS text) ILIKE ${pattern}`,
+          )!,
+        );
+      }
+
+      const rows = await db
+        .select()
+        .from(crmActionHistory)
+        .where(and(...conditions))
+        .orderBy(orderDir === "asc" ? asc(crmActionHistory.createdAt) : desc(crmActionHistory.createdAt))
+        .limit(limit + 1)
+        .offset(offset);
+
+      const hasMore = rows.length > limit;
+      const entries = rows.slice(0, limit).map((row) => {
+        const origin = extractAuditOriginFromStoredRecord(
+          {
+            actorType: row.actorType,
+            sourceChannel: row.sourceChannel,
+            clientIp: row.clientIp,
+            mcpKeyId: row.mcpKeyId,
+            mcpKeyLabel: row.mcpKeyLabel,
+            operatorId: row.operatorId,
+            operatorName: row.operatorName,
+            details: row.details as Record<string, unknown>,
+          },
+          tenantId,
+        );
+        return {
+          id: row.id,
+          entityType: row.entityType,
+          entityId: row.entityId ?? null,
+          action: row.action,
+          itemCount: row.itemCount,
+          actorType: origin.actorType,
+          actorTypeLabel: origin.actorTypeLabel,
+          sourceChannel: origin.sourceChannel,
+          sourceChannelLabel: origin.sourceChannelLabel,
+          actorName: origin.actorName || row.operatorName,
+          operatorId: row.operatorId,
+          clientIp: origin.clientIp,
+          mcpKeyId: origin.mcpKeyId,
+          mcpKeyLabel: origin.mcpKeyLabel,
+          createdAt: row.createdAt.toISOString(),
+          createdAtBrt: formatAuditTimestampBrt(row.createdAt),
+          details: row.details,
+        };
+      });
+
+      return {
+        tenantId,
+        filters: {
+          entityType: entityType ?? null,
+          entityId: entityId ?? null,
+          action: action ?? null,
+          actorType: actorType ?? null,
+          sourceChannel: sourceChannel ?? null,
+          operatorId: operatorId ?? null,
+          clientIp: clientIp ?? null,
+          startDate: startDate?.toISOString() ?? null,
+          endDate: endDate?.toISOString() ?? null,
+        },
+        order: orderDir,
+        limit,
+        offset,
+        returnedEntries: entries.length,
+        hasMore,
+        entries,
       };
     }
 

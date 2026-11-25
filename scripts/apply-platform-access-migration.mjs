@@ -334,6 +334,13 @@ const migrations = [
       import.meta.url,
     ),
   },
+  {
+    name: "0070_audit_origin_tracking",
+    url: new URL(
+      "../src/db/migrations/0070_audit_origin_tracking.sql",
+      import.meta.url,
+    ),
+  },
 ];
 const databaseUrl = process.env.DATABASE_URL;
 
