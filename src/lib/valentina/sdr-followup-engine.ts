@@ -18,6 +18,7 @@ import {
   deterministicIndustrialFollowUpMessageId,
   selectRecentCycleMessages,
 } from "../triage/industrial-silence-policy";
+import { decideIndustrialFollowUpWithAi } from "../triage/industrial-followup-ai";
 
 /**
  * Motor Autônomo de Follow-up de Silêncio (Reengajamento Ativo)
@@ -179,6 +180,8 @@ export class SdrFollowupEngine {
         const decision = evaluateIndustrialSilence({
           now,
           withinSchedule,
+          scheduleStartHour: scheduleCfg.startHour,
+          scheduleTimezone: scheduleCfg.timezone,
           flow: {
             id: flow.id,
             tenantId,
@@ -229,7 +232,15 @@ export class SdrFollowupEngine {
         }
 
         if (decision.action === "reset_followup") {
-          const resetMeta = { ...meta, followUpStage: 0 };
+          const resetMeta = {
+            ...meta,
+            followUpStage: 0,
+            followUpSuppressedCycle: null,
+            followUpSuppressedAt: null,
+            followUpDeferredCycle: null,
+            followUpDeferredAt: null,
+            followUpDeferredUntil: null,
+          };
           await db
             .update(agentFlowStates)
             .set({
@@ -283,12 +294,147 @@ export class SdrFollowupEngine {
 
         if (decision.action === "send_followup" && (decision.nextStage === 1 || decision.nextStage === 2)) {
           const prevStage = Number(meta.followUpStage ?? 0);
+          const lastCycleMsg = cycleMsgs[cycleMsgs.length - 1];
+          const lastCycleMsgMs = lastCycleMsg
+            ? lastCycleMsg.sentAt instanceof Date
+              ? lastCycleMsg.sentAt.getTime()
+              : Date.parse(String(lastCycleMsg.sentAt))
+            : flow.lastInteractionAt.getTime();
+          const silenceMinutes = Math.max(0, (now.getTime() - lastCycleMsgMs) / 60_000);
+          const isSiteConv =
+            flow.conversationId.startsWith("conv-lc-") || flow.conversationId.startsWith("site-");
+
+          let followUpText: string;
+          let aiObservabilityMeta: Record<string, unknown> = {};
+
+          const canUseAiJudge =
+            silenceCfg.aiDecisionEnabled !== false &&
+            typeof decideIndustrialFollowUpWithAi === "function";
+
+          if (canUseAiJudge) {
+            const aiResult = await decideIndustrialFollowUpWithAi({
+              tenantId,
+              conversationId: flow.conversationId,
+              personaName: persona.name,
+              personaCompany: persona.company || "Empresa",
+              personaGender: persona.gender,
+              stage: decision.nextStage,
+              channel: isSiteConv ? "site" : "whatsapp",
+              silenceMinutes,
+              now,
+              timezone: scheduleCfg.timezone,
+              subflow: typeof meta.subflow === "string" ? meta.subflow : null,
+              targetFunnel: typeof meta.targetFunnel === "string" ? meta.targetFunnel : null,
+              currentStep: flow.currentStep,
+              collectedData,
+              missingFields: Array.isArray(meta.missingFields)
+                ? meta.missingFields.filter((v): v is string => typeof v === "string")
+                : null,
+              recentMessages: cycleMsgs,
+            });
+
+            if (aiResult.decision === "skip_close") {
+              await db
+                .update(agentFlowStates)
+                .set({
+                  metadata: {
+                    ...meta,
+                    followUpSuppressedCycle: cycleIso,
+                    followUpSuppressedAt: now.toISOString(),
+                    followUpDeferredUntil: null,
+                    followUpAiDecision: "skip_close",
+                    followUpAiReason: aiResult.reason,
+                    followUpAiModel: aiResult.model,
+                    followUpAiSource: aiResult.source,
+                    followUpAiAt: now.toISOString(),
+                    ...(partialLeadRescuedAt ? { partialLeadRescuedAt } : {}),
+                  },
+                })
+                .where(
+                  and(
+                    eq(agentFlowStates.id, flow.id),
+                    eq(agentFlowStates.tenantId, tenantId),
+                    eq(agentFlowStates.outcome, "in_progress"),
+                    isNull(agentFlowStates.completedAt),
+                    eq(agentFlowStates.lastInteractionAt, flow.lastInteractionAt),
+                    sql`COALESCE(${agentFlowStates.metadata}, '{}'::jsonb) = ${JSON.stringify(meta)}::jsonb`,
+                    sql`COALESCE((${agentFlowStates.metadata}->>'followUpStage')::int, 0) = ${prevStage}`,
+                  ),
+                );
+              console.log(
+                `[SdrFollowupEngine] 🧠 Follow-up Estágio ${decision.nextStage} suprimido pela IA (${flow.conversationId}): ${aiResult.reason}`,
+              );
+              continue;
+            }
+
+            if (aiResult.decision === "defer") {
+              const deferMinutes = aiResult.deferMinutes || 120;
+              const deferredUntilIso = new Date(now.getTime() + deferMinutes * 60_000).toISOString();
+              await db
+                .update(agentFlowStates)
+                .set({
+                  metadata: {
+                    ...meta,
+                    followUpDeferredCycle: cycleIso,
+                    followUpDeferredAt: now.toISOString(),
+                    followUpDeferredUntil: deferredUntilIso,
+                    followUpAiDecision: "defer",
+                    followUpAiReason: aiResult.reason,
+                    followUpAiModel: aiResult.model,
+                    followUpAiSource: aiResult.source,
+                    followUpAiAt: now.toISOString(),
+                    ...(partialLeadRescuedAt ? { partialLeadRescuedAt } : {}),
+                  },
+                })
+                .where(
+                  and(
+                    eq(agentFlowStates.id, flow.id),
+                    eq(agentFlowStates.tenantId, tenantId),
+                    eq(agentFlowStates.outcome, "in_progress"),
+                    isNull(agentFlowStates.completedAt),
+                    eq(agentFlowStates.lastInteractionAt, flow.lastInteractionAt),
+                    sql`COALESCE(${agentFlowStates.metadata}, '{}'::jsonb) = ${JSON.stringify(meta)}::jsonb`,
+                    sql`COALESCE((${agentFlowStates.metadata}->>'followUpStage')::int, 0) = ${prevStage}`,
+                  ),
+                );
+              console.log(
+                `[SdrFollowupEngine] ⏳ Follow-up Estágio ${decision.nextStage} adiado pela IA até ${deferredUntilIso} (${flow.conversationId}): ${aiResult.reason}`,
+              );
+              continue;
+            }
+
+            followUpText =
+              aiResult.message ||
+              buildIndustrialFollowUpText({
+                personaName: persona.name,
+                stage: decision.nextStage,
+                collectedData,
+                metadata: meta,
+              });
+            aiObservabilityMeta = {
+              followUpDeferredUntil: null,
+              followUpAiDecision: "send",
+              followUpAiReason: aiResult.reason,
+              followUpAiModel: aiResult.model,
+              followUpAiSource: aiResult.source,
+              followUpAiAt: now.toISOString(),
+            };
+          } else {
+            followUpText = buildIndustrialFollowUpText({
+              personaName: persona.name,
+              stage: decision.nextStage,
+              collectedData,
+              metadata: meta,
+            });
+          }
+
           const nextMeta = {
             ...meta,
             followUpStage: decision.nextStage,
             lastFollowUpCycle: cycleIso,
             lastFollowUpStage: decision.nextStage,
             lastFollowUpAt: now.toISOString(),
+            ...aiObservabilityMeta,
             ...(partialLeadRescuedAt ? { partialLeadRescuedAt } : {}),
           };
 
@@ -315,12 +461,6 @@ export class SdrFollowupEngine {
             continue;
           }
 
-          const followUpText = buildIndustrialFollowUpText({
-            personaName: persona.name,
-            stage: decision.nextStage,
-            collectedData,
-            metadata: meta,
-          });
           const msgId = deterministicIndustrialFollowUpMessageId(
             tenantId,
             flow.id,

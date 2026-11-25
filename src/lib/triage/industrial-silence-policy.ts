@@ -46,6 +46,16 @@ export interface IndustrialSilenceConfig {
   endOfDayHour: number;
   endOfDayHourBrt: number;
   sitePartialRescueMinutes: number;
+  /** Minutos de silêncio para 1 toque curto no Site enquanto o visitante ainda está na sessão. */
+  siteFollowUpMinutes: number;
+  /** Limite máximo de silêncio no Site para disparar follow-up (evita cobrar horas depois / madrugada). */
+  siteFollowUpMaxSilenceMinutes: number;
+  /** Minutos após abertura do expediente (ex.: 30 -> 08:30 BRT) antes de retomar leads da madrugada. */
+  morningSoftStartMinutes: number;
+  /** Limite seguro da janela de 24h da Meta (padrão 23h45 = 1425 min) para envio em texto livre. */
+  metaWindowMinutes: number;
+  /** Habilita o juiz e redator contextual via Vertex AI (Gemini Flash). */
+  aiDecisionEnabled: boolean;
   pauseOutsideSchedule: boolean;
   pauseFollowUpOutsideSchedule: boolean;
 }
@@ -60,6 +70,11 @@ export const DEFAULT_INDUSTRIAL_SILENCE_CONFIG: IndustrialSilenceConfig = {
   endOfDayHour: 20,
   endOfDayHourBrt: 20,
   sitePartialRescueMinutes: 10,
+  siteFollowUpMinutes: 5,
+  siteFollowUpMaxSilenceMinutes: 15,
+  morningSoftStartMinutes: 30,
+  metaWindowMinutes: 1425,
+  aiDecisionEnabled: true,
   pauseOutsideSchedule: true,
   pauseFollowUpOutsideSchedule: true,
 };
@@ -181,6 +196,34 @@ export function parseIndustrialSilenceConfig(
     5,
     120,
   );
+  const siteFollowUpMinutes = clampInt(
+    source.siteFollowUpMinutes,
+    DEFAULT_INDUSTRIAL_SILENCE_CONFIG.siteFollowUpMinutes,
+    2,
+    30,
+  );
+  const siteFollowUpMaxSilenceMinutes = clampInt(
+    source.siteFollowUpMaxSilenceMinutes,
+    DEFAULT_INDUSTRIAL_SILENCE_CONFIG.siteFollowUpMaxSilenceMinutes,
+    siteFollowUpMinutes,
+    60,
+  );
+  const morningSoftStartMinutes = clampInt(
+    source.morningSoftStartMinutes,
+    DEFAULT_INDUSTRIAL_SILENCE_CONFIG.morningSoftStartMinutes,
+    0,
+    120,
+  );
+  const metaWindowMinutes = clampInt(
+    source.metaWindowMinutes,
+    DEFAULT_INDUSTRIAL_SILENCE_CONFIG.metaWindowMinutes,
+    60,
+    1440,
+  );
+  const aiDecisionEnabled =
+    typeof source.aiDecisionEnabled === "boolean"
+      ? source.aiDecisionEnabled
+      : DEFAULT_INDUSTRIAL_SILENCE_CONFIG.aiDecisionEnabled;
   const pauseOutsideSchedule =
     typeof source.pauseOutsideSchedule === "boolean"
       ? source.pauseOutsideSchedule
@@ -198,6 +241,11 @@ export function parseIndustrialSilenceConfig(
     endOfDayHour,
     endOfDayHourBrt: endOfDayHour,
     sitePartialRescueMinutes,
+    siteFollowUpMinutes,
+    siteFollowUpMaxSilenceMinutes,
+    morningSoftStartMinutes,
+    metaWindowMinutes,
+    aiDecisionEnabled,
     pauseOutsideSchedule,
     pauseFollowUpOutsideSchedule: pauseOutsideSchedule,
   };
@@ -355,13 +403,52 @@ export function deterministicIndustrialHandoffConfirmMessageId(
   return `hconf-${digest}`;
 }
 
+export function formatFirstNameTitleCase(rawName: string): string {
+  const cleaned = String(rawName || "")
+    .trim()
+    .split(/\s+/)[0]
+    ?.replace(/[^\p{L}-]/gu, "");
+  if (!cleaned || cleaned.length < 2) return "";
+  return cleaned
+    .split("-")
+    .map((part) => {
+      if (!part) return "";
+      const lower = part.toLocaleLowerCase("pt-BR");
+      return lower.charAt(0).toLocaleUpperCase("pt-BR") + lower.slice(1);
+    })
+    .filter(Boolean)
+    .join("-");
+}
+
 function extractFirstName(collectedData?: Record<string, unknown> | null): string | null {
   if (!collectedData || typeof collectedData !== "object") return null;
   const entry = collectedData["NOME COMPLETO"] as { value?: unknown; status?: unknown } | undefined;
   const raw = typeof entry?.value === "string" ? entry.value.trim() : "";
   if (!raw || /aguardando|n[aã]o informado|visitante|cliente/i.test(raw)) return null;
-  const first = raw.split(/\s+/)[0]?.replace(/[^\p{L}-]/gu, "");
-  return first && first.length >= 2 ? first : null;
+  const formatted = formatFirstNameTitleCase(raw);
+  return formatted && formatted.length >= 2 ? formatted : null;
+}
+
+function extractShortFollowUpTopic(collectedData?: Record<string, unknown> | null): string | null {
+  if (!collectedData || typeof collectedData !== "object") return null;
+  const candidates = [
+    collectedData["MÁQUINA / PEÇA / INTERESSE"],
+    collectedData["RAMO / O QUE EMBALA"],
+  ];
+  for (const item of candidates) {
+    const raw =
+      typeof item === "string"
+        ? item.trim()
+        : typeof (item as { value?: unknown } | null)?.value === "string"
+          ? String((item as { value?: unknown }).value).trim()
+          : "";
+    if (!raw || /^(aguardando|n[aã]o informado|-|\?)$/i.test(raw)) continue;
+    const compact = raw.replace(/\s+/g, " ").trim();
+    if (compact.length >= 3 && compact.length <= 48) {
+      return compact.charAt(0).toLocaleLowerCase("pt-BR") + compact.slice(1);
+    }
+  }
+  return null;
 }
 
 export function buildIndustrialFollowUpText(params: {
@@ -372,10 +459,35 @@ export function buildIndustrialFollowUpText(params: {
   cycle?: string;
 }): string {
   const firstName = extractFirstName(params.collectedData);
+  const topic = extractShortFollowUpTopic(params.collectedData);
+  const missingFields = Array.isArray(params.metadata?.missingFields)
+    ? params.metadata.missingFields.map((v) => String(v || "").toLowerCase())
+    : [];
+
   if (params.stage === 1) {
+    const greeting = firstName ? `Oi, ${firstName}!` : "Oi!";
+    if (missingFields.some((f) => f.includes("cnpj") || f.includes("cpf") || f.includes("empresa"))) {
+      return topic
+        ? `${greeting} Se estiver sem o CNPJ fácil agora, pode mandar só o nome da empresa que eu já adianto seu atendimento sobre ${topic}.`
+        : `${greeting} Se estiver sem o CNPJ fácil agora, pode mandar só o nome da empresa que eu já adianto seu atendimento por aqui.`;
+    }
+    if (missingFields.some((f) => f.includes("volume") || f.includes("produc"))) {
+      return topic
+        ? `${greeting} Para o especialista indicar a melhor opção em ${topic}, você tem uma ideia aproximada da sua produção diária?`
+        : `${greeting} Para o especialista indicar a melhor opção, você tem uma ideia aproximada da sua produção diária?`;
+    }
+    if (topic) {
+      return `${greeting} Seguimos com o atendimento sobre ${topic} por aqui — assim que puder responder minha última pergunta, já dou sequência.`;
+    }
     return firstName
-      ? `Olá, ${firstName}! Conseguiu ver minha última mensagem? Assim que puder me responder, damos sequência no seu atendimento.`
-      : "Olá! Conseguiu ver minha última mensagem? Assim que puder me responder, damos sequência no seu atendimento.";
+      ? `Oi, ${firstName}! Seguimos com seu atendimento por aqui — assim que puder me responder, já dou sequência com nossa equipe.`
+      : "Oi! Seguimos com seu atendimento por aqui — assim que puder me responder, já dou sequência com nossa equipe.";
+  }
+
+  if (topic) {
+    return firstName
+      ? `${firstName}, vou deixar o atendimento sobre ${topic} em aberto por aqui para não te atrapalhar. Quando quiser continuar, é só chamar!`
+      : `Vou deixar o atendimento sobre ${topic} em aberto por aqui para não te atrapalhar. Quando quiser continuar, é só chamar!`;
   }
   return firstName
     ? `${firstName}, vou deixar nosso atendimento em aberto por aqui para não te incomodar. Quando quiser continuar, é só mandar mensagem!`
@@ -411,6 +523,10 @@ function resolvePreSilenceStage(metadata?: Record<string, unknown> | null): stri
 export interface IndustrialSilenceEvalInput {
   now: Date;
   withinSchedule: boolean;
+  /** Hora de abertura configurada do expediente comercial (padrão 8). */
+  scheduleStartHour?: number;
+  /** Timezone configurado do expediente comercial (padrão America/Sao_Paulo). */
+  scheduleTimezone?: string;
   flow: {
     id: string;
     tenantId: string;
@@ -608,7 +724,55 @@ export function evaluateIndustrialSilence(
   const rescuePartialLead =
     isSite && hasPartial && !alreadyRescued && silenceMinutes >= cfg.sitePartialRescueMinutes;
 
-  const zonedNow = getZonedDateParts(input.now, DEFAULT_INDUSTRIAL_SCHEDULE.timezone);
+  // Hard Guard: nunca disparar follow-up em texto livre se o cliente NUNCA respondeu no ciclo
+  // (ex.: disparo frio de template outbound sem engajamento do lead).
+  let latestClientMs: number | null = null;
+  for (let i = cycleMsgs.length - 1; i >= 0; i--) {
+    if (cycleMsgs[i].senderType === "client") {
+      const ms =
+        cycleMsgs[i].sentAt instanceof Date
+          ? (cycleMsgs[i].sentAt as Date).getTime()
+          : Date.parse(String(cycleMsgs[i].sentAt));
+      if (Number.isFinite(ms)) {
+        latestClientMs = ms;
+        break;
+      }
+    }
+  }
+  if (latestClientMs === null) {
+    return { action: "none", reason: "no_client_reply_in_cycle", rescuePartialLead };
+  }
+
+  // Hard Guard: se o juiz de IA já determinou que este ciclo não deve receber follow-up
+  // (recusa educada, dúvida já resolvida, assunto encerrado), não entra em loop nem volta a cobrar
+  // até que chegue uma nova mensagem do cliente.
+  const suppressedCycle =
+    typeof metadata.followUpSuppressedCycle === "string" ? metadata.followUpSuppressedCycle : null;
+  const suppressedAtMs = parseIsoTimestamp(metadata.followUpSuppressedAt);
+  if (
+    suppressedCycle === cycleIso &&
+    (suppressedAtMs === null || latestClientMs <= suppressedAtMs)
+  ) {
+    return { action: "none", reason: "followup_suppressed_by_ai", rescuePartialLead };
+  }
+
+  // Hard Guard: se o juiz de IA adiou o follow-up para respeitar um prazo citado pelo cliente
+  // (ex.: "estou dirigindo", "vejo à tarde"), aguarda até o horário combinado.
+  const deferredCycle =
+    typeof metadata.followUpDeferredCycle === "string" ? metadata.followUpDeferredCycle : null;
+  const deferredUntilMs = parseIsoTimestamp(metadata.followUpDeferredUntil);
+  const deferredAtMs = parseIsoTimestamp(metadata.followUpDeferredAt);
+  if (
+    deferredCycle === cycleIso &&
+    deferredUntilMs !== null &&
+    deferredUntilMs > input.now.getTime() &&
+    (deferredAtMs === null || latestClientMs <= deferredAtMs)
+  ) {
+    return { action: "none", reason: "followup_deferred_by_ai", rescuePartialLead };
+  }
+
+  const tz = input.scheduleTimezone || DEFAULT_INDUSTRIAL_SCHEDULE.timezone;
+  const zonedNow = getZonedDateParts(input.now, tz);
   const rescheduleMs = findLatestClientRescheduleMs(cycleMsgs);
   if (rescheduleMs !== null) {
     const hoursSinceReschedule = (input.now.getTime() - rescheduleMs) / 3_600_000;
@@ -657,9 +821,57 @@ export function evaluateIndustrialSilence(
     return { action: "none", reason: "outside_business_schedule", rescuePartialLead };
   }
 
+  // Hard Guard: WhatsApp Meta só aceita texto livre dentro da janela de 24h da última msg do cliente.
+  if (!isSite) {
+    const minutesSinceLastClient = Math.max(0, (input.now.getTime() - latestClientMs) / 60_000);
+    if (minutesSinceLastClient >= cfg.metaWindowMinutes) {
+      return { action: "none", reason: "whatsapp_24h_window_expired", rescuePartialLead };
+    }
+  }
+
+  // Hard Guard: abertura suave pós-madrugada — evita disparar em massa às 08:00:00 cravado
+  // para atendimentos que pararam fora do expediente anterior (libera a partir de startHour + 30min).
+  const scheduleStartHour =
+    typeof input.scheduleStartHour === "number" && Number.isFinite(input.scheduleStartHour)
+      ? Math.trunc(input.scheduleStartHour)
+      : DEFAULT_INDUSTRIAL_SCHEDULE.startHour;
+  if (cfg.pauseOutsideSchedule && input.withinSchedule && cfg.morningSoftStartMinutes > 0) {
+    const zonedLastMsg = getZonedDateParts(new Date(lastMsgMs), tz);
+    const sentBeforeTodayOpen =
+      zonedLastMsg.dateIso < zonedNow.dateIso || zonedLastMsg.hour < scheduleStartHour;
+    const nowMinutesOfDay = zonedNow.hour * 60 + zonedNow.minute;
+    const softStartMinutesOfDay = scheduleStartHour * 60 + cfg.morningSoftStartMinutes;
+    if (sentBeforeTodayOpen && nowMinutesOfDay < softStartMinutesOfDay) {
+      return { action: "none", reason: "morning_soft_start_window", rescuePartialLead };
+    }
+  }
+
   const lastFollowUpCycle =
     typeof metadata.lastFollowUpCycle === "string" ? metadata.lastFollowUpCycle : null;
   const lastFollowUpStage = Number(metadata.lastFollowUpStage || 0);
+
+  // Hard Guard: canal Site (conv-lc-* / site-*) — nunca cobrar horas depois (ex.: madrugada -> 08h).
+  // Permite apenas 1 toque curto enquanto o visitante ainda pode estar na aba (5–15 min).
+  if (isSite) {
+    if (stage >= 1) {
+      return { action: "none", reason: "site_followup_stage_limit", rescuePartialLead };
+    }
+    if (lastFollowUpCycle === cycleIso && lastFollowUpStage >= 1) {
+      return { action: "none", reason: "followup_1_already_sent_in_cycle", rescuePartialLead };
+    }
+    if (silenceMinutes > cfg.siteFollowUpMaxSilenceMinutes) {
+      return { action: "none", reason: "site_session_expired_for_followup", rescuePartialLead };
+    }
+    if (silenceMinutes >= cfg.siteFollowUpMinutes) {
+      return {
+        action: "send_followup",
+        nextStage: 1,
+        reason: "site_followup_1_due",
+        rescuePartialLead,
+      };
+    }
+    return { action: "none", reason: "waiting_site_followup_1_window", rescuePartialLead };
+  }
 
   if (stage === 0) {
     if (lastFollowUpCycle === cycleIso && lastFollowUpStage >= 1) {
@@ -713,7 +925,9 @@ export function buildIndustrialReactivationPatch(input: {
     input.outcome === "abandoned" ||
     Number(input.followUpStage || 0) > 0 ||
     Number(currentMeta.followUpStage || 0) > 0 ||
-    currentMeta.funnelStage === "sem_resposta";
+    currentMeta.funnelStage === "sem_resposta" ||
+    Boolean(currentMeta.followUpSuppressedCycle) ||
+    Boolean(currentMeta.followUpDeferredUntil);
 
   return {
     shouldReactivate,
@@ -725,6 +939,13 @@ export function buildIndustrialReactivationPatch(input: {
       followUpStage: 0,
       noResponseAt: null,
       noResponseReason: null,
+      followUpSuppressedCycle: null,
+      followUpSuppressedAt: null,
+      followUpDeferredCycle: null,
+      followUpDeferredAt: null,
+      followUpDeferredUntil: null,
+      followUpAiDecision: null,
+      followUpAiReason: null,
       turnRecoveryMessageId: null,
       turnRecoveryAttempts: 0,
       turnRecoveryNextAttemptAt: null,

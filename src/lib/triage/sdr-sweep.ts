@@ -17,7 +17,7 @@ const SWEEP_CLOSED_INFORMATIVE_STEPS = new Set([
 ]);
 
 const SWEEP_BOT_WAITING_CLIENT_RE =
-  /\?|conseguiu ver minha [uú]ltima mensagem|vou deixar nosso atendimento em aberto/i;
+  /\?|conseguiu ver minha [uú]ltima mensagem|vou deixar .* em aberto|quando quiser (?:continuar|retomar)/i;
 
 export type SweepPendingBucket =
   | "skip_closed_informative"
