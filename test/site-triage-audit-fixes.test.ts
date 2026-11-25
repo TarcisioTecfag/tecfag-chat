@@ -268,5 +268,10 @@ describe("Fagner Site — Correções da Auditoria Completa (25/11/2026)", () =>
     // Garantir que nenhuma regra de cross-channel hardcode nome de tenant
     const guardCode = readRepoFile("src/lib/livechat/site-cross-channel-guard.ts");
     expect(guardCode).not.toMatch(/["'](?:valem|tecfag)["']/);
+
+    // Ponte Site→WhatsApp só trata como atendimento humano ativo quando NÃO estiver em `finalizados`
+    // (conversas finalizadas preservam o último `operatorId` no histórico e devem receber o template Meta!)
+    const handoffCode = readRepoFile("src/lib/livechat/site-whatsapp-handoff.ts");
+    expect(handoffCode).toContain('if (waConv.queueState !== "finalizados" && waConv.operatorId !== null)');
   });
 });

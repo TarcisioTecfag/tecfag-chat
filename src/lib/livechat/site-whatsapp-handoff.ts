@@ -281,8 +281,10 @@ export async function dispatchSiteTriageToWhatsApp(
 
     const now = new Date();
     if (waConv) {
-      // Proteção: se já existe atendimento humano ativo no WhatsApp, NÃO sequestra!
-      if (waConv.operatorId !== null) {
+      // Proteção: se já existe atendimento humano ATIVO no WhatsApp (conversa aberta, nunca `finalizados`), NÃO sequestra!
+      // Conversas em `finalizados` preservam o último `operatorId` apenas para histórico e DEVEM reabrir
+      // normalmente em `automacao` para receber o template oficial `fagner_site_continuacao_v1`.
+      if (waConv.queueState !== "finalizados" && waConv.operatorId !== null) {
         return { conversation: waConv, hasActiveHuman: true };
       }
       if (waConv.queueState === "meus") {
@@ -638,6 +640,10 @@ export async function dispatchSiteTriageToWhatsApp(
     );
   }
 
+  const closingMessageForSite = waPrep.hasActiveHuman
+    ? `${buildSiteToWhatsappClosingMessage(input.clientName || contact.name).split("!")[0]}! Já reuni as informações do seu atendimento e repassei tudo para a nossa equipe que já está falando com você no WhatsApp dar continuidade por lá.`
+    : buildSiteToWhatsappClosingMessage(input.clientName || contact.name);
+
   return {
     handedOff: true,
     whatsappConversationId: waConversationId,
@@ -646,7 +652,7 @@ export async function dispatchSiteTriageToWhatsApp(
     pipelineId: committed.dealResult.pipelineId || null,
     stageId: committed.dealResult.stageId || null,
     templateName: templateRow.name,
-    closingMessageForSite: buildSiteToWhatsappClosingMessage(input.clientName || contact.name),
+    closingMessageForSite,
     suggestion: committed.suggestion,
     preservedHumanOperator: waPrep.hasActiveHuman,
   };
