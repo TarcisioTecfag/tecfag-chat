@@ -333,10 +333,11 @@ function decodeCustomFieldsForEntity(
       : {};
 
   const entityDefs = allDefs.filter((def) => def.entityType === entityType);
+  const activeEntityDefs = entityDefs.filter((def) => !def.archivedAt);
   const applicableDefs =
     entityType === "deal"
-      ? entityDefs.filter((def) => fieldAppliesToPipeline(def, pipelineId))
-      : entityDefs;
+      ? activeEntityDefs.filter((def) => fieldAppliesToPipeline(def, pipelineId))
+      : activeEntityDefs;
 
   const filled: Array<{ name: string; valueLabel: string; fieldId: string }> = [];
   const empty: Array<{ name: string; fieldId: string }> = [];
@@ -743,12 +744,7 @@ async function getOperatorContext(
           db
             .select()
             .from(crmCustomFieldDefinitions)
-            .where(
-              and(
-                eq(crmCustomFieldDefinitions.tenantId, tenantId),
-                isNull(crmCustomFieldDefinitions.archivedAt)
-              )
-            )
+            .where(eq(crmCustomFieldDefinitions.tenantId, tenantId))
             .orderBy(asc(crmCustomFieldDefinitions.sortOrder), asc(crmCustomFieldDefinitions.createdAt))
             .catch(() => []),
         ]);

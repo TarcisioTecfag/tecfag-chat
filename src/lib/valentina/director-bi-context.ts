@@ -2127,7 +2127,7 @@ export async function getDirectorBiContext(
           const cfDefsRows = await sqlClient`
             SELECT id, name, type, entity, options, pipeline_ids
             FROM crm_custom_field_definitions
-            WHERE tenant_id = ${tenantId} AND archived_at IS NULL
+            WHERE tenant_id = ${tenantId}
             ORDER BY sort_order ASC, created_at ASC
           `.catch(() => []);
           const cfDefMap = new Map<string, any>();

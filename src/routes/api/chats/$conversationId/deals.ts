@@ -103,7 +103,7 @@ export const Route = createFileRoute("/api/chats/$conversationId/deals")({
           if (permError) return permError;
           const [deals, customFieldDefinitions] = await Promise.all([
             crmService.getConversationDeals(tenantId, conversationId),
-            listCustomFields(tenantId, "deal"),
+            listCustomFields(tenantId, "deal", db, { includeArchived: true }),
           ]);
 
           const [contact] = await db

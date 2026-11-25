@@ -848,6 +848,45 @@ if (!databaseUrl) {
       );
     }
 
+    // 10h. Inativação única dos 29 campos legados RD (Negociação) na Tecfag, mantendo os 6 principais + 4 da Black November ativos (25/11/2026)
+    const inactivateLegacyDealFieldsName =
+      "inactivate_tecfag_legacy_deal_custom_fields_2026_11_25_v1";
+    const [appliedInactivateLegacyDealFields] = await sql`
+      SELECT name FROM app_deploy_migrations WHERE name = ${inactivateLegacyDealFieldsName}
+    `;
+    if (!appliedInactivateLegacyDealFields) {
+      console.log(
+        `[platform migration] Iniciando execução única de ${inactivateLegacyDealFieldsName}...`,
+      );
+      try {
+        const { runInactivateTecfagLegacyDealFields } = await import(
+          "./inactivate-tecfag-legacy-deal-fields.mjs"
+        );
+        const summary = await sql.begin(async (tx) => {
+          const res = await runInactivateTecfagLegacyDealFields(tx, "tecfag");
+          await tx`
+            INSERT INTO app_deploy_migrations (name)
+            VALUES (${inactivateLegacyDealFieldsName})
+            ON CONFLICT (name) DO NOTHING
+          `;
+          return res;
+        });
+        console.log(
+          `[platform migration] ${inactivateLegacyDealFieldsName} concluída com sucesso:`,
+          JSON.stringify(summary),
+        );
+      } catch (inactErr) {
+        console.warn(
+          `[platform migration] Aviso ao executar ${inactivateLegacyDealFieldsName}:`,
+          inactErr?.message || inactErr,
+        );
+      }
+    } else {
+      console.log(
+        `[platform migration] ${inactivateLegacyDealFieldsName} já aplicada anteriormente.`,
+      );
+    }
+
     // 11. Higienização contínua de sectors.operator_ids (remove IDs de operadores órfãos/excluídos e deduplica por setor)
     try {
       const [allSectors, allOperators] = await Promise.all([

@@ -1105,7 +1105,7 @@ export async function loadDealCustomFieldsForTemplate(
         .from(crmDeals)
         .where(and(eq(crmDeals.tenantId, tenantId), eq(crmDeals.id, targetDealId)))
         .limit(1),
-      listCustomFields(tenantId, "deal"),
+      listCustomFields(tenantId, "deal", db, { includeArchived: true }),
     ]);
 
     if (!dealRow) return empty;

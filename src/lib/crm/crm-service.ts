@@ -10346,7 +10346,7 @@ export class CrmService {
     // Campos personalizados preenchidos na negociação
     let customFieldsSummary = "Nenhum campo personalizado preenchido.";
     try {
-      const customFieldDefs = await listCustomFields(tenantId, "deal");
+      const customFieldDefs = await listCustomFields(tenantId, "deal", db, { includeArchived: true });
       const rawCustom = (deal.customFields as Record<string, unknown>) || {};
       const filledLines: string[] = [];
       for (const def of customFieldDefs) {

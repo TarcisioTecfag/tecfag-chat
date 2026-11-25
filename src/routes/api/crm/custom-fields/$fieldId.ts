@@ -1,9 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "../../../../db";
 import { crmCustomFieldDefinitions, crmPipelines, crmStages } from "../../../../db/schema";
 import { requireSession } from "../../../../lib/auth-session";
-import { conflictsWithStandardField, listCustomFields } from "../../../../lib/crm/custom-fields";
+import {
+  conflictsWithStandardField,
+  listCustomFields,
+  normalizeCustomFieldDefinition,
+} from "../../../../lib/crm/custom-fields";
 import { recordCrmAction } from "../../../../lib/crm/action-history";
 
 export const Route = createFileRoute("/api/crm/custom-fields/$fieldId")({
@@ -26,13 +30,31 @@ export const Route = createFileRoute("/api/crm/custom-fields/$fieldId")({
             and(
               eq(crmCustomFieldDefinitions.id, fieldId),
               eq(crmCustomFieldDefinitions.tenantId, session.tenantId),
-              isNull(crmCustomFieldDefinitions.archivedAt),
             ),
           )
           .limit(1);
         if (!current) return Response.json({ error: "Campo não encontrado." }, { status: 404 });
         try {
           const body = await request.json();
+          const wantsInactivate =
+            body.archive === true || body.isActive === false || body.active === false;
+          const wantsReactivate =
+            body.archive === false ||
+            body.restore === true ||
+            body.isActive === true ||
+            body.active === true;
+
+          if (wantsInactivate && wantsReactivate) {
+            throw new Error("Ação de ativação/inativação conflitante.");
+          }
+
+          const isOnlyRename =
+            body.name !== undefined &&
+            Object.keys(body).every((k) => ["name", "archive", "restore", "isActive", "active"].includes(k));
+          if (current.archivedAt && !wantsReactivate && !isOnlyRename) {
+            throw new Error("Reative o campo antes de editar suas configurações.");
+          }
+
           const updates: Partial<typeof crmCustomFieldDefinitions.$inferInsert> = {
             updatedAt: new Date(),
           };
@@ -51,15 +73,18 @@ export const Route = createFileRoute("/api/crm/custom-fields/$fieldId")({
             const siblings = await listCustomFields(
               session.tenantId,
               current.entityType as "deal" | "company" | "contact" | "product",
+              db,
+              { status: "active" },
             );
             if (
+              (!current.archivedAt || wantsReactivate) &&
               siblings.some(
                 (field) =>
                   field.id !== current.id &&
                   field.name.toLocaleLowerCase("pt-BR") === nextName.toLocaleLowerCase("pt-BR"),
               )
             )
-              throw new Error("Já existe um campo com esse nome.");
+              throw new Error("Já existe um campo ativo com esse nome.");
           }
           if (body.fieldType !== undefined && body.fieldType !== current.fieldType)
             throw new Error("O tipo do campo não pode ser alterado após a criação.");
@@ -165,7 +190,48 @@ export const Route = createFileRoute("/api/crm/custom-fields/$fieldId")({
               updates.pipelineIds = [...new Set(ids)];
             }
           }
-          if (body.archive === true) updates.archivedAt = new Date();
+          if (wantsInactivate) {
+            updates.archivedAt = new Date();
+          } else if (wantsReactivate && current.archivedAt) {
+            const targetName = (updates.name ?? current.name).trim();
+            const activeSiblings = await listCustomFields(
+              session.tenantId,
+              current.entityType as "deal" | "company" | "contact" | "product",
+              db,
+              { status: "active" },
+            );
+            if (
+              activeSiblings.some(
+                (field) =>
+                  field.id !== current.id &&
+                  field.name.toLocaleLowerCase("pt-BR") === targetName.toLocaleLowerCase("pt-BR"),
+              )
+            ) {
+              throw new Error(
+                `Já existe um campo ativo com o nome "${targetName}". Renomeie antes de reativar.`,
+              );
+            }
+            const effectiveRule = updates.requiredRule ?? current.requiredRule;
+            const effectiveStageId =
+              updates.requiredFromStageId !== undefined
+                ? updates.requiredFromStageId
+                : current.requiredFromStageId;
+            if (effectiveRule === "stage_onwards" && effectiveStageId) {
+              const [stage] = await db
+                .select({ id: crmStages.id })
+                .from(crmStages)
+                .where(
+                  and(eq(crmStages.id, effectiveStageId), eq(crmStages.tenantId, session.tenantId)),
+                )
+                .limit(1);
+              if (!stage) {
+                updates.requiredRule = "always";
+                updates.requiredFromStageId = null;
+              }
+            }
+            updates.archivedAt = null;
+          }
+
           const [field] = await db
             .update(crmCustomFieldDefinitions)
             .set(updates)
@@ -176,13 +242,30 @@ export const Route = createFileRoute("/api/crm/custom-fields/$fieldId")({
               ),
             )
             .returning();
-          if (body.archive === true && field && !current.archivedAt) {
-            await recordCrmAction({ tenantId: session.tenantId,
-              operatorId: session.operator.id, operatorName: session.operator.name,
-              action: "delete_custom_field", entityType: current.entityType, itemCount: 1,
-              details: { fieldId, name: current.name } });
+          if (wantsInactivate && field && !current.archivedAt) {
+            await recordCrmAction({
+              tenantId: session.tenantId,
+              operatorId: session.operator.id,
+              operatorName: session.operator.name,
+              action: "inactivate_custom_field",
+              entityType: current.entityType,
+              entityId: fieldId,
+              itemCount: 1,
+              details: { fieldId, name: current.name },
+            });
+          } else if (wantsReactivate && field && current.archivedAt) {
+            await recordCrmAction({
+              tenantId: session.tenantId,
+              operatorId: session.operator.id,
+              operatorName: session.operator.name,
+              action: "reactivate_custom_field",
+              entityType: current.entityType,
+              entityId: fieldId,
+              itemCount: 1,
+              details: { fieldId, name: field.name },
+            });
           }
-          return Response.json({ field });
+          return Response.json({ field: field ? normalizeCustomFieldDefinition(field) : field });
         } catch (error) {
           return Response.json(
             { error: error instanceof Error ? error.message : "Dados inválidos." },

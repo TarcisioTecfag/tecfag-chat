@@ -316,7 +316,6 @@ export async function loadConversationRichContext(params: {
                 and(
                   eq(crmCustomFieldDefinitions.tenantId, tenantId),
                   eq(crmCustomFieldDefinitions.entityType, "deal"),
-                  isNull(crmCustomFieldDefinitions.archivedAt),
                 ),
               )
               .orderBy(asc(crmCustomFieldDefinitions.sortOrder))

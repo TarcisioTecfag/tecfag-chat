@@ -43,7 +43,7 @@ import {
   normalizeFieldOptions,
   normalizePipelineIds,
 } from "./CustomFieldsEditor";
-import { normalizePipelineId } from "@/lib/crm/custom-field-common";
+import { isCustomFieldInactive, normalizePipelineId } from "@/lib/crm/custom-field-common";
 import { ConversationDealContext, useConversationDealContext } from "./ConversationDealContext";
 import { fetchDealContext, markConversationDealSatisfied } from "@/lib/crm/conversation-deal-client";
 import { isTrashedDeal, sortContactDeals } from "@/lib/crm/conversation-deal-policy";
@@ -78,6 +78,7 @@ export interface CustomFieldDef {
   visibleOnCreate?: boolean;
   allPipelines?: boolean;
   pipelineIds?: string[];
+  archivedAt?: string | null;
 }
 
 export interface DealEditForm {
@@ -103,6 +104,7 @@ export function normalizeCustomFieldDefs(raw: unknown): CustomFieldDef[] {
       visibleOnCreate: f.visibleOnCreate !== false,
       allPipelines: Boolean(f.allPipelines),
       pipelineIds: normalizePipelineIds(f.pipelineIds),
+      archivedAt: f.archivedAt ?? null,
     }))
     .filter((f) => Boolean(f.id && f.name));
 }
@@ -199,7 +201,11 @@ export function buildDealUpdatePayload(
   );
   const applicableIds = new Set(
     definitions
-      .filter((def) => doesDealFieldApplyToPipeline(def, editForm.pipelineId || originalDeal?.pipelineId))
+      .filter(
+        (def) =>
+          !isCustomFieldInactive(def) &&
+          doesDealFieldApplyToPipeline(def, editForm.pipelineId || originalDeal?.pipelineId),
+      )
       .map((def) => def.id)
   );
   const filteredCurrentCustomFields = Object.fromEntries(
@@ -306,8 +312,8 @@ export function ConversationDealsPanel({
         normalizedDefs = normalizeCustomFieldDefs(data.customFieldDefinitions);
         setCustomFieldDefinitions(normalizedDefs);
       } else {
-        // Fallback para buscar definições
-        fetch("/api/crm/custom-fields?entity=deal")
+        // Fallback para buscar definições (incluindo inativos para exibir histórico já preenchido)
+        fetch("/api/crm/custom-fields?entity=deal&includeArchived=true", { cache: "no-store" })
           .then((r) => (r.ok ? r.json() : { fields: [] }))
           .then((fData) => setCustomFieldDefinitions(normalizeCustomFieldDefs(fData?.fields)))
           .catch(() => {});
@@ -352,10 +358,12 @@ export function ConversationDealsPanel({
     };
     const timer = window.setInterval(refresh, 15000);
     window.addEventListener("crm-deals-changed", refreshAfterExternalMutation);
+    window.addEventListener("crm-custom-fields-changed", refreshAfterExternalMutation);
     window.addEventListener("conversation-deal-context-changed", refresh);
     return () => {
       window.clearInterval(timer);
       window.removeEventListener("crm-deals-changed", refreshAfterExternalMutation);
+      window.removeEventListener("crm-custom-fields-changed", refreshAfterExternalMutation);
       window.removeEventListener("conversation-deal-context-changed", refresh);
     };
   }, [conversationId, fetchLinkedDeals]);
@@ -753,9 +761,13 @@ export function ConversationDealsPanel({
                 ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(rawValue)
                 : "Sem valor";
 
-            // Coleta os campos personalizados que possuem valor preenchido e pertencem ao funil da negociação
+            // Coleta os campos personalizados que possuem valor preenchido (ativos do funil + inativos com histórico)
             const filledCustomFields = customFieldDefinitions
-              .filter((def) => doesDealFieldApplyToPipeline(def, deal.pipelineId))
+              .filter(
+                (def) =>
+                  isCustomFieldInactive(def) ||
+                  doesDealFieldApplyToPipeline(def, deal.pipelineId),
+              )
               .map((def) => {
                 const val = getFieldValue(deal.customFields, def);
                 return { def, value: val };
@@ -974,15 +986,23 @@ export function ConversationDealsPanel({
                         </div>
                       </div>
 
-                      {/* Campos Personalizados do Tenant */}
-                      {customFieldDefinitions.length > 0 && (
+                      {/* Campos Personalizados Ativos do Tenant */}
+                      {customFieldDefinitions.some(
+                        (def) =>
+                          !isCustomFieldInactive(def) &&
+                          doesDealFieldApplyToPipeline(def, editForm.pipelineId),
+                      ) && (
                         <div className="space-y-2 border-t border-border/60 pt-2.5">
                           <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">
                             Campos Personalizados
                           </span>
 
                           {customFieldDefinitions
-                            .filter((def) => doesDealFieldApplyToPipeline(def, editForm.pipelineId))
+                            .filter(
+                              (def) =>
+                                !isCustomFieldInactive(def) &&
+                                doesDealFieldApplyToPipeline(def, editForm.pipelineId),
+                            )
                             .map((field) => {
                               const val =
                                 editForm.customFields[field.id] ??
@@ -1376,8 +1396,13 @@ export function ConversationDealsPanel({
                                 key={def.id}
                                 className="flex items-start justify-between gap-2 text-[10px] py-0.5 border-b border-border/30 last:border-0"
                               >
-                                <span className="text-muted-foreground font-semibold shrink-0">
-                                  {def.name}:
+                                <span className="text-muted-foreground font-semibold shrink-0 flex items-center gap-1">
+                                  <span>{def.name}:</span>
+                                  {isCustomFieldInactive(def) && (
+                                    <span className="rounded border border-border/80 bg-muted px-1 py-0.2 text-[8px] font-semibold uppercase text-muted-foreground">
+                                      Inativo
+                                    </span>
+                                  )}
                                 </span>
                                 <SystemTooltip content={value || ""}>
                                   <span className="font-bold text-foreground text-right truncate max-w-[65%] cursor-default">

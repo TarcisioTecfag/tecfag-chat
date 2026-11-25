@@ -7,10 +7,15 @@ import { requireCrmPermission } from "../../../lib/rbac";
 import {
   conflictsWithStandardField,
   isCustomFieldEntity,
+  isCustomFieldInactive,
+  isCustomFieldStatusFilter,
   isCustomFieldType,
   listCustomFields,
+  resolveBulkCustomFieldTargetIds,
+  setCustomFieldsActiveState,
   type CustomFieldEntity,
 } from "../../../lib/crm/custom-fields";
+import { recordCrmAction } from "../../../lib/crm/action-history";
 import { handleConditionalResponse } from "../../../lib/http-cache";
 
 async function checkPipelines(tenantId: string, pipelineIds: unknown): Promise<string[]> {
@@ -70,11 +75,113 @@ export const Route = createFileRoute("/api/crm/custom-fields")({
         const { session } = auth;
         const permission = requireCrmPermission(session, "canViewCrm");
         if (permission) return permission;
-        const entity = new URL(request.url).searchParams.get("entity");
+        const url = new URL(request.url);
+        const entity = url.searchParams.get("entity");
         if (!isCustomFieldEntity(entity))
           return Response.json({ error: "Cadastro inválido." }, { status: 400 });
-        const fields = await listCustomFields(session.tenantId, entity);
-        return handleConditionalResponse(request, { fields, isAdmin: session.operator.role === "admin" });
+
+        const rawStatus = url.searchParams.get("status");
+        const includeArchivedParam = url.searchParams.get("includeArchived");
+        const includeArchived =
+          includeArchivedParam === "true" || includeArchivedParam === "1";
+
+        const statusFilter = isCustomFieldStatusFilter(rawStatus)
+          ? rawStatus
+          : includeArchived
+            ? "all"
+            : "active";
+
+        const allFields = await listCustomFields(session.tenantId, entity, db, {
+          includeArchived: true,
+        });
+        const inactiveCount = allFields.filter((f) => isCustomFieldInactive(f)).length;
+        const activeCount = allFields.length - inactiveCount;
+        const fields =
+          statusFilter === "all"
+            ? allFields
+            : statusFilter === "inactive"
+              ? allFields.filter((f) => isCustomFieldInactive(f))
+              : allFields.filter((f) => !isCustomFieldInactive(f));
+
+        return handleConditionalResponse(request, {
+          fields,
+          counts: { active: activeCount, inactive: inactiveCount, total: allFields.length },
+          isAdmin: session.operator.role === "admin",
+        });
+      },
+      PATCH: async ({ request }) => {
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const { session } = auth;
+        if (session.operator.role !== "admin")
+          return Response.json(
+            { error: "Permissão insuficiente.", code: "FORBIDDEN" },
+            { status: 403 },
+          );
+        try {
+          const body = await request.json();
+          const entityType = body.entityType as CustomFieldEntity;
+          if (!isCustomFieldEntity(entityType)) {
+            throw new Error("Cadastro inválido.");
+          }
+
+          let active: boolean;
+          if (body.action === "inactivate" || body.active === false || body.isActive === false) {
+            active = false;
+          } else if (body.action === "reactivate" || body.active === true || body.isActive === true) {
+            active = true;
+          } else {
+            throw new Error("Ação inválida. Use 'inactivate' ou 'reactivate'.");
+          }
+
+          const { updatedFields } = await db.transaction(async (tx) => {
+            const targetIds = await resolveBulkCustomFieldTargetIds(
+              session.tenantId,
+              entityType,
+              {
+                fieldIds: body.fieldIds,
+                keepActiveIds: body.keepActiveIds,
+                active,
+              },
+              tx,
+            );
+            const result = await setCustomFieldsActiveState(
+              session.tenantId,
+              entityType,
+              targetIds,
+              active,
+              tx,
+            );
+            if (result.updatedFields.length > 0) {
+              await recordCrmAction(
+                {
+                  tenantId: session.tenantId,
+                  operatorId: session.operator.id,
+                  operatorName: session.operator.name,
+                  action: active ? "reactivate_custom_fields_bulk" : "inactivate_custom_fields_bulk",
+                  entityType,
+                  itemCount: result.updatedFields.length,
+                  details: {
+                    fieldIds: result.updatedFields.map((f) => f.id),
+                    names: result.updatedFields.map((f) => f.name),
+                  },
+                },
+                tx,
+              );
+            }
+            return result;
+          });
+
+          return Response.json({
+            updatedCount: updatedFields.length,
+            fields: updatedFields,
+          });
+        } catch (error) {
+          return Response.json(
+            { error: error instanceof Error ? error.message : "Dados inválidos." },
+            { status: 400 },
+          );
+        }
       },
       POST: async ({ request }) => {
         const auth = await requireSession(request);
@@ -135,13 +242,17 @@ export const Route = createFileRoute("/api/crm/custom-fields")({
             }
           }
 
-          const existing = await listCustomFields(session.tenantId, entityType);
+          const allExisting = await listCustomFields(session.tenantId, entityType, db, {
+            includeArchived: true,
+          });
           if (
-            existing.some(
-              (field) => field.name.toLocaleLowerCase("pt-BR") === name.toLocaleLowerCase("pt-BR"),
-            )
+            allExisting
+              .filter((field) => !isCustomFieldInactive(field))
+              .some(
+                (field) => field.name.toLocaleLowerCase("pt-BR") === name.toLocaleLowerCase("pt-BR"),
+              )
           )
-            throw new Error("Já existe um campo com esse nome.");
+            throw new Error("Já existe um campo ativo com esse nome.");
           const [field] = await db
             .insert(crmCustomFieldDefinitions)
             .values({
@@ -158,8 +269,8 @@ export const Route = createFileRoute("/api/crm/custom-fields")({
               visibleOnCreate: body.visibleOnCreate !== false,
               allPipelines,
               pipelineIds,
-              sortOrder: existing.length
-                ? Math.max(...existing.map((item) => item.sortOrder)) + 1
+              sortOrder: allExisting.length
+                ? Math.max(...allExisting.map((item) => item.sortOrder)) + 1
                 : 0,
             })
             .returning();

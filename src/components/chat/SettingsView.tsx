@@ -1339,7 +1339,7 @@ export function SettingsView() {
             <div className="rounded-2xl border border-border bg-card p-6 shadow-soft flex flex-col justify-between">
               <div>
                 <h3 className="text-base font-bold text-foreground">Campos de cadastro do CRM</h3>
-                <p className="mt-2 text-xs text-muted-foreground">Organize os campos de negociações, empresas, contatos e produtos. Administradores podem criar, editar e arquivar campos.</p>
+                <p className="mt-2 text-xs text-muted-foreground">Organize os campos de negociações, empresas, contatos e produtos. Administradores podem criar, editar, inativar e reativar campos.</p>
               </div>
               <button
                 type="button"

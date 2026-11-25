@@ -1,9 +1,23 @@
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { db } from "../../db";
-import { crmCustomFieldDefinitions } from "../../db/schema";
+import { crmCustomFieldDefinitions, crmStages } from "../../db/schema";
 
-import { normalizePipelineId, type CustomFieldEntity } from "./custom-field-common";
-export { normalizePipelineId, type CustomFieldEntity, type CustomFieldType } from "./custom-field-common";
+import {
+  isCustomFieldInactive,
+  isCustomFieldStatusFilter,
+  normalizePipelineId,
+  type CustomFieldEntity,
+  type CustomFieldStatusFilter,
+  type CustomFieldType,
+} from "./custom-field-common";
+export {
+  isCustomFieldInactive,
+  isCustomFieldStatusFilter,
+  normalizePipelineId,
+  type CustomFieldEntity,
+  type CustomFieldStatusFilter,
+  type CustomFieldType,
+} from "./custom-field-common";
 export type CustomFieldValues = Record<string, unknown>;
 export type CustomFieldDefinition = typeof crmCustomFieldDefinitions.$inferSelect;
 
@@ -77,17 +91,23 @@ export async function listCustomFields(
   tenantId: string,
   entityType: CustomFieldEntity,
   executor: Pick<typeof db, "select"> = db,
+  options: { includeArchived?: boolean; status?: CustomFieldStatusFilter } = {},
 ): Promise<CustomFieldDefinition[]> {
+  const conditions = [
+    eq(crmCustomFieldDefinitions.tenantId, tenantId),
+    eq(crmCustomFieldDefinitions.entityType, entityType),
+  ];
+
+  if (options.status === "inactive") {
+    conditions.push(isNotNull(crmCustomFieldDefinitions.archivedAt));
+  } else if (!options.includeArchived && options.status !== "all") {
+    conditions.push(isNull(crmCustomFieldDefinitions.archivedAt));
+  }
+
   const rows = await executor
     .select()
     .from(crmCustomFieldDefinitions)
-    .where(
-      and(
-        eq(crmCustomFieldDefinitions.tenantId, tenantId),
-        eq(crmCustomFieldDefinitions.entityType, entityType),
-        isNull(crmCustomFieldDefinitions.archivedAt),
-      ),
-    )
+    .where(and(...conditions))
     .orderBy(asc(crmCustomFieldDefinitions.sortOrder), asc(crmCustomFieldDefinitions.createdAt));
 
   return rows.map((row) => ({
@@ -95,6 +115,192 @@ export async function listCustomFields(
     options: parseJsonArray<{ id: string; label: string }>(row.options),
     pipelineIds: parseJsonArray<string>(row.pipelineIds),
   }));
+}
+
+export function normalizeCustomFieldDefinition(row: CustomFieldDefinition): CustomFieldDefinition {
+  return {
+    ...row,
+    options: parseJsonArray<{ id: string; label: string }>(row.options),
+    pipelineIds: parseJsonArray<string>(row.pipelineIds),
+  };
+}
+
+export async function resolveBulkCustomFieldTargetIds(
+  tenantId: string,
+  entityType: CustomFieldEntity,
+  input: { fieldIds?: unknown; keepActiveIds?: unknown; active: boolean },
+  executor: Pick<typeof db, "select"> = db,
+): Promise<string[]> {
+  const allFields = await listCustomFields(tenantId, entityType, executor, { includeArchived: true });
+  const allIds = new Set(allFields.map((f) => f.id));
+
+  if (!input.active && Array.isArray(input.keepActiveIds)) {
+    if (
+      input.keepActiveIds.length > 200 ||
+      input.keepActiveIds.some((id) => typeof id !== "string" || !id.trim())
+    ) {
+      throw new CustomFieldError("Lista de campos a manter ativos inválida.");
+    }
+    const keepSet = new Set(input.keepActiveIds.map((id) => id.trim()));
+    for (const id of keepSet) {
+      if (!allIds.has(id)) {
+        throw new CustomFieldError("Um ou mais campos informados para manter ativos são inválidos.");
+      }
+    }
+    return allFields.filter((f) => !isCustomFieldInactive(f) && !keepSet.has(f.id)).map((f) => f.id);
+  }
+
+  if (
+    !Array.isArray(input.fieldIds) ||
+    input.fieldIds.length === 0 ||
+    input.fieldIds.length > 200 ||
+    input.fieldIds.some((id) => typeof id !== "string" || !id.trim())
+  ) {
+    throw new CustomFieldError("Selecione ao menos um campo personalizado.");
+  }
+
+  const uniqueIds = Array.from(new Set(input.fieldIds.map((id) => id.trim())));
+  for (const id of uniqueIds) {
+    if (!allIds.has(id)) {
+      throw new CustomFieldError("Um ou mais campos selecionados não foram encontrados.");
+    }
+  }
+  return uniqueIds;
+}
+
+export async function setCustomFieldsActiveState(
+  tenantId: string,
+  entityType: CustomFieldEntity,
+  fieldIds: string[],
+  active: boolean,
+  executor: Pick<typeof db, "select" | "update"> = db,
+): Promise<{ updatedFields: CustomFieldDefinition[] }> {
+  const uniqueIds = Array.from(new Set(fieldIds.map((id) => id.trim()).filter(Boolean)));
+  if (uniqueIds.length === 0) {
+    return { updatedFields: [] };
+  }
+
+  const matched = await executor
+    .select()
+    .from(crmCustomFieldDefinitions)
+    .where(
+      and(
+        eq(crmCustomFieldDefinitions.tenantId, tenantId),
+        eq(crmCustomFieldDefinitions.entityType, entityType),
+        inArray(crmCustomFieldDefinitions.id, uniqueIds),
+      ),
+    );
+
+  if (matched.length !== uniqueIds.length) {
+    throw new CustomFieldError("Um ou mais campos não foram encontrados nesta empresa.");
+  }
+
+  const now = new Date();
+
+  if (!active) {
+    const toInactivate = matched.filter((row) => !row.archivedAt).map((row) => row.id);
+    if (toInactivate.length === 0) {
+      return { updatedFields: [] };
+    }
+    const updated = await executor
+      .update(crmCustomFieldDefinitions)
+      .set({ archivedAt: now, updatedAt: now })
+      .where(
+        and(
+          eq(crmCustomFieldDefinitions.tenantId, tenantId),
+          eq(crmCustomFieldDefinitions.entityType, entityType),
+          inArray(crmCustomFieldDefinitions.id, toInactivate),
+          isNull(crmCustomFieldDefinitions.archivedAt),
+        ),
+      )
+      .returning();
+
+    return { updatedFields: updated.map(normalizeCustomFieldDefinition) };
+  }
+
+  const toReactivate = matched.filter((row) => Boolean(row.archivedAt));
+  if (toReactivate.length === 0) {
+    return { updatedFields: [] };
+  }
+
+  const activeFields = await listCustomFields(tenantId, entityType, executor, { status: "active" });
+  const activeNames = new Set(activeFields.map((f) => f.name.toLocaleLowerCase("pt-BR")));
+  const batchNames = new Set<string>();
+
+  for (const row of toReactivate) {
+    const normalizedName = row.name.toLocaleLowerCase("pt-BR");
+    if (activeNames.has(normalizedName)) {
+      throw new CustomFieldError(
+        `Já existe um campo ativo com o nome "${row.name}". Renomeie o campo antes de reativar.`,
+      );
+    }
+    if (batchNames.has(normalizedName)) {
+      throw new CustomFieldError(
+        `Não é possível reativar dois campos com o mesmo nome "${row.name}" simultaneamente.`,
+      );
+    }
+    batchNames.add(normalizedName);
+  }
+
+  const stageIdsToCheck = Array.from(
+    new Set(
+      toReactivate
+        .filter((r) => r.requiredRule === "stage_onwards" && r.requiredFromStageId)
+        .map((r) => r.requiredFromStageId as string),
+    ),
+  );
+  const validStageIds = new Set<string>();
+  if (stageIdsToCheck.length > 0) {
+    const existingStages = await executor
+      .select({ id: crmStages.id })
+      .from(crmStages)
+      .where(and(eq(crmStages.tenantId, tenantId), inArray(crmStages.id, stageIdsToCheck)));
+    for (const st of existingStages) validStageIds.add(st.id);
+  }
+
+  const staleStageFieldIds = toReactivate
+    .filter((r) => r.requiredRule === "stage_onwards" && r.requiredFromStageId && !validStageIds.has(r.requiredFromStageId))
+    .map((r) => r.id);
+  const normalFieldIds = toReactivate
+    .filter((r) => !staleStageFieldIds.includes(r.id))
+    .map((r) => r.id);
+
+  const updatedRows: CustomFieldDefinition[] = [];
+  if (normalFieldIds.length > 0) {
+    const rows = await executor
+      .update(crmCustomFieldDefinitions)
+      .set({ archivedAt: null, updatedAt: now })
+      .where(
+        and(
+          eq(crmCustomFieldDefinitions.tenantId, tenantId),
+          eq(crmCustomFieldDefinitions.entityType, entityType),
+          inArray(crmCustomFieldDefinitions.id, normalFieldIds),
+        ),
+      )
+      .returning();
+    updatedRows.push(...rows);
+  }
+  if (staleStageFieldIds.length > 0) {
+    const rows = await executor
+      .update(crmCustomFieldDefinitions)
+      .set({
+        archivedAt: null,
+        requiredRule: "always",
+        requiredFromStageId: null,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(crmCustomFieldDefinitions.tenantId, tenantId),
+          eq(crmCustomFieldDefinitions.entityType, entityType),
+          inArray(crmCustomFieldDefinitions.id, staleStageFieldIds),
+        ),
+      )
+      .returning();
+    updatedRows.push(...rows);
+  }
+
+  return { updatedFields: updatedRows.map(normalizeCustomFieldDefinition) };
 }
 
 export function fieldAppliesToPipeline(field: CustomFieldDefinition, pipelineId?: string | null) {

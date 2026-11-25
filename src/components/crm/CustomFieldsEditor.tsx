@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
 import {
   type CustomFieldEntity,
   type CustomFieldType,
+  isCustomFieldInactive,
   normalizePipelineId,
 } from "@/lib/crm/custom-field-common";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -34,6 +35,7 @@ export interface FieldDefinition {
   allPipelines: boolean;
   pipelineIds: string[];
   sortOrder: number;
+  archivedAt?: string | null;
   createdAt: string;
 }
 
@@ -77,40 +79,95 @@ export function changedCustomFieldValues(
   );
 }
 
-export function useCustomFields(entity: CustomFieldEntity, enabled = true) {
+function isCustomFieldValueFilled(value: unknown): boolean {
+  return (
+    value !== null &&
+    value !== undefined &&
+    value !== "" &&
+    (!Array.isArray(value) || value.length > 0)
+  );
+}
+
+function resolveFieldDisplayValue(values: Record<string, unknown>, field: FieldDefinition): unknown {
+  if (!values) return undefined;
+  if (isCustomFieldValueFilled(values[field.id])) return values[field.id];
+  if (isCustomFieldValueFilled(values[field.name])) return values[field.name];
+  const lowerName = field.name.toLowerCase();
+  if (isCustomFieldValueFilled(values[lowerName])) return values[lowerName];
+  return undefined;
+}
+
+function formatInactiveDisplayValue(field: FieldDefinition, value: unknown): string {
+  const options = normalizeFieldOptions(field.options);
+  const optionLabel = (id: string) => options.find((opt) => opt.id === id)?.label || id;
+
+  if (Array.isArray(value)) {
+    return value.map((item) => optionLabel(String(item))).join(", ");
+  }
+  if (field.fieldType === "single") {
+    return optionLabel(String(value));
+  }
+  if (field.fieldType === "date" && typeof value === "string") {
+    const m = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+  }
+  return String(value);
+}
+
+export function useCustomFields(
+  entity: CustomFieldEntity,
+  enabled = true,
+  options?: { includeArchived?: boolean },
+) {
+  const includeArchived = options?.includeArchived === true;
   const [fields, setFields] = useState<FieldDefinition[]>([]);
   const [loading, setLoading] = useState(false);
+
+  const loadFields = useCallback(
+    (isMounted: () => boolean) => {
+      setLoading(true);
+      const query = includeArchived
+        ? `/api/crm/custom-fields?entity=${entity}&includeArchived=true`
+        : `/api/crm/custom-fields?entity=${entity}`;
+      fetch(query, { cache: "no-store" })
+        .then(async (response) => {
+          if (!response.ok) throw new Error("Não foi possível carregar os campos personalizados.");
+          return response.json();
+        })
+        .then((data) => {
+          if (isMounted()) {
+            const raw: any[] = data.fields || [];
+            setFields(
+              raw.map((f) => ({
+                ...f,
+                options: normalizeFieldOptions(f.options),
+                pipelineIds: normalizePipelineIds(f.pipelineIds),
+              })),
+            );
+          }
+        })
+        .catch(() => {
+          if (isMounted()) setFields([]);
+        })
+        .finally(() => {
+          if (isMounted()) setLoading(false);
+        });
+    },
+    [entity, includeArchived],
+  );
+
   useEffect(() => {
     if (!enabled) return;
     let mounted = true;
-    setLoading(true);
-    fetch(`/api/crm/custom-fields?entity=${entity}`)
-      .then(async (response) => {
-        if (!response.ok) throw new Error("Não foi possível carregar os campos personalizados.");
-        return response.json();
-      })
-      .then((data) => {
-        if (mounted) {
-          const raw: any[] = data.fields || [];
-          setFields(
-            raw.map((f) => ({
-              ...f,
-              options: normalizeFieldOptions(f.options),
-              pipelineIds: normalizePipelineIds(f.pipelineIds),
-            })),
-          );
-        }
-      })
-      .catch(() => {
-        if (mounted) setFields([]);
-      })
-      .finally(() => {
-        if (mounted) setLoading(false);
-      });
+    loadFields(() => mounted);
+    const onChanged = () => loadFields(() => mounted);
+    window.addEventListener("crm-custom-fields-changed", onChanged);
     return () => {
       mounted = false;
+      window.removeEventListener("crm-custom-fields-changed", onChanged);
     };
-  }, [entity, enabled]);
+  }, [enabled, loadFields]);
+
   return { fields, loading };
 }
 
@@ -139,15 +196,17 @@ export function CustomFieldsEditor({
   columns?: 1 | 2;
   showEmptyState?: boolean;
 }) {
-  const loaded = useCustomFields(entity, !definitions);
-  const fields = useMemo(() => {
+  const loaded = useCustomFields(entity, !definitions, { includeArchived: !create });
+  const { activeFields, inactiveFilledFields } = useMemo(() => {
     const rawList = (definitions ?? loaded.fields).map((f) => ({
       ...f,
       options: normalizeFieldOptions(f.options),
       pipelineIds: normalizePipelineIds(f.pipelineIds),
     }));
 
-    return rawList.filter((field) => {
+    const active = rawList.filter((field) => {
+      if (isCustomFieldInactive(field)) return false;
+
       // Regra de criação: respeita visibleOnCreate a menos que seja obrigatório
       if (create && !field.visibleOnCreate && !requiredIds.includes(field.id)) {
         return false;
@@ -157,12 +216,7 @@ export function CustomFieldsEditor({
       if (entity !== "deal") return true;
 
       // Se a negociação já possui valor preenchido ou rascunhado para este campo, NUNCA oculta
-      if (
-        values &&
-        values[field.id] !== undefined &&
-        values[field.id] !== null &&
-        values[field.id] !== ""
-      ) {
+      if (isCustomFieldValueFilled(values?.[field.id])) {
         return true;
       }
 
@@ -186,6 +240,15 @@ export function CustomFieldsEditor({
         );
       });
     });
+
+    const inactiveFilled = create
+      ? []
+      : rawList.filter((field) => {
+          if (!isCustomFieldInactive(field)) return false;
+          return isCustomFieldValueFilled(resolveFieldDisplayValue(values, field));
+        });
+
+    return { activeFields: active, inactiveFilledFields: inactiveFilled };
   }, [definitions, loaded.fields, entity, create, pipelineId, requiredIds, values]);
 
   if (!definitions && loaded.loading && showEmptyState) {
@@ -196,7 +259,7 @@ export function CustomFieldsEditor({
     );
   }
 
-  if (!fields.length) {
+  if (!activeFields.length && !inactiveFilledFields.length) {
     if (!showEmptyState) return null;
     return (
       <div className="rounded-lg border border-dashed border-border/70 bg-muted/15 px-3 py-2.5 text-[11px] text-muted-foreground">
@@ -221,14 +284,15 @@ export function CustomFieldsEditor({
           Campos personalizados
         </h4>
       )}
-      <div
-        className={
-          columns === 2
-            ? "grid grid-cols-1 md:grid-cols-2 gap-3.5"
-            : "space-y-3"
-        }
-      >
-        {fields.map((field) => {
+      {activeFields.length > 0 && (
+        <div
+          className={
+            columns === 2
+              ? "grid grid-cols-1 md:grid-cols-2 gap-3.5"
+              : "space-y-3"
+          }
+        >
+          {activeFields.map((field) => {
           const value = values[field.id];
           const isFullSpan = columns === 2 && field.fieldType === "multiple";
           return (
@@ -392,8 +456,64 @@ export function CustomFieldsEditor({
               )}
             </div>
           );
-        })}
-      </div>
+          })}
+        </div>
+      )}
+
+      {inactiveFilledFields.length > 0 && (
+        <div className={activeFields.length > 0 ? "border-t border-border/60 pt-3 space-y-2.5" : "space-y-2.5"}>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+              Histórico de campos inativos ({inactiveFilledFields.length})
+            </span>
+          </div>
+          <div
+            className={
+              columns === 2
+                ? "grid grid-cols-1 md:grid-cols-2 gap-3"
+                : "space-y-2.5"
+            }
+          >
+            {inactiveFilledFields.map((field) => {
+              const rawVal = resolveFieldDisplayValue(values, field);
+              const display = formatInactiveDisplayValue(field, rawVal);
+              const isSafeUrl =
+                field.fieldType === "url" &&
+                /^https?:\/\//i.test(display.trim());
+              return (
+                <div key={field.id} className="space-y-1">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
+                      {field.name}
+                    </span>
+                    <SystemTooltip content="Campo inativo — valor histórico preservado apenas para consulta">
+                      <span className="inline-flex items-center rounded border border-border/80 bg-muted px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground cursor-default">
+                        Inativo
+                      </span>
+                    </SystemTooltip>
+                  </div>
+                  <SystemTooltip content="Campo inativo (somente leitura)">
+                    <div className="min-h-9 w-full rounded-[8px] border border-border/70 bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground flex items-center justify-between gap-2 break-words">
+                      <span className="min-w-0 flex-1 whitespace-pre-wrap break-words">{display}</span>
+                      {isSafeUrl && (
+                        <a
+                          href={display.trim()}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="shrink-0 text-primary hover:opacity-80"
+                          aria-label={`Abrir link de ${field.name}`}
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" />
+                        </a>
+                      )}
+                    </div>
+                  </SystemTooltip>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -407,18 +527,13 @@ export function CustomFieldsSummary({
   values: Record<string, unknown>;
   pipelineId?: string | null;
 }) {
-  const { fields } = useCustomFields(entity);
+  const { fields } = useCustomFields(entity, true, { includeArchived: true });
   const currentNorm = normalizePipelineId(pipelineId);
 
   const visible = fields.filter((field) => {
-    const val = values[field.id];
-    const isValFilled =
-      val !== null &&
-      val !== undefined &&
-      val !== "" &&
-      (!Array.isArray(val) || val.length > 0);
-
-    if (!isValFilled) return false;
+    const val = resolveFieldDisplayValue(values, field);
+    if (!isCustomFieldValueFilled(val)) return false;
+    if (isCustomFieldInactive(field)) return true;
     if (entity !== "deal" || field.allPipelines) return true;
 
     const pIds = field.pipelineIds || [];
@@ -442,17 +557,19 @@ export function CustomFieldsSummary({
   return (
     <dl className="space-y-2 border-t border-border/60 pt-2 text-[11px]">
       {visible.map((field) => {
-        const value = values[field.id];
-        const optionLabel = (id: string) =>
-          field.options.find((option) => option.id === id)?.label || id;
-        const display = Array.isArray(value)
-          ? value.map(optionLabel).join(", ")
-          : field.fieldType === "single"
-            ? optionLabel(String(value))
-            : String(value);
+        const value = resolveFieldDisplayValue(values, field);
+        const display = formatInactiveDisplayValue(field, value);
+        const inactive = isCustomFieldInactive(field);
         return (
           <div key={field.id} className="flex justify-between gap-2">
-            <dt className="text-muted-foreground">{field.name}</dt>
+            <dt className="text-muted-foreground flex items-center gap-1 min-w-0">
+              <span className="truncate">{field.name}</span>
+              {inactive && (
+                <span className="shrink-0 rounded border border-border/80 bg-muted px-1 py-0.2 text-[9px] font-semibold uppercase text-muted-foreground">
+                  Inativo
+                </span>
+              )}
+            </dt>
             <SystemTooltip content={display}>
               <dd className="max-w-[60%] truncate text-right font-semibold cursor-default">
                 {display}
