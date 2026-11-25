@@ -3,6 +3,7 @@ import { and, asc, eq, inArray, isNull, notLike, or, sql } from "drizzle-orm";
 import { db } from "../../db";
 import {
   accessGroups,
+  agentFlowStates,
   commercialEvidence,
   contacts,
   contactPhones,
@@ -63,6 +64,8 @@ import { SITE_CHANNEL } from "../livechat/site-channel-policy";
 import { sendSiteOperatorText } from "../livechat/site-delivery";
 import { SessionManager } from "../baileys/session-manager";
 import { SdrDebouncer } from "../valentina/sdr-debouncer";
+import { getAiPersona } from "../ai-persona";
+import { isValidIndustrialPersonName } from "../triage/industrial-policy";
 import {
   MCP_PHASE23_TOOLS,
   MCP_PHASE23_TOOL_LABELS_PT,
@@ -3104,6 +3107,99 @@ export async function executeExtendedMcpTool(
         throw new Error(
           result.error || `Falha no envio do template Meta (${result.code || result.status}).`,
         );
+      }
+
+      if (isSdrAutomatedTemplate && effectiveQueueState === "automacao") {
+        try {
+          const persona = getAiPersona(tenantId);
+          const flowNow = new Date();
+          const initialCollectedData: Record<string, { value: string; status: "filled" | "pending" }> = {};
+          const cleanName = fallbackCustomerName.trim();
+          if (cleanName && isValidIndustrialPersonName(cleanName)) {
+            initialCollectedData["NOME COMPLETO"] = { value: cleanName, status: "filled" };
+          }
+
+          const flowIdKey = `fs-sdr-${tenantId}-${conversationId}`;
+          const [existingFlow] = await db
+            .select()
+            .from(agentFlowStates)
+            .where(
+              and(
+                eq(agentFlowStates.tenantId, tenantId),
+                eq(agentFlowStates.conversationId, conversationId),
+                eq(agentFlowStates.agentType, "sdr"),
+              ),
+            )
+            .limit(1);
+
+          if (existingFlow && existingFlow.outcome === "in_progress") {
+            const existingMeta = (existingFlow.metadata as Record<string, unknown>) || {};
+            await db
+              .update(agentFlowStates)
+              .set({
+                collectedData: {
+                  ...initialCollectedData,
+                  ...((existingFlow.collectedData as Record<string, unknown>) || {}),
+                },
+                metadata: {
+                  ...existingMeta,
+                  greetingDone: true,
+                  activeTemplateSent: true,
+                  activeTemplateName: selected.name,
+                  ...(dealFieldContext?.dealId ? { localCrmDealId: dealFieldContext.dealId } : {}),
+                },
+                lastInteractionAt: flowNow,
+              })
+              .where(
+                and(
+                  eq(agentFlowStates.tenantId, tenantId),
+                  eq(agentFlowStates.id, existingFlow.id),
+                ),
+              );
+          } else {
+            if (existingFlow) {
+              await db
+                .delete(agentFlowStates)
+                .where(
+                  and(
+                    eq(agentFlowStates.tenantId, tenantId),
+                    eq(agentFlowStates.id, existingFlow.id),
+                  ),
+                );
+            }
+            await db
+              .insert(agentFlowStates)
+              .values({
+                id: flowIdKey,
+                tenantId,
+                conversationId,
+                agentType: "sdr",
+                currentStep: "Em Qualificação",
+                collectedData: initialCollectedData,
+                metadata: {
+                  attendanceActorName: persona.name,
+                  stepNumber: Object.keys(initialCollectedData).length,
+                  totalSteps: 7,
+                  followUpStage: 0,
+                  funnelStage: "triagem",
+                  targetFunnel: null,
+                  greetingDone: true,
+                  activeTemplateSent: true,
+                  activeTemplateName: selected.name,
+                  ...(dealFieldContext?.dealId ? { localCrmDealId: dealFieldContext.dealId } : {}),
+                },
+                startedAt: new Date(flowNow.getTime() - 2000),
+                lastInteractionAt: flowNow,
+                outcome: "in_progress",
+              })
+              .onConflictDoNothing();
+          }
+        } catch (flowInitErr: any) {
+          console.warn(
+            `[MCP send_meta_template] Aviso ao inicializar flowState SDR (${conversationId}):`,
+            flowInitErr?.message || flowInitErr,
+          );
+        }
       }
 
       return {

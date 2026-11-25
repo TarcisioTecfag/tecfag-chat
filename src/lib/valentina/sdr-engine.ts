@@ -74,8 +74,14 @@ import {
   evaluateIndustrialSdrOwnershipGuard,
   fetchLatestPublicOutboundMessage,
   isIndustrialOwnerStillValidForSend,
+  isOwnSdrOutboundSender,
   buildIndustrialPostCloseReopenPatch,
 } from "../triage/industrial-ownership-guard";
+import {
+  evaluateIndustrialOpeningPlan,
+  finalizeIndustrialOpeningMessages,
+  type IndustrialOpeningPlan,
+} from "../triage/industrial-opening-policy";
 import { deliverIndustrialPostCommit } from "../triage/industrial-post-commit-delivery";
 import { appendIndustrialJournal } from "../triage/industrial-triage-journal-store";
 import {
@@ -518,7 +524,7 @@ export class SdrEngine {
         const sender =
           m.senderType === "client"
             ? "Cliente"
-            : m.senderType === "bot"
+            : m.senderType === "bot" || isOwnSdrOutboundSender(m.senderName)
               ? `${aiPersona.name} (SDR)`
               : `Operador (${m.senderName || "Equipe"})`;
 
@@ -549,6 +555,7 @@ export class SdrEngine {
 
       // 3b. Memória histórica anterior ao ciclo atual (com carimbo de data/idade para noção temporal)
       let priorConversationHistoryText = "";
+      let priorRawMessages: any[] = [];
       if (industrialTriage && flowState?.startedAt) {
         try {
           const priorRaw = await db
@@ -568,13 +575,13 @@ export class SdrEngine {
             .limit(25);
 
           if (priorRaw.length > 0) {
-            priorConversationHistoryText = [...priorRaw]
-              .reverse()
+            priorRawMessages = [...priorRaw].reverse();
+            priorConversationHistoryText = priorRawMessages
               .map((m: any) => {
                 const sender =
                   m.senderType === "client"
                     ? "Cliente"
-                    : m.senderType === "bot"
+                    : m.senderType === "bot" || isOwnSdrOutboundSender(m.senderName)
                       ? `${aiPersona.name} (SDR)`
                       : `Operador (${m.senderName || "Equipe"})`;
                 let contentText = String(m.content || "").trim();
@@ -634,13 +641,34 @@ export class SdrEngine {
       // No widget do site (tecfag-widget), o Fagner já exibe sua apresentação local
       // antes da primeira mensagem do visitante — evitar saudação duplicada no backend.
       const siteWidgetAlreadyGreeted = industrialTriage && isSiteConversationId(conversationId);
-      const hasBotRespondedBefore =
-        greetingAlreadyDone || siteWidgetAlreadyGreeted || historyMsgs.some((m) => m.senderType === "bot");
+
+      const industrialOpeningPlan: IndustrialOpeningPlan | null = industrialTriage
+        ? evaluateIndustrialOpeningPlan({
+            greetingAlreadyDone,
+            siteWidgetAlreadyGreeted,
+            historyMessages: historyMsgs,
+            priorMessages: priorRawMessages,
+            now: promptNow,
+            aiPersona,
+            greeting,
+          })
+        : null;
+
+      const hasBotRespondedBefore = industrialOpeningPlan
+        ? !industrialOpeningPlan.isFirstMessage
+        : greetingAlreadyDone || siteWidgetAlreadyGreeted || historyMsgs.some((m) => m.senderType === "bot");
       const isFirstMessage = !hasBotRespondedBefore;
 
-      // Se for primeira mensagem (ou primeira interação do widget que já saudou localmente),
-      // marca o flag imediatamente antes de processar (evita race condition e saudação dupla)
-      if ((isFirstMessage || siteWidgetAlreadyGreeted) && !greetingAlreadyDone && flowState) {
+      // No modo industrial (Fagner): se já houve abordagem ativa recente (template) ou widget,
+      // marca greetingDone=true imediatamente; já em primeiro contato receptivo real, grava
+      // greetingDone=true apenas após o turno concluir sem abort (evita perder apresentação em Stop & Restart).
+      // No modo Valem (Valentina): preserva comportamento original intacto.
+      const shouldMarkGreetingDoneEarly = industrialOpeningPlan
+        ? !greetingAlreadyDone &&
+          (siteWidgetAlreadyGreeted || industrialOpeningPlan.mode === "active_template_continuation")
+        : (isFirstMessage || siteWidgetAlreadyGreeted) && !greetingAlreadyDone;
+
+      if (shouldMarkGreetingDoneEarly && flowState) {
         await db.update(agentFlowStates)
           .set({ metadata: industrialTriage ? sql`${agentFlowStates.metadata} || '{"greetingDone":true}'::jsonb` : { ...metaState, greetingDone: true } })
           .where(and(eq(agentFlowStates.id, flowState.id), eq(agentFlowStates.tenantId, tenantId),
@@ -649,8 +677,10 @@ export class SdrEngine {
 
       const companyPrep = /^grupo\b/i.test(aiPersona.company) ? "do" : "da";
 
-      const firstMessageRule = isFirstMessage
-        ? `🟢 ATENÇÃO — PRIMEIRA MENSAGEM DO ATENDIMENTO:
+      const firstMessageRule = industrialOpeningPlan
+        ? industrialOpeningPlan.firstMessageRule
+        : isFirstMessage
+          ? `🟢 ATENÇÃO — PRIMEIRA MENSAGEM DO ATENDIMENTO:
    - A saudação e apresentação ("${greeting}" + "Eu sou ${aiPersona.gender === "female" ? "a" : "o"} ${aiPersona.name}, ${companyPrep} ${aiPersona.company} 😊") JÁ SERÃO ENVIADAS AUTOMATICAMENTE PELO SISTEMA antes da sua resposta.
    - 🛑 NÃO inclua a saudação nem a apresentação em "messagesToSend" — o sistema cuida disso.
    - Sua resposta começa DIRETO no contexto do cliente, a partir do que ele disse:
@@ -661,7 +691,7 @@ export class SdrEngine {
         - Ex: "Vi que você precisa de válvulas spray — ótimo! Me conta um pouco mais?"
      ✅ Se o cliente JÁ PEDIU LIGAÇÃO: reconheça e continue coletando dados.
    - 🛑 PROIBIDO: "tudo bem por aqui?", "tudo joia?", frases de checagem de bem-estar.`
-        : `🛑 ATENÇÃO CRÍTICA (ESTA NÃO É A PRIMEIRA MENSAGEM DO ATENDIMENTO! A CONVERSA JÁ ESTÁ EM ANDAMENTO!):
+          : `🛑 ATENÇÃO CRÍTICA (ESTA NÃO É A PRIMEIRA MENSAGEM DO ATENDIMENTO! A CONVERSA JÁ ESTÁ EM ANDAMENTO!):
    - NUNCA volte a se apresentar se você já se identificou antes na conversa!
    - Responda DIRETO ao que o cliente disse de forma fluida e conversacional!`;
 
@@ -1386,8 +1416,27 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         }
       }
 
-      // 🛑 GARANTIA PROGRAMÁTICA: Se for a PRIMEIRA mensagem do atendimento:
-      if (isFirstMessage) {
+      // 🛑 GARANTIA PROGRAMÁTICA DE ABERTURA:
+      if (industrialTriage && industrialOpeningPlan) {
+        const finalizedOpening = finalizeIndustrialOpeningMessages({
+          plan: industrialOpeningPlan,
+          aiMessages: aiResult.messagesToSend,
+          batchTexts: batchItems.map((i) => i.text),
+          batchMessageIds: batchItems.map((i) => i.messageId),
+          hasMediaInBatch,
+          hasStoreTurn: Boolean(storeTurn),
+          isClientDeclinedTurn,
+          directOperatorStatus: resolvedDirectOperator?.status || null,
+          historyMessages: historyMsgs,
+          priorMessages: priorRawMessages,
+          extractedData: aiResult.extractedData || null,
+          subflow: aiResult.subflow || null,
+          now: promptNow,
+          aiPersona,
+          greeting,
+        });
+        aiResult.messagesToSend = finalizedOpening.messagesToSend;
+      } else if (isFirstMessage) {
         const combinedText = batchItems.map((i) => i.text).join(" ").toLowerCase();
 
         // Checar se o cliente apenas deu oi/saudação ou se já trouxe mídia (PDF/imagem/áudio) ou explicou o que precisa
@@ -1400,9 +1449,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           !/(embalag|valv|válv|spray|frasc|pote|selad|catal|catál|prec|preç|cota|cotá|orç|orc|sab|comp|prod|inform|duvid|dúvid|maquin|máquin|envas|empacot|datador|peca|peça|assist|boleto|nota|nf|rastreio|pedido|manuten|personalit|falar|atendent|vendedor|consultor|comprovante|pagamento|curriculo|currículo)/.test(combinedText);
 
         const article = aiPersona.gender === "female" ? "a" : "o";
-        const presentationLine = industrialTriage
-          ? `Eu sou ${article} ${aiPersona.name}, assistente virtual ${companyPrep} ${aiPersona.company} 😊`
-          : `Eu sou ${article} ${aiPersona.name}, da ${aiPersona.company} 😊`;
+        const presentationLine = `Eu sou ${article} ${aiPersona.name}, da ${aiPersona.company} 😊`;
         if (isGenericGreetingOnly) {
           // Cliente só cumprimentou — estrutura fixa de 3 balões
           aiResult.messagesToSend = [
@@ -2287,9 +2334,11 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           .limit(1);
         const botAlreadyResponded = existingBotMsg.length > 0 || siteWidgetAlreadyGreeted;
 
-        // Como o código injeta a saudação oficial em isFirstMessage (logo abaixo), ou se o bot já respondeu antes,
+        // Como o código injeta a saudação oficial em isFirstMessage no fluxo legado (Valem), ou se o bot já respondeu antes,
         // qualquer saudação/apresentação retornada pelo Gemini em messagesToSend deve ser removida para não duplicar.
-        if (isFirstMessage || botAlreadyResponded) {
+        // No modo industrial (Fagner), `finalizeIndustrialOpeningMessages` já controlou abertura e continuidade com contexto;
+        // aqui apenas removemos eventual reapresentação em corrida entre processos (`botAlreadyResponded`), sem nunca trocar por "Como posso te ajudar?".
+        if (!industrialTriage && (isFirstMessage || botAlreadyResponded)) {
           const greetingPatterns = [
             /^(boa\s*(tarde|noite)|bom\s*dia)[!.]?\s*$/i,
             /^eu\s+sou\s+(a\s+)?valentina\b/i,
@@ -2306,6 +2355,20 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           }
           if ((isFirstMessage || siteWidgetAlreadyGreeted) && aiResult.messagesToSend.length === 0) {
             aiResult.messagesToSend = ["Como posso te ajudar?"];
+          }
+        } else if (industrialTriage && botAlreadyResponded && aiResult.messagesToSend.length > 1) {
+          const industrialDupGreetingPatterns = [
+            /^(boa\s*(tarde|noite)|bom\s*dia)[!.]?\s*$/i,
+            /^(?:(?:boa\s*(?:tarde|noite)|bom\s*dia)[!.,\s]*)?(?:eu\s+)?sou\s+(?:o\s+)?fagner\b/i,
+          ];
+          const filtered = aiResult.messagesToSend.filter(
+            (msg) => !industrialDupGreetingPatterns.some((p) => p.test(msg.trim())),
+          );
+          if (filtered.length > 0 && filtered.length < aiResult.messagesToSend.length) {
+            console.log(
+              `[SdrEngine] ⚠️ DEDUPLICAÇÃO INDUSTRIAL: removida(s) ${aiResult.messagesToSend.length - filtered.length} apresentação(ões) duplicada(s) em sessão já iniciada.`,
+            );
+            aiResult.messagesToSend = filtered;
           }
         }
 
@@ -2381,8 +2444,27 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         );
       }
 
-      // GREETING INJETADO PELO CÓDIGO (não pelo Gemini):
-      if (isFirstMessage && !signal?.aborted) {
+      // No modo industrial (Fagner): marca greetingDone=true apenas agora que o turno não foi abortado
+      // (evita perder apresentação quando Stop & Restart cancela o primeiro turno no meio).
+      if (
+        industrialTriage &&
+        industrialOpeningPlan?.mode === "fresh_inbound_first_turn" &&
+        !greetingAlreadyDone &&
+        flowState &&
+        !signal?.aborted
+      ) {
+        await db.update(agentFlowStates)
+          .set({ metadata: sql`${agentFlowStates.metadata} || '{"greetingDone":true}'::jsonb` })
+          .where(and(
+            eq(agentFlowStates.id, flowState.id),
+            eq(agentFlowStates.tenantId, tenantId),
+            eq(agentFlowStates.outcome, "in_progress"),
+            isNull(agentFlowStates.completedAt),
+          ));
+      }
+
+      // GREETING INJETADO PELO CÓDIGO (fluxo legado / Valem — no modo industrial a abertura contextual já vem finalizada em aiResult.messagesToSend):
+      if (!industrialTriage && isFirstMessage && !signal?.aborted) {
         const aiPersonaForGreeting = getAiPersona(tenantId);
         const greetingPrep = /^grupo\b/i.test(aiPersonaForGreeting.company) ? "do" : "da";
         const greetingMessages = [
@@ -2390,10 +2472,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           `Eu sou ${aiPersonaForGreeting.gender === "female" ? "a" : "o"} ${aiPersonaForGreeting.name}, ${greetingPrep} ${aiPersonaForGreeting.company} 😊`,
         ];
         console.log(`[SdrEngine] 👋 Injetando greeting via código (isFirstMessage=true): ${JSON.stringify(greetingMessages)}`);
-        if (industrialTriage && industrialHandoff?.status !== "transferred" &&
-          (!dynamicAudio || dynamicAudio.position !== "only_audio") && aiResult.messagesToSend.length > 0) {
-          industrialGreetingMessages = greetingMessages; // Persist greeting, answer and photos as one turn.
-        } else await this.sendHumanizedBotMessages(tenantId, conversationId, contactPhone, greetingMessages, signal, null, null, allocatedOp?.id || null,
+        await this.sendHumanizedBotMessages(tenantId, conversationId, contactPhone, greetingMessages, signal, null, null, allocatedOp?.id || null,
           deliveryTurnContext ? { ...deliveryTurnContext, scope: "greeting" } : undefined);
       }
 

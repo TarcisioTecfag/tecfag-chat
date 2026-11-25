@@ -1,4 +1,12 @@
 import crypto from "node:crypto";
+import { isOwnSdrOutboundSender } from "./industrial-ownership-guard";
+
+function isExternalHumanAgentMessage(msg: {
+  senderType: string;
+  senderName?: string | null;
+}): boolean {
+  return msg.senderType === "agent" && !isOwnSdrOutboundSender(msg.senderName);
+}
 
 function isSiteConversationId(conversationId: string): boolean {
   return (
@@ -425,6 +433,7 @@ export interface IndustrialSilenceEvalInput {
   recentMessages: ReadonlyArray<{
     id: string;
     senderType: string;
+    senderName?: string | null;
     sentAt: Date | string;
     content?: string | null;
   }>;
@@ -556,7 +565,7 @@ export function evaluateIndustrialSilence(
     return { action: "none", reason: "no_cycle_messages", rescuePartialLead: false };
   }
 
-  if (cycleMsgs.some((m) => m.senderType === "agent")) {
+  if (cycleMsgs.some((m) => isExternalHumanAgentMessage(m))) {
     return { action: "cancel_by_human", reason: "agent_message_present", rescuePartialLead: false };
   }
 
@@ -768,6 +777,7 @@ export interface IndustrialTurnRecoveryEvalInput {
   recentMessages: ReadonlyArray<{
     id: string;
     senderType: string;
+    senderName?: string | null;
     sentAt: Date | string;
     content?: string | null;
   }>;
@@ -857,7 +867,7 @@ export function evaluateIndustrialTurnRecovery(
     };
   }
 
-  if (ordered.some((m) => m.senderType === "agent")) {
+  if (ordered.some((m) => isExternalHumanAgentMessage(m))) {
     return {
       shouldRecover: false,
       reason: "agent_message_present",

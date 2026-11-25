@@ -144,6 +144,7 @@ export class SdrFollowupEngine {
           .select({
             id: messages.id,
             senderType: messages.senderType,
+            senderName: messages.senderName,
             sentAt: messages.sentAt,
             content: messages.content,
           })

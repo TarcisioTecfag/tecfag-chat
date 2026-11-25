@@ -81,6 +81,7 @@ export async function recoverIndustrialInterruptedTurns(nowOverride?: Date): Pro
             .select({
               id: messages.id,
               senderType: messages.senderType,
+              senderName: messages.senderName,
               sentAt: messages.sentAt,
               content: messages.content,
             })
@@ -89,6 +90,7 @@ export async function recoverIndustrialInterruptedTurns(nowOverride?: Date): Pro
               and(
                 eq(messages.tenantId, tenantId),
                 eq(messages.conversationId, conv.id),
+                eq(messages.isInternalNote, false),
                 ne(messages.content, "!reset"),
                 or(ne(messages.senderType, "bot"), inArray(messages.status, ["sent", "accepted", "delivered", "read"])),
                 ...(flow?.startedAt ? [gte(messages.sentAt, flow.startedAt)] : []),
