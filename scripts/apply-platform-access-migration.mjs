@@ -320,6 +320,20 @@ const migrations = [
       import.meta.url,
     ),
   },
+  {
+    name: "0068_mcp_audit_logs",
+    url: new URL(
+      "../src/db/migrations/0068_mcp_audit_logs.sql",
+      import.meta.url,
+    ),
+  },
+  {
+    name: "0069_webhook_subscriptions_and_deliveries",
+    url: new URL(
+      "../src/db/migrations/0069_webhook_subscriptions_and_deliveries.sql",
+      import.meta.url,
+    ),
+  },
 ];
 const databaseUrl = process.env.DATABASE_URL;
 

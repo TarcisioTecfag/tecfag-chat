@@ -1,3 +1,5 @@
+import { registerShutdownTask } from "../../src/lib/graceful-shutdown";
+
 /**
  * Plugin Nitro: Inicialização do WhatsAppRecoveryService.
  * Monitora e recupera mensagens presas em 'sending' ou 'processing' após reinicialização/crash.
@@ -9,7 +11,9 @@ export default function recoveryPlugin(nitroApp: {
   void import("../../src/lib/rd-marketing/commercial-recovery.js")
     .then(({ rdCommercialRecovery }) => {
       rdCommercialRecovery.start();
-      nitroApp.hooks.hook("close", () => rdCommercialRecovery.stop());
+      const stopRdCommercial = () => rdCommercialRecovery.stop();
+      nitroApp.hooks.hook("close", stopRdCommercial);
+      registerShutdownTask("rd-commercial-recovery", "workers", stopRdCommercial);
     })
     .catch(() => console.error("[RecoveryPlugin] Falha ao iniciar o processador comercial RD."));
   // Nitro 3 não emite listen no runtime Node. Iniciar no carregamento do plugin.
@@ -25,14 +29,18 @@ export default function recoveryPlugin(nitroApp: {
       void run();
       const timer = setInterval(run, 15_000);
       timer.unref();
-      nitroApp.hooks.hook("close", () => {
+      const stopRecovery = () => {
         clearInterval(timer);
         whatsAppRecoveryService.stopRecoveryWorker();
-      });
+      };
+      nitroApp.hooks.hook("close", stopRecovery);
+      registerShutdownTask("whatsapp-and-rd-recovery", "workers", stopRecovery);
       const { SlaEngine } = await import("../../src/lib/sla-engine.js");
       const { AuditService } = await import("../../src/lib/audit-service.js");
       const { SupervisorEngine } = await import("../../src/lib/valentina/supervisor-engine.js");
       const { webhookDeliveryWorker } = await import("../../src/lib/webhooks/dispatcher.js");
+      const { SdrFollowupEngine } = await import("../../src/lib/valentina/sdr-followup-engine.js");
+      const { flushPendingMcpAuditLogs } = await import("../../src/lib/mcp/mcp-audit-store.js");
       const { ensureTecfagManualsKnowledgePopulated } = await import(
         "../../src/lib/valentina/knowledge-service.js"
       );
@@ -43,23 +51,25 @@ export default function recoveryPlugin(nitroApp: {
       AuditService.getInstance().start();
       SupervisorEngine.getInstance().start();
       webhookDeliveryWorker.start(15_000);
-      nitroApp.hooks.hook("close", async () => {
+      const stopEngines = () => {
         SlaEngine.getInstance().stop();
         AuditService.getInstance().stop();
         SupervisorEngine.getInstance().stop();
         webhookDeliveryWorker.stop();
-        try {
-          const { SessionManager } = await import("../../src/lib/baileys/session-manager.js");
-          await Promise.race([
-            SessionManager.shutdownIfInitialized(),
-            new Promise<void>((resolve) => setTimeout(resolve, 4000)),
-          ]);
-        } catch (err: unknown) {
-          console.warn(
-            "[RecoveryPlugin] Aviso ao encerrar SessionManager no hook close:",
-            err instanceof Error ? err.message : String(err ?? ""),
-          );
-        }
+        SdrFollowupEngine.getInstance().stop();
+      };
+      registerShutdownTask("background-engines", "workers", stopEngines);
+      registerShutdownTask("mcp-audit-flush", "services", async () => {
+        await Promise.race([
+          flushPendingMcpAuditLogs(),
+          new Promise<void>((resolve) => {
+            const t = setTimeout(resolve, 1_500);
+            t.unref();
+          }),
+        ]);
+      });
+      nitroApp.hooks.hook("close", async () => {
+        stopEngines();
       });
     } catch (err: unknown) {
       console.error(

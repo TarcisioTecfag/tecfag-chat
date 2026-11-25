@@ -7,6 +7,7 @@ import {
   registerOperatorSseOpen,
   touchOperatorPresence,
 } from "../../lib/operator-presence";
+import { registerActiveSseCloser } from "../../lib/graceful-shutdown";
 
 export const Route = createFileRoute("/api/events")({
   server: {
@@ -36,15 +37,19 @@ export const Route = createFileRoute("/api/events")({
             const sessionManager = SessionManager.getInstance();
             let heartbeatTimer: ReturnType<typeof setInterval>;
             let closed = false;
+            let unregisterShutdownCloser: (() => void) | null = null;
             const close = () => {
               if (closed) return;
               closed = true;
+              unregisterShutdownCloser?.();
+              unregisterShutdownCloser = null;
               registerOperatorSseClose(tenantId, session.operator.id);
               clearInterval(heartbeatTimer);
               request.signal.removeEventListener("abort", close);
               sessionManager.unregisterListener(tenantId, onEvent);
               try { controller.close(); } catch {}
             };
+            unregisterShutdownCloser = registerActiveSseCloser(close);
             cancelStream = close;
             // Uma sessão revogada não recebe o próximo evento do tenant.
             const currentSession = async () => {

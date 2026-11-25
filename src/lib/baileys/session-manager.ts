@@ -12,6 +12,7 @@ import {
 import { createHash } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { runtimeSingleton, getRuntimeSingleton } from "../runtime-singleton";
+import { installGracefulShutdownHandlers, registerShutdownTask } from "../graceful-shutdown";
 import makeWASocket, { 
   DisconnectReason, 
   WASocket, 
@@ -2855,33 +2856,13 @@ export async function resolveRealJid(sock: any, phone: string, fallbackJid?: str
   return `${cleanPhone}@s.whatsapp.net`;
 }
 
-// Registrar desligamento gracioso para containers (Railway SIGTERM / SIGINT)
-const SIGNAL_HANDLER_KEY = Symbol.for("valem-chat.session-manager.signal-handlers");
-if (
-  typeof process !== "undefined" &&
-  typeof process.on === "function" &&
-  !(globalThis as Record<symbol, boolean>)[SIGNAL_HANDLER_KEY]
-) {
-  (globalThis as Record<symbol, boolean>)[SIGNAL_HANDLER_KEY] = true;
-  let signalHandled = false;
-  const handleSignal = (signal: NodeJS.Signals) => {
-    if (signalHandled) return;
-    signalHandled = true;
-    const isTestRunner = Boolean(process.env.NODE_TEST_CONTEXT || process.env.VITEST);
-    void Promise.race([
-      SessionManager.shutdownIfInitialized().catch((err) => {
-        console.error(`[SessionManager] Erro durante encerramento gracioso (${signal}):`, err);
-      }),
-      new Promise<void>((resolve) => {
-        const timer = setTimeout(resolve, 4000);
-        timer.unref();
-      }),
-    ]).finally(() => {
-      if (!isTestRunner) {
-        process.exit(0);
-      }
-    });
-  };
-  process.once("SIGTERM", () => handleSignal("SIGTERM"));
-  process.once("SIGINT", () => handleSignal("SIGINT"));
-}
+// Registrar encerramento gracioso dos sockets Baileys no coordenador central (fase 'services').
+// Não chama process.exit(0) diretamente para não abortar requisições HTTP, transações SQL ou o pool Postgres.
+registerShutdownTask("baileys-session-manager", "services", async () => {
+  try {
+    await SessionManager.shutdownIfInitialized();
+  } catch (err) {
+    console.error("[SessionManager] Erro durante encerramento gracioso:", err);
+  }
+});
+installGracefulShutdownHandlers();

@@ -1,6 +1,7 @@
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "./schema";
+import { runtimeSingleton } from "../lib/runtime-singleton";
 
 function resolveConnectionString(): string {
   // Em ambiente de teste (NODE_ENV=test ou IS_TEST=true), TEST_DATABASE_URL tem precedência absoluta
@@ -24,14 +25,54 @@ export function resolveDbPoolMax(raw = process.env.DB_POOL_MAX): number {
 
 export const DB_POOL_MAX = resolveDbPoolMax();
 
-// Client do PostgreSQL (pool principal exportado para inspeções e testes)
-export const client = postgres(connectionString, {
-  max: DB_POOL_MAX,
-  idle_timeout: 20,
-  connect_timeout: 15,
-  prepare: false,
-  ssl: isCloud && !isLocalDatabase ? { rejectUnauthorized: false } : false,
+const activePostgresPools = runtimeSingleton<Map<string, postgres.Sql>>(
+  "PostgresActivePools",
+  () => new Map<string, postgres.Sql>(),
+);
+
+const poolKey = `PostgresClient:${connectionString}`;
+
+// Client do PostgreSQL compartilhado via runtimeSingleton entre chunks Nitro (_chunks) e SSR (_ssr)
+// Evita abertura de dois pools paralelos (25 + 25 = 50 conexões) no mesmo processo Node.
+export const client = runtimeSingleton<postgres.Sql>(poolKey, () => {
+  const pool = postgres(connectionString, {
+    max: DB_POOL_MAX,
+    idle_timeout: 20,
+    connect_timeout: 15,
+    prepare: false,
+    ssl: isCloud && !isLocalDatabase ? { rejectUnauthorized: false } : false,
+  });
+  activePostgresPools.set(poolKey, pool);
+  return pool;
 });
+
+activePostgresPools.set(poolKey, client);
+
+/**
+ * Encerra graciosamente todos os pools PostgreSQL ativos no processo.
+ * Aguarda queries/transações em andamento (até timeoutSeconds) e envia Terminate + TLS close_notify.
+ */
+export async function closeDatabasePools(timeoutSeconds = 4): Promise<number> {
+  const entries = Array.from(activePostgresPools.entries());
+  activePostgresPools.clear();
+  if (entries.length === 0) return 0;
+
+  let closedCount = 0;
+  await Promise.allSettled(
+    entries.map(async ([, pool]) => {
+      try {
+        await pool.end({ timeout: timeoutSeconds });
+        closedCount += 1;
+      } catch (err) {
+        console.warn(
+          "[db] Aviso ao encerrar pool PostgreSQL:",
+          err instanceof Error ? err.message : String(err ?? ""),
+        );
+      }
+    }),
+  );
+  return closedCount;
+}
 
 export const db = drizzle(client, { schema });
 
@@ -509,6 +550,45 @@ export async function verifyDatabaseCompatibility(): Promise<void> {
         ON mcp_audit_logs (tenant_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_mcp_audit_logs_tenant_key_created
         ON mcp_audit_logs (tenant_id, key_id, created_at DESC);
+      CREATE TABLE IF NOT EXISTS webhook_subscriptions (
+        id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+        tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        url TEXT NOT NULL,
+        secret TEXT NOT NULL,
+        events JSONB NOT NULL,
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_webhook_subscriptions_tenant
+        ON webhook_subscriptions (tenant_id);
+      CREATE INDEX IF NOT EXISTS idx_webhook_subscriptions_tenant_active
+        ON webhook_subscriptions (tenant_id, is_active);
+      CREATE TABLE IF NOT EXISTS webhook_deliveries (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+        subscription_id TEXT NOT NULL,
+        event_id TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        target_url TEXT NOT NULL,
+        payload JSONB NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        attempts INTEGER NOT NULL DEFAULT 0,
+        max_attempts INTEGER NOT NULL DEFAULT 6,
+        last_status_code INTEGER,
+        last_error TEXT,
+        last_response_body TEXT,
+        next_retry_at TIMESTAMP,
+        delivered_at TIMESTAMP,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_webhook_deliveries_sub_event_uniq
+        ON webhook_deliveries (tenant_id, subscription_id, event_id);
+      CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_status_retry
+        ON webhook_deliveries (status, next_retry_at);
+      CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_tenant_created
+        ON webhook_deliveries (tenant_id, created_at DESC);
     `);
     console.log("[db] ✓ Compatibilidade do schema verificada com sucesso.");
   } catch (e: any) {

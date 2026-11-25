@@ -33,6 +33,7 @@ import {
 import {
   SUPPORTED_WEBHOOK_EVENTS,
   dispatchWebhook,
+  ensureWebhookSubscriptionsSchema,
   listTenantWebhookDeliveries,
   retryWebhookDelivery,
   validateWebhookTargetUrl,
@@ -1759,6 +1760,7 @@ export async function executePhase23McpTool(
 
     // ── 12. LIST WEBHOOK SUBSCRIPTIONS (READ — ITEM 6) ───────────────────────
     case "list_webhook_subscriptions": {
+      await ensureWebhookSubscriptionsSchema();
       const rows = await db
         .select()
         .from(webhookSubscriptions)
@@ -1783,6 +1785,7 @@ export async function executePhase23McpTool(
 
     // ── 13. UPSERT WEBHOOK SUBSCRIPTION (WRITE — ITEM 6) ─────────────────────
     case "upsert_webhook_subscription": {
+      await ensureWebhookSubscriptionsSchema();
       const action = asTrimmedString(args.action);
       if (action !== "create" && action !== "update" && action !== "delete") {
         throw new Error("Campo obrigatório 'action' deve ser 'create', 'update' ou 'delete'.");

@@ -1,5 +1,9 @@
 import { WebSocketServer } from "ws";
 import type { Server } from "http";
+import {
+  registerHttpServerForShutdown,
+  registerShutdownTask,
+} from "../../src/lib/graceful-shutdown";
 // NÃO importamos MediaStreamHandler no topo — ele puxa db/vertex-ai que crasham no load do plugin.
 // O import é feito de forma lazy dentro do handler do upgrade.
 
@@ -8,10 +12,26 @@ let lcWss: WebSocketServer | null = null;
 let serverListenerAttached = false;
 
 function attachWebSocketServer(server: Server, label: string) {
+  registerHttpServerForShutdown(server);
   if (serverListenerAttached) return;
   serverListenerAttached = true;
 
   wss = new WebSocketServer({ noServer: true });
+  registerShutdownTask("websocket-servers", "http", async () => {
+    const closeWsServer = (target: WebSocketServer | null) =>
+      new Promise<void>((resolve) => {
+        if (!target) return resolve();
+        for (const ws of target.clients) {
+          try {
+            ws.close(1001, "Server shutting down");
+          } catch {
+            // ignore
+          }
+        }
+        target.close(() => resolve());
+      });
+    await Promise.allSettled([closeWsServer(wss), closeWsServer(lcWss)]);
+  });
 
   server.on("upgrade", async (request, socket, head) => {
     const url = request.url || "";

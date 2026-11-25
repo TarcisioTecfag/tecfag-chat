@@ -17,6 +17,110 @@ export const SUPPORTED_WEBHOOK_EVENTS = [
 
 export type SupportedWebhookEvent = (typeof SUPPORTED_WEBHOOK_EVENTS)[number];
 
+export function maskWebhookSecret(secret: string): string {
+  if (!secret || secret.length <= 10) return "••••••••";
+  return `${secret.slice(0, 8)}••••${secret.slice(-4)}`;
+}
+
+export function validateWebhookEvents(raw: unknown): SupportedWebhookEvent[] {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    throw new Error(
+      `Informe 'events' com ao menos um evento suportado: ${SUPPORTED_WEBHOOK_EVENTS.join(", ")}.`,
+    );
+  }
+  const allowed = new Set<string>(SUPPORTED_WEBHOOK_EVENTS);
+  const unique = Array.from(
+    new Set(raw.filter((v): v is string => typeof v === "string").map((v) => v.trim())),
+  );
+  const invalid = unique.filter((e) => !allowed.has(e));
+  if (invalid.length > 0) {
+    throw new Error(
+      `Eventos não suportados: ${invalid.join(", ")}. Suportados: ${SUPPORTED_WEBHOOK_EVENTS.join(", ")}.`,
+    );
+  }
+  return unique as SupportedWebhookEvent[];
+}
+
+export interface DealWebhookData {
+  dealId: string;
+  title: string;
+  pipelineId: string;
+  stageId: string;
+  status: string;
+  value?: string | number | null;
+  operatorId?: string | null;
+  accountId?: string | null;
+  contactId?: string | null;
+  source?: string | null;
+  campaign?: string | null;
+  entryChannel?: string | null;
+  sectorCurrent?: string | null;
+  previousPipelineId?: string | null;
+  previousStageId?: string | null;
+  previousStatus?: string | null;
+  previousOperatorId?: string | null;
+  changedFields?: string[];
+  lossReason?: string | null;
+  winReason?: string | null;
+  pausedReason?: string | null;
+  actorOperatorId?: string | null;
+  origin?: string;
+  version?: number | null;
+  updatedAt?: string;
+}
+
+/**
+ * Emite eventos de ciclo de vida de negociações (`deal.created`, `deal.updated`, `deal.won`, `deal.lost`)
+ * de forma não-bloqueante e isolada por tenant. Sempre chamar APÓS o commit da transação.
+ */
+export function dispatchDealWebhook(
+  tenantId: string,
+  event: "deal.created" | "deal.updated" | "deal.won" | "deal.lost",
+  data: DealWebhookData,
+  options?: { eventId?: string; awaitDelivery?: boolean },
+): Promise<{ enqueued: number; eventId: string; results?: WebhookAttemptResult[] }> {
+  const nowIso = new Date().toISOString();
+  const payload: Record<string, unknown> = {
+    dealId: data.dealId,
+    title: data.title,
+    pipelineId: data.pipelineId,
+    stageId: data.stageId,
+    status: data.status,
+    value: data.value ?? null,
+    operatorId: data.operatorId ?? null,
+    accountId: data.accountId ?? null,
+    ...(data.contactId !== undefined ? { contactId: data.contactId } : {}),
+    ...(data.source !== undefined ? { source: data.source } : {}),
+    ...(data.campaign !== undefined ? { campaign: data.campaign } : {}),
+    ...(data.entryChannel !== undefined ? { entryChannel: data.entryChannel } : {}),
+    ...(data.sectorCurrent !== undefined ? { sectorCurrent: data.sectorCurrent } : {}),
+    ...(data.previousPipelineId !== undefined ? { previousPipelineId: data.previousPipelineId } : {}),
+    ...(data.previousStageId !== undefined ? { previousStageId: data.previousStageId } : {}),
+    ...(data.previousStatus !== undefined ? { previousStatus: data.previousStatus } : {}),
+    ...(data.previousOperatorId !== undefined ? { previousOperatorId: data.previousOperatorId } : {}),
+    ...(data.changedFields && data.changedFields.length > 0 ? { changedFields: data.changedFields } : {}),
+    ...(data.lossReason !== undefined ? { lossReason: data.lossReason } : {}),
+    ...(data.winReason !== undefined ? { winReason: data.winReason } : {}),
+    ...(data.pausedReason !== undefined ? { pausedReason: data.pausedReason } : {}),
+    ...(data.actorOperatorId !== undefined ? { actorOperatorId: data.actorOperatorId } : {}),
+    ...(data.origin ? { origin: data.origin } : {}),
+    ...(data.version !== undefined && data.version !== null ? { version: data.version } : {}),
+    updatedAt: data.updatedAt || nowIso,
+    timestamp: nowIso,
+  };
+
+  const versionPart = data.version !== undefined && data.version !== null ? `v${data.version}` : String(Date.now());
+  const defaultEventId =
+    event === "deal.created"
+      ? `deal-created:${data.dealId}`
+      : `${event.replace(".", "-")}:${data.dealId}:${versionPart}`;
+
+  return dispatchWebhook(tenantId, event, payload, {
+    eventId: options?.eventId || defaultEventId,
+    awaitDelivery: options?.awaitDelivery,
+  });
+}
+
 const RETRY_DELAYS_MS = [
   10_000, // 1ª retentativa: 10s
   60_000, // 2ª retentativa: 1 min
@@ -26,11 +130,45 @@ const RETRY_DELAYS_MS = [
 ];
 
 const DELIVERY_TIMEOUT_MS = 10_000;
-let ensureDeliveriesPromise: Promise<void> | null = null;
+const webhookSchemaState = runtimeSingleton("WebhookSchemaState", () => ({
+  subscriptionsPromise: null as Promise<void> | null,
+  deliveriesPromise: null as Promise<void> | null,
+}));
+
+export function ensureWebhookSubscriptionsSchema(): Promise<void> {
+  if (!webhookSchemaState.subscriptionsPromise) {
+    webhookSchemaState.subscriptionsPromise = (async () => {
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS webhook_subscriptions (
+          id text PRIMARY KEY DEFAULT gen_random_uuid()::text,
+          tenant_id text NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+          name text NOT NULL,
+          url text NOT NULL,
+          secret text NOT NULL,
+          events jsonb NOT NULL,
+          is_active boolean NOT NULL DEFAULT true,
+          created_at timestamp NOT NULL DEFAULT now()
+        );
+      `);
+      await db.execute(sql`
+        CREATE INDEX IF NOT EXISTS idx_webhook_subscriptions_tenant
+          ON webhook_subscriptions (tenant_id);
+      `);
+      await db.execute(sql`
+        CREATE INDEX IF NOT EXISTS idx_webhook_subscriptions_tenant_active
+          ON webhook_subscriptions (tenant_id, is_active);
+      `);
+    })().catch((err) => {
+      webhookSchemaState.subscriptionsPromise = null;
+      throw err;
+    });
+  }
+  return webhookSchemaState.subscriptionsPromise;
+}
 
 export function ensureWebhookDeliveriesSchema(): Promise<void> {
-  if (!ensureDeliveriesPromise) {
-    ensureDeliveriesPromise = (async () => {
+  if (!webhookSchemaState.deliveriesPromise) {
+    webhookSchemaState.deliveriesPromise = (async () => {
       await db.execute(sql`
         CREATE TABLE IF NOT EXISTS webhook_deliveries (
           id text PRIMARY KEY,
@@ -65,11 +203,11 @@ export function ensureWebhookDeliveriesSchema(): Promise<void> {
           ON webhook_deliveries (tenant_id, created_at DESC);
       `);
     })().catch((err) => {
-      ensureDeliveriesPromise = null;
+      webhookSchemaState.deliveriesPromise = null;
       throw err;
     });
   }
-  return ensureDeliveriesPromise;
+  return webhookSchemaState.deliveriesPromise;
 }
 
 export function validateWebhookTargetUrl(
@@ -134,6 +272,7 @@ export async function attemptWebhookDelivery(
   deliveryId: string,
   tenantId: string,
 ): Promise<WebhookAttemptResult | null> {
+  await ensureWebhookSubscriptionsSchema();
   await ensureWebhookDeliveriesSchema();
 
   const [row] = await db
@@ -268,6 +407,7 @@ export async function dispatchWebhook(
   data: Record<string, unknown>,
   options?: { eventId?: string; awaitDelivery?: boolean },
 ): Promise<{ enqueued: number; eventId: string; results?: WebhookAttemptResult[] }> {
+  await ensureWebhookSubscriptionsSchema();
   const eventId = options?.eventId?.trim() || `evt-${crypto.randomUUID()}`;
 
   const subscriptions = await db
