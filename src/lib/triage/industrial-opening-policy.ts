@@ -197,6 +197,21 @@ export function evaluateIndustrialOpeningPlan(input: {
   const combinedMessages = [...input.priorMessages, ...input.historyMessages];
   const recentOwnSdr = findRecentOwnSdrOutbound(combinedMessages, now);
 
+  if (input.siteWidgetAlreadyGreeted && !hasBotInCurrentCycle && !input.greetingAlreadyDone) {
+    return {
+      mode: "ongoing",
+      isFirstMessage: false,
+      hasRecentOwnSdrOutbound: recentOwnSdr.found,
+      recentOwnSdrMessagePreview: recentOwnSdr.latestMessage?.content
+        ? String(recentOwnSdr.latestMessage.content).trim().slice(0, 180)
+        : null,
+      firstMessageRule: `🛑 ATENÇÃO CRÍTICA (CHAT DO SITE — VOCÊ JÁ SE APRESENTOU NA TELA DO VISITANTE!):
+   - O widget do chat no site JÁ exibiu automaticamente na tela do cliente sua saudação e apresentação ("Sou ${article} ${input.aiPersona.name}, assistente virtual da Tecfag! Como posso te ajudar hoje?"), mesmo que essas mensagens iniciais do widget não apareçam no histórico acima.
+   - 🛑 PROIBIDO se reapresentar ("Olá, [Nome]. Sou ${input.aiPersona.name}...", "Eu sou ${article} ${input.aiPersona.name}, assistente virtual...", "Aqui é ${article} ${input.aiPersona.name}...").
+   - Responda DIRETO ao que o cliente disse de forma fluida e conversacional!`,
+    };
+  }
+
   if (input.greetingAlreadyDone || input.siteWidgetAlreadyGreeted || hasBotInCurrentCycle) {
     return {
       mode: "ongoing",
@@ -206,7 +221,7 @@ export function evaluateIndustrialOpeningPlan(input: {
         ? String(recentOwnSdr.latestMessage.content).trim().slice(0, 180)
         : null,
       firstMessageRule: `🛑 ATENÇÃO CRÍTICA (ESTA NÃO É A PRIMEIRA MENSAGEM DO ATENDIMENTO! A CONVERSA JÁ ESTÁ EM ANDAMENTO!):
-   - NUNCA volte a se apresentar se você já se identificou antes na conversa!
+   - Você (${input.aiPersona.name}) JÁ se apresentou anteriormente nesta conversa. PROIBIDO se reapresentar ("Sou ${article} ${input.aiPersona.name}", "assistente virtual", "Aqui é ${article} ${input.aiPersona.name}")!
    - Responda DIRETO ao que o cliente disse de forma fluida e conversacional!`,
     };
   }
@@ -252,19 +267,51 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function isStandaloneGreetingOrPresentation(msg: string, personaName: string): boolean {
+function buildLeadingPersonaIntroRegex(personaName: string): RegExp {
+  const escapedName = escapeRegExp(personaName);
+  // Cobre aberturas opcionais como "Olá, Tarcisio. ", "Boa tarde, João! ", "Oi, tudo bem? "
+  // seguidas de apresentação explícita: "Sou (o) Fagner...", "Eu sou o Fagner...", "Aqui é o Fagner...", "Me chamo Fagner..."
+  // Não cruza "?" para nunca engolir a pergunta real do balão.
+  const optionalGreeting =
+    "(?:(?:boa\\s*(?:tarde|noite)|bom\\s*dia|ol[aá]|oi)(?:[\\s,]+[\\p{L}'-]{2,25}){0,2}[!.,\\s]*)?";
+  const optionalWellbeing = "(?:tudo\\s+bem\\??\\s*)?";
+  const selfIntro =
+    `(?:(?:eu\\s+)?sou\\s+(?:(?:a|o)\\s+)?|aqui\\s+[eé]\\s+(?:(?:a|o)\\s+)?|me\\s+chamo\\s+)${escapedName}\\b[^?!.\\n]*`;
+  const trailingPunct = "(?:[!.,\\s\\u{1F300}-\\u{1FAFF}\\u{2600}-\\u{27BF}])*";
+  return new RegExp(`^${optionalGreeting}${optionalWellbeing}${selfIntro}${trailingPunct}`, "iu");
+}
+
+export function isStandaloneGreetingOrPresentation(msg: string, personaName: string): boolean {
   const trimmed = msg.trim();
   if (!trimmed) return true;
   if (/^(?:boa\s*(?:tarde|noite)|bom\s*dia|ol[aá]|oi)[!.,\s]*$/i.test(trimmed)) {
     return true;
   }
-  const escapedName = escapeRegExp(personaName);
-  const introRe = new RegExp(
-    `^(?:(?:boa\\s*(?:tarde|noite)|bom\\s*dia|ol[aá]|oi)[!.,\\s]*)?(?:eu\\s+)?sou\\s+(?:(?:a|o)\\s+)?${escapedName}\\b`,
-    "i",
-  );
-  // Só considera "standalone" se for essencialmente uma frase curta de apresentação sem pergunta/conteúdo longo
-  return introRe.test(trimmed) && trimmed.length <= 110 && !trimmed.includes("?");
+  const introRe = buildLeadingPersonaIntroRegex(personaName);
+  if (!introRe.test(trimmed)) return false;
+  const remainder = trimmed.replace(introRe, "").trim();
+  // Se nada substancial sobrou depois da apresentação, o balão inteiro era reapresentação.
+  return remainder.length === 0;
+}
+
+/**
+ * Remove reapresentação redundante da persona ("Olá, Tarcisio. Sou Fagner, assistente virtual do Grupo Tecfag.")
+ * quando a sessão já foi aberta (ex.: widget do site ou turno em andamento).
+ * - Se o balão inteiro for só saudação/apresentação, retorna "" (para ser descartado).
+ * - Se houver conteúdo/pergunta depois no mesmo balão, remove apenas a frase de apresentação e preserva o restante.
+ */
+export function stripDuplicatePersonaIntroduction(msg: string, personaName: string): string {
+  const trimmed = String(msg || "").trim();
+  if (!trimmed) return "";
+  if (isStandaloneGreetingOrPresentation(trimmed, personaName)) {
+    return "";
+  }
+  const introRe = buildLeadingPersonaIntroRegex(personaName);
+  if (!introRe.test(trimmed)) {
+    return trimmed;
+  }
+  const remainder = trimmed.replace(introRe, "").trim();
+  return remainder.length >= 4 ? remainder : "";
 }
 
 function alreadyMentionsPersonaIntro(messages: ReadonlyArray<string>, personaName: string): boolean {
@@ -302,11 +349,11 @@ export function finalizeIndustrialOpeningMessages(input: {
   const { plan } = input;
 
   if (plan.mode === "ongoing" || plan.mode === "active_template_continuation") {
-    const filtered = cleanAiMessages.filter(
-      (msg) => !isStandaloneGreetingOrPresentation(msg, input.aiPersona.name),
-    );
+    const cleaned = cleanAiMessages
+      .map((msg) => stripDuplicatePersonaIntroduction(msg, input.aiPersona.name))
+      .filter(Boolean);
     return {
-      messagesToSend: filtered.length > 0 ? filtered : cleanAiMessages,
+      messagesToSend: cleaned.length > 0 ? cleaned : cleanAiMessages,
       isGenericGreetingOnly: false,
     };
   }

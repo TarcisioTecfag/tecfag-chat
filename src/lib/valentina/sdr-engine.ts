@@ -84,6 +84,7 @@ import {
 import {
   evaluateIndustrialOpeningPlan,
   finalizeIndustrialOpeningMessages,
+  stripDuplicatePersonaIntroduction,
   type IndustrialOpeningPlan,
 } from "../triage/industrial-opening-policy";
 import { deliverIndustrialPostCommit } from "../triage/industrial-post-commit-delivery";
@@ -2683,19 +2684,19 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           if ((isFirstMessage || siteWidgetAlreadyGreeted) && aiResult.messagesToSend.length === 0) {
             aiResult.messagesToSend = ["Como posso te ajudar?"];
           }
-        } else if (industrialTriage && botAlreadyResponded && aiResult.messagesToSend.length > 1) {
-          const industrialDupGreetingPatterns = [
-            /^(boa\s*(tarde|noite)|bom\s*dia)[!.]?\s*$/i,
-            /^(?:(?:boa\s*(?:tarde|noite)|bom\s*dia)[!.,\s]*)?(?:eu\s+)?sou\s+(?:o\s+)?fagner\b/i,
-          ];
-          const filtered = aiResult.messagesToSend.filter(
-            (msg) => !industrialDupGreetingPatterns.some((p) => p.test(msg.trim())),
-          );
-          if (filtered.length > 0 && filtered.length < aiResult.messagesToSend.length) {
+        } else if (industrialTriage && botAlreadyResponded && aiResult.messagesToSend.length > 0) {
+          const cleaned = aiResult.messagesToSend
+            .map((msg) => stripDuplicatePersonaIntroduction(msg, aiPersona.name))
+            .filter(Boolean);
+          const changed =
+            cleaned.length > 0 &&
+            (cleaned.length !== aiResult.messagesToSend.length ||
+              cleaned.some((m, i) => m !== aiResult.messagesToSend[i]?.trim()));
+          if (changed) {
             console.log(
-              `[SdrEngine] ⚠️ DEDUPLICAÇÃO INDUSTRIAL: removida(s) ${aiResult.messagesToSend.length - filtered.length} apresentação(ões) duplicada(s) em sessão já iniciada.`,
+              `[SdrEngine] ⚠️ DEDUPLICAÇÃO INDUSTRIAL: apresentação duplicada removida em sessão já iniciada.`,
             );
-            aiResult.messagesToSend = filtered;
+            aiResult.messagesToSend = cleaned;
           }
         }
 

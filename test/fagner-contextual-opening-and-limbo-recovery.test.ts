@@ -5,6 +5,8 @@ import {
   findRecentOwnSdrOutbound,
   hasMeaningfulExtractedDemand,
   hasPriorRecentClientContext,
+  isStandaloneGreetingOrPresentation,
+  stripDuplicatePersonaIntroduction,
 } from "../src/lib/triage/industrial-opening-policy";
 import {
   evaluateIndustrialSilence,
@@ -498,5 +500,96 @@ describe("Resgate do limbo após template SDR legado (industrial-silence-policy)
 
     expect(withHumanAgent.action).toBe("cancel_by_human");
     expect(withHumanAgent.reason).toBe("agent_message_present");
+  });
+
+  it("Site widget (conv-lc-*): nunca reapresenta Fagner quando o widget já exibiu apresentação local na tela (caso 'Olá, Tarcisio. Sou Fagner, assistente virtual do Grupo Tecfag.')", () => {
+    const now = new Date("2026-11-25T16:17:23.000Z");
+    const historyMessages = [
+      {
+        id: "lcm-1",
+        senderType: "client",
+        senderName: "teste",
+        content: "teste",
+        sentAt: new Date("2026-11-25T16:17:07.144Z"),
+        isInternalNote: false,
+      },
+    ];
+
+    const plan = evaluateIndustrialOpeningPlan({
+      greetingAlreadyDone: false,
+      siteWidgetAlreadyGreeted: true,
+      historyMessages,
+      priorMessages: [],
+      now,
+      aiPersona: FAGNER_PERSONA,
+      greeting: "Boa tarde!",
+    });
+
+    expect(plan.mode).toBe("ongoing");
+    expect(plan.isFirstMessage).toBe(false);
+    expect(plan.firstMessageRule).toContain("CHAT DO SITE");
+    expect(plan.firstMessageRule).toContain("PROIBIDO se reapresentar");
+
+    const finalized = finalizeIndustrialOpeningMessages({
+      plan,
+      aiMessages: [
+        "Olá, Tarcisio. Sou Fagner, assistente virtual do Grupo Tecfag.",
+        "Para agilizar, confirmo que sua empresa é a ANNA KARLA BERNARDES LTDA, certo?",
+        "No que posso te ajudar hoje? Você busca uma máquina, peças de reposição ou assistência técnica?",
+      ],
+      batchTexts: ["teste"],
+      batchMessageIds: ["lcm-1"],
+      hasMediaInBatch: false,
+      hasStoreTurn: false,
+      isClientDeclinedTurn: false,
+      directOperatorStatus: "none",
+      historyMessages,
+      priorMessages: [],
+      extractedData: {},
+      subflow: null,
+      now,
+      aiPersona: FAGNER_PERSONA,
+      greeting: "Boa tarde!",
+    });
+
+    expect(finalized.isGenericGreetingOnly).toBe(false);
+    expect(finalized.messagesToSend).toEqual([
+      "Para agilizar, confirmo que sua empresa é a ANNA KARLA BERNARDES LTDA, certo?",
+      "No que posso te ajudar hoje? Você busca uma máquina, peças de reposição ou assistência técnica?",
+    ]);
+  });
+
+  it("stripDuplicatePersonaIntroduction remove variações com nome/saudação composta e preserva conteúdo útil no mesmo balão", () => {
+    expect(
+      isStandaloneGreetingOrPresentation(
+        "Olá, Tarcisio. Sou Fagner, assistente virtual do Grupo Tecfag.",
+        "Fagner",
+      ),
+    ).toBe(true);
+    expect(
+      isStandaloneGreetingOrPresentation(
+        "Boa tarde, João Pedro! Aqui é o Fagner, da Tecfag 😊",
+        "Fagner",
+      ),
+    ).toBe(true);
+    expect(
+      isStandaloneGreetingOrPresentation(
+        "Oi Maria, tudo bem? Me chamo Fagner, assistente virtual do Grupo Tecfag.",
+        "Fagner",
+      ),
+    ).toBe(true);
+
+    // Balão único combinando reapresentação + pergunta real -> remove só a apresentação
+    expect(
+      stripDuplicatePersonaIntroduction(
+        "Olá, Tarcisio. Sou Fagner, assistente virtual do Grupo Tecfag. Qual máquina você procura hoje?",
+        "Fagner",
+      ),
+    ).toBe("Qual máquina você procura hoje?");
+
+    // Balão contextual legítimo sem apresentação -> preservado 100%
+    const contextual =
+      "Boa noite, Aloisio! Vi as medidas da sua caixa (600x400x150mm) e sua dúvida sobre a seladora em L.";
+    expect(stripDuplicatePersonaIntroduction(contextual, "Fagner")).toBe(contextual);
   });
 });
