@@ -248,6 +248,59 @@ export function applyKnownClientConfirmationToData(
   return next;
 }
 
+export interface ValidatedCnpjPayload {
+  valid: boolean;
+  cnpjFormatted?: string | null;
+  razaoSocial?: string | null;
+  details?: {
+    razaoSocial?: string | null;
+    nomeFantasia?: string | null;
+    capitalSocial?: string | null;
+    porte?: string | null;
+    cnaePrincipal?: string | null;
+  } | null;
+}
+
+/**
+ * Persiste deterministicamente em `collectedData` um CNPJ matematicamente válido
+ * enviado pelo cliente no lote (e sua razão social da Receita Federal), garantindo que
+ * short-circuits do turno (ex.: consulta direta VTEX de preço/frete) ou omissão do LLM
+ * nunca deixem `contacts.document`/`_RECEITA_FEDERAL` dessincronizados de `missingFields`.
+ */
+export function applyValidatedCnpjToCollectedData(
+  currentData: CollectedFields,
+  cnpjInfo: ValidatedCnpjPayload | null | undefined,
+): CollectedFields {
+  const next: CollectedFields = { ...currentData };
+  if (!cnpjInfo?.valid) return next;
+
+  const formattedDoc = String(cnpjInfo.cnpjFormatted || "").trim();
+  if (formattedDoc && isValidTriageDocument(formattedDoc)) {
+    next["CNPJ OU CPF"] = {
+      value: formattedDoc,
+      status: "filled",
+    };
+  }
+
+  const razao = String(cnpjInfo.razaoSocial || cnpjInfo.details?.razaoSocial || "").trim();
+  const existingCompany = String(next["EMPRESA"]?.value || "").trim();
+  const hasRealCompany =
+    Boolean(existingCompany) &&
+    !existingCompany.toLowerCase().includes("aguardando") &&
+    !existingCompany.toLowerCase().includes("não informado") &&
+    !existingCompany.toLowerCase().includes("nao informado") &&
+    isValidKnownCompanyName(existingCompany);
+
+  if (razao && !hasRealCompany && isValidKnownCompanyName(razao)) {
+    next["EMPRESA"] = {
+      value: razao,
+      status: "filled",
+    };
+  }
+
+  return next;
+}
+
 export function buildKnownClientPromptDirective(params: {
   knownClient: KnownClientProfile | null | undefined;
   confirmationStatus: "confirmed" | "rejected" | "pending";

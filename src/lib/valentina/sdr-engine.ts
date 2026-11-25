@@ -55,6 +55,7 @@ import {
 import {
   evaluateKnownCompanyConfirmation,
   applyKnownClientConfirmationToData,
+  applyValidatedCnpjToCollectedData,
   buildKnownClientPromptDirective,
   doesExtractedCompanyMatchKnownClient,
   isValidKnownCompanyName,
@@ -935,6 +936,13 @@ export class SdrEngine {
         console.log(`[SdrEngine] CNPJ detectado no lote: ${detectedCnpjCandidate}. Executando validação matemática...`);
         const cnpjInfo = await fetchCnpjInfo(detectedCnpjCandidate);
         fetchedCnpjInfo = cnpjInfo;
+
+        if (industrialTriage && cnpjInfo.valid) {
+          Object.assign(
+            existingCollectedData,
+            applyValidatedCnpjToCollectedData(existingCollectedData, cnpjInfo),
+          );
+        }
 
         if (cnpjInfo.valid && cnpjInfo.details) {
           existingCollectedData._RECEITA_FEDERAL = {

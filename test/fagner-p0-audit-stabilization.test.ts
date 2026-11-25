@@ -4,8 +4,12 @@ import {
   industrialClientMessages,
   isPrematureIndustrialHandoffBubble,
 } from "../src/lib/triage/industrial-handoff";
-import { resolveIndustrialRoute } from "../src/lib/triage/industrial-policy";
 import {
+  assessIndustrialReadiness,
+  resolveIndustrialRoute,
+} from "../src/lib/triage/industrial-policy";
+import {
+  applyValidatedCnpjToCollectedData,
   buildKnownClientPromptDirective,
   isValidKnownCompanyName,
   looksLikePersonalNameUsedAsCompany,
@@ -221,6 +225,94 @@ describe("Pacote P0 — Estabilização das triagens do Fagner (auditoria 25/11/
       // 4 leads distintos antes de repetir alguém — nunca 5x Melissa Gomes!
       expect(new Set(chosenOrder.slice(0, 4)).size).toBe(4);
       expect(chosenOrder.filter((id) => id === "op-melissa").length).toBeLessThanOrEqual(2);
+    });
+  });
+
+  describe("5. Persistência determinística de CNPJ/EMPRESA antes de short-circuit VTEX (caso Fernando)", () => {
+    it("persiste CNPJ OU CPF e EMPRESA da Receita zerando missingFields mesmo sem extractedData do LLM", () => {
+      const before = {
+        "NOME COMPLETO": { value: "fernando", status: "filled" },
+        "MÁQUINA / PEÇA / INTERESSE": {
+          value: "Seladora a Vácuo com Reservatório - DZ280/2SE 110V",
+          status: "filled",
+        },
+        "RAMO / O QUE EMBALA": { value: "mussarela", status: "filled" },
+        "VOLUME / PRODUÇÃO": { value: "20 barras por dia", status: "filled" },
+        "SETOR / FUNIL DE DESTINO": { value: "Máquinas", status: "filled" },
+      };
+
+      const route = resolveIndustrialRoute({
+        text: "66850725000187",
+        collectedData: before,
+        existingSubflow: "MAQUINAS",
+      });
+      expect(assessIndustrialReadiness(route, before).missing).toEqual(["document"]);
+
+      const after = applyValidatedCnpjToCollectedData(before, {
+        valid: true,
+        cnpjFormatted: "66.850.725/0001-87",
+        razaoSocial: "66.850.725 TATIANA APARECIDA DOS SANTOS CASARIN",
+        details: {
+          razaoSocial: "66.850.725 TATIANA APARECIDA DOS SANTOS CASARIN",
+          porte: "Micro Empresa",
+          capitalSocial: "R$ 3.000",
+        },
+      });
+
+      expect(after["CNPJ OU CPF"]).toEqual({
+        value: "66.850.725/0001-87",
+        status: "filled",
+      });
+      expect(after["EMPRESA"]).toEqual({
+        value: "66.850.725 TATIANA APARECIDA DOS SANTOS CASARIN",
+        status: "filled",
+      });
+      expect(assessIndustrialReadiness(route, after)).toMatchObject({
+        ready: true,
+        missing: [],
+      });
+    });
+
+    it("persiste CNPJ matematicamente válido mesmo quando a API da Receita não retorna details, e ignora CNPJ inválido", () => {
+      const base = {
+        "EMPRESA": { value: "Aguardando confirmação", status: "pending" },
+      };
+
+      const validNoDetails = applyValidatedCnpjToCollectedData(base, {
+        valid: true,
+        cnpjFormatted: "66.850.725/0001-87",
+        razaoSocial: null,
+        details: null,
+      });
+      expect(validNoDetails["CNPJ OU CPF"]).toEqual({
+        value: "66.850.725/0001-87",
+        status: "filled",
+      });
+      expect(validNoDetails["EMPRESA"]).toEqual({
+        value: "Aguardando confirmação",
+        status: "pending",
+      });
+
+      const invalid = applyValidatedCnpjToCollectedData(base, {
+        valid: false,
+        cnpjFormatted: "66.850.725/0001-00",
+        razaoSocial: "NAO DEVE SALVAR",
+      });
+      expect(invalid["CNPJ OU CPF"]).toBeUndefined();
+      expect(invalid["EMPRESA"]).toEqual(base["EMPRESA"]);
+    });
+
+    it("preserva EMPRESA já preenchida com valor real sem sobrescrever", () => {
+      const base = {
+        "EMPRESA": { value: "LATICINIOS CASARIN LTDA", status: "filled" },
+      };
+      const updated = applyValidatedCnpjToCollectedData(base, {
+        valid: true,
+        cnpjFormatted: "66.850.725/0001-87",
+        razaoSocial: "66.850.725 TATIANA APARECIDA DOS SANTOS CASARIN",
+      });
+      expect(updated["CNPJ OU CPF"]?.value).toBe("66.850.725/0001-87");
+      expect(updated["EMPRESA"]?.value).toBe("LATICINIOS CASARIN LTDA");
     });
   });
 });
