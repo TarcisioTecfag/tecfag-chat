@@ -1385,6 +1385,22 @@ export const Route = createFileRoute("/api/gestao/live")({
             console.warn("[gestao/live PATCH] Falha não-crítica ao emitir SSE:", sseErr?.message);
           }
 
+          if (action === "transfer" && newOperatorId && newOperatorId !== session.operator.id) {
+            import("../../../lib/valentina/operator-notifications")
+              .then(({ notifyOperatorLeadTransferred }) =>
+                notifyOperatorLeadTransferred({
+                  tenantId,
+                  operatorId: newOperatorId!,
+                  operatorName: targetOpName || "Consultor",
+                  conversationId,
+                  temperature: "quente",
+                  transferSource: "manual_transfer",
+                  transferredBy: session.operator.name || "Supervisão",
+                }),
+              )
+              .catch(() => {});
+          }
+
           return new Response(
             JSON.stringify({
               success: true,

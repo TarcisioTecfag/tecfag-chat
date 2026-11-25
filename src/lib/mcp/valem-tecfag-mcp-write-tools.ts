@@ -2705,6 +2705,22 @@ export async function executeExtendedMcpTool(
           version: handoff.targetConversation.version,
         });
 
+        if (targetOp) {
+          void import("../valentina/operator-notifications")
+            .then(({ notifyOperatorLeadTransferred }) =>
+              notifyOperatorLeadTransferred({
+                tenantId,
+                operatorId: targetOp.id,
+                operatorName: targetOp.name,
+                conversationId: handoff.targetConversation.id,
+                temperature: "quente",
+                transferSource: "manual_transfer",
+                transferredBy: actorLabel,
+              }),
+            )
+            .catch(() => {});
+        }
+
         return {
           success: true,
           tenantId,
@@ -2766,6 +2782,22 @@ export async function executeExtendedMcpTool(
         sectorId: updated.sectorId,
         version: updated.version,
       });
+
+      if (targetOp) {
+        void import("../valentina/operator-notifications")
+          .then(({ notifyOperatorLeadTransferred }) =>
+            notifyOperatorLeadTransferred({
+              tenantId,
+              operatorId: targetOp.id,
+              operatorName: targetOp.name,
+              conversationId,
+              temperature: "quente",
+              transferSource: "manual_transfer",
+              transferredBy: actorLabel,
+            }),
+          )
+          .catch(() => {});
+      }
 
       void recordCrmAction({
         tenantId,

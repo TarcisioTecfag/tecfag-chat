@@ -1355,6 +1355,14 @@ export async function approveIndustrialTriage(
       conversationId: deliveredConversationId,
       clientName: committed.clientName,
       company: committed.companyName,
+      machine:
+        committed.collectedData?.["MÁQUINA / PEÇA / INTERESSE"]?.value ||
+        committed.collectedData?.["MODELO DA MÁQUINA"]?.value ||
+        null,
+      interest:
+        committed.collectedData?.["MÁQUINA / PEÇA / INTERESSE"]?.value ||
+        committed.targetFunnel ||
+        "",
       targetFunnel: committed.targetFunnel,
       dealId: committed.dealResult?.dealId || null,
       dealTitle: committed.dealResult?.dealTitle || null,

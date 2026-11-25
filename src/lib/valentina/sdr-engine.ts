@@ -2327,6 +2327,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
                 conversationId,
                 clientName,
                 company,
+                machine: targetProduct || null,
                 interest: targetProduct,
                 temperature: "quente",
                 transferSource: "sdr_auto",

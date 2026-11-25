@@ -24,7 +24,18 @@ import {
   type AgenticThoughtTraceData,
 } from "@/lib/valentina/agentic-thought-trace";
 import { buildOperatorCopilotWelcome } from "@/lib/valentina/sector-copilot-config";
-import { playNotificationSound } from "@/lib/sound-notifications";
+import { playNotificationSound, playNewLeadAlertSound } from "@/lib/sound-notifications";
+import {
+  enqueueIncomingLeadAlert,
+  extractIncomingLeadAlertFromNotification,
+  markLeadAlertDismissed,
+  parseResolvedLeadAlertBroadcast,
+  readDismissedLeadAlertIds,
+  removeIncomingLeadAlert,
+  RESOLVED_LEAD_ALERT_BROADCAST_KEY,
+  shouldRecoverUnreadLeadAlert,
+  type IncomingLeadAlert,
+} from "@/lib/lead-alert-queue";
 import {
   renderFormattedNotificationText,
   cleanPlainNotificationText,
@@ -320,6 +331,9 @@ type ChatContextType = {
   reloadValentinaHistory: (limit?: number) => Promise<void>;
   resetValentinaChat: () => Promise<void>;
   acknowledgeWhisper: (whisperId: string, note?: string) => Promise<boolean>;
+  incomingLeadAlerts: IncomingLeadAlert[];
+  dismissIncomingLeadAlert: (alertId: string, conversationId?: string | null) => void;
+  openIncomingLeadAlert: (alert: IncomingLeadAlert) => Promise<void>;
   disconnectBaileys: () => void;
   connectBaileys: (forceNew?: boolean) => void;
 
@@ -699,6 +713,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [operatorTypingStatus, setOperatorTypingStatus] = useState<Record<string, { operatorId: string; operatorName: string; timestamp: number } | null>>({});
   const [isValentinaTyping, setIsValentinaTyping] = useState(false);
   const [valentinaThoughtTrace, setValentinaThoughtTrace] = useState<AgenticThoughtTraceData | null>(null);
+  const [incomingLeadAlerts, setIncomingLeadAlerts] = useState<IncomingLeadAlert[]>([]);
   // Ref para controle de cancelamento e debounce natural de 8s da resposta do Fagner/Valentina
   // Cada nova mensagem reseta o timer de 8s e acumula os envios antes de iniciar a animação e o fetch
   const valentinaPendingRef = useRef<{ controller: AbortController; generation: number } | null>(null);
@@ -759,6 +774,35 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     currentOperatorIdRef.current = currentOperatorId;
   }, [currentOperatorId]);
+
+  // Isolamento estrito: ao trocar tenant ou operador, zera fila de pop-ups de lead pendentes
+  useEffect(() => {
+    setIncomingLeadAlerts([]);
+  }, [tenant, currentOperatorId]);
+
+  // Sincroniza fechamento de pop-up de lead novo entre múltiplas abas abertas do mesmo vendedor
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== RESOLVED_LEAD_ALERT_BROADCAST_KEY || !event.newValue) return;
+      const parsed = parseResolvedLeadAlertBroadcast(event.newValue);
+      if (!parsed) return;
+      if (
+        parsed.tenantId !== tenantRef.current ||
+        parsed.operatorId !== currentOperatorIdRef.current
+      ) {
+        return;
+      }
+      setIncomingLeadAlerts((prev) =>
+        removeIncomingLeadAlert(prev, {
+          id: parsed.alertId,
+          conversationId: parsed.conversationId,
+        }),
+      );
+    };
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, []);
 
   useEffect(() => {
     sessionRoleRef.current = sessionRole;
@@ -2365,11 +2409,18 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           extractedClientName ||
           (conversationsList && conversationsList.length > 0))
           ? {
+              conversationId: targetClientId || conversationsList?.[0]?.clientId || undefined,
               clientId: targetClientId || conversationsList?.[0]?.clientId || "",
               clientName:
                 extractedClientName ||
                 conversationsList?.[0]?.clientName ||
                 (isWhisper ? "" : "Cliente"),
+              machine: meta.machine || r.warningMetadata?.machine || null,
+              company: meta.company || r.warningMetadata?.company || null,
+              targetFunnel: meta.targetFunnel || r.warningMetadata?.targetFunnel || null,
+              transferSource: meta.transferSource || r.warningMetadata?.transferSource || null,
+              transferredBy: meta.transferredBy || r.warningMetadata?.transferredBy || null,
+              receivedAt: meta.receivedAt || r.warningMetadata?.receivedAt || r.createdAt || null,
               lastMessage: meta.lastMessage || r.warningMetadata?.lastMessage || undefined,
               interest: meta.interest || r.warningMetadata?.interest || undefined,
               temperature: meta.temperature || r.warningMetadata?.temperature || undefined,
@@ -2565,6 +2616,36 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           });
           const mappedMessages: Message[] = validRows.map((r) => mapInternalRowToMessage(r));
           valentinaHistoryRef.current = mappedMessages;
+
+          // Recupera leads recém-transferidos (<= 5 min) que ainda não foram vistos/dispensados
+          // para que um reload ou deploy rápido não esconda um lead que acabou de cair para o vendedor.
+          const dismissedIds = readDismissedLeadAlertIds(tenant, currentOperatorId);
+          const nowMs = Date.now();
+          const freshLeadAlerts = validRows
+            .map((r) =>
+              shouldRecoverUnreadLeadAlert(r, {
+                tenantId: tenant,
+                operatorId: currentOperatorId,
+                nowMs,
+                dismissedIds,
+              }),
+            )
+            .filter((item): item is IncomingLeadAlert => Boolean(item));
+          if (freshLeadAlerts.length > 0) {
+            let addedAny = false;
+            setIncomingLeadAlerts((prev) => {
+              let next = prev;
+              for (const alert of freshLeadAlerts) {
+                const updated = enqueueIncomingLeadAlert(next, alert, dismissedIds);
+                if (updated.length > next.length) addedAny = true;
+                next = updated;
+              }
+              return next;
+            });
+            if (addedAny) {
+              playNewLeadAlertSound();
+            }
+          }
 
           setConversations((prev) =>
             prev.map((c) => {
@@ -5725,7 +5806,22 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
 
           const isViewingVal = isCurrentlyViewingConversation("valentina");
-          playNotificationSound();
+          const meta = rawNotif.metadata || rawNotif.warningMetadata || {};
+          const activeTenantId = tenantRef.current || "";
+          const activeOperatorId = currentOperatorIdRef.current || "";
+          const incomingLeadAlert =
+            activeTenantId && activeOperatorId
+              ? extractIncomingLeadAlertFromNotification(rawNotif, {
+                  tenantId: activeTenantId,
+                  operatorId: activeOperatorId,
+                })
+              : null;
+
+          if (incomingLeadAlert) {
+            playNewLeadAlertSound();
+          } else {
+            playNotificationSound();
+          }
 
           setConversations((prev) =>
             prev.map((c) => {
@@ -5744,7 +5840,61 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             })
           );
 
-          const meta = rawNotif.metadata || rawNotif.warningMetadata || {};
+          if (incomingLeadAlert) {
+            const dismissedIds = readDismissedLeadAlertIds(activeTenantId, activeOperatorId);
+            setIncomingLeadAlerts((prev) =>
+              enqueueIncomingLeadAlert(prev, incomingLeadAlert, dismissedIds),
+            );
+            void refreshAssignedChatRef.current(incomingLeadAlert.conversationId).catch(() => {});
+
+            if (
+              typeof window !== "undefined" &&
+              "Notification" in window &&
+              Notification.permission === "granted" &&
+              document.hidden
+            ) {
+              try {
+                const isTecfag = activeTenantId === "tecfag";
+                const personaForNotif = getAiPersona(activeTenantId || "valem");
+                const machineNotifLabel =
+                  personaForNotif.triagePolicy === "industrial" ? "Máquina" : "Produto";
+                const notifLines = [
+                  incomingLeadAlert.machine
+                    ? `${machineNotifLabel}: ${incomingLeadAlert.machine}`
+                    : null,
+                  incomingLeadAlert.company ? `Empresa: ${incomingLeadAlert.company}` : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ");
+                const n = new Notification(`LEAD NOVO · ${incomingLeadAlert.clientName}`, {
+                  body: notifLines || "Clique para abrir a conversa agora.",
+                  icon: isTecfag ? "/logo_tecfag.png" : "/logo_valem.jpg",
+                  tag: `new-lead-${incomingLeadAlert.conversationId}`,
+                  requireInteraction: true,
+                });
+                n.onclick = () => {
+                  window.focus();
+                  markLeadAlertDismissed(activeTenantId, activeOperatorId, incomingLeadAlert.id, {
+                    conversationId: incomingLeadAlert.conversationId,
+                  });
+                  setIncomingLeadAlerts((prev) =>
+                    removeIncomingLeadAlert(prev, {
+                      id: incomingLeadAlert.id,
+                      conversationId: incomingLeadAlert.conversationId,
+                    }),
+                  );
+                  setActiveQueue("meus");
+                  setSearchQuery("");
+                  setSelectedChatId(incomingLeadAlert.conversationId);
+                  setActiveView("chat");
+                  markAsRead(incomingLeadAlert.conversationId);
+                  n.close();
+                };
+              } catch {}
+            }
+            return;
+          }
+
           const targetConvId =
             meta.conversationId || meta.clientId || aiMsg.warningMetadata?.clientId;
           const targetDealId = meta.dealId || aiMsg.warningMetadata?.dealId || null;
@@ -6574,6 +6724,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setTenantState(null);
       setAvailableTenants([]);
       setCurrentOperatorId("");
+      setIncomingLeadAlerts([]);
       setSelectedChatId(null);
       setActiveQueue("meus");
       setBaileysConnectionFilter(null);
@@ -6598,6 +6749,42 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
   };
+
+  const dismissIncomingLeadAlert = useCallback(
+    (alertId: string, conversationId?: string | null) => {
+      const activeTenantId = tenantRef.current;
+      const activeOperatorId = currentOperatorIdRef.current;
+      if (activeTenantId && activeOperatorId) {
+        markLeadAlertDismissed(activeTenantId, activeOperatorId, alertId, {
+          conversationId: conversationId || null,
+        });
+      }
+      setIncomingLeadAlerts((prev) =>
+        removeIncomingLeadAlert(prev, { id: alertId, conversationId: conversationId || null }),
+      );
+    },
+    [],
+  );
+
+  const openIncomingLeadAlert = useCallback(
+    async (alert: IncomingLeadAlert) => {
+      dismissIncomingLeadAlert(alert.id, alert.conversationId);
+      setActiveQueue("meus");
+      setSearchQuery("");
+      const alreadyLoaded = conversationsRef.current.some((c) => c.id === alert.conversationId);
+      if (!alreadyLoaded) {
+        await refreshAssignedChatRef.current(alert.conversationId).catch((error) =>
+          console.warn("Falha ao carregar atendimento do lead novo:", error),
+        );
+      } else {
+        void refreshAssignedChatRef.current(alert.conversationId).catch(() => {});
+      }
+      setSelectedChatId(alert.conversationId);
+      setActiveView("chat");
+      markAsRead(alert.conversationId);
+    },
+    [dismissIncomingLeadAlert],
+  );
 
   return (
     <ChatContext.Provider
@@ -6712,6 +6899,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         valentinaResetAt,
         resetValentinaChat,
         acknowledgeWhisper,
+        incomingLeadAlerts,
+        dismissIncomingLeadAlert,
+        openIncomingLeadAlert,
         disconnectBaileys,
         connectBaileys,
 

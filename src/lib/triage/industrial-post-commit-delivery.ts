@@ -30,6 +30,10 @@ export async function deliverIndustrialPostCommit(
       operatorName: result.operator.name,
       clientName: request?.clientName,
       company: request?.companyName,
+      machine:
+        data["MÁQUINA / PEÇA / INTERESSE"]?.value ||
+        data["MODELO DA MÁQUINA"]?.value ||
+        null,
       interest: data["MÁQUINA / PEÇA / INTERESSE"]?.value || request?.route.targetFunnel || "",
       targetFunnel: request?.route.targetFunnel || null,
       dealId: result.deal?.dealId || null,

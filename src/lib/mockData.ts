@@ -79,8 +79,15 @@ export type Message = {
   isWarning?: boolean;
   warningType?: "delay" | "new_lead" | "overload" | "whisper";
   warningMetadata?: {
+    conversationId?: string;
     clientId: string;
     clientName: string;
+    machine?: string | null;
+    company?: string | null;
+    targetFunnel?: string | null;
+    transferSource?: string | null;
+    transferredBy?: string | null;
+    receivedAt?: string | null;
     lastMessage?: string;
     temperature?: "quente" | "morno" | "frio";
     interest?: string;

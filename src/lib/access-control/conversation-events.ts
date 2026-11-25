@@ -22,16 +22,28 @@ export async function filterConversationEvent(session: AuthSessionContext, event
     return permissions?.views?.chat === true ? { type: "status", status: event.status } : null;
   }
   if (event.type === "operator_ai_notification") {
-    const canReceiveOperatorAi =
-      (permissions?.views?.chat === true || permissions?.views?.valentina === true) &&
-      permissions?.valentina?.canAccessChat === true;
-    if (event.operatorId !== session.operator.id || !canReceiveOperatorAi) return null;
     const rawMsg = event.message || event.notification;
     const isSupervisorWhisper =
       rawMsg?.metadata?.type === "supervisor_whisper" || rawMsg?.warningType === "whisper";
+    const isLeadTransfer =
+      !isSupervisorWhisper &&
+      (rawMsg?.metadata?.type === "lead_transfer" || rawMsg?.warningType === "new_lead");
+    const canReceiveOperatorAi =
+      (permissions?.views?.chat === true || permissions?.views?.valentina === true) &&
+      permissions?.valentina?.canAccessChat === true;
+    const canReceiveLeadTransfer = isLeadTransfer && permissions?.views?.chat === true;
+    if (event.operatorId !== session.operator.id || (!canReceiveOperatorAi && !canReceiveLeadTransfer)) {
+      return null;
+    }
     const conversationId =
       event.message?.warningMetadata?.conversationId ??
-      event.notification?.warningMetadata?.conversationId;
+      event.notification?.warningMetadata?.conversationId ??
+      (isLeadTransfer
+        ? event.message?.metadata?.conversationId ??
+          event.notification?.metadata?.conversationId ??
+          event.message?.warningMetadata?.clientId ??
+          event.notification?.warningMetadata?.clientId
+        : undefined);
     if (conversationId && (await requireConversationAccess(session, conversationId))) {
       if (!isSupervisorWhisper) return null;
       // Sussurro direcionado explicitamente ao operador: entrega a orientação mesmo sem acesso direto à conversa,

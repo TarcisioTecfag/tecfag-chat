@@ -18,6 +18,7 @@ import { ChatProvider, useChat } from "@/hooks/useChatState";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 import { DeployNotificationModal } from "@/components/ui/DeployNotificationModal";
+import { NewLeadAlertModal } from "@/components/ui/NewLeadAlertModal";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useTheme } from "../hooks/useTheme";
 import { useDensity } from "../hooks/useDensity";
@@ -511,6 +512,7 @@ function RootComponent() {
             <OnboardingHost />
             <Toaster />
             <DeployNotificationModal />
+            <NewLeadAlertModal />
           </OnboardingProvider>
         </ChatProvider>
       </TooltipProvider>

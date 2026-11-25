@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { and, asc, desc, eq, gte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNull, sql } from "drizzle-orm";
 import { db } from "../../db";
 import {
   agentFlowStates,
@@ -7,6 +7,8 @@ import {
   conversations,
   crmAccounts,
   crmConversationDeals,
+  crmCustomFieldDefinitions,
+  crmDealProducts,
   crmDeals,
   internalMessages,
   messages,
@@ -14,6 +16,7 @@ import {
 } from "../../db/schema";
 import { getAiPersona } from "../ai-persona";
 import { SessionManager } from "../baileys/session-manager";
+import { TECFAG_DEFAULT_CATALOG } from "../triage/tecfag-default-catalog";
 import {
   ensureLeadTransferTaskOnDeal,
   ensureLocalCrmDealBeforeTransfer,
@@ -27,6 +30,7 @@ export interface LeadTransferNotificationParams {
   conversationId: string;
   clientName?: string | null;
   company?: string | null;
+  machine?: string | null;
   interest?: string | null;
   targetFunnel?: string | null;
   dealId?: string | null;
@@ -39,6 +43,253 @@ export interface LeadTransferNotificationParams {
   cycle?: string | null;
   triageBriefing?: string;
   collectedData?: Record<string, { value?: string; status?: string }> | null;
+}
+
+function normalizeFieldKey(raw: string): string {
+  return (raw || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function isGenericPlaceholderValue(raw: string | null | undefined): boolean {
+  const clean = String(raw ?? "").trim();
+  if (!clean) return true;
+  const norm = normalizeFieldKey(clean);
+  return (
+    norm === "-" ||
+    norm === "--" ||
+    norm === "..." ||
+    norm === "aguardando..." ||
+    norm === "aguardando" ||
+    norm === "nao informada" ||
+    norm === "nao informado" ||
+    norm === "empresa nao informada" ||
+    norm === "sem empresa" ||
+    norm === "nao possui" ||
+    norm === "n/a" ||
+    norm === "null" ||
+    norm === "undefined"
+  );
+}
+
+function isWeakClientName(raw: string | null | undefined): boolean {
+  if (isGenericPlaceholderValue(raw)) return true;
+  const norm = normalizeFieldKey(String(raw ?? ""));
+  return (
+    norm === "cliente" ||
+    norm === "cliente whatsapp" ||
+    norm === "contato" ||
+    norm === "visitante" ||
+    norm === "lead" ||
+    norm === "sem nome"
+  );
+}
+
+function isGenericMachineInterest(raw: string | null | undefined): boolean {
+  if (isGenericPlaceholderValue(raw)) return true;
+  const norm = normalizeFieldKey(String(raw ?? ""));
+  return (
+    norm === "atendimento geral" ||
+    norm === "atendimento recebido via whatsapp" ||
+    norm === "atendimento comercial transferido para sua fila" ||
+    norm === "sdr / analise" ||
+    norm === "funil sdr" ||
+    norm === "funil cwr"
+  );
+}
+
+function resolveCatalogMachineName(machineId: string | null | undefined): string | null {
+  const cleanId = String(machineId ?? "").trim();
+  if (!cleanId) return null;
+  const normId = normalizeFieldKey(cleanId);
+  const found = TECFAG_DEFAULT_CATALOG.find(
+    (m) =>
+      normalizeFieldKey(m.id) === normId ||
+      normalizeFieldKey(m.code) === normId ||
+      normalizeFieldKey(m.name) === normId,
+  );
+  return found?.name?.trim() || null;
+}
+
+function extractMachineFromDealTitle(
+  dealTitle: string | null | undefined,
+  clientName: string,
+  company: string | null,
+): string | null {
+  const raw = String(dealTitle ?? "").trim();
+  if (!raw) return null;
+  const parts = raw
+    .split(/\s*(?:—|–|\|| - )\s*/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (parts.length < 2) return null;
+  const normClient = normalizeFieldKey(clientName);
+  const normCompany = normalizeFieldKey(company || "");
+  for (let i = parts.length - 1; i >= 0; i -= 1) {
+    const part = parts[i];
+    const normPart = normalizeFieldKey(part);
+    if (!part || part.length < 2 || isGenericMachineInterest(part)) continue;
+    if (normPart === "fagner" || normPart === "valentina" || normPart === "sdr") continue;
+    if (normClient && normPart === normClient) continue;
+    if (normCompany && normPart === normCompany) continue;
+    if (/^\+?\d{8,20}$/.test(part.replace(/[\s().-]/g, ""))) continue;
+    return part;
+  }
+  return null;
+}
+
+export interface ResolveLeadPopupFieldsInput {
+  explicitClientName?: string | null;
+  contactName?: string | null;
+  explicitCompany?: string | null;
+  accountTradeName?: string | null;
+  accountName?: string | null;
+  dealAccountTradeName?: string | null;
+  dealAccountName?: string | null;
+  cnpjDetails?: Record<string, any> | null;
+  explicitMachine?: string | null;
+  explicitInterest?: string | null;
+  collectedData?: Record<string, { value?: string; status?: string }> | null;
+  machineDecision?: { machineId?: string | null } | null;
+  dealProductNames?: string[] | null;
+  dealCustomMachine?: string | null;
+  dealTitle?: string | null;
+  targetFunnel?: string | null;
+}
+
+export interface ResolvedLeadPopupFields {
+  clientName: string;
+  company: string | null;
+  machine: string | null;
+}
+
+/**
+ * Resolve de forma determinística Nome, Máquina/Produto e Empresa para o pop-up de
+ * interrupção de Lead Novo, sem nunca corromper o campo Máquina com mensagens soltas
+ * do cliente (ex: "ok obrigado") vindas de `lastMessageText`.
+ */
+export function resolveLeadPopupFields(
+  input: ResolveLeadPopupFieldsInput,
+): ResolvedLeadPopupFields {
+  const normalizedCollected = normalizeCollectedMap(input.collectedData);
+  const filledEntries = Object.entries(normalizedCollected).filter(
+    ([k, v]) =>
+      !k.startsWith("_") &&
+      v &&
+      v.status === "filled" &&
+      !isGenericPlaceholderValue(v.value),
+  );
+
+  const findCollected = (matcher: (normKey: string) => boolean): string | null => {
+    const entry = filledEntries.find(([k]) => matcher(normalizeFieldKey(k)));
+    return entry?.[1]?.value?.trim() || null;
+  };
+
+  // 1. Nome do lead
+  const collectedName = findCollected(
+    (k) =>
+      (k === "nome" || /\bnome\b/.test(k)) &&
+      !k.includes("empresa") &&
+      !k.includes("fantasia") &&
+      !k.includes("razao"),
+  );
+  const clientName =
+    (!isWeakClientName(input.explicitClientName) && input.explicitClientName?.trim()) ||
+    (!isWeakClientName(collectedName) && collectedName) ||
+    (!isWeakClientName(input.contactName) && input.contactName?.trim()) ||
+    input.explicitClientName?.trim() ||
+    input.contactName?.trim() ||
+    "Cliente";
+
+  // 2. Empresa
+  const rfData = (normalizedCollected as any)?.["_RECEITA_FEDERAL"];
+  const collectedCompany = findCollected(
+    (k) => k.includes("empresa") || k.includes("razao social") || k.includes("nome fantasia"),
+  );
+  const companyCandidates = [
+    input.explicitCompany,
+    input.accountTradeName,
+    input.accountName,
+    input.dealAccountTradeName,
+    input.dealAccountName,
+    input.cnpjDetails?.nomeFantasia,
+    input.cnpjDetails?.razaoSocial,
+    collectedCompany,
+    rfData?.nomeFantasia,
+    rfData?.razaoSocial,
+  ];
+  const company =
+    companyCandidates
+      .map((v) => String(v ?? "").trim())
+      .find((v) => !isGenericPlaceholderValue(v)) || null;
+
+  // 3. Máquina / Produto / Interesse principal
+  const normFunnel = normalizeFieldKey(input.targetFunnel || "");
+  const isFunnelOnlyText = (val: string) => {
+    const n = normalizeFieldKey(val);
+    return Boolean(normFunnel && (n === normFunnel || n === `funil ${normFunnel}`));
+  };
+
+  const collectedPrimaryMachine =
+    findCollected((k) => k.includes("modelo") && k.includes("maquina")) ||
+    findCollected(
+      (k) =>
+        k.includes("maquina") ||
+        k.includes("produto de interesse") ||
+        k.includes("tipo de produto") ||
+        k.includes("equipamento") ||
+        k.includes("peca") ||
+        k.includes("interesse"),
+    ) ||
+    findCollected((k) => k.includes("produto"));
+
+  const catalogMachineName = resolveCatalogMachineName(input.machineDecision?.machineId);
+
+  const validDealProducts = (input.dealProductNames || [])
+    .map((p) => String(p ?? "").trim())
+    .filter((p) => !isGenericMachineInterest(p));
+  const dealProductsSummary =
+    validDealProducts.length > 0 ? validDealProducts.slice(0, 2).join(" + ") : null;
+
+  const collectedApplication = findCollected(
+    (k) => k.includes("aplicacao") || k.includes("produz") || k.includes("embalar"),
+  );
+
+  const dealTitleMachine = extractMachineFromDealTitle(input.dealTitle, clientName, company);
+
+  const specificCandidates = [
+    input.explicitMachine,
+    input.explicitInterest && !isFunnelOnlyText(input.explicitInterest)
+      ? input.explicitInterest
+      : null,
+    collectedPrimaryMachine,
+    catalogMachineName,
+    dealProductsSummary,
+    input.dealCustomMachine,
+    collectedApplication,
+    dealTitleMachine,
+  ];
+
+  const specificMachine =
+    specificCandidates
+      .map((v) => String(v ?? "").trim())
+      .find((v) => !isGenericMachineInterest(v)) || null;
+
+  const fallbackCandidates = [input.explicitInterest, input.targetFunnel];
+  const machine =
+    specificMachine ||
+    fallbackCandidates
+      .map((v) => String(v ?? "").trim())
+      .find((v) => !isGenericMachineInterest(v)) ||
+    null;
+
+  return {
+    clientName,
+    company,
+    machine,
+  };
 }
 
 function normalizeCollectedMap(
@@ -148,9 +399,6 @@ export async function notifyOperatorLeadTransferred(
 
     // 1. Enriquecer dados do operador, cliente, conversa e estado da triagem
     let operatorName = params.operatorName?.trim() || "";
-    let clientName = params.clientName?.trim() || "";
-    let company = params.company?.trim() || "";
-    let interest = params.interest?.trim() || "";
     let dealId = params.dealId || null;
     let dealTitle = params.dealTitle || null;
     let taskId = params.taskId || null;
@@ -158,6 +406,7 @@ export async function notifyOperatorLeadTransferred(
     let targetFunnel = params.targetFunnel || null;
     let contactId: string | null = null;
     let contactPhone = "";
+    let cnpjDetails: Record<string, any> | null = null;
 
     const [convRow] = await database
       .select({
@@ -184,28 +433,10 @@ export async function notifyOperatorLeadTransferred(
     if (convRow) {
       contactId = convRow.contactId || null;
       contactPhone = convRow.contactPhone || "";
-      if (!clientName && convRow.contactName) {
-        clientName = convRow.contactName;
-      }
-      if (!company) {
-        const cnpjDetails =
-          convRow.contactCnpjDetails && typeof convRow.contactCnpjDetails === "object"
-            ? (convRow.contactCnpjDetails as Record<string, any>)
-            : null;
-        const resolvedCompany = String(
-          convRow.accountTradeName ||
-            convRow.accountName ||
-            cnpjDetails?.nomeFantasia ||
-            cnpjDetails?.razaoSocial ||
-            "",
-        ).trim();
-        if (resolvedCompany) {
-          company = resolvedCompany;
-        }
-      }
-      if (!interest && convRow.lastMessageText) {
-        interest = convRow.lastMessageText.slice(0, 140);
-      }
+      cnpjDetails =
+        convRow.contactCnpjDetails && typeof convRow.contactCnpjDetails === "object"
+          ? (convRow.contactCnpjDetails as Record<string, any>)
+          : null;
     }
 
     if (!operatorName) {
@@ -222,6 +453,7 @@ export async function notifyOperatorLeadTransferred(
     // Buscar dados coletados da triagem (agentFlowStates) se não fornecidos
     let collectedData = normalizeCollectedMap(params.collectedData);
     let flowRouteReason: string | null = null;
+    let machineDecision: { machineId?: string | null } | null = null;
     const [latestFlow] = await database
       .select({
         collectedData: agentFlowStates.collectedData,
@@ -249,6 +481,9 @@ export async function notifyOperatorLeadTransferred(
       if (typeof flowMeta.routeReason === "string") {
         flowRouteReason = flowMeta.routeReason;
       }
+      if (flowMeta.machineDecision && typeof flowMeta.machineDecision === "object") {
+        machineDecision = flowMeta.machineDecision as { machineId?: string | null };
+      }
       if (!dealId && typeof flowMeta.localCrmDealId === "string" && flowMeta.localCrmDealId) {
         dealId = flowMeta.localCrmDealId;
       }
@@ -265,21 +500,6 @@ export async function notifyOperatorLeadTransferred(
         v.value &&
         v.value !== "Aguardando...",
     );
-
-    if (!clientName) {
-      const nameEntry = filledEntries.find(([k]) => /nome/i.test(k));
-      if (nameEntry?.[1]?.value) clientName = nameEntry[1].value;
-    }
-    if (!company) {
-      const compEntry = filledEntries.find(([k]) => /empresa|razao/i.test(k));
-      if (compEntry?.[1]?.value) company = compEntry[1].value;
-    }
-    if (!interest) {
-      const intEntry = filledEntries.find(([k]) =>
-        /maquina|peca|interesse|produto|equipamento|assunto/i.test(k),
-      );
-      if (intEntry?.[1]?.value) interest = intEntry[1].value;
-    }
 
     // 2. Localizar negociação vinculada ativa ou criar se ainda não existir
     if (!dealId || !dealTitle) {
@@ -309,6 +529,121 @@ export async function notifyOperatorLeadTransferred(
         dealTitle = dealTitle || linkedDeal.title;
       }
     }
+
+    // Enriquecimento opcional da negociação (empresa do card, produtos e campos personalizados de máquina).
+    // Protegido por try/catch para não falhar em schemas mínimos de testes isolados.
+    let dealAccountName: string | null = null;
+    let dealAccountTradeName: string | null = null;
+    let dealProductNames: string[] = [];
+    let dealCustomMachine: string | null = null;
+
+    if (dealId) {
+      try {
+        const [dealExtra] = await database
+          .select({
+            accountName: crmAccounts.name,
+            accountTradeName: crmAccounts.tradeName,
+            customFields: crmDeals.customFields,
+          })
+          .from(crmDeals)
+          .leftJoin(
+            crmAccounts,
+            and(eq(crmAccounts.id, crmDeals.accountId), eq(crmAccounts.tenantId, tenantId)),
+          )
+          .where(and(eq(crmDeals.tenantId, tenantId), eq(crmDeals.id, dealId)))
+          .limit(1);
+
+        if (dealExtra) {
+          dealAccountName = dealExtra.accountName || null;
+          dealAccountTradeName = dealExtra.accountTradeName || null;
+          const cf =
+            dealExtra.customFields && typeof dealExtra.customFields === "object"
+              ? (dealExtra.customFields as Record<string, unknown>)
+              : null;
+          if (cf && Object.keys(cf).length > 0) {
+            const defs = await database
+              .select({
+                id: crmCustomFieldDefinitions.id,
+                name: crmCustomFieldDefinitions.name,
+              })
+              .from(crmCustomFieldDefinitions)
+              .where(
+                and(
+                  eq(crmCustomFieldDefinitions.tenantId, tenantId),
+                  eq(crmCustomFieldDefinitions.entityType, "deal"),
+                  isNull(crmCustomFieldDefinitions.archivedAt),
+                ),
+              );
+            const machineDef = defs.find((d: { id: string; name: string }) => {
+              const normName = normalizeFieldKey(d.name);
+              return (
+                normName.includes("maquina") ||
+                normName.includes("equipamento") ||
+                normName.includes("modelo") ||
+                normName.includes("produto") ||
+                normName.includes("interesse")
+              );
+            });
+            const rawVal = machineDef ? cf[machineDef.id] ?? cf[machineDef.name] : null;
+            if (typeof rawVal === "string" && rawVal.trim()) {
+              dealCustomMachine = rawVal.trim();
+            } else if (Array.isArray(rawVal)) {
+              const joined = rawVal
+                .map((item) => String(item ?? "").trim())
+                .filter(Boolean)
+                .slice(0, 2)
+                .join(" + ");
+              if (joined) dealCustomMachine = joined;
+            }
+          }
+        }
+      } catch {
+        // Colunas/tabelas opcionais ausentes em bancos de teste mínimos — ignora silenciosamente
+      }
+
+      try {
+        const prodRows = await database
+          .select({ name: crmDealProducts.name })
+          .from(crmDealProducts)
+          .where(
+            and(eq(crmDealProducts.tenantId, tenantId), eq(crmDealProducts.dealId, dealId)),
+          )
+          .orderBy(asc(crmDealProducts.createdAt))
+          .limit(3);
+        dealProductNames = prodRows
+          .map((r: { name: string | null }) => String(r.name ?? "").trim())
+          .filter(Boolean);
+      } catch {
+        // Tabela opcional ausente em bancos de teste mínimos
+      }
+    }
+
+    const resolvedFields = resolveLeadPopupFields({
+      explicitClientName: params.clientName,
+      contactName: convRow?.contactName,
+      explicitCompany: params.company,
+      accountTradeName: convRow?.accountTradeName,
+      accountName: convRow?.accountName,
+      dealAccountTradeName,
+      dealAccountName,
+      cnpjDetails,
+      explicitMachine: params.machine,
+      explicitInterest: params.interest,
+      collectedData,
+      machineDecision,
+      dealProductNames,
+      dealCustomMachine,
+      dealTitle,
+      targetFunnel,
+    });
+
+    const clientName = resolvedFields.clientName;
+    const company = resolvedFields.company || "";
+    const resolvedMachine = resolvedFields.machine;
+    const interest =
+      resolvedMachine ||
+      params.interest?.trim() ||
+      (convRow?.lastMessageText ? convRow.lastMessageText.slice(0, 140) : "");
 
     if (!dealId) {
       const ensuredDeal = await ensureDeal({
@@ -460,6 +795,11 @@ export async function notifyOperatorLeadTransferred(
       : null;
 
     const now = new Date();
+    const nowIso = now.toISOString();
+    const finalMachine =
+      resolvedMachine ||
+      extractMachineFromDealTitle(dealTitle, displayClient, company || null) ||
+      null;
     const metadata = {
       type: "lead_transfer",
       scope: "operator",
@@ -469,6 +809,7 @@ export async function notifyOperatorLeadTransferred(
       clientId: conversationId,
       clientName: displayClient,
       contactName: displayClient,
+      machine: finalMachine,
       company: company || null,
       interest: interestDisplay,
       temperature,
@@ -479,13 +820,21 @@ export async function notifyOperatorLeadTransferred(
       targetFunnel,
       transferSource,
       transferredBy,
+      receivedAt: nowIso,
       hasAttendanceSummary: true,
       ...(cycle ? { cycle } : {}),
     };
 
     const warningMetadata = {
+      conversationId,
       clientId: conversationId,
       clientName: displayClient,
+      machine: finalMachine,
+      company: company || null,
+      targetFunnel: targetFunnel || null,
+      transferSource,
+      transferredBy,
+      receivedAt: nowIso,
       interest: interestDisplay,
       temperature,
       dealId: dealId || undefined,
