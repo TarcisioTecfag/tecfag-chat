@@ -605,7 +605,9 @@ export const Route = createFileRoute("/api/webhooks/meta")({
                 for (const statusObj of statuses) {
                   if (!statusObj?.id || !["sent", "delivered", "read", "failed"].includes(statusObj.status)) {
                     unprocessableItemsCount++;
-                    unprocessableErrors.push("Status Meta sem ID ou tipo reconhecido");
+                    unprocessableErrors.push(
+                      `Status Meta não reconhecido (id=${String(statusObj?.id ?? "ausente")}, status=${String(statusObj?.status ?? "ausente")})`,
+                    );
                     continue;
                   }
                   await applyMetaStatus(tenantId, statusObj);
@@ -619,7 +621,9 @@ export const Route = createFileRoute("/api/webhooks/meta")({
           // responder HTTP 500 (falha recuperável) para que a Meta retente o lote e o monitoramento seja alertado.
           // O evento já foi salvo em pending_inbounds para não haver perda de dados.
           if (unprocessableItemsCount > 0) {
-            console.error(`[Meta Webhook] Lote finalizado com ${unprocessableItemsCount} item(ns) acionável(is) não processado(s). Retornando 500 para retry da Meta.`);
+            console.error(
+              `[Meta Webhook] Lote finalizado com ${unprocessableItemsCount} item(ns) acionável(is) não processado(s) (tenant=${tenantId}, msgs=${processedMessagesCount}, statuses=${processedStatusesCount}). Retornando 500 para retry da Meta. Detalhes: ${unprocessableErrors.join(" | ")}`,
+            );
             return new Response(
               JSON.stringify({
                 error: "Erro recuperável: item(ns) acionáveis não processáveis no lote. Eventos guardados em pending_inbounds para análise.",

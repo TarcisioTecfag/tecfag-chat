@@ -1,8 +1,9 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useChat } from "@/hooks/useChatState";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useTheme } from "@/hooks/useTheme";
 import { SystemTooltip } from "@/components/ui/tooltip";
+import { syncBrowserPushSubscription } from "@/lib/push-subscription-sync";
 import {
   Bell,
   CheckCircle2,
@@ -16,17 +17,6 @@ import {
 import { toast } from "sonner";
 
 const DISMISS_STORAGE_KEY = "push_notification_dismissed";
-
-function urlBase64ToUint8Array(base64String: string) {
-  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
-  const rawData = window.atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-  for (let i = 0; i < rawData.length; ++i) {
-    outputArray[i] = rawData.charCodeAt(i);
-  }
-  return outputArray;
-}
 
 export function PushNotificationPrompt() {
   const { tenant, currentOperatorId, isAuthenticated } = useChat();
@@ -45,61 +35,53 @@ export function PushNotificationPrompt() {
   const [showDeniedTutorial, setShowDeniedTutorial] = useState(false);
   const [stillBlockedNotice, setStillBlockedNotice] = useState(false);
   const [tutorialPlatform, setTutorialPlatform] = useState<"desktop" | "mobile">("desktop");
+  const syncInFlightRef = useRef(false);
 
   useEffect(() => {
     setTutorialPlatform(isMobile ? "mobile" : "desktop");
   }, [isMobile]);
 
-  const subscribePushToServer = useCallback(async () => {
-    // 1. Aguardar Service Worker pronto
-    const registration = await navigator.serviceWorker.ready;
+  const subscribePushToServer = useCallback(
+    async (options?: { silent?: boolean; forceSync?: boolean }) => {
+      if (syncInFlightRef.current) return false;
+      syncInFlightRef.current = true;
 
-    // 2. Obter chave pública VAPID do servidor
-    const keyRes = await fetch(`/api/push?tenantId=${tenant}`, {
-      credentials: "include",
-    });
-    const keyData = await keyRes.json();
-
-    if (!keyData.publicKey) {
-      throw new Error("Chave VAPID não configurada no servidor.");
-    }
-
-    // 3. Assinar Push Manager
-    const applicationServerKey = urlBase64ToUint8Array(keyData.publicKey);
-    const subscription = await registration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey,
-    });
-
-    // 4. Enviar assinatura para o banco de dados via API
-    const saveRes = await fetch("/api/push", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        tenantId: tenant,
-        operatorId: currentOperatorId || "op-1",
-        subscription: subscription.toJSON(),
-        userAgent: navigator.userAgent,
-      }),
-    });
-
-    if (saveRes.ok) {
-      toast.info("Notificações ativadas com sucesso!");
-      setShowDeniedTutorial(false);
-      setStillBlockedNotice(false);
-      setIsDismissed(true);
       try {
-        window.localStorage.setItem(DISMISS_STORAGE_KEY, "true");
-      } catch {
-        // ignore
+        const registration = await navigator.serviceWorker.ready;
+        const result = await syncBrowserPushSubscription({
+          registration,
+          storage: typeof window !== "undefined" ? window.localStorage : null,
+          tenantId: tenant,
+          operatorId: currentOperatorId,
+          userAgent: navigator.userAgent,
+          forceSync: options?.forceSync ?? !options?.silent,
+        });
+
+        if (result.ok) {
+          if (!options?.silent) {
+            toast.info("Notificações ativadas com sucesso!");
+            setShowDeniedTutorial(false);
+            setStillBlockedNotice(false);
+            setIsDismissed(true);
+            try {
+              window.localStorage.setItem(DISMISS_STORAGE_KEY, "true");
+            } catch {
+              // ignore
+            }
+          }
+          return true;
+        }
+
+        if (!options?.silent) {
+          toast.info("Não foi possível salvar a assinatura de notificação no servidor.");
+        }
+        return false;
+      } finally {
+        syncInFlightRef.current = false;
       }
-      return true;
-    } else {
-      toast.info("Não foi possível salvar a assinatura de notificação no servidor.");
-      return false;
-    }
-  }, [tenant, currentOperatorId]);
+    },
+    [tenant, currentOperatorId]
+  );
 
   useEffect(() => {
     if (document.documentElement.dataset.trainingInstalled) {
@@ -157,6 +139,25 @@ export function PushNotificationPrompt() {
       }
     };
   }, [subscribePushToServer]);
+
+  useEffect(() => {
+    if (
+      !isAuthenticated ||
+      !tenant ||
+      !currentOperatorId ||
+      permission !== "granted" ||
+      typeof window === "undefined" ||
+      document.documentElement.dataset.trainingInstalled ||
+      !("serviceWorker" in navigator) ||
+      !("PushManager" in window)
+    ) {
+      return;
+    }
+
+    void subscribePushToServer({ silent: true, forceSync: false }).catch((err) => {
+      console.warn("[Push] Falha na reconciliação silenciosa da assinatura:", err);
+    });
+  }, [isAuthenticated, tenant, currentOperatorId, permission, subscribePushToServer]);
 
   const handleDismiss = () => {
     setIsDismissed(true);
