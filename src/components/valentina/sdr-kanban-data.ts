@@ -220,6 +220,26 @@ export function getSessionActivityTimestamp(session: SdrTriageSession): number {
   return 0;
 }
 
+/** Identifica atendimentos informativos encerrados automaticamente (Currículos / Fornecedores — não são leads). */
+export function isInformativeClosureSession(session: SdrTriageSession): boolean {
+  if (session.isInformativeClosure === true) return true;
+  const subflow = String(session.subflow || "").trim().toUpperCase();
+  const isInfoSubflow = subflow === "5B_CURRICULO" || subflow === "5C_COMPRAS";
+  return (
+    isInfoSubflow &&
+    (session.status === "completed" ||
+      session.monitoring?.informativeAutoClosed === true ||
+      session.monitoring?.state === "resolved" ||
+      session.monitoring?.state === "closed")
+  );
+}
+
+/** Atendimentos informativos já encerrados que ainda aparecem em OUTROS até o SDR bater o olho e clicar em Ocultar. */
+export function isUnhiddenInformativeSession(session: SdrTriageSession): boolean {
+  const hidden = session.sdrHidden === true || session.monitoring?.sdrHidden === true;
+  return isInformativeClosureSession(session) && !hidden;
+}
+
 /**
  * Fonte única de filtragem para Kanban SDR e Lista Ao Vivo.
  * Garante consistência 100% entre os dois modos de visualização.
@@ -253,8 +273,13 @@ export function filterSdrSessions(
     // 3. Status explícito da triagem
     if (filterState.statusFilter !== "all") {
       if (session.status !== filterState.statusFilter) continue;
-    } else if (!filterState.showCompleted && (session.status === "completed" || session.status === "manual")) {
-      // Oculta concluídos / assumidos manualmente do Kanban ativo por padrão
+    } else if (
+      !filterState.showCompleted &&
+      (session.status === "completed" || session.status === "manual") &&
+      !isUnhiddenInformativeSession(session)
+    ) {
+      // Oculta concluídos / assumidos manualmente do Kanban ativo por padrão,
+      // mantendo visíveis em OUTROS apenas os informativos não-lead até o SDR clicar em "Ocultar"
       continue;
     }
 
@@ -335,6 +360,8 @@ function buildSessionContentSignature(s: SdrTriageSession): string {
     s.subflow || "",
     s.funnelStage || "",
     s.targetFunnel || "",
+    s.isInformativeClosure ? 1 : 0,
+    s.sdrHidden ? 1 : 0,
     s.lastClientMessageAt || "",
     s.lastMessageAt || "",
     s.lastMessagePreview || "",
@@ -509,6 +536,15 @@ const VALID_COLUMN_KEYS = new Set<KanbanColumnKey>(KANBAN_COLUMNS.map((c) => c.k
 
 // ─── Classificador Inteligente de Funil ──────────────────────────────────────
 export function classifySessionToColumn(session: SdrTriageSession): KanbanColumnKey {
+  const upperSubflow = String(session.subflow || "").trim().toUpperCase();
+  if (
+    isInformativeClosureSession(session) ||
+    upperSubflow === "5B_CURRICULO" ||
+    upperSubflow === "5C_COMPRAS"
+  ) {
+    return "outros";
+  }
+
   if (session.funnelStage) {
     const rawStage = String(session.funnelStage) as KanbanColumnKey;
     if (VALID_COLUMN_KEYS.has(rawStage)) {

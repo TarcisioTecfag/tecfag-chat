@@ -448,6 +448,105 @@ export async function ensureCwrDealOnContacting(
   return await runInTx(txOrDb);
 }
 
+/**
+ * Encerra (marca como perdido) apenas eventual card CWR aberto que tenha sido criado
+ * automaticamente pelo próprio SDR (`auto_sdr_cwr`) durante este mesmo ciclo de triagem
+ * (por ex. se o contato mandou apenas "Oi" no 1º turno e só no 2º revelou ser currículo
+ * ou fornecedor). NUNCA toca em cards de RD Marketing, outros funis ou com vendedor atribuído.
+ */
+export async function closeAutoCreatedCwrDealForNonLead(
+  database: IndustrialDatabase,
+  params: {
+    tenantId: string;
+    conversationId: string;
+    flowStartedAt: Date;
+    reason: string;
+    actorName: string;
+  },
+): Promise<{ closedDealId: string | null }> {
+  const { tenantId, conversationId, flowStartedAt, reason, actorName } = params;
+  return database.transaction(async (tx) => {
+    const cwr = await resolveCwrPipelineAndStages(tx, tenantId);
+    if (!cwr) return { closedDealId: null };
+
+    const linkedOpenCwr = await tx
+      .select({ deal: crmDeals })
+      .from(crmConversationDeals)
+      .innerJoin(
+        crmDeals,
+        and(eq(crmDeals.id, crmConversationDeals.dealId), eq(crmDeals.tenantId, tenantId)),
+      )
+      .where(
+        and(
+          eq(crmConversationDeals.tenantId, tenantId),
+          eq(crmConversationDeals.conversationId, conversationId),
+          eq(crmConversationDeals.isActive, true),
+          eq(crmDeals.pipelineId, cwr.pipelineId),
+          eq(crmDeals.status, "open"),
+        ),
+      )
+      .orderBy(desc(crmDeals.createdAt))
+      .limit(5);
+
+    const now = new Date();
+    for (const row of linkedOpenCwr) {
+      const deal = row.deal;
+      if (deal.operatorId) continue;
+      if (deal.createdAt && deal.createdAt.getTime() < flowStartedAt.getTime() - 60_000) continue;
+
+      const [autoCreatedEv] = await tx
+        .select({ id: crmDealEvents.id })
+        .from(crmDealEvents)
+        .where(
+          and(
+            eq(crmDealEvents.tenantId, tenantId),
+            eq(crmDealEvents.dealId, deal.id),
+            eq(crmDealEvents.eventType, "created"),
+            sql`${crmDealEvents.metadata}->>'origin' = 'auto_sdr_cwr'`,
+            sql`${crmDealEvents.metadata}->>'conversationId' = ${conversationId}`,
+          ),
+        )
+        .limit(1);
+
+      if (!autoCreatedEv) continue;
+
+      await tx
+        .update(crmDeals)
+        .set({
+          status: "lost",
+          lossReason: reason,
+          lostAt: now,
+          closedAt: now,
+          version: sql`${crmDeals.version} + 1`,
+          updatedAt: now,
+        })
+        .where(and(eq(crmDeals.tenantId, tenantId), eq(crmDeals.id, deal.id)));
+
+      await tx.insert(crmDealEvents).values({
+        id: `ev-nonlead-${Date.now()}-${crypto.randomUUID().slice(0, 6)}`,
+        tenantId,
+        dealId: deal.id,
+        eventType: "status_changed",
+        fromStatus: "open",
+        toStatus: "lost",
+        operatorId: null,
+        metadata: {
+          origin: "auto_sdr_non_lead_close",
+          actorName,
+          actorType: "ai_sdr",
+          reason,
+          conversationId,
+        },
+        createdAt: now,
+      });
+
+      return { closedDealId: deal.id };
+    }
+
+    return { closedDealId: null };
+  });
+}
+
 export interface MoveDealOnSdrApprovalParams {
   tenantId: string;
   conversationId: string;

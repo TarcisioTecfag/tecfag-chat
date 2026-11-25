@@ -28,7 +28,11 @@ import {
   evaluateIndustrialSdrOwnershipGuard,
   fetchLatestPublicOutboundMessage,
 } from "../triage/industrial-ownership-guard";
-import { isAutomatedBotOrUraMessage } from "../triage/industrial-policy";
+import {
+  isAutomatedBotOrUraMessage,
+  isIndustrialInformativeSubflow,
+  isPostCloseCourtesyOnlyMessage,
+} from "../triage/industrial-policy";
 import { normalizeCanonicalPhone, buildPhoneSearchTerms } from "../utils";
 import { sendPushToOperator } from "../push-notifications";
 import { checkAndSendOperatorStatusAutoReply } from "./status-auto-reply";
@@ -1072,6 +1076,59 @@ export class InboundProcessor {
       await syncConversationDeals(db, tenantId, activeConv.id, contact.id);
 
       if (!createdConversation && activeConv.queueState === "finalizados") {
+        // 3b. Proteção pós-encerramento informativo (Currículos / Fornecedores):
+        // se a pessoa mandar apenas cortesia ("Obrigado!", "Ok", "👍") após o Fagner encerrar
+        // um atendimento informativo, NÃO reabre a conversa nem reinicia nova triagem.
+        let skipReopenForInformativeCourtesy = false;
+        if (
+          !contact.walletOperatorId &&
+          !media &&
+          getAiPersona(tenantId).triagePolicy === "industrial" &&
+          isPostCloseCourtesyOnlyMessage(rawText)
+        ) {
+          const [lastFlow] = await db
+            .select({
+              outcome: agentFlowStates.outcome,
+              metadata: agentFlowStates.metadata,
+            })
+            .from(agentFlowStates)
+            .where(
+              and(
+                eq(agentFlowStates.tenantId, tenantId),
+                eq(agentFlowStates.conversationId, activeConv.id),
+                eq(agentFlowStates.agentType, "sdr"),
+              ),
+            )
+            .orderBy(desc(agentFlowStates.startedAt), desc(agentFlowStates.id))
+            .limit(1);
+          const lastMeta = (lastFlow?.metadata as Record<string, any>) || {};
+          if (
+            lastFlow?.outcome === "completed" &&
+            (lastMeta.informativeAutoClosed === true ||
+              isIndustrialInformativeSubflow(lastMeta.subflow))
+          ) {
+            skipReopenForInformativeCourtesy = true;
+          }
+        }
+
+        if (skipReopenForInformativeCourtesy) {
+          await db
+            .update(conversations)
+            .set({
+              lastMessageText:
+                activeConv.lastMessageTime > timestamp ? activeConv.lastMessageText : lastTextPreview,
+              lastMessageTime:
+                activeConv.lastMessageTime > timestamp ? activeConv.lastMessageTime : timestamp,
+              updatedAt: new Date(),
+            })
+            .where(
+              and(
+                eq(conversations.id, activeConv.id),
+                eq(conversations.tenantId, tenantId),
+                isNull(conversations.whatsappConnectionId),
+              ),
+            );
+        } else {
         // 3b. Reabertura consistente: reutiliza a mesma conversa preservando histórico.
         // Se o cliente possui dono de carteira (walletOperatorId), pula a triagem da IA e a fila geral,
         // entrando diretamente em "Meus" do operador responsável.
@@ -1144,6 +1201,7 @@ export class InboundProcessor {
           lastMessageText: lastTextPreview,
           lastMessageTime: timestamp,
         };
+        }
       } else if (!createdConversation) {
         // 3c. Conversa já ativa: incrementa contador de não lidas e atualiza preview
         await db

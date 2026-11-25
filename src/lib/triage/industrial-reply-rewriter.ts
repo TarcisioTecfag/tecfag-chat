@@ -6,7 +6,12 @@ import {
   isPrematureIndustrialHandoffBubble,
   stripLeadingOrphanAnaphoricConnector,
 } from "./industrial-handoff.ts";
-import type { CollectedFields, RequiredField } from "./industrial-policy.ts";
+import {
+  INDUSTRIAL_CURRICULUM_SOLIDES_URL,
+  INDUSTRIAL_SUPPLIERS_EMAIL,
+  type CollectedFields,
+  type RequiredField,
+} from "./industrial-policy.ts";
 
 export type IndustrialReplyRewriteMode =
   | "collecting_missing_fields"
@@ -22,6 +27,7 @@ export interface RewriteIndustrialReplyInput {
   conversationId: string;
   aiPersona: AiPersona;
   rewriteMode: IndustrialReplyRewriteMode;
+  subflow?: string | null;
   conversationHistoryText: string;
   batchSummary: string;
   collectedData: CollectedFields;
@@ -127,10 +133,24 @@ export function buildIndustrialReplyRewritePrompt(input: RewriteIndustrialReplyI
 - PROIBIDO fazer novas perguntas (não use "?"), PROIBIDO dizer que já criou card no CRM ou transferiu para um nome específico de vendedor, e PROIBIDO usar "Perfeito, já coletei tudo! Estou validando".`;
       break;
     case "resolved":
-      objectiveBlock = `OBJETIVO DESTE TURNO (ENCERRAMENTO LIMPO SEM TRANSFERÊNCIA):
+      if (input.subflow === "5B_CURRICULO") {
+        objectiveBlock = `OBJETIVO DESTE TURNO (ENVIO DE CURRÍCULO / VAGAS — ENCERRAMENTO INFORMATIVO):
+- A pessoa quer enviar currículo ou saber sobre vagas.
+- Explique com simpatia em 1 balão curto e natural que ela deve enviar o currículo pelo Sólides usando exatamente o link ${INDUSTRIAL_CURRICULUM_SOLIDES_URL}, assim o nosso RH pode analisar com calma e dar retorno para ela.
+- OBRIGATÓRIO incluir exatamente o link ${INDUSTRIAL_CURRICULUM_SOLIDES_URL} no texto.
+- PROIBIDO pedir CNPJ, CPF, nome completo ou outros dados, PROIBIDO fazer perguntas ("?") e PROIBIDO dizer que vai transferir pelo chat.`;
+      } else if (input.subflow === "5C_COMPRAS") {
+        objectiveBlock = `OBJETIVO DESTE TURNO (FORNECEDORES, PARCERIAS, TRANSPORTADORAS OU VENDA DE INSUMOS — ENCERRAMENTO INFORMATIVO):
+- A pessoa quer oferecer produtos, propor parcerias, oferecer serviços de transportadora ou vender insumos.
+- Explique gentilmente em 1 balão curto e natural que ela deve enviar a apresentação/proposta para o e-mail do nosso setor responsável por isso: ${INDUSTRIAL_SUPPLIERS_EMAIL}.
+- OBRIGATÓRIO incluir exatamente o e-mail ${INDUSTRIAL_SUPPLIERS_EMAIL} no texto.
+- PROIBIDO pedir CNPJ, CPF, nome completo ou outros dados, PROIBIDO fazer perguntas ("?") e PROIBIDO dizer que vai transferir pelo chat.`;
+      } else {
+        objectiveBlock = `OBJETIVO DESTE TURNO (ENCERRAMENTO LIMPO SEM TRANSFERÊNCIA):
 - O cliente encerrou, desistiu, informou que já comprou ou tratou de assunto informativo (currículo/fornecedor).
 - Escreva 1 balão curto, cordial e contextualizado encerrando o atendimento com educação.
 - PROIBIDO prometer encaminhamento/transferência para equipe ou especialista e PROIBIDO pedir novos dados.`;
+      }
       break;
     case "direct_operator_absent":
       objectiveBlock = `OBJETIVO DESTE TURNO (OPERADOR CITADO AUSENTE):
@@ -180,10 +200,14 @@ export function sanitizeRewrittenIndustrialMessages(
   rewriteMode: IndustrialReplyRewriteMode,
   rawMessages: readonly string[],
   shouldEscalateToReview: boolean,
+  subflow?: string | null,
 ): string[] {
   const cleaned = rawMessages
     .map((m) => String(m || "").trim())
     .filter(Boolean);
+
+  const isCurriculum = subflow === "5B_CURRICULO";
+  const isSuppliers = subflow === "5C_COMPRAS";
 
   const sanitized =
     rewriteMode === "collecting_missing_fields" && !shouldEscalateToReview
@@ -193,7 +217,12 @@ export function sanitizeRewrittenIndustrialMessages(
             (m) => !m.includes("?") && !INDUSTRIAL_FALSE_SYSTEM_CLAIM_PATTERN.test(m),
           )
         : rewriteMode === "resolved"
-          ? cleaned.filter((m) => !isPrematureIndustrialHandoffBubble(m))
+          ? cleaned.filter((m) => {
+              if (INDUSTRIAL_FALSE_SYSTEM_CLAIM_PATTERN.test(m)) return false;
+              if (isCurriculum && /grupotecfag\.vagas\.solides\.com\.br/i.test(m)) return true;
+              if (isSuppliers && /adm@tecfag\.com\.br/i.test(m)) return true;
+              return !isPrematureIndustrialHandoffBubble(m);
+            })
           : cleaned;
 
   if (
@@ -245,6 +274,7 @@ export async function rewriteIndustrialReplyWithGemini(
       input.rewriteMode,
       parsed.data.messagesToSend,
       shouldEscalate,
+      input.subflow,
     );
 
     if (sanitized.length === 0) return null;

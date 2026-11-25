@@ -941,16 +941,36 @@ export const Route = createFileRoute("/api/valentina/sdr")({
               : undefined;
 
             const status = resolveFaithfulSdrStatus(fs.outcome, monitoring?.state);
+            const rawSubflowCode = String(meta.subflow || "").trim().toUpperCase();
+            const isInformativeSubflowMeta =
+              rawSubflowCode === "5B_CURRICULO" || rawSubflowCode === "5C_COMPRAS";
+            const isInformativeClosure = Boolean(
+              isIndustrial &&
+                isInformativeSubflowMeta &&
+                (fs.outcome === "completed" ||
+                  meta.handoffStatus === "resolved" ||
+                  meta.informativeAutoClosed === true),
+            );
+            const sdrHidden = Boolean(meta.sdrHidden === true || meta.dismissedBy);
 
             let responsibleName = `${persona.name} IA (Em Triagem)`;
-            if (status === "awaiting_approval") {
+            if (isInformativeClosure) {
+              responsibleName =
+                rawSubflowCode === "5B_CURRICULO"
+                  ? "Currículos · Sólides"
+                  : "Fornecedores · adm@tecfag.com.br";
+            } else if (status === "awaiting_approval") {
               responsibleName =
                 monitoring?.pendingApproval?.suggestedOperatorName
                   ? `Aguardando aprovação → ${monitoring.pendingApproval.suggestedOperatorName}`
                   : "Aguardando Aprovação SDR";
             } else if (status === "completed") {
               responsibleName =
-                operator?.name || meta.allocatedOperatorName || "Vendedor Alocado (Rodízio)";
+                operator?.name ||
+                meta.allocatedOperatorName ||
+                (meta.handoffStatus === "resolved"
+                  ? "Encerrado sem transferência"
+                  : "Vendedor Alocado (Rodízio)");
             } else if (status === "stopped") {
               responsibleName = operator?.name || "Interrompido (Atendimento Manual)";
             } else if (status === "abandoned") {
@@ -1061,8 +1081,12 @@ export const Route = createFileRoute("/api/valentina/sdr")({
               unreadCount: conv?.unreadCount || 0,
               channel: normalizedChannel,
               subflow: resolvedSubflow || meta.subflow || undefined,
-              funnelStage: meta.funnelStage || meta.targetArea || undefined,
+              funnelStage: isInformativeClosure
+                ? "outros"
+                : meta.funnelStage || meta.targetArea || undefined,
               targetFunnel: effectiveTargetFunnel,
+              ...(isInformativeClosure ? { isInformativeClosure: true } : {}),
+              ...(sdrHidden ? { sdrHidden: true } : {}),
               ...(industrialProgress
                 ? {
                     triageProgress: {

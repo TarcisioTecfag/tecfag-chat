@@ -505,6 +505,19 @@ export async function runSdrSweep(
       waitingMinutes,
     };
 
+    const subflowCodeUpper = String(meta?.subflow || "").trim().toUpperCase();
+    const isInformativeClosedWithoutTransfer =
+      !resolvedOp.id &&
+      (subflowCodeUpper === "5B_CURRICULO" ||
+        subflowCodeUpper === "5C_COMPRAS" ||
+        meta?.informativeAutoClosed === true) &&
+      (fs.outcome === "completed" || meta?.handoffStatus === "resolved");
+
+    if (isInformativeClosedWithoutTransfer) {
+      stoppedCount += 1;
+      continue;
+    }
+
     const isTransferredOrCompleted =
       fs.outcome === "transferred" ||
       fs.outcome === "completed" ||

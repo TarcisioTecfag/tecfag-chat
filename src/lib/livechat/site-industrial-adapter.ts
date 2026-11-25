@@ -7,7 +7,7 @@
  * Tenants sem perfil industrial (Valem) não passam por aqui.
  */
 import crypto from "crypto";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "../../db";
 import { agentConfigs, agentFlowStates, contacts, conversations, mediaFiles, messages } from "../../db/schema";
 import type { LcVisitor } from "../../db/schema";
@@ -31,7 +31,11 @@ import {
   siteIdentityIds,
   type SiteChannelSettings,
 } from "./site-channel-policy";
-import { isValidIndustrialPersonName } from "../triage/industrial-policy";
+import {
+  isIndustrialInformativeSubflow,
+  isPostCloseCourtesyOnlyMessage,
+  isValidIndustrialPersonName,
+} from "../triage/industrial-policy";
 
 function isGenericSiteContactName(name: string | null | undefined): boolean {
   const trimmed = (name || "").trim();
@@ -404,10 +408,42 @@ export async function handleIndustrialSiteMessage(tenantId: string, visitor: LcV
   const messageId = `lcm-${crypto.createHash("sha256").update(`${tenantId}:${item.siteMessageId}`).digest("hex").slice(0, 40)}`;
   let conv = await ensureSiteConversation(tenantId, visitor);
   if (conv.queueState === "finalizados") {
-    await reopenSiteConversation(tenantId, conv.id, messageId);
-    conv = (await db.query.conversations.findFirst({
-      where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.tenantId, tenantId), dEq(t.id, conv.id)),
-    }))!;
+    let skipSiteReopenCourtesy = false;
+    if (!item.mediaBase64 && isPostCloseCourtesyOnlyMessage(item.text)) {
+      try {
+        const [lastFlow] = await db
+          .select({
+            outcome: agentFlowStates.outcome,
+            metadata: agentFlowStates.metadata,
+          })
+          .from(agentFlowStates)
+          .where(
+            and(
+              eq(agentFlowStates.tenantId, tenantId),
+              eq(agentFlowStates.conversationId, conv.id),
+              eq(agentFlowStates.agentType, "sdr"),
+            ),
+          )
+          .orderBy(desc(agentFlowStates.startedAt), desc(agentFlowStates.id))
+          .limit(1);
+        const lastMeta = (lastFlow?.metadata as Record<string, any>) || {};
+        if (
+          lastFlow?.outcome === "completed" &&
+          (lastMeta.informativeAutoClosed === true ||
+            isIndustrialInformativeSubflow(lastMeta.subflow))
+        ) {
+          skipSiteReopenCourtesy = true;
+        }
+      } catch {
+        // Ignora em mocks parciais
+      }
+    }
+    if (!skipSiteReopenCourtesy) {
+      await reopenSiteConversation(tenantId, conv.id, messageId);
+      conv = (await db.query.conversations.findFirst({
+        where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.tenantId, tenantId), dEq(t.id, conv.id)),
+      }))!;
+    }
   }
 
   let content = item.text;

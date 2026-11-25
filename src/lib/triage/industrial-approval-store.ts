@@ -1875,3 +1875,146 @@ export async function assumeIndustrialTriageManually(
 
   return { success: true, conversationId, operatorId: actorId };
 }
+
+/**
+ * Ação rápida "Ocultar" no Painel SDR para atendimentos informativos não-lead
+ * (Currículos → Sólides / Fornecedores e Parcerias → adm@tecfag.com.br):
+ * o SDR apenas bate o olho e oculta em 1 clique, sem fluxo de aprovação ou transferência.
+ * Garante também que a conversa permaneça finalizada e encerrada caso ainda esteja em automação.
+ */
+export async function hideIndustrialInformativeTriage(
+  database: IndustrialDatabase,
+  tenantId: string,
+  actor: ApprovalActor,
+  conversationId: string,
+) {
+  assertApprovalPermission(actor);
+  if (!conversationId) {
+    throw new IndustrialApprovalError(400, "conversationId é obrigatório.");
+  }
+
+  const persona = getAiPersona(tenantId);
+
+  const result = await database.transaction(async (tx) => {
+    const [conv] = await tx
+      .select()
+      .from(conversations)
+      .where(and(eq(conversations.tenantId, tenantId), eq(conversations.id, conversationId)))
+      .for("update");
+    if (!conv) {
+      throw new IndustrialApprovalError(404, "Atendimento não encontrado.");
+    }
+
+    const now = new Date();
+    const [flow] = await tx
+      .select()
+      .from(agentFlowStates)
+      .where(
+        and(
+          eq(agentFlowStates.tenantId, tenantId),
+          eq(agentFlowStates.conversationId, conversationId),
+          eq(agentFlowStates.agentType, "sdr"),
+        ),
+      )
+      .orderBy(desc(agentFlowStates.startedAt), desc(agentFlowStates.id))
+      .for("update")
+      .limit(1);
+
+    let subflow: string | null = null;
+    if (flow) {
+      const meta = (flow.metadata as Record<string, unknown>) || {};
+      subflow = typeof meta.subflow === "string" ? meta.subflow : null;
+      const [updatedFlow] = await tx
+        .update(agentFlowStates)
+        .set({
+          outcome: "completed",
+          currentStep: flow.currentStep || "Concluído (Informativo)",
+          completedAt: flow.completedAt || now,
+          lastInteractionAt: now,
+          metadata: {
+            ...meta,
+            funnelStage: "outros",
+            handoffStatus: "resolved",
+            readyForHandoff: false,
+            pendingApproval: null,
+            informativeAutoClosed: true,
+            sdrHidden: true,
+            sdrHiddenBy: {
+              operatorId: actor.id,
+              operatorName: actor.name,
+              at: now.toISOString(),
+            },
+          },
+        })
+        .where(and(eq(agentFlowStates.tenantId, tenantId), eq(agentFlowStates.id, flow.id)))
+        .returning();
+
+      if (updatedFlow) {
+        await appendIndustrialJournal(
+          tx,
+          flow,
+          updatedFlow,
+          "handoff",
+          `hide:${actor.id || "sdr"}:${now.getTime()}`,
+        );
+      }
+    }
+
+    let updatedConv = conv;
+    let queueChanged = false;
+    if (!conv.operatorId && conv.queueState === "automacao") {
+      await setAttendanceActor(tx, tenantId, `${actor.name} (Ocultou informativo ${persona.name})`, actor.id);
+      const [row] = await tx
+        .update(conversations)
+        .set({
+          queueState: "finalizados",
+          operatorId: null,
+          unreadCount: 0,
+          version: sql`${conversations.version} + 1`,
+          updatedAt: now,
+        })
+        .where(and(eq(conversations.tenantId, tenantId), eq(conversations.id, conversationId)))
+        .returning();
+      if (row) {
+        updatedConv = row;
+        queueChanged = true;
+      }
+    }
+
+    return { conversation: updatedConv, queueChanged, subflow };
+  });
+
+  SdrDebouncer.getInstance().clearSession(conversationId);
+
+  try {
+    const sm = SessionManager.getInstance();
+    if (result.queueChanged) {
+      sm.notifyPublic(tenantId, {
+        type: "queue_update",
+        conversationId,
+        queueState: result.conversation.queueState,
+        operatorId: result.conversation.operatorId,
+        unreadCount: 0,
+        version: result.conversation.version,
+      });
+    }
+    sm.notifyPublic(tenantId, {
+      type: "sdr_flow_updated",
+      conversationId,
+      funnelStage: "outros",
+      subflow: result.subflow,
+      outcome: "completed",
+      handoffStatus: "resolved",
+      sdrHidden: true,
+    });
+  } catch {
+    // Não bloqueia resposta
+  }
+
+  return {
+    success: true,
+    conversationId,
+    hidden: true,
+    queueState: result.conversation.queueState,
+  };
+}

@@ -47,6 +47,22 @@ export function projectIndustrialMonitoring(
       (Object.keys(pendingApproval).length > 0 && (!cycle || !pendingApproval.cycle || pendingApproval.cycle === cycle)),
   );
   const continuedTo = link(meta.continuedTo);
+  const subflowText = text(meta.subflow);
+  const isInformativeSubflow =
+    subflowText === "5B_CURRICULO" || subflowText === "5C_COMPRAS";
+  const informativeAutoClosed = Boolean(
+    meta.informativeAutoClosed === true ||
+      (isInformativeSubflow &&
+        (flow.outcome === "completed" || meta.handoffStatus === "resolved")),
+  );
+  const sdrHiddenByObj = object(meta.sdrHiddenBy);
+  const sdrHidden = Boolean(meta.sdrHidden === true || meta.dismissedBy);
+  const informativeCloseLabel =
+    subflowText === "5B_CURRICULO"
+      ? "Encerrado · Currículos (Sólides)"
+      : subflowText === "5C_COMPRAS"
+        ? "Encerrado · Fornecedores / Parcerias"
+        : "Ciclo encerrado";
   let state = "collecting",
     label = "Em triagem";
   if (continuedTo) {
@@ -54,7 +70,7 @@ export function projectIndustrialMonitoring(
     label = "Continuado em outro canal";
   } else if (conversation?.queueState === "finalizados") {
     state = "closed";
-    label = "Ciclo encerrado";
+    label = informativeAutoClosed ? informativeCloseLabel : "Ciclo encerrado";
   } else if (human) {
     state = confirmed ? "transferred" : "manual";
     label = confirmed ? "Transferência confirmada" : "Atendimento humano";
@@ -66,14 +82,14 @@ export function projectIndustrialMonitoring(
     label = "Sem resposta";
   } else if (validReceipt && result.status === "resolved") {
     state = "resolved";
-    label = "Resolvido pela automação";
+    label = informativeAutoClosed ? informativeCloseLabel : "Resolvido pela automação";
   } else if (
     flow.outcome === "completed" ||
     flow.outcome === "transferred" ||
     conversation?.queueState === "finalizados"
   ) {
     state = "closed";
-    label = "Ciclo encerrado";
+    label = informativeAutoClosed ? informativeCloseLabel : "Ciclo encerrado";
   } else if (validPendingApproval) {
     state = "awaiting_approval";
     label = "Aguardando aprovação SDR";
@@ -174,6 +190,10 @@ export function projectIndustrialMonitoring(
     nextAttemptAt: validRequest && !validReceipt && !human ? iso(meta.handoffNextAttemptAt) : null,
     continuedFrom: link(meta.continuedFrom),
     continuedTo,
+    informativeAutoClosed,
+    sdrHidden,
+    sdrHiddenAt: iso(sdrHiddenByObj.at),
+    sdrHiddenByName: text(sdrHiddenByObj.operatorName),
     pendingApproval:
       state === "awaiting_approval" && Object.keys(pendingApproval).length > 0
         ? {

@@ -3,7 +3,8 @@ import type { IndustrialDeliveryContext } from "./industrial-delivery-context";
 import type { IndustrialBotItem } from "./industrial-outbound";
 
 import { db } from "../../db";
-import { agentConfigs, agentFlowStates, conversations, messages, internalMessages, contacts, crmAccounts, operators, sectors } from "../../db/schema";
+import { agentConfigs, agentFlowStates, conversations, messages, internalMessages, contacts, crmAccounts, operators, sectors, lcChats } from "../../db/schema";
+import { setAttendanceActor } from "../attendance-events";
 import { getBrtTodayYmd, isOperatorOnLeaveToday } from "./rodizio-types";
 import { eq, asc, desc, and, gte, lt, ne, sql, isNull, or, inArray } from "drizzle-orm";
 import { buildAccountUpdatePayloadFromCnpjDetails } from "../crm/cnpj-account-mapper";
@@ -31,8 +32,11 @@ import {
 } from "./sdr-tecfag-prompt";
 import { resolveLegacySdrStageAndFunnel } from "./legacy-sdr-routing";
 import {
+  INDUSTRIAL_CURRICULUM_SOLIDES_URL,
   INDUSTRIAL_POLICY_VERSION,
   INDUSTRIAL_REVIEW_FUNNEL,
+  INDUSTRIAL_SUPPLIERS_EMAIL,
+  isIndustrialInformativeSubflow,
   resolveIndustrialRoute,
   type IndustrialRoute,
   assessIndustrialReadiness,
@@ -111,7 +115,11 @@ import {
   sendSdrChannelText,
 } from "./sdr-channel-sender";
 import { getAiPersona, isSdrTenant } from "../ai-persona";
-import { buildSiteCatalogMediaUrl, isSiteConversationId } from "../livechat/site-channel-policy";
+import {
+  buildSiteCatalogMediaUrl,
+  isSiteConversationId,
+  visitorIdFromSiteConversation,
+} from "../livechat/site-channel-policy";
 import { findActiveWhatsappSessionForSiteContact } from "../livechat/site-cross-channel-guard";
 import { pushSiteTyping } from "../livechat/site-delivery";
 import { triggerOutboundCallInternal } from "../voice/outbound-call-service";
@@ -2502,6 +2510,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
               conversationId,
               aiPersona,
               rewriteMode: evaluated.rewriteMode,
+              subflow: industrialRoute.subflow,
               conversationHistoryText,
               batchSummary,
               collectedData: updatedCollectedData,
@@ -2581,6 +2590,20 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
               aiResult.messagesToSend = rewritten.messagesToSend;
             } else if (rewritten?.messagesToSend?.length) {
               aiResult.messagesToSend = rewritten.messagesToSend;
+            } else if (
+              evaluated.rewriteMode === "resolved" &&
+              industrialRoute.subflow === "5B_CURRICULO"
+            ) {
+              aiResult.messagesToSend = [
+                `Para enviar seu currículo, pedimos que faça o cadastro pelo Sólides usando este link: ${INDUSTRIAL_CURRICULUM_SOLIDES_URL} — assim nosso RH consegue analisar com calma e dar retorno para você!`,
+              ];
+            } else if (
+              evaluated.rewriteMode === "resolved" &&
+              industrialRoute.subflow === "5C_COMPRAS"
+            ) {
+              aiResult.messagesToSend = [
+                `Para envio de propostas de produtos, parcerias, serviços de transportadora ou venda de insumos, pedimos gentilmente que encaminhe as informações para o e-mail do nosso setor responsável: ${INDUSTRIAL_SUPPLIERS_EMAIL}.`,
+              ];
             } else if (evaluated.safeBubbles.length > 0) {
               aiResult.messagesToSend = evaluated.safeBubbles;
             } else {
@@ -2607,6 +2630,19 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         ? industrialHandoffOutcome(industrialHandoff.status)
         : isCompleted ? (wasAlreadyCompleted ? flowState?.outcome : "transferred") : "in_progress";
       const flowIsFinished = flowOutcome === "transferred" || flowOutcome === "completed";
+
+      const isInformativeNonLeadClosure = Boolean(
+        industrialTriage &&
+          industrialRoute &&
+          isIndustrialInformativeSubflow(industrialRoute.subflow) &&
+          industrialHandoff.status === "resolved",
+      );
+      if (isInformativeNonLeadClosure) {
+        stageAndFunnel = {
+          ...stageAndFunnel,
+          funnelStage: "outros",
+        };
+      }
 
       if (flowState) {
         const industrialProgress = industrialTriage
@@ -2652,11 +2688,19 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           ...(industrialRoute ? {
             triagePolicyVersion: INDUSTRIAL_POLICY_VERSION,
             subflow: industrialRoute.subflow,
-            needsReview: industrialRoute.needsReview,
+            needsReview: isInformativeNonLeadClosure ? false : industrialRoute.needsReview,
             routeReason: industrialRoute.reason,
             missingFields: industrialReadiness?.missing || [],
             handoffStatus: industrialHandoff.status,
-            readyForHandoff: Boolean(industrialReadiness?.ready),
+            readyForHandoff: isInformativeNonLeadClosure ? false : Boolean(industrialReadiness?.ready),
+            ...(isInformativeNonLeadClosure
+              ? {
+                  pendingApproval: null,
+                  informativeAutoClosed: true,
+                  informativeAutoClosedAt: now.toISOString(),
+                  sdrHidden: false,
+                }
+              : {}),
             turnRecoveryMessageId: null,
             turnRecoveryAttempts: 0,
             turnRecoveryNextAttemptAt: null,
@@ -3228,6 +3272,145 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
             allocatedOp?.id || null,
             deliveryTurnContext ? { ...deliveryTurnContext, scope: "reply", images: industrialImageItems, greetingCount: industrialGreetingMessages.length } : undefined
           );
+
+          // Encerramento definitivo (Site e WhatsApp) para atendimentos informativos não-lead
+          // (5B_CURRICULO → Sólides / 5C_COMPRAS → adm@tecfag.com.br):
+          // após enviar a orientação, finaliza e encerra a conversa sem criar lead nem pedir aprovação SDR.
+          if (isInformativeNonLeadClosure && !signal?.aborted) {
+            try {
+              const closeNow = new Date();
+              const subflowCode = industrialRoute?.subflow || "";
+              const closeNoteText =
+                subflowCode === "5B_CURRICULO"
+                  ? `Atendimento informativo encerrado automaticamente por ${aiPersona.name} (Currículos — direcionado ao Sólides: ${INDUSTRIAL_CURRICULUM_SOLIDES_URL}).`
+                  : `Atendimento informativo encerrado automaticamente por ${aiPersona.name} (Fornecedores / Parcerias — direcionado ao e-mail ${INDUSTRIAL_SUPPLIERS_EMAIL}).`;
+
+              const closedResult = await db.transaction(async (tx) => {
+                const [lockedConv] = await tx
+                  .select()
+                  .from(conversations)
+                  .where(and(eq(conversations.tenantId, tenantId), eq(conversations.id, conversationId)))
+                  .for("update");
+                if (!lockedConv || lockedConv.operatorId || lockedConv.queueState !== "automacao") {
+                  return null;
+                }
+
+                await setAttendanceActor(tx, tenantId, `${aiPersona.name} (Atendimento Informativo)`, null);
+                const [updatedConv] = await tx
+                  .update(conversations)
+                  .set({
+                    queueState: "finalizados",
+                    operatorId: null,
+                    unreadCount: 0,
+                    version: sql`${conversations.version} + 1`,
+                    updatedAt: closeNow,
+                  })
+                  .where(
+                    and(
+                      eq(conversations.tenantId, tenantId),
+                      eq(conversations.id, conversationId),
+                      isNull(conversations.operatorId),
+                      eq(conversations.queueState, "automacao"),
+                    ),
+                  )
+                  .returning();
+
+                if (!updatedConv) return null;
+
+                await tx.insert(messages).values({
+                  id: `sys-info-close-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                  tenantId,
+                  conversationId,
+                  senderType: "system",
+                  senderName: "Sistema",
+                  content: closeNoteText,
+                  isInternalNote: true,
+                  direction: "outbound",
+                  provider: "system",
+                  status: "accepted",
+                  metaDetails: {
+                    attendanceSkip: true,
+                    informativeAutoClosed: true,
+                    subflow: subflowCode,
+                  },
+                  sentAt: closeNow,
+                  updatedAt: closeNow,
+                });
+
+                if (isSiteConversationId(conversationId)) {
+                  const visitorId = visitorIdFromSiteConversation(conversationId);
+                  if (visitorId) {
+                    await tx
+                      .update(lcChats)
+                      .set({
+                        status: "closed",
+                        closedAt: closeNow,
+                        outcome: "resolved",
+                      })
+                      .where(
+                        and(
+                          eq(lcChats.tenantId, tenantId),
+                          eq(lcChats.visitorId, visitorId),
+                          inArray(lcChats.status, ["active", "operator_took_over"]),
+                        ),
+                      );
+                  }
+                }
+
+                return updatedConv;
+              });
+
+              if (closedResult) {
+                SessionManager.getInstance().notifyPublic(tenantId, {
+                  type: "queue_update",
+                  conversationId,
+                  queueState: "finalizados",
+                  operatorId: null,
+                  unreadCount: 0,
+                  version: closedResult.version,
+                });
+                SessionManager.getInstance().notifyPublic(tenantId, {
+                  type: "sdr_flow_updated",
+                  conversationId,
+                  funnelStage: "outros",
+                  targetFunnel: stageAndFunnel.targetFunnel,
+                  outcome: "completed",
+                  handoffStatus: "resolved",
+                  subflow: subflowCode,
+                  informativeAutoClosed: true,
+                  sdrHidden: false,
+                });
+              }
+
+              if (flowState?.startedAt && !isSiteConversationId(conversationId)) {
+                const lossReason =
+                  subflowCode === "5B_CURRICULO"
+                    ? "Não é lead — Currículos (Sólides)"
+                    : "Não é lead — Fornecedores / Parcerias (adm@tecfag.com.br)";
+                void import("../triage/industrial-cwr-crm")
+                  .then(({ closeAutoCreatedCwrDealForNonLead }) =>
+                    closeAutoCreatedCwrDealForNonLead(db, {
+                      tenantId,
+                      conversationId,
+                      flowStartedAt: flowState.startedAt,
+                      reason: lossReason,
+                      actorName: aiPersona.name,
+                    }),
+                  )
+                  .catch((cwrCloseErr: any) =>
+                    console.warn(
+                      `[SdrEngine] Aviso ao encerrar card CWR automático para não-lead (${conversationId}):`,
+                      cwrCloseErr?.message,
+                    ),
+                  );
+              }
+            } catch (closeErr: any) {
+              console.warn(
+                `[SdrEngine] Aviso ao finalizar conversa informativa (${conversationId}):`,
+                closeErr?.message || closeErr,
+              );
+            }
+          }
 
           // Ciclo de vida FUNIL CWR: assim que o Fagner responde ao cliente comercial no WhatsApp,
           // garante o card no FUNIL CWR e move de CONTATAR -> CONTATANDO automaticamente.

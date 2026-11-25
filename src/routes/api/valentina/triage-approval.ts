@@ -6,6 +6,7 @@ import {
   approveIndustrialTriage,
   assumeIndustrialTriageManually,
   completeIndustrialTriageWithoutTransfer,
+  hideIndustrialInformativeTriage,
   IndustrialApprovalError,
   loadIndustrialApprovalOptions,
   type ApprovalActor,
@@ -137,8 +138,13 @@ export const Route = createFileRoute("/api/valentina/triage-approval")({
             return Response.json(result, { status: 200, headers });
           }
 
+          if (action === "hide") {
+            const result = await hideIndustrialInformativeTriage(db, tenantId, actor, conversationId);
+            return Response.json(result, { status: 200, headers });
+          }
+
           return Response.json(
-            { error: "Ação inválida. Use 'approve', 'dismiss' ou 'assume'." },
+            { error: "Ação inválida. Use 'approve', 'dismiss', 'assume' ou 'hide'." },
             { status: 400, headers },
           );
         } catch (err: any) {

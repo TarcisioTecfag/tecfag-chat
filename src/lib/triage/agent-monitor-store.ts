@@ -80,8 +80,9 @@ export async function readLatestSdrFlows(
 ) {
   const latestRecent = latestFlows(database, tenantId, "sdr", channelScope);
   const latestPriority = latestFlows(database, tenantId, "sdr", channelScope);
+  const latestInformative = latestFlows(database, tenantId, "sdr", channelScope);
 
-  const [recentRows, priorityRows] = await Promise.all([
+  const [recentRows, priorityRows, unhiddenInformativeRows] = await Promise.all([
     database
       .select()
       .from(latestRecent)
@@ -127,9 +128,25 @@ export async function readLatestSdrFlows(
       )
       .orderBy(desc(latestPriority.lastInteractionAt), desc(latestPriority.id))
       .limit(200),
+    database
+      .select()
+      .from(latestInformative)
+      .where(
+        and(
+          eq(latestInformative.outcome, "completed"),
+          sql`${latestInformative.metadata}->>'informativeAutoClosed' = 'true'`,
+          sql`COALESCE((${latestInformative.metadata}->>'sdrHidden')::boolean, false) = false`,
+          sql`${latestInformative.metadata}->'dismissedBy' IS NULL`,
+        ),
+      )
+      .orderBy(desc(latestInformative.lastInteractionAt), desc(latestInformative.id))
+      .limit(100),
   ]);
 
-  return mergeLatestAndPrioritySdrFlows(recentRows, priorityRows);
+  return mergeLatestAndPrioritySdrFlows(recentRows, [
+    ...priorityRows,
+    ...unhiddenInformativeRows,
+  ]);
 }
 /** Snapshot dos ciclos correntes, não histórico completo de leads nem conversão em vendas. */
 export async function readAgentMonitoringSummary(

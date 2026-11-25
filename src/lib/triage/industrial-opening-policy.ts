@@ -38,7 +38,7 @@ const QUALIFICATION_PLACEHOLDER_RE =
   /^(?:aguardando|pendente|n[aã]o\s+informado|indefinido|n\/a|null|nenhum|-|\.+)$/i;
 
 const SUBSTANTIVE_CLIENT_CONTEXT_RE =
-  /(embalag|valv|válv|spray|frasc|pote|selad|tunel|túnel|encolhim|catal|catál|prec|preç|valor|cota|cotá|orç|orc|sab|comp|prod|inform|duvid|dúvid|maquin|máquin|equipam|envas|empacot|datador|rotulad|fechad|tampad|encapsul|dosad|peca|peça|assist|boleto|nota|nf|rastreio|pedido|manuten|personalit|personnalit|falar|atendent|vendedor|consultor|comprovante|pagamento|curriculo|currículo|caixa|comprimento|largura|altura|compressor|vacuo|vácuo|\b\d+\s*(?:mm|cm|kg|ml|un|pcs|pçs|l)\b)/i;
+  /(embalag|valv|válv|spray|frasc|pote|selad|tunel|túnel|encolhim|catal|catál|prec|preç|valor|cota|cotá|orç|orc|sab|comp|prod|inform|duvid|dúvid|maquin|máquin|equipam|envas|empacot|datador|rotulad|fechad|tampad|encapsul|dosad|peca|peça|assist|boleto|nota|nf|rastreio|pedido|manuten|personalit|personnalit|falar|atendent|vendedor|consultor|comprovante|pagamento|curriculo|currículo|vagas?|solides|fornecedor|parceria|transportadora|insumos?|caixa|comprimento|largura|altura|compressor|vacuo|vácuo|\b\d+\s*(?:mm|cm|kg|ml|un|pcs|pçs|l)\b)/i;
 
 function toEpochMs(value: Date | string | null | undefined): number | null {
   if (!value) return null;

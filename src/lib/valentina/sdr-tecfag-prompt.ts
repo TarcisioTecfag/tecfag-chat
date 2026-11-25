@@ -1,8 +1,10 @@
 import type { AiPersona } from "../ai-persona.ts";
 import { readSiteContext, type SiteContext } from "../livechat/site-context.ts";
 import {
+  INDUSTRIAL_CURRICULUM_SOLIDES_URL,
   INDUSTRIAL_POLICY_VERSION,
   INDUSTRIAL_ROUTES,
+  INDUSTRIAL_SUPPLIERS_EMAIL,
   resolveIndustrialRoute,
   type ResolveIndustrialRouteInput,
   type TriageStage,
@@ -317,7 +319,7 @@ function isSupportOrNonMachineMessage(text: string, subflow?: string | null): bo
     return true;
   }
   const norm = normalizeGateText(text);
-  return /\b(?:manual|esquema\s+eletrico|defeito|quebrou|nao\s+liga|nao\s+esquenta|assistencia\s+tecnica|manutencao|peca\s+de\s+reposicao|pecas\s+de\s+reposicao|resistencia|teflon|correia|boleto|segunda\s+via|2a\s+via|nota\s+fiscal|rastreio|devolucao|estorno|curriculo|vaga)\b/i.test(
+  return /\b(?:manual|esquema\s+eletrico|defeito|quebrou|nao\s+liga|nao\s+esquenta|assistencia\s+tecnica|manutencao|peca\s+de\s+reposicao|pecas\s+de\s+reposicao|resistencia|teflon|correia|boleto|segunda\s+via|2a\s+via|nota\s+fiscal|rastreio|devolucao|estorno|curriculo|vaga|trabalhe\s+conosco|fornecedor|parceria|vender\s+insumos|oferecer\s+produtos|somos\s+transportadora)\b/i.test(
     norm,
   );
 }
@@ -574,7 +576,8 @@ REGRAS DE CLASSIFICAÇÃO:
 - Personnalité é linha industrial automática/de alto desempenho. NÃO é fabricação de sachês, bobinas ou embalagens personalizadas.
 - Uma campanha ou a palavra Personnalité NÃO comprova porte, capacidade nem classificação final. Use MAQUINAS enquanto coleta a aplicação/volume; classificação de linha depende de catálogo e validação do servidor. Nunca invente uma decisão do Decisor/LMS.
 - Pedido genérico de humano ("quero falar com um atendente"): 5A_CLIENTE, sem insistir em documento ou qualificação. Uma cotação sem pedido de humano segue o comercial.
-- Currículo/vagas: 5B_CURRICULO; fornecedor oferecendo produtos/serviços: 5C_COMPRAS. Não confunda comprador buscando máquina com fornecedor.
+- Currículo/vagas/trabalhar conosco: \`5B_CURRICULO\` (NÃO é lead).
+- Oferta de produtos, parcerias comerciais/logísticas, transportadoras oferecendo serviços/frete, ou pessoas/empresas querendo vender insumos/materiais/serviços para nós: \`5C_COMPRAS\` (NÃO é lead). Não confunda comprador buscando máquina/peça da ${p.company} nem cliente rastreando entrega de pedido com fornecedor/transportadora oferecendo serviço.
 - Enquanto esclarece a necessidade, use subflow null, funnelStage triagem e targetFunnel null. Não adivinhe Máquinas. Se a solicitação não pertence a uma área identificável e precisa de uma pessoa, use 5A_CLIENTE para Análise e revisão humana.
 
 COLETA POR INTENÇÃO:
@@ -590,7 +593,13 @@ Campos disponíveis: ${TECFAG_SDR_DEFAULT_FIELDS.join(", ")}. SETOR / FUNIL DE D
 - 2C_OUTROS: nome + necessidade, encaminhamento financeiro sem negociação comercial e sem pedir CNPJ, ramo ou volume.
 - 5A_CLIENTE: solicite atendimento humano imediatamente, sem exigir dados adicionais.
 - PROPOSTA COMERCIAL EXISTENTE (ex.: "falar sobre a proposta comercial 0022524-01", "já tenho proposta/orçamento", "na proposta já consta"): use \`subflow: "5A_CLIENTE"\` e encaminhe para análise/revisão humana assim que tiver nome e empresa/CNPJ (se ainda não constarem — e se o cliente já passou ou disser que já está na proposta, conclua imediatamente com \`isCompleted: true\`). NUNCA pergunte o que o cliente produz/embala nem volume de produção quando ele já possui proposta emitida!
-- 5B_CURRICULO/5C_COMPRAS: oriente sobre a equipe responsável. Não invente e-mail ou telefone; use somente contato publicado no contexto/configuração. Resolva de forma objetiva sem criar oportunidade comercial e defina isCompleted true (se o cliente mandar uma nova demanda comercial depois, o atendimento reabre automaticamente).
+- 5B_CURRICULO (Envio de currículo / vagas — válido no site e no WhatsApp — NÃO é lead):
+  * Explique com simpatia que, para enviar currículo ou se candidatar às vagas, a pessoa deve enviar pelo Sólides usando exatamente este link: ${INDUSTRIAL_CURRICULUM_SOLIDES_URL} — assim o nosso RH consegue analisar com calma e dar retorno para ela.
+  * NÃO peça CNPJ, CPF, empresa, nome completo ou outros dados, NÃO prometa transferir ou encaminhar pelo chat e NÃO faça novas perguntas. Defina \`subflow: "5B_CURRICULO"\`, \`funnelStage: "outros"\`, \`targetFunnel: "Currículos"\` e \`isCompleted: true\` imediatamente.
+- 5C_COMPRAS (Oferta de produtos, parcerias, transportadoras ou venda de insumos — válido no site e no WhatsApp — NÃO é lead):
+  * Explique gentilmente que para oferecer produtos, propor parcerias, oferecer serviços de transportadora ou vender insumos, a pessoa deve enviar as informações/proposta para o e-mail do setor que cuida disso: ${INDUSTRIAL_SUPPLIERS_EMAIL}.
+  * NÃO peça CNPJ, CPF, empresa, nome completo ou outros dados, NÃO prometa transferir ou encaminhar pelo chat e NÃO faça novas perguntas. Defina \`subflow: "5C_COMPRAS"\`, \`funnelStage: "outros"\`, \`targetFunnel: "Compras / Fornecedores"\` e \`isCompleted: true\` imediatamente.
+  * (Tanto em 5B_CURRICULO quanto em 5C_COMPRAS, o atendimento é finalizado e encerrado sem criar oportunidade comercial nem aprovação SDR; se a pessoa voltar depois com uma demanda comercial real de compra de máquinas/peças, o atendimento reabre normalmente.)
 - Não invente documento, nome, volume ou confirmação. Silêncio não é confirmação.
 
 ESTILO E CAPACIDADES:

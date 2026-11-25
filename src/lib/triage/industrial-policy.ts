@@ -1,6 +1,8 @@
 /** Regras de triagem industrial compartilháveis por Site e WhatsApp. Sem IO. */
 export const INDUSTRIAL_POLICY_VERSION = "industrial-v3";
 export const INDUSTRIAL_REVIEW_FUNNEL = "Análise e revisão humana";
+export const INDUSTRIAL_CURRICULUM_SOLIDES_URL = "https://grupotecfag.vagas.solides.com.br";
+export const INDUSTRIAL_SUPPLIERS_EMAIL = "adm@tecfag.com.br";
 export type TriageStage =
   | "triagem"
   | "assistencia_tecnica"
@@ -237,6 +239,12 @@ export function isIndustrialSubflow(value: unknown): value is IndustrialSubflow 
   return typeof value === "string" && Object.hasOwn(INDUSTRIAL_ROUTES, value);
 }
 
+/** Identifica subfluxos puramente informativos/não-lead (currículos e fornecedores/parcerias). */
+export function isIndustrialInformativeSubflow(value?: string | null): boolean {
+  const code = typeof value === "string" ? value.trim().toUpperCase() : "";
+  return code === "5B_CURRICULO" || code === "5C_COMPRAS";
+}
+
 function declaredSubflow(value?: string | null): IndustrialSubflow | null {
   if (isIndustrialSubflow(value)) return value;
   const normalized = normalizeTriageText(value || "");
@@ -352,6 +360,102 @@ export function isExplicitReplacementPartsIntent(raw: string): boolean {
   return REPLACEMENT_PARTS_EXPLICIT_RE.test(cleaned) || REPLACEMENT_PARTS_PHRASE_RE.test(cleaned);
 }
 
+function isExplicitOrderTrackingContext(text: string): boolean {
+  return /\b(?:rastre\w*|meu pedido|nosso pedido|numero do pedido|pedido\s+\d|ainda nao recebi|nao recebi (?:a|as|o|os|minha|meu)|nao chegou|ainda nao chegou|cade (?:meu|o|a|as|os) (?:pedido|maquina|seladora|envasadora|equipamento|encomenda)|comprei|compramos|nota fiscal|danfe|entrega do meu|prazo de entrega da minha)\b/.test(
+    text,
+  );
+}
+
+function isSupplierOrPartnershipOffer(text: string): boolean {
+  if (
+    /\b(?:sou fornecedor|somos fornecedores|cadastrar como fornecedor|cadastro de fornecedor|nos cadastrar como fornecedor|fornecer para voces|fornecer pra voces|fornecer para a empresa|fornecer produtos|fornecer insumos|fornecer materiais)\b/.test(
+      text,
+    )
+  ) {
+    return true;
+  }
+  if (
+    /\b(?:oferecer|ofertar|apresentar|divulgar)\s+(?:os\s+|as\s+|nossos?\s+|nossas?\s+|meus?\s+|minhas?\s+|uns?\s+|umas?\s+)?(?:produtos?|servicos?|insumos?|materiais?|materia[\s-]?prima|embalagens?|frete|fretes|transporte|logistica|solucoes|catalogo|portfolio|tabela(?:\s+de\s+frete)?)\b/.test(
+      text,
+    )
+  ) {
+    return true;
+  }
+  if (
+    /\b(?:vender|comercializar|fornecer)\s+(?:os\s+|as\s+|nossos?\s+|nossas?\s+|meus?\s+|minhas?\s+)?(?:insumos?|produtos?|materiais?|materia[\s-]?prima|servicos?|embalagens?|frete)\s*(?:para\s+(?:voces|a\s+empresa|a\s+tecfag)|pra\s+voces)?\b/.test(
+      text,
+    ) &&
+    !/\b(?:eu\s+vendo|a\s+gente\s+vende|nos\s+vendemos|vendo\s+(?:bolos?|salgados?|doces?|marmitas?|queijos?|cafe|mel|temperos?|suplementos?|cosmeticos?|roupas?|alimentos?))\b/.test(
+      text,
+    ) &&
+    !/\b(?:preciso\s+de\s+(?:uma?\s+)?(?:maquina|seladora|envasadora|empacotadora|dosadora|rotuladora)|quero\s+comprar|orcamento\s+de\s+(?:uma?\s+)?(?:maquina|seladora|envasadora|empacotadora))\b/.test(
+      text,
+    )
+  ) {
+    return true;
+  }
+  if (
+    /\b(?:(?:fazer|propor|fechar|firmar|buscar|ver|conversar\s+sobre)\s+(?:uma\s+)?parceria|proposta\s+de\s+parceria|parceria\s+(?:comercial|logistica|de\s+frete|de\s+transporte|de\s+negocios|estrategica|com\s+voces)|(?:ser|tornar[\s-]?se|virar)\s+(?:um\s+)?parceiro|parceiros?\s+de\s+voces)\b/.test(
+      text,
+    )
+  ) {
+    return true;
+  }
+  const mentionsCarrierOffering =
+    /\b(?:somos\s+(?:uma\s+|da\s+)?transportadora|(?:sou|falo|trabalho|represento)\s+(?:da|na|pela|de\s+uma)\s+transportadora)\b/.test(
+      text,
+    ) ||
+    (/\btransportadora\b/.test(text) &&
+      !isExplicitOrderTrackingContext(text) &&
+      /\b(?:parceria|oferecer|ofertar|apresentar|cotacao\s+de\s+frete|tabela\s+de\s+frete|servicos?\s+de\s+(?:frete|transporte|logistica)|atender\s+voces|trabalhar\s+com\s+voces|coleta\s+e\s+entrega|rotas|cargas|fretes|logistica)\b/.test(
+        text,
+      ));
+  if (mentionsCarrierOffering && !isExplicitOrderTrackingContext(text)) {
+    return true;
+  }
+  if (
+    /\b(?:falar\s+com\s+(?:o\s+)?(?:setor|departamento|responsavel)\s+de\s+compras|falar\s+com\s+(?:o\s+)?comprador|contato\s+do\s+setor\s+de\s+compras|e-?mail\s+do\s+setor\s+de\s+compras)\b/.test(
+      text,
+    ) &&
+    !/\b(?:quero\s+comprar|gostaria\s+de\s+comprar|orcamento|cotacao)\b/.test(text)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function isCurriculumOrJobIntent(text: string): boolean {
+  if (/\b(?:curriculos?|curriculum)\b/.test(text)) return true;
+  if (/\b(?:enviar|mandar|anexar|deixar|cadastrar|encaminhar)\s+(?:meu\s+|o\s+|um\s+)?cv\b/.test(text)) {
+    return true;
+  }
+  if (
+    /\b(?:vagas?\s+(?:de\s+emprego|abertas?|disponive(?:l|is)|na\s+(?:empresa|tecfag))|oportunidade\s+de\s+(?:emprego|trabalho)|processo\s+seletivo|trabalhe\s+conosco|me\s+candidatar|candidatura\s+(?:a|para)\s+vaga|solides)\b/.test(
+      text,
+    )
+  ) {
+    return true;
+  }
+  if (
+    /\b(?:trabalhar\s+(?:na|com)\s+(?:voces|a\s+tecfag|tecfag|a\s+empresa)|(?:quero|queria|gostaria\s+de|busco|procuro|tem\s+vaga\s+para)\s+trabalhar\s+(?:ai|com\s+voces|na\s+tecfag|na\s+empresa))\b/.test(
+      text,
+    )
+  ) {
+    return true;
+  }
+  if (
+    /\b(?:vagas?\b|setor\s+de\s+rh|departamento\s+de\s+rh|falar\s+com\s+o\s+rh|recursos\s+humanos)\b/.test(
+      text,
+    ) &&
+    !/\b(?:maquina|seladora|envasadora|empacotadora|dosadora|peca|boleto|nota\s+fiscal|rastreio|defeito|manutencao)\b/.test(
+      text,
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
+
 function textSubflow(raw: string): IndustrialSubflow | null {
   const withoutEmails = String(raw || "").replace(
     /\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b/gi,
@@ -359,14 +463,8 @@ function textSubflow(raw: string): IndustrialSubflow | null {
   );
   const text = normalizeTriageText(withoutEmails);
   if (!text) return null;
-  if (/\b(?:curriculo|vaga de emprego|vagas|trabalhar (?:na|com) voces)\b/.test(text))
-    return "5B_CURRICULO";
-  if (
-    /\b(?:sou fornecedor|somos fornecedores|oferecer (?:produtos|servicos)|fornecer para voces|proposta de parceria)\b/.test(
-      text,
-    )
-  )
-    return "5C_COMPRAS";
+  if (isCurriculumOrJobIntent(text)) return "5B_CURRICULO";
+  if (isSupplierOrPartnershipOffer(text)) return "5C_COMPRAS";
 
   const pendingReturn =
     /\b(?:quero|queria|preciso|vou|gostaria de|como faco para) (?:fazer (?:a |uma )?)?(?:devolver|devolucao|cancelar)\b/.test(
@@ -499,7 +597,7 @@ export function requestsHuman(raw: string): boolean {
     /\b(?:quero|prefiro|preciso|posso|gostaria de|pode me|me) (?:falar|conversar|passar|transferir|transfere|passa|conecte|conectar)\b.*\b(?:pessoa)\b/.test(
       text,
     ) ||
-    /\b(?:falar|conversar|transfere|transferir|passa) (?:diretamente )?(?:com|para|pra) (?:o |a |um |uma )?(?!(?:vendedor|consultor|especialista|suporte|financeiro|pos|fagner|valentina)\b)[a-z]{3,}(?:\b|$)/.test(
+    /\b(?:falar|conversar|transfere|transferir|passa) (?:diretamente )?(?:com|para|pra) (?:o |a |um |uma )?(?!(?:vendedor|consultor|especialista|suporte|financeiro|pos|fagner|valentina|setor|departamento|area|compras|comprador|rh|recursos|administrativo|adm)\b)[a-z]{3,}(?:\b|$)/.test(
       text,
     )
   );
@@ -778,15 +876,20 @@ export function resolveIndustrialRoute(input: ResolveIndustrialRouteInput): Indu
     // para não ficar forçando barra, acionando revisão humana (awaiting_approval).
     return routeFor("5A_CLIENTE", "direct_operator_not_found", true);
   }
+  const fromCurrentText = textSubflow(input.text || "");
   const suppressNominalHumanRegex =
     input.directOperator?.status === "past_reference_only" ||
     input.directOperator?.status === "offer_transfer" ||
     input.directOperator?.status === "operator_absent" ||
     input.directOperator?.status === "ambiguous_homonym";
+  // Fluxos informativos não-lead (currículos/RH e fornecedores/parcerias) encerram com orientação
+  // oficial (Sólides / adm@tecfag.com.br) mesmo quando a pessoa diz "falar com o setor de compras"
+  // ou "falar com alguém do RH", sem abrir fila humana nem aprovação SDR.
   if (
-    suppressNominalHumanRegex
+    !isIndustrialInformativeSubflow(fromCurrentText) &&
+    (suppressNominalHumanRegex
       ? requestsGenericHuman(input.text || "")
-      : requestsHuman(input.text || "")
+      : requestsHuman(input.text || ""))
   ) {
     return routeFor("5A_CLIENTE", "human_requested", true);
   }
@@ -797,28 +900,37 @@ export function resolveIndustrialRoute(input: ResolveIndustrialRouteInput): Indu
     "QUAL O TIPO DE PRODUTO?",
     "PRODUTO DE INTERESSE",
   );
-  const fromCurrentText = textSubflow(input.text || "");
   const declared = declaredSubflow(input.aiSubflow) || declaredSubflow(input.aiTargetFunnel);
   const fromFields = textSubflow(interest);
   // Uma intenção específica é soberana sobre a linha/produto comercial declarado pelo LLM,
   // exceto quando há apenas menção ambígua de "peça(s)" sem contexto de reposição enquanto o LLM
   // já classificou o atendimento como comercial (ex.: resposta "Peças" à pergunta do que embala).
   const commercial = new Set<IndustrialSubflow>(["MAQUINAS", "PERSONNALITE"]);
+  const normalizedCurrentText = normalizeTriageText(input.text || "");
   const effectiveCurrentText =
     fromCurrentText === "PECAS" &&
     declared &&
-    commercial.has(declared) &&
+    (commercial.has(declared) || declared === "5C_COMPRAS") &&
     !isExplicitReplacementPartsIntent(input.text || "")
       ? null
-      : fromCurrentText;
+      : fromCurrentText === "4A_RASTREAR" &&
+          declared === "5C_COMPRAS" &&
+          !isExplicitOrderTrackingContext(normalizedCurrentText)
+        ? null
+        : fromCurrentText;
   const specificFieldIntent =
     fromFields &&
     !commercial.has(fromFields) &&
     !(
       fromFields === "PECAS" &&
       declared &&
-      commercial.has(declared) &&
+      (commercial.has(declared) || declared === "5C_COMPRAS") &&
       !isExplicitReplacementPartsIntent(interest)
+    ) &&
+    !(
+      fromFields === "4A_RASTREAR" &&
+      declared === "5C_COMPRAS" &&
+      !isExplicitOrderTrackingContext(normalizeTriageText(interest))
     )
       ? fromFields
       : null;

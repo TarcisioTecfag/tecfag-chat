@@ -40,6 +40,7 @@ import {
   RotateCcw,
   Sparkles,
   AlertTriangle,
+  EyeOff,
 } from "lucide-react";
 import { useChat } from "@/hooks/useChatState";
 import { getAiPersona } from "@/lib/ai-persona";
@@ -62,6 +63,8 @@ import {
   hasActiveSdrFilters,
   mergeSessionsPreservingRefs,
   computeAdaptiveSdrPollDelayMs,
+  isInformativeClosureSession,
+  isUnhiddenInformativeSession,
 } from "./sdr-kanban-data";
 import type { IndustrialMonitoring } from "@/lib/triage/industrial-monitor";
 import type { AgentMonitoringSummary } from "@/lib/triage/agent-monitor-store";
@@ -153,6 +156,8 @@ export interface SdrTriageSession {
   subflow?: string;
   funnelStage?: string;
   targetFunnel?: string;
+  isInformativeClosure?: boolean;
+  sdrHidden?: boolean;
   triageProgress?: {
     filledCount: number;
     totalCount: number;
@@ -730,7 +735,21 @@ function getMergedCollectedData(
   return merged;
 }
 
-const StatusBadge = React.memo(function StatusBadge({ status }: { status: SdrSessionStatus }) {
+const StatusBadge = React.memo(function StatusBadge({
+  status,
+  isInformativeClosure = false,
+}: {
+  status: SdrSessionStatus;
+  isInformativeClosure?: boolean;
+}) {
+  if (isInformativeClosure && status === "completed") {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold border transition-colors bg-slate-500/12 text-slate-700 dark:text-slate-300 border-slate-500/25">
+        <CheckCircle className="h-2.5 w-2.5" />
+        Encerrado
+      </span>
+    );
+  }
   const styles: Record<SdrSessionStatus, string> = {
     active: "bg-primary-soft text-primary border-primary/25",
     awaiting_approval:
@@ -843,6 +862,8 @@ interface SdrLiveSessionItemProps {
   isCompactViewport: boolean;
   isIndustrial: boolean;
   onSelect: (session: SdrTriageSession) => void;
+  onHide?: (session: SdrTriageSession) => void;
+  isHiding?: boolean;
 }
 
 const SdrLiveSessionItem = React.memo(function SdrLiveSessionItem({
@@ -851,6 +872,8 @@ const SdrLiveSessionItem = React.memo(function SdrLiveSessionItem({
   isCompactViewport,
   isIndustrial,
   onSelect,
+  onHide,
+  isHiding = false,
 }: SdrLiveSessionItemProps) {
   let completedCount: number;
   let totalCount: number;
@@ -867,17 +890,32 @@ const SdrLiveSessionItem = React.memo(function SdrLiveSessionItem({
     progressPct = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
   }
 
+  const isInformative = isInformativeClosureSession(session);
+  const isUnhiddenInfo = isUnhiddenInformativeSession(session);
+  const informativeTopicLabel =
+    String(session.subflow || "").toUpperCase() === "5B_CURRICULO"
+      ? "Currículos · Sólides"
+      : String(session.subflow || "").toUpperCase() === "5C_COMPRAS"
+        ? "Fornecedores · adm@tecfag.com.br"
+        : session.targetFunnel || "Atendimento informativo";
   const hasPreviousCycles =
     (session.previousTriages?.length || 0) > 0 || Boolean(session.knownClient?.companyName);
 
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       onClick={() => onSelect(session)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect(session);
+        }
+      }}
       className={`w-full text-left px-4 py-3 border-b border-line transition-[background-color,border-color,transform] duration-200 ease-out active:scale-[0.995] cursor-pointer [contain:layout_style] ${
         isSelected && !isCompactViewport
           ? "bg-primary-soft border-l-2 border-l-primary"
-          : session.status === "awaiting_approval"
+          : !isInformative && session.status === "awaiting_approval"
             ? "bg-amber-500/[0.06] border-l-2 border-l-amber-500 hover:bg-amber-500/10"
             : "hover:bg-muted/50"
       }`}
@@ -885,36 +923,64 @@ const SdrLiveSessionItem = React.memo(function SdrLiveSessionItem({
       <div className="flex items-center justify-between mb-1 gap-1.5">
         <span className="text-xs font-bold text-foreground truncate">{session.contactName}</span>
         <div className="flex items-center gap-1 shrink-0">
-          {hasPreviousCycles && (
+          {hasPreviousCycles && !isInformative && (
             <span className="px-1.5 py-0.5 rounded-md bg-muted border border-border text-[9px] font-bold text-muted-foreground">
               Recorrente
             </span>
           )}
-          <StatusBadge status={session.status} />
+          <StatusBadge status={session.status} isInformativeClosure={isInformative} />
         </div>
       </div>
       <p className="text-[10px] text-muted-foreground truncate">
         {session.company} {session.phone ? `· ${session.phone}` : ""}
       </p>
-      <div className="mt-2">
-        <div className="flex items-center justify-between mb-1">
-          <span className="text-[10px] text-muted-foreground">
-            Campos {completedCount}/{totalCount}
+      {isInformative ? (
+        <div className="mt-2 flex items-center justify-between gap-2">
+          <span className="text-[10px] font-semibold text-muted-foreground truncate">
+            {informativeTopicLabel}
           </span>
-          <span className="text-[10px] font-semibold text-primary tabular-nums">
-            {progressPct}%
-          </span>
+          {isUnhiddenInfo && onHide && (
+            <SystemTooltip content="Ocultar este atendimento informativo do painel SDR">
+              <button
+                type="button"
+                disabled={isHiding}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onHide(session);
+                }}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold border border-border bg-muted/70 hover:bg-muted text-foreground hover:text-primary transition active:scale-[0.97] cursor-pointer shrink-0 disabled:opacity-50"
+              >
+                {isHiding ? (
+                  <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                ) : (
+                  <EyeOff className="h-2.5 w-2.5" />
+                )}
+                <span>{isHiding ? "Ocultando..." : "Ocultar"}</span>
+              </button>
+            </SystemTooltip>
+          )}
         </div>
-        <div className="w-full h-1 rounded-full bg-muted overflow-hidden">
-          <div
-            className={`h-full rounded-full transition-[width,background-color] duration-500 ease-out ${
-              progressPct >= 100 ? "bg-emerald-500" : "bg-primary"
-            }`}
-            style={{ width: `${progressPct}%` }}
-          />
+      ) : (
+        <div className="mt-2">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[10px] text-muted-foreground">
+              Campos {completedCount}/{totalCount}
+            </span>
+            <span className="text-[10px] font-semibold text-primary tabular-nums">
+              {progressPct}%
+            </span>
+          </div>
+          <div className="w-full h-1 rounded-full bg-muted overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-[width,background-color] duration-500 ease-out ${
+                progressPct >= 100 ? "bg-emerald-500" : "bg-primary"
+              }`}
+              style={{ width: `${progressPct}%` }}
+            />
+          </div>
         </div>
-      </div>
-    </button>
+      )}
+    </div>
   );
 });
 
@@ -1871,6 +1937,8 @@ export function SdrTab({
                   messages: incomingLoaded ? s.messages : cachedMsgs || [],
                   ...(s.subflow ? { subflow: s.subflow } : {}),
                   ...(s.funnelStage ? { funnelStage: s.funnelStage } : {}),
+                  ...(s.isInformativeClosure ? { isInformativeClosure: true } : {}),
+                  ...(s.sdrHidden ? { sdrHidden: true } : {}),
                   ...(getCleanTargetFunnel(s.targetFunnel)
                     ? { targetFunnel: getCleanTargetFunnel(s.targetFunnel) }
                     : {}),
@@ -2262,21 +2330,38 @@ export function SdrTab({
   const anyFilterActive =
     hasActiveSdrFilters(effectiveFilterState) || Boolean(effectiveFilterState.searchQuery.trim());
 
+  const [hidingConversationId, setHidingConversationId] = useState<string | null>(null);
+
   const awaitingApprovalSessions = useMemo(
-    () => sessions.filter((s) => s.status === "awaiting_approval"),
+    () =>
+      sessions.filter(
+        (s) => s.status === "awaiting_approval" && !isInformativeClosureSession(s),
+      ),
     [sessions],
   );
 
   const handleApprovalActionCompleted = useCallback(
-    (kind: "approved" | "dismissed" | "assumed", completedConvId: string) => {
+    (
+      kind: "approved" | "dismissed" | "assumed" | "hidden",
+      completedConvId: string,
+    ) => {
       setSessions((prev) =>
         prev.map((s) => {
           if (s.conversationId !== completedConvId) return s;
+          if (kind === "hidden") {
+            return {
+              ...s,
+              status: "completed" as SdrSessionStatus,
+              pendingApproval: null,
+              sdrHidden: true,
+            };
+          }
           const nextStatus: SdrSessionStatus = kind === "assumed" ? "manual" : "completed";
           return {
             ...s,
             status: nextStatus,
             pendingApproval: null,
+            ...(kind === "dismissed" ? { sdrHidden: true } : {}),
           };
         }),
       );
@@ -2292,6 +2377,37 @@ export function SdrTab({
       void fetchSdrData({ force: true });
     },
     [effectiveFilterState.showCompleted, selectedSession?.id, isCompactViewport, fetchSdrData],
+  );
+
+  const handleHideInformativeSession = useCallback(
+    async (sessionToHide: SdrTriageSession) => {
+      const convId = sessionToHide.conversationId;
+      if (!convId || hidingConversationId) return;
+      setHidingConversationId(convId);
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/valentina/triage-approval`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            action: "hide",
+            conversationId: convId,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          toast.error(data?.error || "Não foi possível ocultar o atendimento.");
+          return;
+        }
+        toast.success("Atendimento informativo ocultado do painel SDR.");
+        handleApprovalActionCompleted("hidden", convId);
+      } catch {
+        toast.error("Erro de conexão ao ocultar o atendimento.");
+      } finally {
+        setHidingConversationId(null);
+      }
+    },
+    [BACKEND_URL, hidingConversationId, handleApprovalActionCompleted],
   );
 
   const showListPanel = !isCompactViewport || mobileStage === "list";
@@ -2372,6 +2488,8 @@ export function SdrTab({
               sessions={sessions}
               selectedSessionId={selectedSession?.id}
               onSelectSession={handleSelectSessionFromKanban}
+              onHideSession={isIndustrial ? handleHideInformativeSession : undefined}
+              hidingConversationId={hidingConversationId}
               filterState={deferredFilterState}
               sdrEnabled={sdrEnabled}
             />
@@ -2576,6 +2694,8 @@ export function SdrTab({
                     isCompactViewport={isCompactViewport}
                     isIndustrial={isIndustrial}
                     onSelect={handleSelectLiveSession}
+                    onHide={isIndustrial ? handleHideInformativeSession : undefined}
+                    isHiding={hidingConversationId === session.conversationId}
                   />
                 ))
               )}
@@ -2632,7 +2752,10 @@ export function SdrTab({
                     </div>
 
                     <div className="flex items-center gap-2 shrink-0">
-                      <StatusBadge status={selectedSession.status} />
+                      <StatusBadge
+                        status={selectedSession.status}
+                        isInformativeClosure={isInformativeClosureSession(selectedSession)}
+                      />
                       {selectedSession.monitoring && (
                         <span className="hidden xl:inline-flex text-[10px] font-bold text-muted-foreground px-2 py-0.5 rounded-lg bg-muted/60 border border-border">
                           {selectedSession.monitoring.label}
@@ -2733,7 +2856,9 @@ export function SdrTab({
                               ? "Triagem interrompida (SDR desativado)"
                               : "Triagem interrompida manualmente"
                             : selectedSession.status === "completed"
-                              ? `Triagem concluída${selectedSession.responsibleName ? ` · ${selectedSession.responsibleName}` : ""}`
+                              ? isInformativeClosureSession(selectedSession)
+                                ? `Atendimento informativo encerrado${selectedSession.responsibleName ? ` · ${selectedSession.responsibleName}` : ""}`
+                                : `Triagem concluída${selectedSession.responsibleName ? ` · ${selectedSession.responsibleName}` : ""}`
                               : selectedSession.monitoring?.label || selectedSession.outcome}
                       </span>
                       {selectedSession.status === "stopped" && sdrEnabled && (

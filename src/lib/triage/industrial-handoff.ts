@@ -1,6 +1,8 @@
 import {
   assessIndustrialReadiness,
+  INDUSTRIAL_CURRICULUM_SOLIDES_URL,
   INDUSTRIAL_REVIEW_FUNNEL,
+  INDUSTRIAL_SUPPLIERS_EMAIL,
   normalizeIndustrialFunnel,
   type CollectedFields,
   type IndustrialRoute,
@@ -242,19 +244,52 @@ export function evaluateIndustrialClientMessages(params: {
   const claimsEffectPattern = INDUSTRIAL_CLAIMS_EFFECT_PATTERN;
 
   if (params.result.status === "resolved") {
+    const subflow = params.route.subflow;
+    const isCurriculum = subflow === "5B_CURRICULO";
+    const isSuppliers = subflow === "5C_COMPRAS";
+    const curriculumHost = INDUSTRIAL_CURRICULUM_SOLIDES_URL.replace(/^https?:\/\//i, "").toLowerCase();
+    const suppliersEmail = INDUSTRIAL_SUPPLIERS_EMAIL.toLowerCase();
+    const hasCurriculumLink = (text: string) => text.toLowerCase().includes(curriculumHost);
+    const hasSuppliersEmail = (text: string) => text.toLowerCase().includes(suppliersEmail);
+
     const cleaned = params.messages
       .map((m) => String(m || "").trim())
-      .filter(
-        (m) =>
-          Boolean(m) &&
-          m !== INDUSTRIAL_AWAITING_APPROVAL_CLIENT_MESSAGE &&
-          m !== INDUSTRIAL_HUMAN_REQUEST_APPROVAL_MESSAGE &&
-          !claimsEffectPattern.test(m),
-      );
+      .filter((m) => {
+        if (!m) return false;
+        if (
+          m === INDUSTRIAL_AWAITING_APPROVAL_CLIENT_MESSAGE ||
+          m === INDUSTRIAL_HUMAN_REQUEST_APPROVAL_MESSAGE ||
+          INDUSTRIAL_FALSE_SYSTEM_CLAIM_PATTERN.test(m)
+        ) {
+          return false;
+        }
+        // Em 5B_CURRICULO / 5C_COMPRAS, balões que entregam o link oficial do Sólides ou o e-mail
+        // adm@tecfag.com.br podem mencionar naturalmente "nosso RH pode analisar e dar retorno" ou
+        // "setor que cuida disso" — não podem ser bloqueados pelo filtro de promessa de handoff!
+        if (isCurriculum && hasCurriculumLink(m)) {
+          return !/\b(?:estou\s+te\s+transferindo|vou\s+te\s+transferir|j[aá]\s+encaminhei\s+por\s+aqui)\b/i.test(
+            m,
+          );
+        }
+        if (isSuppliers && hasSuppliersEmail(m)) {
+          return !/\b(?:estou\s+te\s+transferindo|vou\s+te\s+transferir|j[aá]\s+encaminhei\s+por\s+aqui)\b/i.test(
+            m,
+          );
+        }
+        return !claimsEffectPattern.test(m);
+      });
+
+    const joinedCleaned = cleaned.join("\n");
+    const missingRequiredInformativeTarget =
+      (isCurriculum && !hasCurriculumLink(joinedCleaned)) ||
+      (isSuppliers && !hasSuppliersEmail(joinedCleaned));
+
+    const needsRewrite = cleaned.length === 0 || missingRequiredInformativeTarget;
+
     return {
       messages: cleaned,
-      needsGeminiRewrite: cleaned.length === 0,
-      rewriteMode: cleaned.length === 0 ? "resolved" : null,
+      needsGeminiRewrite: needsRewrite,
+      rewriteMode: needsRewrite ? "resolved" : null,
       missingFields: [],
       safeBubbles: cleaned,
     };

@@ -13,6 +13,7 @@ import {
   ChevronDown,
   ChevronUp,
   Smartphone,
+  EyeOff,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -26,6 +27,10 @@ import { motion, AnimatePresence } from "framer-motion";
 import { SystemTooltip } from "@/components/ui/tooltip";
 import type { SdrTriageSession } from "./SdrTab";
 import { SdrApprovalOptionsSkeleton } from "./SdrSkeletons";
+import {
+  isInformativeClosureSession,
+  isUnhiddenInformativeSession,
+} from "./sdr-kanban-data";
 
 export interface ApprovalOptionsPayload {
   sectors: Array<{ id: string; name: string; operatorIds: string[] }>;
@@ -71,7 +76,10 @@ export interface IndustrialApprovalPanelProps {
   tenantId: string;
   personaName: string;
   session: SdrTriageSession;
-  onActionCompleted: (kind: "approved" | "dismissed" | "assumed", conversationId: string) => void;
+  onActionCompleted: (
+    kind: "approved" | "dismissed" | "assumed" | "hidden",
+    conversationId: string,
+  ) => void;
   className?: string;
 }
 
@@ -82,13 +90,17 @@ export const IndustrialApprovalPanel = React.memo(function IndustrialApprovalPan
   onActionCompleted,
   className,
 }: IndustrialApprovalPanelProps) {
+  const isInformativeClosure = isInformativeClosureSession(session);
+  const isUnhiddenInformative = isUnhiddenInformativeSession(session);
   const isAwaitingApproval =
-    session.status === "awaiting_approval" || session.monitoring?.state === "awaiting_approval";
+    !isInformativeClosure &&
+    (session.status === "awaiting_approval" || session.monitoring?.state === "awaiting_approval");
   const isAlreadyDone =
-    session.status === "completed" ||
-    session.status === "manual" ||
-    session.monitoring?.state === "transferred" ||
-    session.monitoring?.state === "closed";
+    !isInformativeClosure &&
+    (session.status === "completed" ||
+      session.status === "manual" ||
+      session.monitoring?.state === "transferred" ||
+      session.monitoring?.state === "closed");
 
   const [expanded, setExpanded] = useState(isAwaitingApproval);
   const [options, setOptions] = useState<ApprovalOptionsPayload | null>(null);
@@ -106,9 +118,9 @@ export const IndustrialApprovalPanel = React.memo(function IndustrialApprovalPan
   const [dismissFinishConv, setDismissFinishConv] = useState(true);
   const [dismissDealAction, setDismissDealAction] = useState<"keep" | "mark_lost">("mark_lost");
 
-  const [submittingAction, setSubmittingAction] = useState<"approve" | "dismiss" | "assume" | null>(
-    null,
-  );
+  const [submittingAction, setSubmittingAction] = useState<
+    "approve" | "dismiss" | "assume" | "hide" | null
+  >(null);
 
   useEffect(() => {
     setExpanded(isAwaitingApproval);
@@ -130,7 +142,7 @@ export const IndustrialApprovalPanel = React.memo(function IndustrialApprovalPan
   ]);
 
   useEffect(() => {
-    if (isAlreadyDone || (!expanded && !isAwaitingApproval)) return;
+    if (isInformativeClosure || isAlreadyDone || (!expanded && !isAwaitingApproval)) return;
     const cached = optionsCacheByTenant.get(tenantId);
     if (cached && Date.now() - cached.fetchedAt < OPTIONS_CACHE_TTL_MS) {
       setOptions(cached.data);
@@ -162,7 +174,7 @@ export const IndustrialApprovalPanel = React.memo(function IndustrialApprovalPan
       clearTimeout(timeoutId);
       controller.abort();
     };
-  }, [tenantId, expanded, isAwaitingApproval, isAlreadyDone]);
+  }, [tenantId, expanded, isAwaitingApproval, isAlreadyDone, isInformativeClosure]);
 
   const stagesForSelectedPipeline = useMemo(() => {
     if (!options || !pipelineId) return [];
@@ -188,6 +200,76 @@ export const IndustrialApprovalPanel = React.memo(function IndustrialApprovalPan
     const sec = options?.sectors.find((s) => s.id === sectorId);
     return new Set(sec?.operatorIds || []);
   }, [options, sectorId]);
+
+  const handleHideInformative = async () => {
+    setSubmittingAction("hide");
+    try {
+      const res = await fetch("/api/valentina/triage-approval", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          action: "hide",
+          conversationId: session.conversationId,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data?.error || "Não foi possível ocultar o atendimento.");
+        return;
+      }
+      toast.success("Atendimento informativo ocultado do painel SDR.");
+      onActionCompleted("hidden", session.conversationId);
+    } catch {
+      toast.error("Erro de conexão ao ocultar o atendimento.");
+    } finally {
+      setSubmittingAction(null);
+    }
+  };
+
+  if (isInformativeClosure) {
+    if (!isUnhiddenInformative) return null;
+    const isCurriculum = String(session.subflow || "").toUpperCase() === "5B_CURRICULO";
+    const infoSubtitle = isCurriculum
+      ? "Currículos direcionado ao Sólides · Não é lead"
+      : "Fornecedores / Parcerias direcionado a adm@tecfag.com.br · Não é lead";
+    return (
+      <section
+        className={`rounded-2xl border border-border bg-muted/30 p-3 sm:p-3.5 space-y-2.5 ${className ?? ""}`}
+        aria-label="Atendimento informativo encerrado"
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <h4 className="text-xs font-extrabold text-foreground truncate">
+              Atendimento Informativo Encerrado
+            </h4>
+            <p className="text-[10px] text-muted-foreground mt-0.5 leading-snug">
+              {infoSubtitle}
+            </p>
+          </div>
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-slate-500/15 text-slate-700 dark:text-slate-300 border border-slate-500/25 shrink-0">
+            Finalizado
+          </span>
+        </div>
+
+        <SystemTooltip content="Ocultar este atendimento informativo do painel SDR ativo">
+          <button
+            type="button"
+            disabled={submittingAction !== null}
+            onClick={handleHideInformative}
+            className="w-full py-2.5 sm:py-2 px-3 rounded-xl border border-border bg-card hover:bg-muted active:scale-[0.99] text-foreground text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-2xs transition cursor-pointer disabled:opacity-50"
+          >
+            {submittingAction === "hide" ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <EyeOff className="h-3.5 w-3.5" />
+            )}
+            <span>{submittingAction === "hide" ? "Ocultando..." : "Ocultar"}</span>
+          </button>
+        </SystemTooltip>
+      </section>
+    );
+  }
 
   if (isAlreadyDone) return null;
 

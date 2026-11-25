@@ -13,6 +13,8 @@ import {
   UserCheck,
   MessageSquare,
   Sparkles,
+  EyeOff,
+  Loader2,
 } from "lucide-react";
 import type { SdrTriageSession } from "./SdrTab";
 import {
@@ -25,6 +27,8 @@ import {
   getColumnScrollTarget,
   OffscreenIndicatorInfo,
   OffscreenColumnMetric,
+  isInformativeClosureSession,
+  isUnhiddenInformativeSession,
 } from "./sdr-kanban-data";
 import { getAiPersona } from "@/lib/ai-persona";
 import { computeIndustrialTriageProgress } from "@/lib/triage/industrial-policy";
@@ -35,6 +39,8 @@ export interface SdrKanbanBoardProps {
   sessions: SdrTriageSession[];
   selectedSessionId?: string | null;
   onSelectSession: (session: SdrTriageSession) => void;
+  onHideSession?: (session: SdrTriageSession) => void;
+  hidingConversationId?: string | null;
   filterState: SdrFilterState;
   sdrEnabled?: boolean;
 }
@@ -77,6 +83,8 @@ interface SdrKanbanCardProps {
   sdrEnabled: boolean;
   personaName: string;
   onSelectSession: (session: SdrTriageSession) => void;
+  onHideSession?: (session: SdrTriageSession) => void;
+  isHiding?: boolean;
 }
 
 const SdrKanbanCard = React.memo(function SdrKanbanCard({
@@ -86,6 +94,8 @@ const SdrKanbanCard = React.memo(function SdrKanbanCard({
   sdrEnabled,
   personaName,
   onSelectSession,
+  onHideSession,
+  isHiding = false,
 }: SdrKanbanCardProps) {
   const initials =
     session.contactName
@@ -116,8 +126,16 @@ const SdrKanbanCard = React.memo(function SdrKanbanCard({
   const progress = session.triageProgress?.percentage ?? fallbackProgress?.percentage ?? 0;
 
   const botRunning = sdrEnabled && session.status === "active";
-  const isAwaitingApproval = session.status === "awaiting_approval";
+  const isInformative = isInformativeClosureSession(session);
+  const isUnhiddenInfo = isUnhiddenInformativeSession(session);
+  const isAwaitingApproval = !isInformative && session.status === "awaiting_approval";
   const pendingApproval = session.pendingApproval || session.monitoring?.pendingApproval || null;
+  const informativeTopicLabel =
+    String(session.subflow || "").toUpperCase() === "5B_CURRICULO"
+      ? "Currículos · Sólides"
+      : String(session.subflow || "").toUpperCase() === "5C_COMPRAS"
+        ? "Fornecedores · adm@tecfag.com.br"
+        : session.targetFunnel || "Atendimento informativo";
   const timeAgo = formatTimeAgoFromIso(
     session.lastClientMessageAt || session.lastMessageAt || session.startedAt,
   );
@@ -177,27 +195,41 @@ const SdrKanbanCard = React.memo(function SdrKanbanCard({
         )}
       </div>
 
-      {/* Middle row: Progresso fiel a Campos X/Y */}
-      <div className="mt-2.5 space-y-1">
-        <div className="flex items-center justify-between text-[9px] text-muted-foreground">
-          <span>
-            Campos {filledCount}/{totalCount}
+      {/* Middle row: Progresso fiel a Campos X/Y (ou resumo enxuto p/ informativos não-lead) */}
+      {isInformative ? (
+        <div className="mt-2 px-2 py-1 rounded-lg bg-muted/60 border border-border/70 text-[9px] text-muted-foreground flex items-center justify-between gap-1.5">
+          <span className="font-semibold text-foreground truncate">{informativeTopicLabel}</span>
+          <span className="shrink-0 text-[8px] font-bold uppercase tracking-wide text-muted-foreground">
+            Não é lead
           </span>
-          <span className="font-bold text-foreground tabular-nums">{Math.round(progress)}%</span>
         </div>
-        <div className="h-1 w-full rounded-full bg-muted overflow-hidden">
-          <div
-            className={`h-full rounded-full transition-[width,background-color] duration-500 ease-out ${
-              progress >= 100 ? "bg-emerald-500" : progress > 50 ? "bg-primary" : "bg-primary/65"
-            }`}
-            style={{ width: `${Math.min(100, Math.max(0, progress))}%` }}
-          />
+      ) : (
+        <div className="mt-2.5 space-y-1">
+          <div className="flex items-center justify-between text-[9px] text-muted-foreground">
+            <span>
+              Campos {filledCount}/{totalCount}
+            </span>
+            <span className="font-bold text-foreground tabular-nums">{Math.round(progress)}%</span>
+          </div>
+          <div className="h-1 w-full rounded-full bg-muted overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-[width,background-color] duration-500 ease-out ${
+                progress >= 100 ? "bg-emerald-500" : progress > 50 ? "bg-primary" : "bg-primary/65"
+              }`}
+              style={{ width: `${Math.min(100, Math.max(0, progress))}%` }}
+            />
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Status Pill Fiel & Tempo */}
       <div className="mt-2 flex items-center justify-between gap-1 text-[10px]">
-        {isAwaitingApproval ? (
+        {isInformative ? (
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-500/12 text-slate-700 dark:text-slate-300 border border-slate-500/25">
+            <CheckCircle2 className="h-2.5 w-2.5" />
+            Encerrado
+          </span>
+        ) : isAwaitingApproval ? (
           <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-amber-500/18 text-amber-700 dark:text-amber-300 border border-amber-500/40">
             <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
             Aguardando Aprovação
@@ -247,38 +279,68 @@ const SdrKanbanCard = React.memo(function SdrKanbanCard({
         <span className="flex items-center gap-1">
           <span
             className={`h-1.5 w-1.5 rounded-full ${
-              isAwaitingApproval ? "bg-amber-500" : botRunning ? "bg-emerald-500" : "bg-zinc-400"
+              isInformative
+                ? "bg-slate-400"
+                : isAwaitingApproval
+                  ? "bg-amber-500"
+                  : botRunning
+                    ? "bg-emerald-500"
+                    : "bg-zinc-400"
             }`}
           />
           <span className="font-semibold">
             {personaName}:{" "}
-            {isAwaitingApproval
-              ? "pronto p/ aprovação"
-              : botRunning
-                ? "ativo"
-                : sdrEnabled
-                  ? "parado"
-                  : "pausado"}
+            {isInformative
+              ? "encerrado"
+              : isAwaitingApproval
+                ? "pronto p/ aprovação"
+                : botRunning
+                  ? "ativo"
+                  : sdrEnabled
+                    ? "parado"
+                    : "pausado"}
           </span>
         </span>
 
-        <span
-          className={`text-[9px] sm:text-[8px] font-bold transition flex items-center gap-0.5 ${
-            isAwaitingApproval
-              ? "text-amber-700 dark:text-amber-300 opacity-100"
-              : "opacity-100 sm:opacity-0 sm:group-hover:opacity-100 text-primary"
-          }`}
-        >
-          {isAwaitingApproval ? (
-            <>
-              <CheckCircle2 className="h-2.5 w-2.5" /> Aprovar
-            </>
-          ) : (
-            <>
-              <MessageSquare className="h-2.5 w-2.5" /> Ver chat
-            </>
-          )}
-        </span>
+        {isUnhiddenInfo && onHideSession ? (
+          <SystemTooltip content="Ocultar este atendimento informativo do painel SDR">
+            <button
+              type="button"
+              data-no-pan="true"
+              disabled={isHiding}
+              onClick={(e) => {
+                e.stopPropagation();
+                onHideSession(session);
+              }}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[9px] font-bold border border-border bg-muted/70 hover:bg-muted text-foreground hover:text-primary transition active:scale-[0.97] cursor-pointer disabled:opacity-50"
+            >
+              {isHiding ? (
+                <Loader2 className="h-2.5 w-2.5 animate-spin" />
+              ) : (
+                <EyeOff className="h-2.5 w-2.5" />
+              )}
+              <span>{isHiding ? "Ocultando..." : "Ocultar"}</span>
+            </button>
+          </SystemTooltip>
+        ) : (
+          <span
+            className={`text-[9px] sm:text-[8px] font-bold transition flex items-center gap-0.5 ${
+              isAwaitingApproval
+                ? "text-amber-700 dark:text-amber-300 opacity-100"
+                : "opacity-100 sm:opacity-0 sm:group-hover:opacity-100 text-primary"
+            }`}
+          >
+            {isAwaitingApproval ? (
+              <>
+                <CheckCircle2 className="h-2.5 w-2.5" /> Aprovar
+              </>
+            ) : (
+              <>
+                <MessageSquare className="h-2.5 w-2.5" /> Ver chat
+              </>
+            )}
+          </span>
+        )}
       </div>
     </div>
   );
@@ -289,6 +351,8 @@ export const SdrKanbanBoard = React.memo(function SdrKanbanBoard({
   sessions,
   selectedSessionId,
   onSelectSession,
+  onHideSession,
+  hidingConversationId,
   filterState,
   sdrEnabled = true,
 }: SdrKanbanBoardProps) {
@@ -732,6 +796,8 @@ export const SdrKanbanBoard = React.memo(function SdrKanbanBoard({
                         sdrEnabled={sdrEnabled}
                         personaName={persona.name}
                         onSelectSession={onSelectSession}
+                        onHideSession={onHideSession}
+                        isHiding={hidingConversationId === session.conversationId}
                       />
                     ))
                   )}
