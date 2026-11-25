@@ -86,27 +86,38 @@ export async function readIndustrialDeliveryContext(
     .orderBy(desc(agentFlowStates.startedAt), desc(agentFlowStates.id))
     .limit(1);
   if (conversation.queueState === "finalizados") {
-    const receiptTargetId = (flow?.metadata as any)?.handoffReceipt?.result?.targetConversationId;
-    if (!flow || flow.outcome !== "transferred" || typeof receiptTargetId !== "string" || !receiptTargetId || !operatorId) {
-      return null;
-    }
-    const [targetConv] = await database
-      .select({
-        id: conversations.id,
-        queueState: conversations.queueState,
-        operatorId: conversations.operatorId,
-        contactId: conversations.contactId,
-      })
-      .from(conversations)
-      .where(and(eq(conversations.tenantId, tenantId), eq(conversations.id, receiptTargetId)))
-      .limit(1);
-    if (
-      !targetConv ||
-      targetConv.contactId !== conversation.contactId ||
-      targetConv.queueState !== "meus" ||
-      targetConv.operatorId !== operatorId
-    ) {
-      return null;
+    const flowMeta = (flow?.metadata as Record<string, unknown> | null) || null;
+    const isSiteWhatsappClosing =
+      isSiteConversationId(conversationId) &&
+      !operatorId &&
+      flow?.outcome === "transferred" &&
+      flowMeta?.handoffStatus === "continued_to_whatsapp" &&
+      flowMeta?.siteWhatsappTemplateSent === true &&
+      typeof flowMeta?.whatsappConversationId === "string" &&
+      flowMeta.whatsappConversationId.length > 0;
+    if (!isSiteWhatsappClosing) {
+      const receiptTargetId = (flowMeta as any)?.handoffReceipt?.result?.targetConversationId;
+      if (!flow || flow.outcome !== "transferred" || typeof receiptTargetId !== "string" || !receiptTargetId || !operatorId) {
+        return null;
+      }
+      const [targetConv] = await database
+        .select({
+          id: conversations.id,
+          queueState: conversations.queueState,
+          operatorId: conversations.operatorId,
+          contactId: conversations.contactId,
+        })
+        .from(conversations)
+        .where(and(eq(conversations.tenantId, tenantId), eq(conversations.id, receiptTargetId)))
+        .limit(1);
+      if (
+        !targetConv ||
+        targetConv.contactId !== conversation.contactId ||
+        targetConv.queueState !== "meus" ||
+        targetConv.operatorId !== operatorId
+      ) {
+        return null;
+      }
     }
   }
   const [trigger] = await database

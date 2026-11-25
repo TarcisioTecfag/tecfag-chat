@@ -113,8 +113,14 @@ function summarizeSiteTriageNote(input: SiteWhatsappHandoffInput, templateName: 
   return lines.join("\n");
 }
 
-function resolveTemplateTopicSummary(input: SiteWhatsappHandoffInput): string {
+export function resolveTemplateTopicSummary(
+  input: Pick<SiteWhatsappHandoffInput, "data" | "route">,
+): string {
   const candidates = [
+    input.data["MÁQUINA / PEÇA / INTERESSE"]?.value,
+    input.data["SOLICITAÇÃO"]?.value,
+    input.data["PRODUTO DE INTERESSE"]?.value,
+    input.data["QUAL O TIPO DE PRODUTO?"]?.value,
     input.data["EQUIPAMENTO"]?.value,
     input.data["MAQUINA"]?.value,
     input.data["PECA"]?.value,
@@ -123,8 +129,11 @@ function resolveTemplateTopicSummary(input: SiteWhatsappHandoffInput): string {
     input.route.targetFunnel,
   ];
   for (const c of candidates) {
-    if (typeof c === "string" && c.trim().length >= 2) {
-      return c.trim().slice(0, 80);
+    if (typeof c === "string") {
+      const clean = c.replace(/\s+/g, " ").trim();
+      if (clean.length >= 2 && !/^aguardando/i.test(clean)) {
+        return clean.slice(0, 80);
+      }
     }
   }
   return "seu atendimento";
@@ -310,6 +319,7 @@ export async function dispatchSiteTriageToWhatsApp(
         .set({
           queueState: "automacao",
           operatorId: null,
+          sectorId: null,
           updatedAt: now,
         })
         .where(and(eq(conversations.tenantId, tenantId), eq(conversations.id, waConv.id)))
@@ -621,6 +631,7 @@ export async function dispatchSiteTriageToWhatsApp(
       .update(conversations)
       .set({
         queueState: "finalizados",
+        unreadCount: 0,
         updatedAt: now,
         version: sql`${conversations.version} + 1`,
       })

@@ -162,10 +162,29 @@ export function machineCategories(text: string) {
   );
 }
 function compatibleCategory(interest: string, machine: IndustrialMachine) {
-  const requested = machineCategories(interest);
   const literalName = namedMachineCategories(machine.name);
   const fromName = literalName.length ? literalName : machineCategories(machine.name);
   const offered = fromName.length ? fromName : namedMachineCategories(machine.description || "");
+
+  // Quando o interesse traz alternativas separadas por "/" ou "ou" (ex.: "Seladora / Empacotadora automática"),
+  // aceita qualquer categoria alternativa compatível em vez de exigir que 1 máquina tenha ambos os nomes.
+  const alternativeSegments = String(interest || "")
+    .split(/\s*(?:\/|\bou\b)\s*/i)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+
+  if (alternativeSegments.length > 1) {
+    const segmentCategoryGroups = alternativeSegments
+      .map((segment) => machineCategories(segment))
+      .filter((cats) => cats.length > 0);
+    if (segmentCategoryGroups.length > 0) {
+      return segmentCategoryGroups.some((group) =>
+        group.every((category) => offered.includes(category)),
+      );
+    }
+  }
+
+  const requested = machineCategories(interest);
   return !requested.length || requested.every((category) => offered.includes(category));
 }
 function narrowBroadCandidates(

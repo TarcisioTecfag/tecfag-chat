@@ -110,9 +110,17 @@ function slugToDisplayName(slug: string): string {
     .trim();
 }
 
+function extractFirstNameForGreeting(raw: string): string {
+  const clean = (raw || "").replace(/\s+/g, " ").trim();
+  if (!clean) return "";
+  const first = clean.split(" ")[0]?.replace(/[^\p{L}'-]/gu, "") || "";
+  if (first.length < 2) return "";
+  return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase();
+}
+
 const DEFAULT_WELCOME_MESSAGE: Message = {
   id: "welcome-msg",
-  content: "Sou o Fagner, Especialista em automações industriais! Como posso te ajudar hoje? 😊",
+  content: "Sou o Fagner, assistente virtual da Tecfag! Como posso te ajudar hoje? 😊",
   sender: "ai",
   timestamp: new Date().toISOString(),
 };
@@ -1128,10 +1136,11 @@ export const ChatWidget: React.FC = () => {
   const startThreePartGreeting = useCallback((name: string) => {
     setChatStarted(true);
     const ts = getTimestamp();
+    const firstName = extractFirstNameForGreeting(name);
     setMessages([
       {
         id: "welcome-msg",
-        content: `Olá, ${name} 👋`,
+        content: firstName ? `Olá, ${firstName} 👋` : "Olá! 👋",
         sender: "ai",
         timestamp: ts,
       },
@@ -1141,7 +1150,7 @@ export const ChatWidget: React.FC = () => {
         ...prev,
         {
           id: `welcome-2-${Date.now()}`,
-          content: "Sou o Fagner, Especialista em automações industriais!",
+          content: "Sou o Fagner, assistente virtual da Tecfag!",
           sender: "ai",
           timestamp: getTimestamp(),
         },

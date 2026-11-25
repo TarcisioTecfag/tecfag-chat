@@ -418,7 +418,10 @@ export async function sendIndustrialBotBatch(input: BotBatch) {
       type: "message",
       message: {
         ...row,
-        queue: input.expectedOperatorId ? "meus" : "automacao",
+        queue: String(
+          (row.metaDetails as any)?.industrialDelivery?.queueState ||
+            (input.expectedOperatorId ? "meus" : "automacao"),
+        ),
         operatorId: input.expectedOperatorId || null,
       },
     });

@@ -44,6 +44,7 @@ import {
   normalizeIndustrialFunnels,
   computeIndustrialTriageProgress,
   isValidIndustrialPersonName,
+  isVagueIndustrialProductionValue,
   isClientDecliningTriage,
   hasClientFactualQuestionInDecline,
   isAutomatedBotOrUraMessage,
@@ -55,6 +56,7 @@ import {
   evaluateKnownCompanyConfirmation,
   applyKnownClientConfirmationToData,
   buildKnownClientPromptDirective,
+  doesExtractedCompanyMatchKnownClient,
   isValidKnownCompanyName,
   type KnownClientProfile,
 } from "../triage/known-client-lookup";
@@ -1746,11 +1748,30 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           ) {
             continue;
           }
+          if (
+            industrialTriage &&
+            k === "VOLUME / PRODUÇÃO" &&
+            isVagueIndustrialProductionValue(v)
+          ) {
+            console.log(`[SdrEngine] 🛡️ Ignorado VOLUME / PRODUÇÃO excessivamente vago: "${v}"`);
+            continue;
+          }
           updatedCollectedData[k] = { value: v, status: "filled" };
         }
       }
 
-      if (industrialTriage && knownClient && knownClientConfirmation === "confirmed") {
+      const extractedCompanyMatchedKnown =
+        industrialTriage &&
+        knownClient &&
+        knownClientConfirmation !== "rejected" &&
+        doesExtractedCompanyMatchKnownClient(updatedCollectedData["EMPRESA"]?.value, knownClient);
+
+      if (
+        industrialTriage &&
+        knownClient &&
+        (knownClientConfirmation === "confirmed" || extractedCompanyMatchedKnown)
+      ) {
+        knownClientConfirmation = "confirmed";
         const enriched = applyKnownClientConfirmationToData(updatedCollectedData, knownClient);
         Object.assign(updatedCollectedData, enriched);
       }
@@ -2348,6 +2369,9 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
             queueState: currentOwner.queueState,
             operatorId: currentOwner.operatorId,
             expectedOperatorId: allocatedOp?.id || null,
+            allowSiteWhatsappClosing: Boolean(
+              siteWhatsappHandoffMessage && isSiteConversationId(conversationId),
+            ),
           })
         ) {
           return false;
@@ -2358,9 +2382,21 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         : isCompleted ? (wasAlreadyCompleted ? flowState?.outcome : "transferred") : "in_progress";
       const flowIsFinished = flowOutcome === "transferred" || flowOutcome === "completed";
       if (industrialTriage && industrialRoute) {
+        const pendingKnownCompanyToConfirm =
+          knownClient &&
+          knownClientConfirmation === "pending" &&
+          isValidKnownCompanyName(knownClient.companyName)
+            ? knownClient.companyName
+            : null;
         aiResult.messagesToSend = siteWhatsappHandoffMessage
           ? [siteWhatsappHandoffMessage]
-          : industrialClientMessages({ result: industrialHandoff, route: industrialRoute, data: updatedCollectedData, messages: aiResult.messagesToSend });
+          : industrialClientMessages({
+              result: industrialHandoff,
+              route: industrialRoute,
+              data: updatedCollectedData,
+              messages: aiResult.messagesToSend,
+              knownCompanyToConfirm: pendingKnownCompanyToConfirm,
+            });
         if (industrialHandoff.status === "transferred") {
           const scheduleCfg = parseIndustrialScheduleConfig(configData);
           if (scheduleCfg.enabled && !isWithinIndustrialSchedule(now, scheduleCfg)) {
@@ -3300,7 +3336,10 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           })), ...(deliveryContext?.images || [])],
           beforeSend: async (text) => {
             await sendBotPresence(tenantId, conversationId, phone, "composing");
-            const delay = Math.min(4200, Math.max(2200, text.length * 60));
+            const isSite = isSiteConversationId(conversationId);
+            const delay = isSite
+              ? Math.min(1100, Math.max(400, text.length * 16))
+              : Math.min(4200, Math.max(2200, text.length * 60));
             const start = Date.now();
             while (Date.now() - start < delay && !signal?.aborted) await new Promise((resolve) => setTimeout(resolve, 100));
           },

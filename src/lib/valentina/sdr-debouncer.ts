@@ -167,9 +167,22 @@ export class SdrDebouncer {
         console.error(`[SdrDebouncer] Erro ao processar lote:`, err?.message || err);
       }
     } finally {
-      if (this.sessions.get(conversationId)?.abortController === abortController) {
+      const currentSession = this.sessions.get(conversationId);
+      if (currentSession?.abortController === abortController) {
         session.isProcessing = false;
         session.abortController = null;
+      }
+      // Garante TYPING_STOP / paused mesmo quando o SdrEngine retorna cedo ou falha,
+      // evitando bolha de "..." travada indefinidamente no chat do site.
+      if (
+        !currentSession ||
+        (!currentSession.isProcessing &&
+          currentSession.messagesQueue.length === 0 &&
+          !currentSession.timer)
+      ) {
+        try {
+          await sendBotPresence(session.tenantId, session.conversationId, session.phone, "paused");
+        } catch { /* silencia */ }
       }
     }
   }

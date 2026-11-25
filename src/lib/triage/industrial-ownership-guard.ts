@@ -244,9 +244,17 @@ export function isIndustrialOwnerStillValidForSend(params: {
   queueState?: string | null;
   operatorId?: string | null;
   expectedOperatorId?: string | null;
+  allowSiteWhatsappClosing?: boolean;
 }): boolean {
   const queue = (params.queueState || "").trim().toLowerCase();
-  if (!queue || queue === "finalizados" || queue === "fila") return false;
+  if (!queue || queue === "fila") return false;
+  if (queue === "finalizados") {
+    return Boolean(
+      params.allowSiteWhatsappClosing &&
+        !params.operatorId &&
+        !params.expectedOperatorId,
+    );
+  }
   if ((params.operatorId || null) !== (params.expectedOperatorId || null)) return false;
   if (queue === "meus" && !params.expectedOperatorId) return false;
   if (!params.expectedOperatorId && queue !== "automacao") return false;

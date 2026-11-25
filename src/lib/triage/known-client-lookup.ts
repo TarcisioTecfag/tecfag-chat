@@ -146,27 +146,68 @@ export function evaluateKnownCompanyConfirmation(params: {
     if (startsWithNo) return "rejected";
 
     const isAffirmative =
-      /^(?:sim|isso|isso mesmo|certo|correto|exato|exatamente|positivo|confirmo|confirmado|essa mesma|sou sim|e sim|é sim|uhum|aham|ok|perfeito|pode prosseguir|prossegue|claro|com certeza)\b/.test(
+      /^(?:sim|isso|isso mesmo|certo|correto|exato|exatamente|positivo|confirmo|confirmado|essa mesma|esse mesmo|aquela mesma|aquele mesmo|sou sim|e sim|é sim|uhum|aham|ok|perfeito|pode prosseguir|prossegue|claro|com certeza)\b/.test(
         text,
       ) ||
-      /\b(?:sim senhor|isso mesmo|esta correto|esta certo|e essa mesma|sou dessa empresa|pode seguir|pode prosseguir)\b/.test(
+      /\b(?:sim senhor|isso mesmo|esta correto|esta certo|e essa mesma|e esse mesmo|e aquela mesma|e aquele mesmo|e a mesma|e o mesmo|sou dessa empresa|pode seguir|pode prosseguir)\b/.test(
         text,
       );
     if (isAffirmative) return "confirmed";
   }
 
   const normCompany = normalizeTriageText(knownClient.companyName);
-  const firstToken = normCompany.split(" ").find((w) => w.length >= 3);
+  const companyStopwords =
+    /^(?:ltda|eireli|me|epp|s\/a|sa|comercio|industria|servicos|produtos|distribuidora|solucoes|grupo|holding|de|da|do|das|dos|e)$/;
+  const significantTokens = normCompany
+    .split(" ")
+    .filter((w) => w.length >= 3 && !companyStopwords.test(w))
+    .slice(0, 2);
+  const escapeRegexToken = (token: string) => token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const mentionsKnownToken = significantTokens.some((tok) =>
+    new RegExp(`\\b${escapeRegexToken(tok)}\\b`).test(text),
+  );
+  const hasCompanyConfirmCue =
+    /\b(?:sim|isso|certo|correto|sou da|falo da|trabalho na|minha empresa|nossa empresa|meu cnpj|nosso cnpj|ja tem meu cnpj|esse mesmo|essa mesma|aquele mesmo|aquela mesma|a mesma|o mesmo)\b/.test(
+      text,
+    ) ||
+    (significantTokens.length > 0 &&
+      new RegExp(`\\be\\s+(?:a\\s+|o\\s+)?${escapeRegexToken(significantTokens[0])}\\b`).test(
+        text,
+      ));
   if (
-    firstToken &&
-    text.includes(firstToken) &&
-    /\b(?:sim|isso|certo|correto|sou da|falo da|trabalho na)\b/.test(text) &&
-    !/\b(?:nao sou|nao e)\b/.test(text)
+    mentionsKnownToken &&
+    hasCompanyConfirmCue &&
+    !/\b(?:nao sou|nao e|outra empresa|empresa errada)\b/.test(text)
   ) {
     return "confirmed";
   }
 
   return "pending";
+}
+
+/**
+ * Verifica se o nome da empresa extraído pelo LLM corresponde à empresa já cadastrada
+ * para o telefone/contato — proteção em profundidade para garantir que `_KNOWN_COMPANY_CONFIRMED`
+ * e o CNPJ/CPF cadastrados sejam vinculados mesmo diante de confirmações informais/retratações.
+ */
+export function doesExtractedCompanyMatchKnownClient(
+  extractedCompany?: string | null,
+  knownClient?: KnownClientProfile | null,
+): boolean {
+  if (!extractedCompany || !knownClient || !isValidKnownCompanyName(knownClient.companyName)) {
+    return false;
+  }
+  const normExt = normalizeTriageText(extractedCompany);
+  const normKnown = normalizeTriageText(knownClient.companyName);
+  if (!normExt || !normKnown) return false;
+  if (normExt === normKnown) return true;
+  const stop =
+    /^(?:ltda|eireli|me|epp|s\/a|sa|comercio|industria|servicos|produtos|distribuidora|solucoes|grupo|holding|de|da|do|das|dos|e)$/;
+  const extTokens = normExt.split(" ").filter((t) => t.length >= 3 && !stop.test(t));
+  const knownTokens = normKnown.split(" ").filter((t) => t.length >= 3 && !stop.test(t));
+  if (extTokens.length === 0 || knownTokens.length === 0) return false;
+  const overlap = extTokens.filter((t) => knownTokens.includes(t));
+  return overlap.length >= Math.min(2, knownTokens.length);
 }
 
 export function applyKnownClientConfirmationToData(
@@ -237,7 +278,7 @@ export function buildKnownClientPromptDirective(params: {
       : "";
 
   if (confirmationStatus === "rejected") {
-    return `\n\n[SISTEMA - VÍNCULO DE EMPRESA ANTERIOR RECUSADO PELO CLIENTE]: O telefone tinha vínculo anterior com "${companyName}", mas o cliente informou que NÃO fala por essa empresa. Solicite o CNPJ ou CPF atual caso o setor exija documento.`;
+    return `\n\n[SISTEMA - VÍNCULO DE EMPRESA ANTERIOR RECUSADO PELO CLIENTE]: O telefone tinha vínculo anterior com "${companyName}", mas o cliente informou que NÃO fala por essa empresa. Caso o setor exija documento, solicite diretamente o CNPJ ou CPF atual (NUNCA peça "o nome da empresa ou o CNPJ", pois precisamos do número do CNPJ/CPF para o cadastro).`;
   }
 
   const alreadyConfirmed =

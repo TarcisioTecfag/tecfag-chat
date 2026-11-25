@@ -1228,6 +1228,28 @@ export function isValidIndustrialPersonName(raw?: string | null): boolean {
   return true;
 }
 
+/**
+ * Detecta respostas excessivamente vagas para `VOLUME / PRODUÇÃO` sem números nem escala real
+ * (ex.: "muito", "muito trigo", "bastante", "pouco", "muita coisa"), evitando marcar o campo
+ * como preenchido antes de o cliente informar uma ordem de grandeza aproximada.
+ */
+export function isVagueIndustrialProductionValue(raw?: string | null): boolean {
+  const normalized = normalizeTriageText(String(raw || ""));
+  if (!normalized) return true;
+  // Qualquer dígito numérico (ex.: "3000/h", "50 por dia") ou declaração explícita de desconhecimento/escala já é válida
+  if (/\d/.test(normalized)) return false;
+  if (
+    /\b(?:nao sei|sem estimativa|nao tenho estimativa|ainda nao sei|ainda nao defini|comecando agora|iniciando|artesanal|escala industrial|pequena producao|media producao|alta producao|grande producao|pequena escala|media escala|alta escala|grande escala|baixo volume|medio volume|alto volume|grande volume)\b/.test(
+      normalized,
+    )
+  ) {
+    return false;
+  }
+  return /^(?:muit[oa]s?|bastante|pouc[oa]s?|vari[oa]s?|um pouco|demais|bem pouco|muita coisa|bastante coisa|grande quantidade|alta quantidade|em grande quantidade)(?:\s+[a-z]{2,}){0,3}$/.test(
+    normalized,
+  );
+}
+
 const ACTIVE_DEMAND_CUE_PATTERN =
   /\b(?:maquina|maquinas|seladora|seladoras|envasadora|envasadoras|dosadora|dosadoras|empacotadora|empacotadoras|rotuladora|rotuladoras|datador|peca|pecas|teflon|resistencia|correia|borracha|pistao|vedacao|boleto|nota fiscal|nf|rastreio|entrega|nao recebi|ainda nao recebi|nao chegou|defeito|manutencao|assistencia|orcamento|cotacao|preco|valor|quero comprar|preciso de|manda (?:a )?foto|envia (?:a )?foto|mande foto|consegue verificar|voces vendem|vcs vendem|segmento de|linha de)\b/;
 

@@ -192,6 +192,7 @@ export function industrialClientMessages(params: {
   route: IndustrialRoute;
   data: CollectedFields;
   messages: string[];
+  knownCompanyToConfirm?: string | null;
 }): string[] {
   const isOperatorAbsent = Boolean(
     params.result.operator?.isAbsent || params.route.targetOperator?.isAbsent,
@@ -267,9 +268,12 @@ export function industrialClientMessages(params: {
   const claimsSuccess = claimsIndustrialHandoffEffect(params.messages);
   if (!claimsSuccess) return params.messages;
   const next = assessIndustrialReadiness(params.route, params.data).missing[0];
+  const pendingKnownCompany = params.knownCompanyToConfirm?.trim() || "";
   const questions = {
     name: "Pode me informar seu nome?",
-    document: "Pode me informar o CNPJ ou CPF para localizar o cadastro?",
+    document: pendingKnownCompany
+      ? `Para agilizar, sua empresa é a ${pendingKnownCompany}, certo? Caso seja outra, pode me informar o CNPJ ou CPF.`
+      : "Pode me informar o CNPJ ou CPF para localizar o cadastro?",
     request: "Pode me contar qual é sua necessidade?",
     application: "O que você produz ou pretende embalar?",
     production: "Qual é o volume aproximado da sua produção?",
