@@ -1058,7 +1058,7 @@ export class AuditService {
     if (!isSdrTenant(params.tenantId)) return;
     try {
       const convsRes = await db.execute(sql`
-        SELECT DISTINCT c.id AS conversation_id, c.operator_id, ct.name AS contact_name
+        SELECT DISTINCT c.id AS conversation_id, c.operator_id, ct.name AS contact_name, c.updated_at
         FROM conversations c
         LEFT JOIN contacts ct
           ON ct.id = c.contact_id AND ct.tenant_id = c.tenant_id
@@ -1100,6 +1100,7 @@ export class AuditService {
         conversation_id: string;
         operator_id: string | null;
         contact_name: string | null;
+        updated_at?: Date | string | null;
       }>(convsRes);
 
       for (const row of rows) {
