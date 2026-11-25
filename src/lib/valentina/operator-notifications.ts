@@ -5,6 +5,7 @@ import {
   agentFlowStates,
   contacts,
   conversations,
+  crmAccounts,
   crmConversationDeals,
   crmDeals,
   internalMessages,
@@ -73,7 +74,6 @@ function summarizeConversationMessages(
     senderType: string;
     senderName: string | null;
     content: string | null;
-    mediaType: string | null;
     mediaInterpretation: string | null;
   }>,
   personaName: string,
@@ -113,8 +113,16 @@ function summarizeConversationMessages(
  * garantindo que a negociação possua a tarefa "Responder o contato" atribuída ao recebedor
  * e incluindo o resumo completo do que foi tratado no atendimento.
  */
+export interface LeadTransferNotificationDeps {
+  database?: any;
+  ensureDeal?: typeof ensureLocalCrmDealBeforeTransfer;
+  ensureTask?: typeof ensureLeadTransferTaskOnDeal;
+  notifyPublic?: (tenantId: string, event: any) => void;
+}
+
 export async function notifyOperatorLeadTransferred(
   params: LeadTransferNotificationParams,
+  deps?: LeadTransferNotificationDeps,
 ): Promise<boolean> {
   const {
     tenantId,
@@ -127,6 +135,13 @@ export async function notifyOperatorLeadTransferred(
   } = params;
 
   if (!tenantId || !operatorId || !conversationId) return false;
+
+  const database = deps?.database ?? db;
+  const ensureDeal = deps?.ensureDeal ?? ensureLocalCrmDealBeforeTransfer;
+  const ensureTask = deps?.ensureTask ?? ensureLeadTransferTaskOnDeal;
+  const emitPublic =
+    deps?.notifyPublic ??
+    ((tid: string, ev: any) => SessionManager.getInstance().notifyPublic(tid, ev));
 
   try {
     const persona = getAiPersona(tenantId);
@@ -144,18 +159,24 @@ export async function notifyOperatorLeadTransferred(
     let contactId: string | null = null;
     let contactPhone = "";
 
-    const [convRow] = await db
+    const [convRow] = await database
       .select({
         contactId: conversations.contactId,
         contactName: contacts.name,
         contactPhone: contacts.phone,
-        contactCompany: contacts.company,
+        contactCnpjDetails: contacts.cnpjDetails,
+        accountName: crmAccounts.name,
+        accountTradeName: crmAccounts.tradeName,
         lastMessageText: conversations.lastMessageText,
       })
       .from(conversations)
       .leftJoin(
         contacts,
         and(eq(contacts.id, conversations.contactId), eq(contacts.tenantId, tenantId)),
+      )
+      .leftJoin(
+        crmAccounts,
+        and(eq(crmAccounts.id, contacts.accountId), eq(crmAccounts.tenantId, tenantId)),
       )
       .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)))
       .limit(1);
@@ -166,8 +187,21 @@ export async function notifyOperatorLeadTransferred(
       if (!clientName && convRow.contactName) {
         clientName = convRow.contactName;
       }
-      if (!company && convRow.contactCompany) {
-        company = convRow.contactCompany;
+      if (!company) {
+        const cnpjDetails =
+          convRow.contactCnpjDetails && typeof convRow.contactCnpjDetails === "object"
+            ? (convRow.contactCnpjDetails as Record<string, any>)
+            : null;
+        const resolvedCompany = String(
+          convRow.accountTradeName ||
+            convRow.accountName ||
+            cnpjDetails?.nomeFantasia ||
+            cnpjDetails?.razaoSocial ||
+            "",
+        ).trim();
+        if (resolvedCompany) {
+          company = resolvedCompany;
+        }
       }
       if (!interest && convRow.lastMessageText) {
         interest = convRow.lastMessageText.slice(0, 140);
@@ -175,7 +209,7 @@ export async function notifyOperatorLeadTransferred(
     }
 
     if (!operatorName) {
-      const [opRow] = await db
+      const [opRow] = await database
         .select({ name: operators.name })
         .from(operators)
         .where(and(eq(operators.id, operatorId), eq(operators.tenantId, tenantId)))
@@ -188,7 +222,7 @@ export async function notifyOperatorLeadTransferred(
     // Buscar dados coletados da triagem (agentFlowStates) se não fornecidos
     let collectedData = normalizeCollectedMap(params.collectedData);
     let flowRouteReason: string | null = null;
-    const [latestFlow] = await db
+    const [latestFlow] = await database
       .select({
         collectedData: agentFlowStates.collectedData,
         metadata: agentFlowStates.metadata,
@@ -249,7 +283,7 @@ export async function notifyOperatorLeadTransferred(
 
     // 2. Localizar negociação vinculada ativa ou criar se ainda não existir
     if (!dealId || !dealTitle) {
-      const [linkedDeal] = await db
+      const [linkedDeal] = await database
         .select({
           id: crmDeals.id,
           title: crmDeals.title,
@@ -277,7 +311,7 @@ export async function notifyOperatorLeadTransferred(
     }
 
     if (!dealId) {
-      const ensuredDeal = await ensureLocalCrmDealBeforeTransfer({
+      const ensuredDeal = await ensureDeal({
         tenantId,
         conversationId,
         contactId,
@@ -302,7 +336,7 @@ export async function notifyOperatorLeadTransferred(
 
     // 3. Garantir que a tarefa "Responder o contato" exista na negociação com responsável = recebedor do lead
     if (dealId) {
-      const ensuredTask = await ensureLeadTransferTaskOnDeal({
+      const ensuredTask = await ensureTask({
         tenantId,
         dealId,
         conversationId,
@@ -319,12 +353,11 @@ export async function notifyOperatorLeadTransferred(
     }
 
     // 4. Buscar últimas mensagens da conversa para montar o resumo do que foi tratado
-    const recentMsgs = await db
+    const recentMsgs = await database
       .select({
         senderType: messages.senderType,
         senderName: messages.senderName,
         content: messages.content,
-        mediaType: messages.mediaType,
         mediaInterpretation: messages.mediaInterpretation,
       })
       .from(messages)
@@ -462,7 +495,7 @@ export async function notifyOperatorLeadTransferred(
     };
 
     if (deterministicId) {
-      const [byId] = await db
+      const [byId] = await database
         .select({
           id: internalMessages.id,
           content: internalMessages.content,
@@ -485,7 +518,7 @@ export async function notifyOperatorLeadTransferred(
           (Boolean(params.triageBriefing) && !byId.content.includes(params.triageBriefing.slice(0, 60)));
 
         if (needsUpdate) {
-          await db
+          await database
             .update(internalMessages)
             .set({
               content,
@@ -499,7 +532,7 @@ export async function notifyOperatorLeadTransferred(
               ),
             );
 
-          SessionManager.getInstance().notifyPublic(tenantId, {
+          emitPublic(tenantId, {
             type: "operator_ai_notification" as any,
             operatorId,
             message: {
@@ -530,7 +563,7 @@ export async function notifyOperatorLeadTransferred(
 
     // Evitar duplicação se o mesmo aviso de transferência já foi gerado nos últimos 2 minutos
     const recentWindow = new Date(Date.now() - 2 * 60 * 1000);
-    const existing = await db
+    const existing = await database
       .select({
         id: internalMessages.id,
         content: internalMessages.content,
@@ -552,7 +585,7 @@ export async function notifyOperatorLeadTransferred(
       const existingRow = existing[0];
       const existingMeta = (existingRow.metadata as Record<string, any>) || {};
       if (!existingMeta.hasAttendanceSummary || (!existingMeta.taskId && Boolean(taskId))) {
-        await db
+        await database
           .update(internalMessages)
           .set({
             content,
@@ -572,7 +605,7 @@ export async function notifyOperatorLeadTransferred(
     const notifId =
       deterministicId || `notif-transfer-${Date.now()}-${crypto.randomUUID().slice(0, 6)}`;
 
-    const inserted = await db
+    const inserted = await database
       .insert(internalMessages)
       .values({
         id: notifId,
@@ -592,7 +625,7 @@ export async function notifyOperatorLeadTransferred(
 
     if (inserted.length === 0) return true;
 
-    SessionManager.getInstance().notifyPublic(tenantId, {
+    emitPublic(tenantId, {
       type: "operator_ai_notification" as any,
       operatorId,
       message: {
