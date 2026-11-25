@@ -74,6 +74,12 @@ before(async () => {
   await client.exec(
     fs.readFileSync("src/db/migrations/0048_whatsapp_connection_group_access.sql", "utf8"),
   );
+  await client.exec(`
+    DROP INDEX IF EXISTS idx_conversations_tenant_contact_uniq;
+    CREATE UNIQUE INDEX idx_conversations_tenant_contact_uniq
+      ON conversations (tenant_id, contact_id)
+      WHERE whatsapp_connection_id IS NULL AND id NOT LIKE 'conv-lc-%';
+  `);
   await db.insert(schema.tenants).values([
     { id: tenant, name: "Test A", slug: "test-a", connectionType: "meta" },
     { id: otherTenant, name: "Test B", slug: "test-b", connectionType: "baileys" },
@@ -612,6 +618,157 @@ test("unified history is chronological, labelled and excludes another seller and
   const adminHistory = await (await read()).json();
   assert.ok(adminHistory.messages.some((m) => m.conversationId === "personal-b"));
   assert.ok(!adminHistory.messages.some((m) => m.conversationId === "foreign"));
+});
+
+test("unified WhatsApp history excludes conv-lc-* site threads and deduplicates mirrored site messages", async () => {
+  const who = session("admin-a", "admin");
+  const route = loadAccessSource("src/routes/api/whatsapp/contact-history.ts", {
+    "@tanstack/react-router": routeStub,
+    "drizzle-orm": orm,
+    "../../../db": { db },
+    "../../../db/schema": schema,
+    "../../../lib/auth-session": { requireSession: async () => ({ session: who }) },
+    "../../../lib/access-control/conversation-access": access,
+    "../../../lib/whatsapp/connection-policy": policy,
+    "../../../lib/whatsapp/meta-reactions": { readReactions: () => [] },
+  }).Route.server.handlers;
+
+  await db.insert(schema.contacts).values({
+    id: "customer-site-bridge",
+    tenantId: tenant,
+    name: "FERREIRA",
+    phone: "5544988683437",
+    mainChannel: "whatsapp",
+  });
+  await db.insert(schema.conversations).values([
+    {
+      id: "conv-lc-bridge-1",
+      tenantId: tenant,
+      contactId: "customer-site-bridge",
+      operatorId: null,
+      queueState: "finalizados",
+      whatsappConnectionId: null,
+    },
+    {
+      id: "wa-bridge-official",
+      tenantId: tenant,
+      contactId: "customer-site-bridge",
+      operatorId: "seller-a",
+      queueState: "meus",
+      whatsappConnectionId: null,
+    },
+    {
+      id: "wa-bridge-baileys",
+      tenantId: tenant,
+      contactId: "customer-site-bridge",
+      operatorId: "seller-a",
+      queueState: "meus",
+      whatsappConnectionId: "number-1",
+    },
+  ]);
+
+  const cnpjAt = new Date("2026-11-24T20:00:11.740Z");
+  const botAt = new Date("2026-11-24T20:00:38.689Z");
+  const waAt = new Date("2026-11-24T20:04:22.000Z");
+
+  await db.insert(schema.messages).values([
+    {
+      id: "lcm-cnpj-1",
+      tenantId: tenant,
+      conversationId: "conv-lc-bridge-1",
+      content: "57268970000190",
+      senderType: "client",
+      provider: "livechat",
+      sentAt: cnpjAt,
+    },
+    {
+      id: "bot-durable-1",
+      tenantId: tenant,
+      conversationId: "conv-lc-bridge-1",
+      content: "Obrigado, Ferreira. Localizei o cadastro.",
+      senderType: "bot",
+      senderName: "Fagner (SDR)",
+      provider: "livechat",
+      sentAt: botAt,
+    },
+    {
+      id: "lcx-cnpj-official",
+      tenantId: tenant,
+      conversationId: "wa-bridge-official",
+      content: "57268970000190",
+      senderType: "client",
+      provider: "livechat",
+      metaDetails: {
+        copiedFrom: {
+          channel: "livechat",
+          conversationId: "conv-lc-bridge-1",
+          messageId: "lcm-cnpj-1",
+        },
+      },
+      sentAt: cnpjAt,
+    },
+    {
+      id: "lcx-bot-official",
+      tenantId: tenant,
+      conversationId: "wa-bridge-official",
+      content: "Obrigado, Ferreira. Localizei o cadastro.",
+      senderType: "bot",
+      senderName: "Fagner (SDR)",
+      provider: "livechat",
+      metaDetails: {
+        copiedFrom: {
+          channel: "livechat",
+          conversationId: "conv-lc-bridge-1",
+          messageId: "bot-durable-1",
+        },
+      },
+      sentAt: botAt,
+    },
+    {
+      id: "lcx-cnpj-baileys-dup",
+      tenantId: tenant,
+      conversationId: "wa-bridge-baileys",
+      content: "57268970000190",
+      senderType: "client",
+      provider: "livechat",
+      metaDetails: {
+        copiedFrom: {
+          channel: "livechat",
+          conversationId: "conv-lc-bridge-1",
+          messageId: "lcm-cnpj-1",
+        },
+      },
+      sentAt: cnpjAt,
+    },
+    {
+      id: "baileys-followup-1",
+      tenantId: tenant,
+      conversationId: "wa-bridge-baileys",
+      content: "OPA",
+      senderType: "client",
+      provider: "baileys",
+      sentAt: waAt,
+    },
+  ]);
+
+  const officialRes = await route.GET({
+    request: apiRequest(undefined, "GET", "http://test.local/api?conversationId=wa-bridge-official"),
+  });
+  const officialHistory = await officialRes.json();
+  assert.ok(!officialHistory.visibleConversationIds.includes("conv-lc-bridge-1"));
+  assert.ok(officialHistory.visibleConversationIds.includes("wa-bridge-official"));
+  assert.ok(officialHistory.visibleConversationIds.includes("wa-bridge-baileys"));
+  assert.deepEqual(
+    officialHistory.messages.map((m) => m.id),
+    ["lcx-cnpj-official", "lcx-bot-official", "baileys-followup-1"],
+  );
+
+  const siteRes = await route.GET({
+    request: apiRequest(undefined, "GET", "http://test.local/api?conversationId=conv-lc-bridge-1"),
+  });
+  const siteHistory = await siteRes.json();
+  assert.deepEqual(siteHistory.visibleConversationIds, ["conv-lc-bridge-1"]);
+  assert.deepEqual(siteHistory.messages, []);
 });
 
 function isolatedModule(file, overrides) {

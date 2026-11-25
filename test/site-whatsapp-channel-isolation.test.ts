@@ -49,6 +49,13 @@ describe("Isolamento de canal Site (conv-lc-*) vs WhatsApp", () => {
 
     const testSendRoute = read("src/routes/api/settings/whatsapp/test-send.ts");
     expect(testSendRoute).toContain('notLike(conversations.id, "conv-lc-%")');
+
+    const contactHistoryRoute = read("src/routes/api/whatsapp/contact-history.ts");
+    const contactHistoryMatches =
+      contactHistoryRoute.match(/notLike\(conversations\.id, "conv-lc-%"\)/g) || [];
+    expect(contactHistoryMatches.length).toBeGreaterThanOrEqual(3);
+    expect(contactHistoryRoute).toContain('conversationId.startsWith("conv-lc-")');
+    expect(contactHistoryRoute).toContain("readMirroredSourceKey");
   });
 
   test("APIs de chat, deal, meta-state, envio e MCP derivam o canal pela conversa (nunca misturando Site x WhatsApp)", () => {

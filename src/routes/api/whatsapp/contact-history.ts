@@ -10,6 +10,16 @@ import {
 import { multiConnectionEnabled } from "../../../lib/whatsapp/connection-policy";
 import { readReactions } from "../../../lib/whatsapp/meta-reactions";
 
+function readMirroredSourceKey(metaDetails: unknown): string | null {
+  if (!metaDetails || typeof metaDetails !== "object") return null;
+  const copied = (metaDetails as Record<string, unknown>).copiedFrom;
+  if (!copied || typeof copied !== "object") return null;
+  const sourceMessageId = (copied as Record<string, unknown>).messageId;
+  if (typeof sourceMessageId !== "string" || !sourceMessageId.trim()) return null;
+  const channel = (copied as Record<string, unknown>).channel;
+  return `${typeof channel === "string" && channel.trim() ? channel.trim() : "mirrored"}:${sourceMessageId.trim()}`;
+}
+
 export const Route = createFileRoute("/api/whatsapp/contact-history")({
   server: {
     handlers: {
@@ -23,6 +33,12 @@ export const Route = createFileRoute("/api/whatsapp/contact-history")({
         const conversationId = url.searchParams.get("conversationId") || "";
         const denied = await requireConversationAccess(session, conversationId);
         if (denied) return denied;
+        if (conversationId.startsWith("conv-lc-")) {
+          return Response.json(
+            { visibleConversationIds: [conversationId], messages: [], nextCursor: null },
+            { headers: { "Cache-Control": "no-store" } },
+          );
+        }
         const [origin] = await db
           .select({
             contactId: conversations.contactId,
@@ -48,10 +64,14 @@ export const Route = createFileRoute("/api/whatsapp/contact-history")({
               ),
             )!
           : conversationReadCondition(session);
+        // Conversas do chat do Site (`conv-lc-%`) nunca pertencem ao feed unificado de WhatsApp:
+        // quando há ponte Site → WhatsApp, as mensagens já são espelhadas (`lcx-*`) na conversa
+        // de WhatsApp. Filtrar aqui evita exibir mensagens do Site e cópias `lcx-*` em duplicidade.
         const conditions = [
           eq(messages.tenantId, session.tenantId),
           eq(conversations.tenantId, session.tenantId),
           eq(conversations.contactId, origin.contactId),
+          notLike(conversations.id, "conv-lc-%"),
           historyVisibilityCondition,
         ];
         const cursor = url.searchParams.get("before");
@@ -114,15 +134,29 @@ export const Route = createFileRoute("/api/whatsapp/contact-history")({
             and(
               eq(conversations.tenantId, session.tenantId),
               eq(conversations.contactId, origin.contactId),
+              notLike(conversations.id, "conv-lc-%"),
               historyVisibilityCondition,
             ),
           );
+        const chronologicalPage = page.reverse();
+        const preferredMirroredByKey = new Map<string, string>();
+        for (const row of chronologicalPage) {
+          const mirrorKey = readMirroredSourceKey(row.message.metaDetails);
+          if (!mirrorKey) continue;
+          const currentId = preferredMirroredByKey.get(mirrorKey);
+          if (!currentId || row.message.conversationId === conversationId) {
+            preferredMirroredByKey.set(mirrorKey, row.message.id);
+          }
+        }
+        const deduplicatedPage = chronologicalPage.filter((row) => {
+          const mirrorKey = readMirroredSourceKey(row.message.metaDetails);
+          return !mirrorKey || preferredMirroredByKey.get(mirrorKey) === row.message.id;
+        });
         return Response.json(
           {
             visibleConversationIds: visibleConversations.map((c) => c.id),
-            messages: page
-              .reverse()
-              .map(({ message: m, name, connectionName, connectionPhone, sourceConnectionId }) => ({
+            messages: deduplicatedPage.map(
+              ({ message: m, name, connectionName, connectionPhone, sourceConnectionId }) => ({
                 id: m.id,
                 conversationId: m.conversationId,
                 whatsappConnectionId: sourceConnectionId,
