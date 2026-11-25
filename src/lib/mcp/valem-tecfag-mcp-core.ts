@@ -573,6 +573,10 @@ export function summarizeMcpToolResult(toolName: string, data: any): string {
           : `Contato "${data.name}" criado (${data.contactId})`;
       case "update_contact":
         return `Contato "${data.name || data.contactId}" atualizado (${data.contactId})`;
+      case "clear_operator_wallet":
+        return data.dryRun
+          ? `[DRY-RUN] Carteira de ${data.operator?.name || data.operator?.id}: ${Number(data.matchedContactsCount ?? 0)} contato(s) elegível(is) (${Number(data.byQueueState?.finalizados ?? 0)} finalizados)`
+          : `Carteira de ${data.operator?.name || data.operator?.id} limpa: ${Number(data.clearedContactsCount ?? 0)} contato(s) liberado(s)${Number(data.movedConversationsCount ?? 0) > 0 ? ` · ${Number(data.movedConversationsCount)} conversa(s) movida(s) para automacao` : ""}`;
       case "create_account":
         return `Empresa/Conta "${data.name}" criada (${data.accountId})`;
       case "update_account":

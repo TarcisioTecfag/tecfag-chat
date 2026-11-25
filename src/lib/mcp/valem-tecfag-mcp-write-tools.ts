@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { and, asc, eq, inArray, isNull, notLike, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, notInArray, notLike, or, sql } from "drizzle-orm";
 import { db } from "../../db";
 import {
   accessGroups,
@@ -366,6 +366,51 @@ export const MCP_EXTENDED_TOOLS: McpToolDefinition[] = [
           type: ["string", "null"],
           description:
             "ID do operador dono da carteira do contato (ou null / '' para limpar a carteira antiga). Sincroniza também responsibleName.",
+        },
+      },
+    },
+  },
+  {
+    name: "clear_operator_wallet",
+    access: "write",
+    description:
+      "[ESCRITA] Remove em lote a carteira fixa (walletOperatorId=null, responsibleName='Na Fila') dos contatos vinculados a um operador do tenant (ex: gestores/admins que não atendem fila comercial), sem reabrir conversas finalizadas e preservando conversas de outras carteiras. Suporta dryRun=true, scope ('all' ou 'only_finalized_or_none'), excludeContactIds e opção opcional de mover conversas abertas dessa carteira para 'automacao'.",
+    inputSchema: {
+      type: "object",
+      required: ["operatorId"],
+      properties: {
+        tenantId: TENANT_ID_PROP,
+        operatorId: {
+          type: "string",
+          description: "ID do operador cuja carteira será limpa (operators.id).",
+        },
+        dryRun: {
+          type: "boolean",
+          default: false,
+          description:
+            "Quando true, simula e retorna as contagens exatas por fila sem modificar o banco.",
+        },
+        scope: {
+          type: "string",
+          enum: ["all", "only_finalized_or_none"],
+          default: "all",
+          description:
+            "'all' (padrão: limpa todos os contatos da carteira do operador) ou 'only_finalized_or_none' (limpa apenas contatos sem conversa oficial aberta em meus/fila/automacao).",
+        },
+        moveOpenWalletConversationsToAutomacao: {
+          type: "boolean",
+          default: false,
+          description:
+            "Quando true, move também conversas oficiais abertas em 'meus' atribuídas a este operador (cujo contato pertença à carteira dele) para 'automacao' (operatorId=null), sem reabrir finalizados e sem tocar conversas de outras carteiras.",
+        },
+        excludeContactIds: {
+          type: "array",
+          items: { type: "string" },
+          description: "Lista opcional de IDs de contatos a preservar na carteira do operador.",
+        },
+        reason: {
+          type: "string",
+          description: "Motivo da limpeza de carteira para registro em auditoria (crm_action_history).",
         },
       },
     },
@@ -1138,6 +1183,7 @@ export const MCP_EXTENDED_TOOL_LABELS_PT: Record<string, string> = {
   mark_deal_lost: "Marcar Negociação como Perdida (CRM)",
   create_contact: "Criar Contato",
   update_contact: "Atualizar Contato",
+  clear_operator_wallet: "Limpar Carteira de Operador em Lote",
   merge_contacts: "Mesclar Contatos Duplicados",
   replace_crm_deal_contact: "Trocar Contato Vinculado ao Card (CRM)",
   archive_crm_deal: "Arquivar / Excluir Negociação (CRM)",
@@ -1871,6 +1917,249 @@ export async function executeExtendedMcpTool(
         accountId: updated.accountId,
         walletOperatorId: updated.walletOperatorId,
         responsibleName: updated.responsibleName,
+      };
+    }
+
+    // ── 8b. CLEAR OPERATOR WALLET (LIMPEZA EM LOTE DE CARTEIRA) ──────────────
+    case "clear_operator_wallet": {
+      const targetOperatorId = asTrimmedString(args.operatorId);
+      if (!targetOperatorId) {
+        throw new Error("Campo obrigatório 'operatorId' não informado.");
+      }
+
+      const targetOp = await assertOperatorInTenant(tenantId, targetOperatorId);
+      if (!targetOp) {
+        throw new Error(`Operador '${targetOperatorId}' não encontrado no tenant '${tenantId}'.`);
+      }
+
+      const dryRun = Boolean(args.dryRun);
+      const scope =
+        args.scope === "only_finalized_or_none" ? "only_finalized_or_none" : "all";
+      const moveOpenWalletConversationsToAutomacao = Boolean(
+        args.moveOpenWalletConversationsToAutomacao,
+      );
+      const excludeContactIds = Array.isArray(args.excludeContactIds)
+        ? Array.from(
+            new Set(
+              args.excludeContactIds
+                .map((item: unknown) => asTrimmedString(item))
+                .filter((id: string | undefined): id is string => Boolean(id)),
+            ),
+          )
+        : [];
+      const reason =
+        asTrimmedString(args.reason) ||
+        `Limpeza em lote da carteira de ${targetOp.name} via MCP`;
+
+      const [opDetails] = await db
+        .select({
+          id: operators.id,
+          name: operators.name,
+          email: operators.email,
+          role: operators.role,
+        })
+        .from(operators)
+        .where(and(eq(operators.id, targetOp.id), eq(operators.tenantId, tenantId)))
+        .limit(1);
+
+      const baseContactConditions = [
+        eq(contacts.tenantId, tenantId),
+        eq(contacts.walletOperatorId, targetOp.id),
+      ];
+      if (excludeContactIds.length > 0) {
+        baseContactConditions.push(notInArray(contacts.id, excludeContactIds));
+      }
+
+      const hasOpenOfficialConvSql = sql`EXISTS (
+        SELECT 1
+        FROM conversations conv_open
+        WHERE conv_open.tenant_id = "contacts"."tenant_id"
+          AND conv_open.contact_id = "contacts"."id"
+          AND conv_open.whatsapp_connection_id IS NULL
+          AND conv_open.queue_state IN ('meus', 'fila', 'automacao')
+      )`;
+
+      const targetContactConditions =
+        scope === "only_finalized_or_none"
+          ? [...baseContactConditions, sql`NOT (${hasOpenOfficialConvSql})`]
+          : baseContactConditions;
+
+      const summaryRows = await db
+        .select({
+          contactId: contacts.id,
+          contactName: contacts.name,
+          phone: contacts.phone,
+          latestQueueState: sql<string | null>`(
+            SELECT conv.queue_state
+            FROM conversations conv
+            WHERE conv.tenant_id = "contacts"."tenant_id"
+              AND conv.contact_id = "contacts"."id"
+              AND conv.whatsapp_connection_id IS NULL
+            ORDER BY CASE WHEN conv.queue_state IN ('meus', 'fila', 'automacao') THEN 0 ELSE 1 END,
+                     conv.last_message_time DESC NULLS LAST,
+                     conv.updated_at DESC NULLS LAST
+            LIMIT 1
+          )`.as("latest_queue_state"),
+          hasOpenMeusWithOperator: sql<boolean>`EXISTS (
+            SELECT 1
+            FROM conversations conv_meus
+            WHERE conv_meus.tenant_id = "contacts"."tenant_id"
+              AND conv_meus.contact_id = "contacts"."id"
+              AND conv_meus.whatsapp_connection_id IS NULL
+              AND conv_meus.queue_state = 'meus'
+              AND conv_meus.operator_id = ${targetOp.id}
+          )`.as("has_open_meus_with_operator"),
+        })
+        .from(contacts)
+        .where(and(...targetContactConditions));
+
+      const byQueueState = {
+        meus: 0,
+        fila: 0,
+        automacao: 0,
+        finalizados: 0,
+        no_conversation: 0,
+      };
+      let openWalletConversationsWithOperatorCount = 0;
+
+      for (const row of summaryRows) {
+        if (row.latestQueueState === "meus") byQueueState.meus += 1;
+        else if (row.latestQueueState === "fila") byQueueState.fila += 1;
+        else if (row.latestQueueState === "automacao") byQueueState.automacao += 1;
+        else if (row.latestQueueState === "finalizados") byQueueState.finalizados += 1;
+        else byQueueState.no_conversation += 1;
+
+        if (row.hasOpenMeusWithOperator) {
+          openWalletConversationsWithOperatorCount += 1;
+        }
+      }
+
+      const matchedContactsCount = summaryRows.length;
+      const sampleContacts = summaryRows.slice(0, 10).map((row) => ({
+        contactId: row.contactId,
+        name: row.contactName,
+        phone: row.phone,
+        queueState: row.latestQueueState ?? "no_conversation",
+      }));
+
+      if (dryRun || matchedContactsCount === 0) {
+        return {
+          success: true,
+          dryRun,
+          tenantId,
+          operator: opDetails || { id: targetOp.id, name: targetOp.name, email: null, role: null },
+          scope,
+          moveOpenWalletConversationsToAutomacao,
+          excludedCount: excludeContactIds.length,
+          matchedContactsCount,
+          byQueueState,
+          openWalletConversationsWithOperatorCount,
+          clearedContactsCount: 0,
+          movedConversationsCount: 0,
+          remainingWalletContactsCount: matchedContactsCount,
+          sampleContacts,
+        };
+      }
+
+      const now = new Date();
+      const txResult = await db.transaction(async (tx) => {
+        let movedConversationsCount = 0;
+
+        if (moveOpenWalletConversationsToAutomacao && scope === "all") {
+          const movedRows = await tx
+            .update(conversations)
+            .set({
+              queueState: "automacao",
+              operatorId: null,
+              version: sql`${conversations.version} + 1`,
+              updatedAt: now,
+            })
+            .where(
+              and(
+                eq(conversations.tenantId, tenantId),
+                isNull(conversations.whatsappConnectionId),
+                eq(conversations.queueState, "meus"),
+                eq(conversations.operatorId, targetOp.id),
+                sql`EXISTS (
+                  SELECT 1
+                  FROM contacts c_w
+                  WHERE c_w.tenant_id = "conversations"."tenant_id"
+                    AND c_w.id = "conversations"."contact_id"
+                    AND c_w.wallet_operator_id = ${targetOp.id}
+                    ${
+                      excludeContactIds.length > 0
+                        ? sql`AND c_w.id NOT IN (${sql.join(
+                            excludeContactIds.map((id) => sql`${id}`),
+                            sql`, `,
+                          )})`
+                        : sql``
+                    }
+                )`,
+              ),
+            )
+            .returning({ id: conversations.id });
+          movedConversationsCount = movedRows.length;
+        }
+
+        const clearedRows = await tx
+          .update(contacts)
+          .set({
+            walletOperatorId: null,
+            responsibleName: "Na Fila",
+            updatedAt: now,
+          })
+          .where(and(...targetContactConditions))
+          .returning({ id: contacts.id });
+
+        const [remainingRow] = await tx
+          .select({ count: sql<number>`COUNT(*)::int` })
+          .from(contacts)
+          .where(and(eq(contacts.tenantId, tenantId), eq(contacts.walletOperatorId, targetOp.id)));
+
+        return {
+          clearedContactsCount: clearedRows.length,
+          movedConversationsCount,
+          remainingWalletContactsCount: Number(remainingRow?.count ?? 0),
+        };
+      });
+
+      void recordCrmAction({
+        tenantId,
+        operatorId: null,
+        operatorName: "MCP",
+        action: "clear_operator_wallet",
+        entityType: "contact",
+        entityId: targetOp.id,
+        itemCount: txResult.clearedContactsCount,
+        details: {
+          targetOperatorId: targetOp.id,
+          targetOperatorName: targetOp.name,
+          scope,
+          moveOpenWalletConversationsToAutomacao,
+          excludedCount: excludeContactIds.length,
+          clearedContactsCount: txResult.clearedContactsCount,
+          movedConversationsCount: txResult.movedConversationsCount,
+          remainingWalletContactsCount: txResult.remainingWalletContactsCount,
+          byQueueState,
+          reason,
+        },
+      }).catch(() => {});
+
+      return {
+        success: true,
+        dryRun: false,
+        tenantId,
+        operator: opDetails || { id: targetOp.id, name: targetOp.name, email: null, role: null },
+        scope,
+        moveOpenWalletConversationsToAutomacao,
+        excludedCount: excludeContactIds.length,
+        matchedContactsCount,
+        byQueueState,
+        openWalletConversationsWithOperatorCount,
+        clearedContactsCount: txResult.clearedContactsCount,
+        movedConversationsCount: txResult.movedConversationsCount,
+        remainingWalletContactsCount: txResult.remainingWalletContactsCount,
+        sampleContacts,
       };
     }
 
