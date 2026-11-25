@@ -115,6 +115,32 @@ function assertApprovalPermission(actor: ApprovalActor) {
 }
 
 /**
+ * Ordena candidatos elegíveis do rodízio considerando tanto o saldo real
+ * (`leadsReceivedCount - compensation`) quanto a carga virtual de aprovações pendentes
+ * (`pendingCountByOperatorId`) já atribuídas a cada operador no mesmo tenant.
+ * Mantém a pré-seleção 100% somente leitura sem empilhar vários leads na mesma pessoa.
+ */
+export function sortIndustrialRodizioCandidatesWithPendingLoad<
+  T extends { id: string; leadsReceivedCount?: number; compensation?: number },
+>(candidates: readonly T[], pendingCountByOperatorId: ReadonlyMap<string, number>): T[] {
+  return [...candidates].sort((a, b) => {
+    const aReal = (a.leadsReceivedCount || 0) - (a.compensation || 0);
+    const bReal = (b.leadsReceivedCount || 0) - (b.compensation || 0);
+    const aPending = pendingCountByOperatorId.get(a.id) || 0;
+    const bPending = pendingCountByOperatorId.get(b.id) || 0;
+    const aVirtual = aReal + aPending;
+    const bVirtual = bReal + bPending;
+    return (
+      aVirtual - bVirtual ||
+      aPending - bPending ||
+      aReal - bReal ||
+      (a.leadsReceivedCount || 0) - (b.leadsReceivedCount || 0) ||
+      a.id.localeCompare(b.id)
+    );
+  });
+}
+
+/**
  * Calcula a sugestão completa do Fagner (Setor + Operador do Rodízio + Funil/Etapa CRM)
  * em modo SOMENTE LEITURA (sem consumir slot do rodízio, sem transferir e sem mover o card).
  */
@@ -260,6 +286,40 @@ export async function computePendingApprovalSuggestion(
       ? suggestedSector!.operatorIds
       : null;
 
+    // Conta aprovações pendentes abertas no mesmo tenant para distribuir pré-sugestões
+    // sem empilhar vários leads seguidos na mesma vendedora antes da aprovação SDR.
+    const pendingCountByOperatorId = new Map<string, number>();
+    const pendingFlows = await tx
+      .select({
+        conversationId: agentFlowStates.conversationId,
+        metadata: agentFlowStates.metadata,
+      })
+      .from(agentFlowStates)
+      .where(
+        and(
+          eq(agentFlowStates.tenantId, tenantId),
+          eq(agentFlowStates.agentType, "sdr"),
+          eq(agentFlowStates.outcome, "in_progress"),
+        ),
+      );
+
+    for (const pf of pendingFlows) {
+      if (pf.conversationId === conversationId) continue;
+      const meta = (pf.metadata as Record<string, any> | null) || null;
+      if (!meta || meta.handoffStatus !== "awaiting_approval") continue;
+      const pendingOpId =
+        (typeof meta.pendingApproval?.suggestedOperatorId === "string"
+          ? meta.pendingApproval.suggestedOperatorId
+          : null) ||
+        (typeof meta.suggestedOperatorId === "string" ? meta.suggestedOperatorId : null);
+      if (pendingOpId) {
+        pendingCountByOperatorId.set(
+          pendingOpId,
+          (pendingCountByOperatorId.get(pendingOpId) || 0) + 1,
+        );
+      }
+    }
+
     const pickFromRodizio = (restrictToSector: boolean) => {
       const candidates = flowOps.filter((op) => {
         if (!op || !registeredIds.has(op.id)) return false;
@@ -278,15 +338,11 @@ export async function computePendingApprovalSuggestion(
         );
       });
 
-      candidates.sort(
-        (a, b) =>
-          (a.leadsReceivedCount || 0) -
-            (a.compensation || 0) -
-            ((b.leadsReceivedCount || 0) - (b.compensation || 0)) ||
-          (a.leadsReceivedCount || 0) - (b.leadsReceivedCount || 0) ||
-          a.id.localeCompare(b.id),
+      const sorted = sortIndustrialRodizioCandidatesWithPendingLoad(
+        candidates,
+        pendingCountByOperatorId,
       );
-      return candidates[0] || null;
+      return sorted[0] || null;
     };
 
     const chosen = pickFromRodizio(true) || pickFromRodizio(false);

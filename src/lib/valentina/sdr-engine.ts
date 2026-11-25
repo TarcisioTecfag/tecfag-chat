@@ -379,6 +379,47 @@ export class SdrEngine {
           hasIncomingMedia: incomingBatchHasMedia,
         });
         if (guard.blocked) {
+          // Resposta única de acolhimento pós-ponte Site → WhatsApp:
+          // O template `fagner_site_continuacao_v1` pergunta explicitamente "Posso prosseguir por este número?"
+          // enquanto a conversa WhatsApp já nasce em `awaiting_approval`. Quando o cliente responde ("Pode sim"),
+          // enviamos 1 única confirmação curta idempotente sem sair de `awaiting_approval` e sem chamar IA.
+          if (
+            guard.reason === "awaiting_approval" &&
+            flowState &&
+            flowMetaCheck.siteWhatsappTemplateSent === true &&
+            !flowMetaCheck.siteBridgeAckSent &&
+            !isSiteConversationId(conversationId) &&
+            !convCheck?.operatorId &&
+            convCheck?.queueState === "automacao" &&
+            !signal?.aborted
+          ) {
+            try {
+              const ackRes = await sendSdrChannelText({
+                tenantId,
+                conversationId,
+                phone: contactPhone,
+                text: "Perfeito! Confirmação recebida por aqui. Nossa equipe já está com todos os detalhes da sua triagem do site e dará continuidade em breve.",
+                idempotencyMessageId: `msg-site-bridge-ack-${flowState.id.slice(0, 36)}`,
+                expectedOperatorId: null,
+              });
+              if (ackRes.sent) {
+                await db
+                  .update(agentFlowStates)
+                  .set({
+                    lastInteractionAt: new Date(),
+                    metadata: {
+                      ...flowMetaCheck,
+                      siteBridgeAckSent: true,
+                      siteBridgeAckSentAt: new Date().toISOString(),
+                    },
+                  })
+                  .where(and(eq(agentFlowStates.tenantId, tenantId), eq(agentFlowStates.id, flowState.id)));
+                console.log(`[SdrEngine] ✅ Confirmação única pós-ponte Site→WhatsApp enviada em awaiting_approval (${conversationId}).`);
+              }
+            } catch (ackErr: any) {
+              console.warn(`[SdrEngine] Aviso ao enviar confirmação pós-ponte Site→WhatsApp (${conversationId}):`, ackErr?.message);
+            }
+          }
           console.log(`[SdrEngine] 🛑 TRAVA DE POSSE INDUSTRIAL ATIVA (${guard.reason}): Conversa ${conversationId} (Cliente ${contactPhone}, fila=${convCheck?.queueState || 'n/a'}, op=${convCheck?.operatorId || 'Não'}). ${aiPersona.name} SILENCIADO(A).`);
           return false;
         }
@@ -833,7 +874,15 @@ export class SdrEngine {
 - NÃO inclua 'CNPJ OU CPF' nem 'EMPRESA' em \`extractedData\`.
 - Informe o cliente com extrema simpatia humana que o CNPJ parece ter algum dígito faltando ou incorreto e peça a gentileza de conferir e enviar novamente.`;
         } else if (cnpjInfo.razaoSocial) {
-          cnpjDirective = `\n🟢 CNPJ VÁLIDO ENCONTRADO:
+          cnpjDirective = industrialTriage
+            ? `\n🟢 CNPJ VÁLIDO ENCONTRADO NA RECEITA FEDERAL (ENVIADO PELO PRÓPRIO CLIENTE):
+- CNPJ: ${cnpjInfo.cnpjFormatted}
+- Razão Social/Empresa: "${cnpjInfo.razaoSocial}" ${cnpjInfo.nomeFantasia ? `(Fantasia: ${cnpjInfo.nomeFantasia})` : ""}
+INSTRUÇÕES OBRIGATÓRIAS:
+1. Defina em \`extractedData\` o CNPJ OU CPF como "${cnpjInfo.cnpjFormatted}" e EMPRESA como "${cnpjInfo.razaoSocial}".
+2. Apenas confirme de forma afirmativa e natural que localizou o cadastro ("Cadastro localizado: ${cnpjInfo.razaoSocial}") — NÃO trave o atendimento esperando um novo "Sim" de confirmação quando o próprio cliente acabou de enviar o CNPJ.
+3. Se todos os demais campos do setor já estiverem preenchidos, conclua a triagem agora com \`isCompleted: true\` sem fazer novas perguntas. Se ainda faltar algum campo do setor, pergunte apenas o dado faltante.`
+            : `\n🟢 CNPJ VÁLIDO ENCONTRADO:
 - CNPJ: ${cnpjInfo.cnpjFormatted}
 - Razão Social/Empresa: "${cnpjInfo.razaoSocial}" ${cnpjInfo.nomeFantasia ? `(Fantasia: ${cnpjInfo.nomeFantasia})` : ""}
 INSTRUÇÕES OBRIGATÓRIAS:
@@ -854,7 +903,7 @@ INSTRUÇÕES OBRIGATÓRIAS:
       }
 
       const hasPendingCompanyConfirmation = Boolean(
-        (fetchedCnpjInfo?.valid && fetchedCnpjInfo?.razaoSocial) ||
+        (!industrialTriage && fetchedCnpjInfo?.valid && fetchedCnpjInfo?.razaoSocial) ||
           (knownClient && knownClientConfirmation === "pending"),
       );
       const isExplicitClientPhotoReqEarly = isExplicitMachinePhotoRequest(combinedBatchText);

@@ -23,14 +23,22 @@ export interface KnownClientProfile {
   source: "crm_account" | "contact_cnpj" | "contact_company" | "previous_triage";
 }
 
+const INTERNAL_DEAL_TITLE_PREFIX_PATTERN =
+  /^(?:fagner|valentina|sdr|lead|triagem|atendimento)\s*[|\-–—:]\s*/i;
+
+const CORPORATE_NAME_MARKER_PATTERN =
+  /\b(?:ltda|eireli|me|epp|s\/a|s\.a\.|sa|industria|comercio|distribuidora|alimentos|embalagens|produtos|servicos|solucoes|equipamentos|maquinas|metalurgica|plasticos|quimica|farmaceutica|cosmeticos|frigorifico|laticinios|supermercado|atacadista|atacado|importacao|exportacao|engenharia|tecnologia|automacao|grupo|holding|coop|cooperativa|fazenda|agro|agropecuaria|padaria|panificadora|confeitaria|sorveteria|acaiteria|lavanderia|hotel|restaurante|clinica|hospital|laboratorio|oficina|assistencia)\b/i;
+
 export function isValidKnownCompanyName(value?: string | null): boolean {
   if (typeof value !== "string") return false;
   const trimmed = value.trim();
   if (trimmed.length < 2) return false;
+  // Nunca vazar prefixos internos de título de card ("FAGNER | ...", "VALENTINA | ...") como razão social.
+  if (INTERNAL_DEAL_TITLE_PREFIX_PATTERN.test(trimmed)) return false;
   const normalized = normalizeTriageText(trimmed);
   if (!normalized) return false;
   if (
-    /^(?:aguardando.*|nao informado|nao informada|pessoa fisica.*|vinculado ao cadastro|mantem.*|n\/a|nenhum|nenhuma|cliente|visitante|sem empresa|particular|autonomo)$/i.test(
+    /^(?:aguardando.*|nao informado|nao informada|pessoa fisica.*|vinculado ao cadastro|mantem.*|n\/a|nenhum|nenhuma|cliente|visitante|sem empresa|particular|autonomo|nao tenho|formulario contato|lead sem cadastro)$/i.test(
       normalized,
     )
   ) {
@@ -41,6 +49,19 @@ export function isValidKnownCompanyName(value?: string | null): boolean {
     return false;
   }
   return true;
+}
+
+export function looksLikePersonalNameUsedAsCompany(
+  companyName?: string | null,
+  contactName?: string | null,
+): boolean {
+  if (!companyName || !contactName) return false;
+  const normCompany = normalizeTriageText(companyName);
+  const normContact = normalizeTriageText(contactName);
+  if (!normCompany || !normContact) return false;
+  if (CORPORATE_NAME_MARKER_PATTERN.test(normCompany)) return false;
+  if (/^\d{2}\.\d{3}\.\d{3}\b/.test(companyName.trim())) return false; // MEI com CNPJ no nome
+  return normCompany === normContact;
 }
 
 export function isValidKnownContactName(value?: string | null): boolean {
@@ -196,6 +217,15 @@ export function buildKnownClientPromptDirective(params: {
 }): string {
   const { knownClient, confirmationStatus, currentData } = params;
   if (!knownClient || !isValidKnownCompanyName(knownClient.companyName)) {
+    return "";
+  }
+  // Evita perguntar "Sua empresa é a Valdônio/André Silva/luid, certo?" quando o cadastro
+  // salvou apenas o próprio nome pessoal do contato no campo de empresa sem marcador empresarial.
+  if (
+    confirmationStatus === "pending" &&
+    !knownClient.document &&
+    looksLikePersonalNameUsedAsCompany(knownClient.companyName, knownClient.contactName)
+  ) {
     return "";
   }
 

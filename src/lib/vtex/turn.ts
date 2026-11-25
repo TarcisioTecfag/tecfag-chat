@@ -47,12 +47,28 @@ function extractStoreProductUrl(text: string, siteContext: unknown): string | un
   return undefined;
 }
 
+function extractSkuIdFromStoreUrl(rawUrl?: string): string | undefined {
+  if (!rawUrl) return undefined;
+  try {
+    const parsed = new URL(rawUrl);
+    const idsku = parsed.searchParams.get("idsku") || parsed.searchParams.get("skuId");
+    return idsku && /^\d{1,10}$/.test(idsku.trim()) ? idsku.trim() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+const PURE_BRAZILIAN_DOCUMENT_PATTERN =
+  /^\s*(?:(?:meu\s+|numero\s+d[eo]\s+)?(?:cpf|cnpj)\s*[:#-]?\s*)?(?:\d{11}|\d{14}|\d{3}\.\d{3}\.\d{3}-\d{2}|\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})\s*[.!]?\s*$/i;
+
 export function deriveVtexQuery(
   text: string,
   siteContext: unknown,
   previous?: { selectedSkuId?: string | null; status?: string },
 ) {
   if (requestsHuman(text)) return null;
+  // CPF (11 dígitos) ou CNPJ (14 dígitos) nunca devem ser interpretados como SKU/consulta de loja.
+  if (PURE_BRAZILIAN_DOCUMENT_PATTERN.test(text)) return null;
   const route = resolveIndustrialRoute({ text, collectedData: {} });
   if (["financeiro", "assistencia_tecnica", "pos_venda"].includes(route.funnelStage)) return null;
   const normalized = text
@@ -64,9 +80,10 @@ export function deriveVtexQuery(
   const availability = /\b(?:estoque|disponibilidade|disponivel|pronta entrega)\b/.test(normalized);
   const product = readSiteContext(siteContext)?.product;
   const postal = text.match(/\b\d{5}-?\d{3}\b/)?.[0];
+  // Escolha numérica após `choices` aceita apenas SKUs curtos (1 a 7 dígitos), nunca CEP (8), CPF (11) ou CNPJ (14).
   const sku =
-    text.match(/\bsku\s*[:#-]?\s*(\d{1,20})\b/i)?.[1] ||
-    (previous?.status === "choices" ? text.match(/^\s*(\d{1,20})\s*$/)?.[1] : undefined);
+    text.match(/\bsku\s*[:#-]?\s*(\d{1,10})\b/i)?.[1] ||
+    (previous?.status === "choices" ? text.match(/^\s*(\d{1,7})\s*$/)?.[1] : undefined);
   const url = extractStoreProductUrl(text, siteContext);
   const postalReply = postal && previous?.selectedSkuId && /^\s*\d{5}-?\d{3}[.!]?\s*$/.test(text);
   const hasStoreContext = Boolean(product || sku || url || previous?.selectedSkuId);
@@ -83,8 +100,14 @@ export function deriveVtexQuery(
         .replace(/[\u0300-\u036f]/g, "")
         .toLowerCase()
     : "";
+  const isCommercialPaymentTerm =
+    Boolean(normalizedNamed) &&
+    /^(?:(?:o|a|os|as|no|na|nos|nas|em|de|do|da|dos|das|para|pra|com|sem|pelo|pela)\s+)*(?:pix|a\s*vista|avista|cartao(?:\s+de\s+credito)?|credito|debito|boleto|parcela(?:do|mento|s)?|\d+x(?:\s+sem\s+juros)?|juros|entrada|financiamento|desconto|promocao|oferta|black\s*friday|frete|entrega|prazo|proposta|orcamento|cotacao|negociacao|condic(?:ao|oes)|pagamento|compra|venda|envio|retirada|estoque|disponibilidade)(?:\s+(?:sem\s+juros|no\s+pix|a\s*vista|no\s+cartao|no\s+boleto|de\s+black\s*friday|com\s+desconto|em\s+\d+x))*$/i.test(
+      normalizedNamed,
+    );
   const generic =
     !normalizedNamed ||
+    isCommercialPaymentTerm ||
     /^(?:(?:d?ess[ea]s?|d?est[ea]s?|aquel[ea]s?|o|a|os|as|n?ess[ea]s?|n?est[ea]s?)\s+)*(?:produto|modelo|item|m[aá]quina|equipamento|seladora|envasadora|dosadora)?s?(?:\s*(?:acima|abaixo|anterior(?:es)?|citad[oa]s?|mencionad[oa]s?|informad[oa]s?|enviad[oa]s?|descrit[oa]s?|pedid[oa]s?|solicitad[oa]s?|aqui|dela|dele|deles|delas))*$/i.test(
       normalizedNamed,
     ) ||
@@ -101,10 +124,11 @@ export function deriveVtexQuery(
         normalized,
       ));
   if (!shipping && !price && !detail && !sku && !url && !postalReply) return null;
+  const urlSkuId = extractSkuIdFromStoreUrl(url);
   let query: VtexQuery | null = sku
     ? { kind: "sku", value: sku, quantity: 1 }
     : url
-      ? { kind: "url", value: url, quantity: 1 }
+      ? { kind: "url", value: url, ...(urlSkuId ? { skuId: urlSkuId } : {}), quantity: 1 }
       : null;
   // Um produto novo nomeado na mensagem não pode herdar silenciosamente o SKU anterior.
   if (!query && hasNamedProduct && named)
@@ -352,12 +376,23 @@ export function blockedVtexAnswer(channel: VtexChannel, intent: "price" | "shipp
 }
 /** Valores comerciais só podem vir de um balão composto pelo servidor com consulta atual. */
 export function guardVtexMessages(messages: string[], allowed: readonly string[] = []) {
-  const commercial =
-    /R\$|\breais\b|\b(?:custa|custam|desconto)\b|\b(?:pre[cç]o|valor)\b.{0,40}\d|\bfrete\s+gr[aá]tis|\b(?:temos|tem|h[aá]|est[aá]|produto)\b.{0,25}\b(?:estoque|dispon[ií]vel|pronta entrega)\b|\b(?:entrega|chega|prazo)\b.{0,30}(?:\d+\s*(?:dias?|horas?|h\b|bd\b)|amanh[aã]|hoje|semana)/i;
+  const hardCommercial =
+    /R\$|\breais\b|\b(?:custa|custam)\b|\b(?:pre[cç]o|valor)\b.{0,40}\d|\b(?:desconto\s+de\s+\d|\d+\s*%\s*(?:de\s+)?desconto|\bdesconto\b.{0,20}\d+\s*%)|\bfrete\s+gr[aá]tis|\b(?:entrega|chega|prazo)\b.{0,30}(?:\d+\s*(?:dias?|horas?|h\b|bd\b)|amanh[aã]|hoje|semana)/i;
+  const stockClaim =
+    /\b(?:temos|tem|h[aá]|est[aá]|produto)\b.{0,25}\b(?:estoque|dispon[ií]vel|pronta entrega)\b/i;
+  const nonStockAvailability =
+    /\b(?:n[aã]o\s+(?:tenho|temos|est[aá]|h[aá]|possuo|possu[ií]mos)\b.{0,35}\b(?:dispon[ií]vel|estoque|pronta entrega)|(?:foto|fotos|v[ií]deo|v[ií]deos|imagem|imagens|cat[aá]logo|manual|material|atendente|especialista|consultor|equipe)\b.{0,25}\bdispon[ií]vel|(?:equipe|especialista|consultor|setor)\b.{0,35}\b(?:confirma|verifica|confere|informa|passa|valida)\b.{0,35}\b(?:estoque|dispon[ií]vel|disponibilidade|pronta entrega|desconto|condi[cç][oõ]es))/i;
+
+  const isUnauthorizedCommercial = (message: string) => {
+    if (hardCommercial.test(message)) return true;
+    if (stockClaim.test(message) && !nonStockAvailability.test(message)) return true;
+    return false;
+  };
+
   return [
     ...new Set(
       messages.map((message) =>
-        commercial.test(message) && !allowed.includes(message)
+        isUnauthorizedCommercial(message) && !allowed.includes(message)
           ? "Preço, disponibilidade e prazo precisam ser confirmados na consulta da loja ou pela equipe responsável."
           : message,
       ),

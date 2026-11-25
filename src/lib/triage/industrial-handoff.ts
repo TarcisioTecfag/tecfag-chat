@@ -80,8 +80,19 @@ export function isRedundantIndustrialClosingMessage(text: string): boolean {
   return false;
 }
 
+export function isPrematureIndustrialHandoffBubble(text: string): boolean {
+  const clean = String(text || "").trim();
+  if (!clean) return false;
+  // Uma pergunta legítima de coleta que apenas explica o motivo ("Para que o especialista possa...")
+  // não é promessa falsa de encaminhamento, salvo se alegar ação já executada pelo servidor.
+  if (clean.includes("?") && !INDUSTRIAL_FALSE_SYSTEM_CLAIM_PATTERN.test(clean)) {
+    return false;
+  }
+  return INDUSTRIAL_CLAIMS_EFFECT_PATTERN.test(clean);
+}
+
 export function claimsIndustrialHandoffEffect(messages: readonly string[]): boolean {
-  return messages.some((text) => INDUSTRIAL_CLAIMS_EFFECT_PATTERN.test(String(text || "")));
+  return messages.some((text) => isPrematureIndustrialHandoffBubble(String(text || "")));
 }
 export interface IndustrialHandoffResult {
   status: IndustrialHandoffStatus;
@@ -254,9 +265,36 @@ export function industrialClientMessages(params: {
     application: "O que você produz ou pretende embalar?",
     production: "Qual é o volume aproximado da sua produção?",
   };
+  // Filtragem cirúrgica por balão: remove APENAS o(s) balão(ões) com promessa prematura de
+  // encaminhamento, preservando integralmente empatia, respostas técnicas e perguntas contextuais
+  // já geradas pela IA (evitando destruir a conversa com 1 frase seca fora de contexto).
+  const safeBubbles = params.messages
+    .map((m) => String(m || "").trim())
+    .filter((m) => Boolean(m) && !isPrematureIndustrialHandoffBubble(m));
+
+  if (safeBubbles.length > 0) {
+    const alreadyAsksQuestion = safeBubbles.some((m) => m.includes("?"));
+    if (alreadyAsksQuestion || !next) {
+      return safeBubbles;
+    }
+    return [...safeBubbles, questions[next]];
+  }
+
+  if (next) {
+    return [questions[next]];
+  }
+
+  // Durante `collecting` sem campo pendente mapeado (ex.: subflow ainda indefinido),
+  // NUNCA emitir frase fantasma afirmando que "as informações estão registradas e a equipe dará continuidade".
+  const hasCollectedNeed = Boolean(
+    params.data["MÁQUINA / PEÇA / INTERESSE"]?.value?.trim() ||
+      params.data["SOLICITAÇÃO"]?.value?.trim() ||
+      params.data["ASSUNTO"]?.value?.trim() ||
+      params.data["NECESSIDADE"]?.value?.trim(),
+  );
   return [
-    next
-      ? questions[next]
-      : "As informações do atendimento estão registradas. A equipe responsável poderá dar continuidade por aqui.",
+    hasCollectedNeed
+      ? "Para darmos sequência ao seu atendimento, pode me confirmar mais detalhes da sua solicitação?"
+      : "Como posso te ajudar hoje? Você busca uma máquina nova, peças de reposição ou precisa de assistência técnica?",
   ];
 }
