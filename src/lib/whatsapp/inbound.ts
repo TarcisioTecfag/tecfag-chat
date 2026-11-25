@@ -315,6 +315,22 @@ export class InboundProcessor {
             .catch(() => {});
         }
 
+        // ── Cancelamento imediato de templates RD Marketing agendados com atraso ──
+        if (msg && conv && msg.senderType === "client" && (msg.metaDetails as any)?.metaMessageType !== "system") {
+          void import("../rd-marketing/scheduled-template-dispatch")
+            .then(({ cancelPendingRdScheduledTemplatesOnClientMessage }) =>
+              cancelPendingRdScheduledTemplatesOnClientMessage({
+                tenantId,
+                contactId: conv.contactId,
+                conversationId: redirectedDedicatedConv?.id || conv.id,
+                messageAt: msg.sentAt ? new Date(msg.sentAt) : inbound.timestamp,
+              }),
+            )
+            .catch((err) =>
+              console.warn("[Inbound/RD Scheduled Template] Aviso ao cancelar agendamento:", err),
+            );
+        }
+
         // ── Acionamento do SDR (Fagner / Valentina) para mensagens da Meta Cloud API ──
         if (inbound.provider === "meta" && isSdrTenant(tenantId) && conv && !redirectedDedicatedConv) {
           void this.handleMetaSdrIntegration(inbound, conv, result.messageId, Boolean((result as any).reopened)).catch(

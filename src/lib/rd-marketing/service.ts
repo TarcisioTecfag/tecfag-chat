@@ -4,6 +4,7 @@ import {
   dispatchRdSdrTemplatePostCommit,
   type RdTemplateDispatchJob,
 } from "./sdr-template-dispatch";
+import { scheduleRdSdrTemplatePostCommit } from "./scheduled-template-dispatch";
 import {
   acquireCwrContactLock,
   ensureCwrDealOnContacting,
@@ -56,6 +57,7 @@ import {
   flowSettingsSchema,
   mapLead,
   readPath,
+  resolveFlowTemplateDelay,
   type FlowSettings,
 } from "./mapping";
 import { extractDetailedConversionUtm } from "./attribution";
@@ -865,6 +867,7 @@ export async function receiveLeads(flow: Flow, payload: unknown) {
         message: dealActionMessage,
       });
       if (settings.whatsappTemplateId) {
+        const delayCfg = resolveFlowTemplateDelay(settings);
         templateJobs.push({
           tenantId,
           flowId: flow.id,
@@ -874,6 +877,8 @@ export async function receiveLeads(flow: Flow, payload: unknown) {
           clientName: contact.name,
           companyName: mapped.company.name ? String(mapped.company.name) : null,
           document: mapped.company.document ? String(mapped.company.document) : null,
+          delayEnabled: delayCfg.enabled,
+          delayMinutes: delayCfg.minutes,
         });
       }
       txOutcomes.push({ status: "created", dealId: deal.id });
@@ -907,12 +912,16 @@ export async function receiveLeads(flow: Flow, payload: unknown) {
       .catch(() => {});
   }
 
-  // Disparo pós-commit do template WhatsApp pelo Fagner/SDR + movimentação CONTATAR -> CONTATANDO no CWR
+  // Disparo pós-commit do template WhatsApp pelo SDR (imediato ou agendado com atraso condicional)
   for (const job of templateJobs) {
     try {
-      await dispatchRdSdrTemplatePostCommit(job);
+      if (job.delayEnabled) {
+        await scheduleRdSdrTemplatePostCommit(job);
+      } else {
+        await dispatchRdSdrTemplatePostCommit(job);
+      }
     } catch (err) {
-      console.error("[RD Marketing] Erro ao disparar template pós-commit:", err);
+      console.error("[RD Marketing] Erro ao disparar/agendar template pós-commit:", err);
     }
   }
 

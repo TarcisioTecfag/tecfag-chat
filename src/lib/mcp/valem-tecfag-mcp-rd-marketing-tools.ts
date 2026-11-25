@@ -13,7 +13,7 @@ import {
   rdMarketingSyncSettings,
 } from "../../db/schema";
 import { decodeFlowWebhookToken } from "../rd-marketing/api-crypto";
-import { extractLeads, readPath } from "../rd-marketing/mapping";
+import { extractLeads, readPath, resolveFlowTemplateDelay } from "../rd-marketing/mapping";
 import { extractDetailedConversionUtm } from "../rd-marketing/attribution";
 import type { McpToolDefinition } from "./valem-tecfag-mcp-write-tools";
 
@@ -229,7 +229,7 @@ export const MCP_RD_MARKETING_TOOLS: McpToolDefinition[] = [
         },
         status: {
           type: "string",
-          enum: ["created", "duplicate", "error", "queued", "diagnostic"],
+          enum: ["created", "duplicate", "warning", "scheduled", "cancelled", "error", "queued", "diagnostic"],
           description: "Filtra por status do log.",
         },
         includeDiagnostics: {
@@ -509,6 +509,7 @@ export async function executeRdMarketingMcpTool(
                   : {}),
               }
             : null,
+          whatsappTemplateDelay: resolveFlowTemplateDelay(settings),
           deduplication: settings.deduplication,
           eventIdPath: settings.eventIdPath,
           attributionConversion: settings.attributionConversion ?? "first",

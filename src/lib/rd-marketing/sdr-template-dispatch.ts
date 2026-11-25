@@ -36,6 +36,13 @@ export interface RdTemplateDispatchJob {
   clientName?: string | null;
   companyName?: string | null;
   document?: string | null;
+  delayEnabled?: boolean;
+  delayMinutes?: number;
+  dispatchContext?: {
+    delayedMinutes?: number;
+    manualTrigger?: boolean;
+    triggeredByOperatorName?: string | null;
+  };
 }
 
 export interface RdTemplateDispatchResult {
@@ -611,13 +618,21 @@ export async function dispatchRdSdrTemplatePostCommit(
       actorName: persona.name,
     });
 
+    const dispatchOriginSuffix = job.dispatchContext?.manualTrigger
+      ? job.dispatchContext.triggeredByOperatorName
+        ? ` manualmente por ${job.dispatchContext.triggeredByOperatorName}`
+        : " manualmente"
+      : job.dispatchContext?.delayedMinutes
+        ? ` após atraso de ${job.dispatchContext.delayedMinutes} min`
+        : "";
+
     await db.insert(rdMarketingLogs).values({
       id: crypto.randomUUID(),
       tenantId,
       flowId,
       status: "created",
       dealId,
-      message: `Template '${templateRow.name}' enviado pelo ${persona.name} (CWR: ${cwrResult.action}).`,
+      message: `Template '${templateRow.name}' enviado pelo ${persona.name}${dispatchOriginSuffix} (CWR: ${cwrResult.action}).`,
     });
 
     try {

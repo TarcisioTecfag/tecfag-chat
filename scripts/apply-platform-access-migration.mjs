@@ -341,6 +341,13 @@ const migrations = [
       import.meta.url,
     ),
   },
+  {
+    name: "0071_rd_marketing_scheduled_templates",
+    url: new URL(
+      "../src/db/migrations/0071_rd_marketing_scheduled_templates.sql",
+      import.meta.url,
+    ),
+  },
 ];
 const databaseUrl = process.env.DATABASE_URL;
 

@@ -589,6 +589,36 @@ export async function verifyDatabaseCompatibility(): Promise<void> {
         ON webhook_deliveries (status, next_retry_at);
       CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_tenant_created
         ON webhook_deliveries (tenant_id, created_at DESC);
+      CREATE TABLE IF NOT EXISTS rd_marketing_scheduled_templates (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+        flow_id TEXT NOT NULL REFERENCES rd_marketing_flows(id) ON DELETE CASCADE,
+        deal_id TEXT NOT NULL,
+        contact_id TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+        whatsapp_template_id TEXT NOT NULL,
+        client_name TEXT,
+        company_name TEXT,
+        document TEXT,
+        delay_minutes INTEGER NOT NULL DEFAULT 5,
+        status TEXT NOT NULL DEFAULT 'pending',
+        scheduled_for TIMESTAMP NOT NULL,
+        triggered_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        processed_at TIMESTAMP,
+        cancel_reason TEXT,
+        lease_token TEXT,
+        lease_until TIMESTAMP,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        last_error TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_rd_sched_tpl_due
+        ON rd_marketing_scheduled_templates (tenant_id, status, scheduled_for);
+      CREATE INDEX IF NOT EXISTS idx_rd_sched_tpl_contact_status
+        ON rd_marketing_scheduled_templates (tenant_id, contact_id, status);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_rd_sched_tpl_one_pending_per_contact
+        ON rd_marketing_scheduled_templates (tenant_id, contact_id)
+        WHERE status = 'pending';
     `);
     console.log("[db] ✓ Compatibilidade do schema verificada com sucesso.");
   } catch (e: any) {

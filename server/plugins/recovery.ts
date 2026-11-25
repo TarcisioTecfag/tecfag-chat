@@ -22,10 +22,20 @@ export default function recoveryPlugin(nitroApp: {
       const { whatsAppRecoveryService } = await import("../../src/lib/whatsapp/recovery.js");
       whatsAppRecoveryService.startRecoveryWorker(30000);
       const { runRdMarketingRecovery } = await import("../../src/lib/rd-marketing/inbox.js");
-      const run = () =>
-        runRdMarketingRecovery().catch(() =>
+      const { runRdScheduledTemplateWorker } = await import(
+        "../../src/lib/rd-marketing/scheduled-template-dispatch.js"
+      );
+      const run = () => {
+        void runRdMarketingRecovery().catch(() =>
           console.error("[RecoveryPlugin] Falha na recuperação RD; eventos preservados."),
         );
+        void runRdScheduledTemplateWorker().catch((err) =>
+          console.error(
+            "[RecoveryPlugin] Falha no worker de templates agendados RD:",
+            err instanceof Error ? err.message : err,
+          ),
+        );
+      };
       void run();
       const timer = setInterval(run, 15_000);
       timer.unref();

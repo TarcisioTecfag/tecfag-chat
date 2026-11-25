@@ -327,6 +327,48 @@ export const rdMarketingEvents = pgTable(
   }),
 );
 
+// Fila durável de templates WhatsApp agendados com atraso condicional nos fluxos RD Marketing.
+export const rdMarketingScheduledTemplates = pgTable(
+  "rd_marketing_scheduled_templates",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id")
+      .references(() => tenants.id, { onDelete: "cascade" })
+      .notNull(),
+    flowId: text("flow_id")
+      .references(() => rdMarketingFlows.id, { onDelete: "cascade" })
+      .notNull(),
+    dealId: text("deal_id").notNull(),
+    contactId: text("contact_id")
+      .references(() => contacts.id, { onDelete: "cascade" })
+      .notNull(),
+    whatsappTemplateId: text("whatsapp_template_id").notNull(),
+    clientName: text("client_name"),
+    companyName: text("company_name"),
+    document: text("document"),
+    delayMinutes: integer("delay_minutes").default(5).notNull(),
+    status: text("status").default("pending").notNull(), // 'pending' | 'processing' | 'sent' | 'cancelled' | 'failed'
+    scheduledFor: timestamp("scheduled_for").notNull(),
+    triggeredAt: timestamp("triggered_at").defaultNow().notNull(),
+    processedAt: timestamp("processed_at"),
+    cancelReason: text("cancel_reason"),
+    leaseToken: text("lease_token"),
+    leaseUntil: timestamp("lease_until"),
+    attempts: integer("attempts").default(0).notNull(),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => ({
+    dueIdx: index("idx_rd_sched_tpl_due").on(table.tenantId, table.status, table.scheduledFor),
+    contactStatusIdx: index("idx_rd_sched_tpl_contact_status").on(
+      table.tenantId,
+      table.contactId,
+      table.status,
+    ),
+  }),
+);
+
 // ─── 2.5. GRUPOS DE ACESSO (RBAC) ───────────────────────────────────────────
 export const accessGroups = pgTable("access_groups", {
   id: text("id").primaryKey(),

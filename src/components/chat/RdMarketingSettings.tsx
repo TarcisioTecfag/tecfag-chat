@@ -38,6 +38,8 @@ import {
   FileText,
   Send,
   Wrench,
+  Timer,
+  Ban,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
@@ -50,13 +52,17 @@ import {
   availablePaths,
   attributionForLead,
   conversionForLead,
+  DEFAULT_RD_TEMPLATE_DELAY_MINUTES,
   defaultMappings,
   extractLeads,
+  MAX_RD_TEMPLATE_DELAY_MINUTES,
+  MIN_RD_TEMPLATE_DELAY_MINUTES,
   mappingSourceAlternatives,
   standardTargets,
   type FlowSettings,
   type Mapping,
 } from "@/lib/rd-marketing/mapping";
+import { getAiPersona } from "@/lib/ai-persona";
 import { rememberRdMarketingFlow, restoreRdMarketingFlow } from "@/lib/rd-marketing/selection";
 import { RdMarketingDiagnostics } from "./RdMarketingDiagnostics";
 import { RdMarketingConnection } from "./RdMarketingConnection";
@@ -127,6 +133,23 @@ type PendingTemplateDispatch = {
   flowTemplateStatus: "approved" | "auto_healable" | "missing";
   resolvedTemplateId: string | null;
   resolvedTemplateName: string | null;
+};
+
+type ScheduledTemplateDispatch = {
+  id: string;
+  flowId: string;
+  flowName: string;
+  dealId: string;
+  dealTitle: string | null;
+  contactId: string;
+  contactName: string;
+  contactPhone: string | null;
+  whatsappTemplateId: string;
+  templateName: string | null;
+  delayMinutes: number;
+  status: string;
+  scheduledFor: string;
+  triggeredAt: string;
 };
 
 interface CustomSelectOption {
@@ -346,6 +369,9 @@ const blank = (): FlowSettings => ({
   operatorId: null,
   deduplication: "event",
   eventIdPath: "rd_conversion.id",
+  whatsappTemplateId: null,
+  whatsappTemplateDelayEnabled: false,
+  whatsappTemplateDelayMinutes: DEFAULT_RD_TEMPLATE_DELAY_MINUTES,
   attributionConversion: "last",
   campaignFromFlow: false,
   requireAttribution: true,
@@ -422,6 +448,7 @@ const QUICK_RD_FIELDS = [
 ];
 
 export function RdMarketingSettings({ tenant }: { tenant: string }) {
+  const aiPersona = useMemo(() => getAiPersona(tenant), [tenant]);
   const [flows, setFlows] = useState<Flow[]>([]);
   const [logs, setLogs] = useState<Log[]>([]);
   const [events, setEvents] = useState<InboxEvent[]>([]);
@@ -431,6 +458,11 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
   const [pendingTemplateDispatches, setPendingTemplateDispatches] = useState<
     PendingTemplateDispatch[]
   >([]);
+  const [scheduledTemplateDispatches, setScheduledTemplateDispatches] = useState<
+    ScheduledTemplateDispatch[]
+  >([]);
+  const [actingScheduleId, setActingScheduleId] = useState<string | null>(null);
+  const [nowTick, setNowTick] = useState(() => Date.now());
   const [repairingTemplates, setRepairingTemplates] = useState(false);
   const [dispatchingDealId, setDispatchingDealId] = useState<string | null>(null);
   const [dispatchingAll, setDispatchingAll] = useState(false);
@@ -465,6 +497,9 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
       setPendingTemplateDispatches(
         Array.isArray(data.pendingTemplateDispatches) ? data.pendingTemplateDispatches : [],
       );
+      setScheduledTemplateDispatches(
+        Array.isArray(data.scheduledTemplateDispatches) ? data.scheduledTemplateDispatches : [],
+      );
     }
     return data as {
       flows: Flow[];
@@ -473,6 +508,7 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
       metaTemplates: Record<string, any>;
       staleFlowTemplates?: StaleFlowTemplate[];
       pendingTemplateDispatches?: PendingTemplateDispatch[];
+      scheduledTemplateDispatches?: ScheduledTemplateDispatch[];
     };
   }
 
@@ -484,6 +520,7 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
     setEvents([]);
     setStaleFlowTemplates([]);
     setPendingTemplateDispatches([]);
+    setScheduledTemplateDispatches([]);
     setId("");
     setForm(blank());
     setUrl("");
@@ -583,6 +620,58 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
     } finally {
       setDispatchingDealId(null);
       setDispatchingAll(false);
+    }
+  }
+
+  useEffect(() => {
+    if (scheduledTemplateDispatches.length === 0) return;
+    const timer = window.setInterval(() => {
+      setNowTick(Date.now());
+    }, 10_000);
+    return () => window.clearInterval(timer);
+  }, [scheduledTemplateDispatches.length]);
+
+  async function handleCancelScheduledTemplate(scheduleId: string) {
+    setActingScheduleId(scheduleId);
+    try {
+      const response = await fetch("/api/settings/rd-marketing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "cancel_scheduled_template", scheduleId }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Falha ao cancelar agendamento.");
+      toast.success("Agendamento cancelado com sucesso.");
+      await load();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Erro ao cancelar agendamento.");
+    } finally {
+      setActingScheduleId(null);
+    }
+  }
+
+  async function handleSendScheduledTemplateNow(scheduleId: string) {
+    setActingScheduleId(scheduleId);
+    try {
+      const response = await fetch("/api/settings/rd-marketing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "send_scheduled_template_now", scheduleId }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Falha ao disparar template.");
+      if (data.dispatched) {
+        toast.success(
+          `Template${data.templateName ? ` '${data.templateName}'` : ""} enviado imediatamente.`,
+        );
+      } else {
+        toast.warning(`Disparo não realizado (${data.reason || data.outcome || "bloqueado"}).`);
+      }
+      await load();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Erro ao disparar template.");
+    } finally {
+      setActingScheduleId(null);
     }
   }
 
@@ -735,20 +824,31 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
       },
     ];
     for (const f of flows) {
+      const delayActive = Boolean(
+        f.settings.whatsappTemplateId && f.settings.whatsappTemplateDelayEnabled,
+      );
+      const delayMins = f.settings.whatsappTemplateDelayMinutes ?? DEFAULT_RD_TEMPLATE_DELAY_MINUTES;
       list.push({
         value: f.id,
         label: f.settings.name || "Fluxo sem nome",
         icon: f.settings.enabled ? CheckCircle2 : PauseCircle,
         badge: (
-          <span
-            className={cn(
-              "px-2 py-0.5 rounded-full text-[10px] font-bold",
-              f.settings.enabled
-                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
-                : "bg-muted text-muted-foreground border border-border",
+          <span className="inline-flex items-center gap-1">
+            {delayActive && (
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">
+                Delay {delayMins}m
+              </span>
             )}
-          >
-            {f.settings.enabled ? "Ativo" : "Pausado"}
+            <span
+              className={cn(
+                "px-2 py-0.5 rounded-full text-[10px] font-bold",
+                f.settings.enabled
+                  ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                  : "bg-muted text-muted-foreground border border-border",
+              )}
+            >
+              {f.settings.enabled ? "Ativo" : "Pausado"}
+            </span>
           </span>
         ),
         tooltip: f.settings.enabled
@@ -1383,7 +1483,12 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
               </div>
               <CustomSelect
                 value={form.whatsappTemplateId || ""}
-                onChange={(val) => change({ whatsappTemplateId: val || null })}
+                onChange={(val) =>
+                  change({
+                    whatsappTemplateId: val || null,
+                    ...(val ? {} : { whatsappTemplateDelayEnabled: false }),
+                  })
+                }
                 options={templateOptionsList}
                 placeholder="Selecione um template..."
                 tooltip="Template aprovado pela Meta que será enviado ao cliente"
@@ -1401,6 +1506,94 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
                     <p className="opacity-90">
                       Selecione um template aprovado acima e salve o fluxo para reativar os disparos automáticos.
                     </p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Atraso Condicional do Template WhatsApp */}
+            <div className="space-y-2 rounded-2xl bg-muted/30 border border-border/80 p-3.5 flex flex-col justify-between">
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-1.5">
+                    <Timer className="h-3.5 w-3.5 text-primary shrink-0" />
+                    <span className="text-xs font-bold text-foreground">
+                      Atraso condicional antes do disparo
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    {form.whatsappTemplateId
+                      ? form.whatsappTemplateDelayEnabled
+                        ? `Aguarda ${form.whatsappTemplateDelayMinutes ?? DEFAULT_RD_TEMPLATE_DELAY_MINUTES} min após o webhook. Se o cliente mandar mensagem no WhatsApp nesse período (ou já tiver conversa ativa), o template é cancelado; se não mandar, envia como ativo e aciona ${aiPersona.name} quando responder.`
+                        : "Desativado: o template é enviado instantaneamente ao receber o webhook."
+                      : "Selecione um template WhatsApp ao lado para habilitar o atraso condicional."}
+                  </p>
+                </div>
+
+                <SystemTooltip
+                  content={
+                    !form.whatsappTemplateId
+                      ? "Selecione primeiro um template aprovado pela Meta"
+                      : form.whatsappTemplateDelayEnabled
+                        ? "Desativar atraso (voltar ao envio imediato). Não altera a URL do webhook."
+                        : "Ativar espera antes de enviar o template (cancela se o cliente mandar mensagem antes). Não altera a URL do webhook."
+                  }
+                >
+                  <div className="flex items-center pt-0.5 shrink-0">
+                    <Switch
+                      disabled={!form.whatsappTemplateId}
+                      checked={Boolean(form.whatsappTemplateId && form.whatsappTemplateDelayEnabled)}
+                      onCheckedChange={(checked) =>
+                        change({
+                          whatsappTemplateDelayEnabled: checked,
+                          whatsappTemplateDelayMinutes:
+                            form.whatsappTemplateDelayMinutes ?? DEFAULT_RD_TEMPLATE_DELAY_MINUTES,
+                        })
+                      }
+                      aria-label="Ativar atraso condicional para envio do template"
+                    />
+                  </div>
+                </SystemTooltip>
+              </div>
+
+              {form.whatsappTemplateId && form.whatsappTemplateDelayEnabled && (
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-border/60">
+                  <label className="text-[11px] font-bold text-foreground flex items-center gap-1.5">
+                    <Clock className="h-3.5 w-3.5 text-sky-500" />
+                    Tempo de espera (minutos)
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <SystemTooltip
+                      content={`Informe entre ${MIN_RD_TEMPLATE_DELAY_MINUTES} e ${MAX_RD_TEMPLATE_DELAY_MINUTES} minutos (padrão: ${DEFAULT_RD_TEMPLATE_DELAY_MINUTES} min)`}
+                    >
+                      <input
+                        type="number"
+                        aria-label="Tempo de atraso em minutos"
+                        min={MIN_RD_TEMPLATE_DELAY_MINUTES}
+                        max={MAX_RD_TEMPLATE_DELAY_MINUTES}
+                        step={1}
+                        value={
+                          form.whatsappTemplateDelayMinutes ?? DEFAULT_RD_TEMPLATE_DELAY_MINUTES
+                        }
+                        onChange={(e) => {
+                          const raw = Number(e.target.value);
+                          if (!Number.isFinite(raw)) {
+                            change({
+                              whatsappTemplateDelayMinutes: DEFAULT_RD_TEMPLATE_DELAY_MINUTES,
+                            });
+                            return;
+                          }
+                          change({
+                            whatsappTemplateDelayMinutes: Math.max(
+                              MIN_RD_TEMPLATE_DELAY_MINUTES,
+                              Math.min(MAX_RD_TEMPLATE_DELAY_MINUTES, Math.trunc(raw)),
+                            ),
+                          });
+                        }}
+                        className="w-20 h-8 rounded-xl border border-border bg-background px-2.5 text-xs font-bold text-center text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+                      />
+                    </SystemTooltip>
+                    <span className="text-[11px] font-semibold text-muted-foreground">min</span>
                   </div>
                 </div>
               )}
@@ -2094,6 +2287,146 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
 
       {id && <RdMarketingDiagnostics tenant={tenant} flowId={id} />}
 
+      {/* 7.2. CARD: TEMPLATES AGENDADOS (AGUARDANDO JANELA DE RESPOSTA DO CLIENTE) */}
+      {scheduledTemplateDispatches.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.25, delay: 0.18 }}
+          className="rounded-3xl border border-sky-500/30 bg-sky-500/5 p-6 shadow-soft space-y-4"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-sky-500/20 pb-4">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-sky-500/15 text-sky-600 dark:text-sky-400">
+                <Timer className="h-4 w-4" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h4 className="text-sm font-extrabold text-foreground">
+                    Templates Agendados (Aguardando Mensagem do Cliente)
+                  </h4>
+                  <Badge
+                    variant="secondary"
+                    className="text-[10px] font-bold bg-sky-500/15 text-sky-700 dark:text-sky-300 border border-sky-500/25"
+                  >
+                    {scheduledTemplateDispatches.length} na fila
+                  </Badge>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Se o cliente enviar mensagem no WhatsApp antes do horário previsto, o disparo é
+                  cancelado automaticamente.
+                </p>
+              </div>
+            </div>
+
+            <SystemTooltip content="Atualizar fila de templates agendados">
+              <button
+                type="button"
+                disabled={busy || refreshingLogs}
+                onClick={handleRefreshLogs}
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-foreground bg-background/80 hover:bg-muted border border-border px-3 py-1.5 rounded-xl transition-all cursor-pointer"
+              >
+                <RefreshCw
+                  className={cn("h-3.5 w-3.5 text-sky-500", refreshingLogs && "animate-spin")}
+                />
+                Atualizar
+              </button>
+            </SystemTooltip>
+          </div>
+
+          <div className="space-y-2">
+            {scheduledTemplateDispatches.map((item) => {
+              const isActing = actingScheduleId === item.id;
+              const isProcessing = item.status === "processing";
+              const scheduledMs = new Date(item.scheduledFor).getTime();
+              const remainingSec = Math.max(0, Math.ceil((scheduledMs - nowTick) / 1000));
+              const remainingLabel = isProcessing
+                ? "Enviando..."
+                : remainingSec <= 0
+                  ? "Disparando em instantes"
+                  : remainingSec < 60
+                    ? `em ${remainingSec}s`
+                    : `em ${Math.ceil(remainingSec / 60)} min`;
+              const scheduledTimeShort = formatFullDate(item.scheduledFor).split(" ")[1] || "";
+
+              return (
+                <div
+                  key={item.id}
+                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 rounded-2xl border border-border bg-card/85 px-3.5 py-2.5 text-xs"
+                >
+                  <div className="min-w-0 space-y-0.5">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-bold text-foreground">{item.contactName}</span>
+                      {item.contactPhone && (
+                        <Badge variant="outline" className="text-[10px] font-mono">
+                          {item.contactPhone}
+                        </Badge>
+                      )}
+                      <Badge
+                        variant="secondary"
+                        className="text-[10px] font-bold bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/20"
+                      >
+                        <Clock className="h-2.5 w-2.5 mr-1" />
+                        {remainingLabel}
+                        {scheduledTimeShort ? ` · previsto ${scheduledTimeShort.slice(0, 5)}` : ""}
+                      </Badge>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      Fluxo: <span className="font-semibold text-foreground">{item.flowName}</span>{" "}
+                      · Template:{" "}
+                      <span className="font-semibold text-sky-600 dark:text-sky-400">
+                        {item.templateName || item.whatsappTemplateId}
+                      </span>{" "}
+                      · Atraso: {item.delayMinutes} min
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <SystemTooltip content={`Abrir negociação ${item.dealTitle || item.dealId} no CRM`}>
+                      <a
+                        href={`/crm/deals/${item.dealId}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 rounded-xl border border-border bg-muted/50 hover:bg-muted px-2.5 py-1.5 text-[11px] font-bold text-foreground"
+                      >
+                        Card
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    </SystemTooltip>
+                    <SystemTooltip content="Disparar este template agora sem aguardar o restante do atraso">
+                      <button
+                        type="button"
+                        disabled={isActing || isProcessing || busy}
+                        onClick={() => handleSendScheduledTemplateNow(item.id)}
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground px-3 py-1.5 text-[11px] font-bold transition-all cursor-pointer disabled:opacity-50"
+                      >
+                        {isActing ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Send className="h-3 w-3" />
+                        )}
+                        Enviar agora
+                      </button>
+                    </SystemTooltip>
+                    <SystemTooltip content="Cancelar este envio agendado (o template não será enviado)">
+                      <button
+                        type="button"
+                        disabled={isActing || isProcessing || busy}
+                        onClick={() => handleCancelScheduledTemplate(item.id)}
+                        className="inline-flex items-center gap-1 rounded-xl border border-border bg-background hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30 px-2.5 py-1.5 text-[11px] font-bold text-muted-foreground transition-all cursor-pointer disabled:opacity-50"
+                      >
+                        <Ban className="h-3 w-3" />
+                        Cancelar
+                      </button>
+                    </SystemTooltip>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </motion.div>
+      )}
+
       {/* 7.5. CARD: SAÚDE DOS TEMPLATES META & LEADS SEM DISPARO EM CONTATAR */}
       {(staleFlowTemplates.length > 0 || pendingTemplateDispatches.length > 0) && (
         <motion.div
@@ -2416,6 +2749,8 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
               const isDuplicate = log.status === "duplicate";
               const isWarning = log.status === "warning";
               const isQueued = log.status === "queued";
+              const isScheduled = log.status === "scheduled";
+              const isCancelled = log.status === "cancelled";
 
               return (
                 <div
@@ -2426,6 +2761,10 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
                     <div className="mt-0.5">
                       {isSuccess ? (
                         <CheckCircle className="h-4 w-4 text-emerald-500" />
+                      ) : isScheduled ? (
+                        <Timer className="h-4 w-4 text-sky-500" />
+                      ) : isCancelled ? (
+                        <Ban className="h-4 w-4 text-muted-foreground" />
                       ) : isDuplicate || isWarning ? (
                         <AlertTriangle className="h-4 w-4 text-amber-500" />
                       ) : isQueued ? (
@@ -2441,7 +2780,7 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
                           variant={
                             isSuccess
                               ? "default"
-                              : isDuplicate || isWarning || isQueued
+                              : isDuplicate || isWarning || isQueued || isScheduled || isCancelled
                                 ? "secondary"
                                 : "destructive"
                           }
@@ -2449,22 +2788,28 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
                             "text-[10px] font-bold",
                             isSuccess
                               ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
-                              : isDuplicate || isWarning
-                                ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
-                                : isQueued
-                                  ? "bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20"
-                                  : "bg-destructive/10 text-destructive border border-destructive/20",
+                              : isScheduled || isQueued
+                                ? "bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20"
+                                : isCancelled
+                                  ? "bg-muted text-muted-foreground border border-border"
+                                  : isDuplicate || isWarning
+                                    ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
+                                    : "bg-destructive/10 text-destructive border border-destructive/20",
                           )}
                         >
                           {isSuccess
-                            ? "Card Criado no CRM"
-                            : isDuplicate
-                              ? "Reenvio Ignorado"
-                              : isWarning
-                                ? "Aviso de Template"
-                                : isQueued
-                                  ? "Reprocessamento Solicitado"
-                                  : "Falha de Processamento"}
+                            ? "Card / Template OK"
+                            : isScheduled
+                              ? "Template Agendado"
+                              : isCancelled
+                                ? "Template Cancelado"
+                                : isDuplicate
+                                  ? "Reenvio Ignorado"
+                                  : isWarning
+                                    ? "Aviso de Template"
+                                    : isQueued
+                                      ? "Reprocessamento Solicitado"
+                                      : "Falha de Processamento"}
                         </Badge>
                         <span className="text-xs font-bold text-foreground">{flowName}</span>
                       </div>

@@ -31,6 +31,11 @@ import {
   resolveApprovedRdTemplate,
   retryPendingRdTemplateDispatches,
 } from "../../../lib/rd-marketing/sdr-template-dispatch";
+import {
+  cancelScheduledRdTemplateByOperator,
+  dispatchScheduledRdTemplateNow,
+  listScheduledRdTemplateDispatches,
+} from "../../../lib/rd-marketing/scheduled-template-dispatch";
 
 export const Route = createFileRoute("/api/settings/rd-marketing")({
   server: {
@@ -47,15 +52,23 @@ export const Route = createFileRoute("/api/settings/rd-marketing")({
           );
         try {
           const origin = new URL(request.url).origin;
-          const [data, options, events, metaTemplates, templateAudit, pendingTemplateDispatches] =
-            await Promise.all([
-              listFlows(tenantId, origin),
-              flowOptions(tenantId),
-              listRdEvents(tenantId),
-              getMetaTemplateLocalMetadataMap(tenantId),
-              inspectAndRepairRdFlowTemplates(tenantId, { applyAutoHeal: false }),
-              listPendingRdTemplateDispatches(tenantId),
-            ]);
+          const [
+            data,
+            options,
+            events,
+            metaTemplates,
+            templateAudit,
+            pendingTemplateDispatches,
+            scheduledTemplateDispatches,
+          ] = await Promise.all([
+            listFlows(tenantId, origin),
+            flowOptions(tenantId),
+            listRdEvents(tenantId),
+            getMetaTemplateLocalMetadataMap(tenantId),
+            inspectAndRepairRdFlowTemplates(tenantId, { applyAutoHeal: false }),
+            listPendingRdTemplateDispatches(tenantId),
+            listScheduledRdTemplateDispatches(tenantId),
+          ]);
           const approvedMetaTemplates = Object.fromEntries(
             Array.from(metaTemplates.entries()).filter(([, tpl]) => tpl.status === "APPROVED"),
           );
@@ -67,6 +80,7 @@ export const Route = createFileRoute("/api/settings/rd-marketing")({
               metaTemplates: approvedMetaTemplates,
               staleFlowTemplates: templateAudit.staleFlows,
               pendingTemplateDispatches,
+              scheduledTemplateDispatches,
             },
             { headers: { "Cache-Control": "no-store" } },
           );
@@ -126,6 +140,28 @@ export const Route = createFileRoute("/api/settings/rd-marketing")({
               ? body.dealIds.filter((v): v is string => typeof v === "string" && v.trim().length > 0)
               : undefined;
             const result = await retryPendingRdTemplateDispatches(tenantId, dealIds);
+            return Response.json(result, { headers: { "Cache-Control": "no-store" } });
+          }
+
+          if (body.action === "cancel_scheduled_template") {
+            if (typeof body.scheduleId !== "string" || !body.scheduleId.trim())
+              throw new CrmError("Informe o agendamento para cancelamento.", "BAD_REQUEST", 400);
+            const result = await cancelScheduledRdTemplateByOperator(
+              tenantId,
+              body.scheduleId.trim(),
+              session.operator.name || session.operator.id,
+            );
+            return Response.json(result, { headers: { "Cache-Control": "no-store" } });
+          }
+
+          if (body.action === "send_scheduled_template_now") {
+            if (typeof body.scheduleId !== "string" || !body.scheduleId.trim())
+              throw new CrmError("Informe o agendamento para disparo imediato.", "BAD_REQUEST", 400);
+            const result = await dispatchScheduledRdTemplateNow(
+              tenantId,
+              body.scheduleId.trim(),
+              session.operator.name || session.operator.id,
+            );
             return Response.json(result, { headers: { "Cache-Control": "no-store" } });
           }
 

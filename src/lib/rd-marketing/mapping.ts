@@ -47,6 +47,8 @@ export const flowSettingsSchema = z
     deduplication: z.enum(["lead", "event"]).default("event"),
     eventIdPath: safePath.default("rd_conversion.id"),
     whatsappTemplateId: z.string().nullable().optional(),
+    whatsappTemplateDelayEnabled: z.boolean().optional(),
+    whatsappTemplateDelayMinutes: z.number().int().min(1).max(1440).optional(),
     attributionConversion: z.enum(["first", "last"]).optional(),
     campaignFromFlow: z.boolean().optional(),
 
@@ -90,6 +92,26 @@ export const flowSettingsSchema = z
   });
 export type FlowSettings = z.infer<typeof flowSettingsSchema>;
 export type Mapping = FlowSettings["mappings"][number];
+export const DEFAULT_RD_TEMPLATE_DELAY_MINUTES = 5;
+export const MIN_RD_TEMPLATE_DELAY_MINUTES = 1;
+export const MAX_RD_TEMPLATE_DELAY_MINUTES = 1440;
+
+export function resolveFlowTemplateDelay(
+  settings?: Pick<
+    FlowSettings,
+    "whatsappTemplateDelayEnabled" | "whatsappTemplateDelayMinutes"
+  > | null,
+): { enabled: boolean; minutes: number } {
+  const enabled = Boolean(settings?.whatsappTemplateDelayEnabled);
+  const raw = Number(settings?.whatsappTemplateDelayMinutes);
+  const minutes = Number.isFinite(raw)
+    ? Math.max(
+        MIN_RD_TEMPLATE_DELAY_MINUTES,
+        Math.min(MAX_RD_TEMPLATE_DELAY_MINUTES, Math.trunc(raw)),
+      )
+    : DEFAULT_RD_TEMPLATE_DELAY_MINUTES;
+  return { enabled, minutes };
+}
 export const defaultMappings: Mapping[] = [
   { source: "name", target: "contact.name" },
   { source: "email", target: "contact.email" },
