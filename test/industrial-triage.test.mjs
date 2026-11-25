@@ -582,7 +582,7 @@ describe("transferência direta nominal por contexto (directOperatorRequest)", (
     assert.notEqual(normalRoute.reason, "human_requested");
   });
 
-  it("bloqueia transferência quando o nome citado não existe no sistema ou é homônimo ambíguo", () => {
+  it("para atendimento em revisão humana quando nome citado não existe no sistema e pergunta quando é homônimo ambíguo", () => {
     const notFound = resolveDirectOperatorRequest(
       {
         intent: "direct_transfer",
@@ -598,8 +598,18 @@ describe("transferência direta nominal por contexto (directOperatorRequest)", (
       collectedData: {},
       directOperator: notFound,
     });
-    assert.notEqual(routeAfterNotFound.reason, "direct_operator_requested");
-    assert.notEqual(routeAfterNotFound.reason, "human_requested");
+    assert.equal(routeAfterNotFound.reason, "direct_operator_not_found");
+    assert.equal(routeAfterNotFound.needsReview, true);
+    assert.equal(assessIndustrialReadiness(routeAfterNotFound, {}).ready, true);
+    assert.equal(
+      canFinishIndustrialTriage({
+        route: routeAfterNotFound,
+        data: {},
+        isCompleted: false,
+        hasPendingQuestion: false,
+      }),
+      true,
+    );
 
     const homonym = resolveDirectOperatorRequest(
       {
@@ -614,8 +624,8 @@ describe("transferência direta nominal por contexto (directOperatorRequest)", (
     assert.equal(homonym.homonyms.length, 2);
   });
 
-  it("transfere mesmo quando operador está ausente e avisa que está ausente no momento e em breve entrará em contato", () => {
-    const resolved = resolveDirectOperatorRequest(
+  it("pergunta se prefere outro consultor quando operador está ausente e transfere apenas após confirmação explícita", () => {
+    const firstAsk = resolveDirectOperatorRequest(
       {
         intent: "direct_transfer",
         citedName: "Jessica",
@@ -624,14 +634,27 @@ describe("transferência direta nominal por contexto (directOperatorRequest)", (
       },
       systemOperators,
     );
-    assert.equal(resolved.status, "matched");
-    assert.equal(resolved.operator?.id, "op-jessica-ausente");
-    assert.equal(resolved.operator?.isAbsent, true);
+    assert.equal(firstAsk.status, "operator_absent");
+    assert.equal(firstAsk.operator?.id, "op-jessica-ausente");
+    assert.equal(firstAsk.operator?.isAbsent, true);
+
+    const confirmed = resolveDirectOperatorRequest(
+      {
+        intent: "confirm_absent_transfer",
+        citedName: "Jessica",
+        matchedOperatorId: "op-jessica-ausente",
+        matchedOperatorName: "Jessica Oliveira",
+      },
+      systemOperators,
+    );
+    assert.equal(confirmed.status, "matched");
+    assert.equal(confirmed.operator?.id, "op-jessica-ausente");
+    assert.equal(confirmed.operator?.isAbsent, true);
 
     const directRoute = resolveIndustrialRoute({
-      text: "Preciso falar com a Jessica",
+      text: "Prefiro aguardar a Jessica mesmo",
       collectedData: {},
-      directOperator: resolved,
+      directOperator: confirmed,
     });
     const handoffResult = {
       status: "transferred",

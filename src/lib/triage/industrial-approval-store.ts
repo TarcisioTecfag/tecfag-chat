@@ -520,6 +520,7 @@ export async function prepareIndustrialApproval(
       missingFields: [],
       readyForHandoff: true,
       handoffStatus: "awaiting_approval",
+      handoffRequest: null,
       pendingApproval: suggestion,
       ...(input.machineDecision ? { machineDecision: input.machineDecision } : {}),
       ...(suggestion.dealId ? { localCrmDealId: suggestion.dealId } : {}),

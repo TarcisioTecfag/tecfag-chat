@@ -64,10 +64,11 @@ export async function deliverIndustrialPostCommit(
   };
   const client = async () => {
     if (!item.needClientConfirmation || !outbox.clientConfirmationText) return false;
-    const phone = await dependencies.getContactPhone(key.tenantId, key.conversationId);
+    const targetConversationId = result.targetConversationId || key.conversationId;
+    const phone = await dependencies.getContactPhone(key.tenantId, targetConversationId);
     const sent = await dependencies.sendText({
       tenantId: key.tenantId,
-      conversationId: key.conversationId,
+      conversationId: targetConversationId,
       phone,
       text: outbox.clientConfirmationText,
       idempotencyMessageId: deterministicIndustrialHandoffConfirmMessageId(

@@ -158,6 +158,8 @@ export interface SystemOperatorCandidate {
 }
 export type DirectOperatorIntent =
   | "direct_transfer"
+  | "confirm_absent_transfer"
+  | "offer_transfer"
   | "past_reference_only"
   | "ambiguous_homonym"
   | "not_found";
@@ -174,7 +176,14 @@ export interface DirectOperatorTarget {
   primaryFunnel: IndustrialFunnel | null;
 }
 export interface ResolvedDirectOperator {
-  status: "matched" | "past_reference_only" | "ambiguous_homonym" | "not_found" | "none";
+  status:
+    | "matched"
+    | "offer_transfer"
+    | "operator_absent"
+    | "past_reference_only"
+    | "ambiguous_homonym"
+    | "not_found"
+    | "none";
   citedName: string | null;
   operator: DirectOperatorTarget | null;
   homonyms?: Array<{ id: string; name: string; funnels: string[] }>;
@@ -191,6 +200,7 @@ export interface IndustrialRoute {
     | "unknown"
     | "human_requested"
     | "direct_operator_requested"
+    | "direct_operator_not_found"
     | "specialist_review"
     | "classification_pending";
   targetOperator?: DirectOperatorTarget | null;
@@ -458,9 +468,103 @@ function extractNameTokens(rawName: string): string[] {
     .filter((token) => token.length >= 2 && !STOPWORDS_PERSON_NAME.has(token));
 }
 
+function levenshteinWithinOne(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (Math.abs(a.length - b.length) > 1) return false;
+  let i = 0;
+  let j = 0;
+  let edits = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) {
+      i++;
+      j++;
+      continue;
+    }
+    edits++;
+    if (edits > 1) return false;
+    if (a.length > b.length) {
+      i++;
+    } else if (b.length > a.length) {
+      j++;
+    } else {
+      i++;
+      j++;
+    }
+  }
+  if (i < a.length || j < b.length) edits++;
+  return edits <= 1;
+}
+
+function tokenMatchesApproximately(citedToken: string, opToken: string): boolean {
+  if (citedToken === opToken) return true;
+  if (citedToken.length >= 3 && opToken.startsWith(citedToken)) return true;
+  if (citedToken.length >= 4 && opToken.length >= 4 && levenshteinWithinOne(citedToken, opToken)) {
+    return true;
+  }
+  return false;
+}
+
+function findOperatorMatchesByName(
+  rawCited: string,
+  systemOperators: readonly SystemOperatorCandidate[],
+): SystemOperatorCandidate[] {
+  const citedTokens = extractNameTokens(rawCited);
+  if (citedTokens.length === 0) return [];
+  const normCitedFull = citedTokens.join(" ");
+
+  const exactMatches = systemOperators.filter((op) => {
+    const opTokens = extractNameTokens(op.name);
+    if (opTokens.length === 0) return false;
+    const normOpFull = opTokens.join(" ");
+    if (normOpFull === normCitedFull) return true;
+    if (citedTokens.length === 1) {
+      return opTokens[0] === citedTokens[0];
+    }
+    return citedTokens.every((token) => opTokens.includes(token));
+  });
+
+  if (exactMatches.length > 0) {
+    const exactFullMatches =
+      citedTokens.length > 1
+        ? exactMatches.filter((op) => extractNameTokens(op.name).join(" ") === normCitedFull)
+        : [];
+    return exactFullMatches.length === 1 ? exactFullMatches : exactMatches;
+  }
+
+  return systemOperators.filter((op) => {
+    const opTokens = extractNameTokens(op.name);
+    if (opTokens.length === 0) return false;
+    if (citedTokens.length === 1) {
+      return opTokens.some((opTok) => tokenMatchesApproximately(citedTokens[0], opTok));
+    }
+    return citedTokens.every((token) =>
+      opTokens.some((opTok) => tokenMatchesApproximately(token, opTok)),
+    );
+  });
+}
+
+function toDirectOperatorTarget(chosen: SystemOperatorCandidate): DirectOperatorTarget {
+  const normalizedFunnels = normalizeIndustrialFunnels(chosen.funnels || []);
+  const primaryFunnel =
+    (normalizedFunnels.find((f) =>
+      (INDUSTRIAL_FUNNELS as readonly string[]).includes(f),
+    ) as IndustrialFunnel | undefined) || null;
+  const isAbsent = Boolean(
+    chosen.isOnLeave === true || normalizeTriageText(chosen.status || "") === "ausente",
+  );
+  return {
+    id: chosen.id,
+    name: chosen.name,
+    isAbsent,
+    primaryFunnel,
+  };
+}
+
 /**
- * Cruza a interpretação contextual do Gemini (`directOperatorRequest`) com a lista
+ * Cruza a interpretação contextual inteligente do Gemini (`directOperatorRequest`) com a lista
  * real de todos os usuários/operadores cadastrados no tenant (`operators` + `flowOperators`).
+ * Prioriza o `matchedOperatorId` resolvido semanticamente pelo Gemini (validado estritamente
+ * contra os operadores do tenant), com fallback tolerante a grafia/apelidos.
  */
 export function resolveDirectOperatorRequest(
   aiDecision: DirectOperatorAiDecision | null | undefined,
@@ -470,6 +574,7 @@ export function resolveDirectOperatorRequest(
     return { status: "none", citedName: null, operator: null };
   }
   const rawCited = (aiDecision.citedName || aiDecision.matchedOperatorName || "").trim();
+
   if (aiDecision.intent === "past_reference_only") {
     return {
       status: "past_reference_only",
@@ -478,37 +583,21 @@ export function resolveDirectOperatorRequest(
     };
   }
 
-  const citedTokens = extractNameTokens(rawCited);
-  const normCitedFull = citedTokens.join(" ");
+  if (aiDecision.intent === "not_found") {
+    return {
+      status: "not_found",
+      citedName: rawCited || null,
+      operator: null,
+    };
+  }
 
-  const nameMatches =
-    citedTokens.length > 0
-      ? systemOperators.filter((op) => {
-          const opTokens = extractNameTokens(op.name);
-          if (opTokens.length === 0) return false;
-          const normOpFull = opTokens.join(" ");
-          if (normOpFull === normCitedFull) return true;
-          if (citedTokens.length === 1) {
-            return opTokens[0] === citedTokens[0];
-          }
-          return citedTokens.every((token) => opTokens.includes(token));
-        })
-      : [];
-
-  const exactFullMatches =
-    citedTokens.length > 1
-      ? nameMatches.filter((op) => extractNameTokens(op.name).join(" ") === normCitedFull)
-      : [];
-
-  const effectiveNameMatches = exactFullMatches.length === 1 ? exactFullMatches : nameMatches;
-
-  // Se o cliente citou apenas o primeiro nome (ex: "João") e há múltiplos "João" no sistema, é homônimo ambíguo
-  if (effectiveNameMatches.length > 1) {
+  if (aiDecision.intent === "ambiguous_homonym") {
+    const homonymMatches = findOperatorMatchesByName(rawCited, systemOperators);
     return {
       status: "ambiguous_homonym",
       citedName: rawCited || null,
       operator: null,
-      homonyms: effectiveNameMatches.map((op) => ({
+      homonyms: homonymMatches.map((op) => ({
         id: op.id,
         name: op.name,
         funnels: normalizeIndustrialFunnels(op.funnels || []),
@@ -516,16 +605,30 @@ export function resolveDirectOperatorRequest(
     };
   }
 
+  // Prioridade 1: ID validado escolhido semanticamente pelo Gemini dentro do mesmo tenant
   const idMatch = aiDecision.matchedOperatorId
     ? systemOperators.find((op) => op.id === aiDecision.matchedOperatorId) || null
     : null;
 
-  const chosen =
-    effectiveNameMatches.length === 1
-      ? effectiveNameMatches[0]
-      : aiDecision.intent === "direct_transfer"
-        ? idMatch
-        : null;
+  let chosen: SystemOperatorCandidate | null = idMatch;
+
+  // Prioridade 2: fallback por nome (exato ou aproximado) se o Gemini não informou ID válido
+  if (!chosen) {
+    const nameMatches = findOperatorMatchesByName(rawCited, systemOperators);
+    if (nameMatches.length > 1) {
+      return {
+        status: "ambiguous_homonym",
+        citedName: rawCited || null,
+        operator: null,
+        homonyms: nameMatches.map((op) => ({
+          id: op.id,
+          name: op.name,
+          funnels: normalizeIndustrialFunnels(op.funnels || []),
+        })),
+      };
+    }
+    chosen = nameMatches.length === 1 ? nameMatches[0] : null;
+  }
 
   if (!chosen) {
     return {
@@ -535,24 +638,31 @@ export function resolveDirectOperatorRequest(
     };
   }
 
-  const normalizedFunnels = normalizeIndustrialFunnels(chosen.funnels || []);
-  const primaryFunnel =
-    (normalizedFunnels.find((f) =>
-      (INDUSTRIAL_FUNNELS as readonly string[]).includes(f),
-    ) as IndustrialFunnel | undefined) || null;
-  const isAbsent = Boolean(
-    chosen.isOnLeave === true || normalizeTriageText(chosen.status || "") === "ausente",
-  );
+  const target = toDirectOperatorTarget(chosen);
+
+  // Operador ausente: pergunta primeiro se o cliente quer falar com outro consultor ou aguardar,
+  // transferindo direto somente se o cliente já confirmou (`confirm_absent_transfer`).
+  if (target.isAbsent && aiDecision.intent !== "confirm_absent_transfer") {
+    return {
+      status: "operator_absent",
+      citedName: rawCited || chosen.name,
+      operator: target,
+    };
+  }
+
+  // Menção em aberto ("estava falando com o Victor"): oferece a transferência antes de transferir.
+  if (aiDecision.intent === "offer_transfer") {
+    return {
+      status: "offer_transfer",
+      citedName: rawCited || chosen.name,
+      operator: target,
+    };
+  }
 
   return {
     status: "matched",
     citedName: rawCited || chosen.name,
-    operator: {
-      id: chosen.id,
-      name: chosen.name,
-      isAbsent,
-      primaryFunnel,
-    },
+    operator: target,
   };
 }
 
@@ -617,9 +727,15 @@ export function resolveIndustrialRoute(input: ResolveIndustrialRouteInput): Indu
       targetOperator: targetOp,
     };
   }
+  if (input.directOperator?.status === "not_found") {
+    // Mesmo quando não localiza o usuário apontado, o Fagner para imediatamente a triagem
+    // para não ficar forçando barra, acionando revisão humana (awaiting_approval).
+    return routeFor("5A_CLIENTE", "direct_operator_not_found", true);
+  }
   const suppressNominalHumanRegex =
     input.directOperator?.status === "past_reference_only" ||
-    input.directOperator?.status === "not_found" ||
+    input.directOperator?.status === "offer_transfer" ||
+    input.directOperator?.status === "operator_absent" ||
     input.directOperator?.status === "ambiguous_homonym";
   if (
     suppressNominalHumanRegex
@@ -1023,7 +1139,11 @@ export function assessIndustrialReadiness(
     production: Boolean(collectedValue(data, "VOLUME / PRODUÇÃO")),
   };
   const missing = (policy.fields as readonly RequiredField[]).filter((key) => !available[key]);
-  if (route.reason === "human_requested" || route.reason === "specialist_review")
+  if (
+    route.reason === "human_requested" ||
+    route.reason === "specialist_review" ||
+    route.reason === "direct_operator_not_found"
+  )
     return { ready: true, missing: [], action: "review", createsDeal: false };
   return {
     ready: missing.length === 0,
@@ -1044,6 +1164,7 @@ export function canFinishIndustrialTriage(params: {
   if (
     params.route.reason === "human_requested" ||
     params.route.reason === "specialist_review" ||
+    params.route.reason === "direct_operator_not_found" ||
     (params.route.reason === "direct_operator_requested" && Boolean(params.route.targetOperator?.id))
   )
     return true;

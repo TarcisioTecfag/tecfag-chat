@@ -3,7 +3,8 @@ import type { IndustrialDeliveryContext } from "./industrial-delivery-context";
 import type { IndustrialBotItem } from "./industrial-outbound";
 
 import { db } from "../../db";
-import { agentConfigs, agentFlowStates, conversations, messages, internalMessages, contacts, crmAccounts, operators } from "../../db/schema";
+import { agentConfigs, agentFlowStates, conversations, messages, internalMessages, contacts, crmAccounts, operators, sectors } from "../../db/schema";
+import { getBrtTodayYmd, isOperatorOnLeaveToday } from "./rodizio-types";
 import { eq, asc, desc, and, gte, lt, ne, sql, isNull, or, inArray } from "drizzle-orm";
 import { buildAccountUpdatePayloadFromCnpjDetails } from "../crm/cnpj-account-mapper";
 import { vertexAi, MultimodalPart } from "../vertex-ai";
@@ -1307,7 +1308,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       let systemOperators: SystemOperatorCandidate[] = [];
       if (industrialTriage) {
         try {
-          const [tenantOperators, rodizioCfg] = await Promise.all([
+          const [tenantOperators, tenantSectors, rodizioCfg] = await Promise.all([
             db
               .select({
                 id: operators.id,
@@ -1317,6 +1318,14 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
               })
               .from(operators)
               .where(eq(operators.tenantId, tenantId)),
+            db
+              .select({
+                id: sectors.id,
+                name: sectors.name,
+                operatorIds: sectors.operatorIds,
+              })
+              .from(sectors)
+              .where(eq(sectors.tenantId, tenantId)),
             db.query.agentConfigs.findFirst({
               where: (t, { eq: dEq, and: dAnd }) =>
                 dAnd(dEq(t.tenantId, tenantId), dEq(t.agentType, "rodizio")),
@@ -1329,6 +1338,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           for (const fOp of flowOps) {
             if (fOp?.id) flowById.set(String(fOp.id), fOp);
           }
+          const todayBrt = getBrtTodayYmd();
           systemOperators = tenantOperators.map((op) => {
             const flowMeta = flowById.get(op.id);
             const rawFunnels = Array.isArray(flowMeta?.funnels)
@@ -1336,12 +1346,16 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
               : flowMeta?.funnel
                 ? [flowMeta.funnel]
                 : [];
+            const matchedSector = tenantSectors.find(
+              (s) => Array.isArray(s.operatorIds) && s.operatorIds.includes(op.id),
+            );
             return {
               id: op.id,
               name: op.name,
               role: op.role,
               status: op.status,
-              isOnLeave: Boolean(flowMeta?.isOnLeave),
+              sectorName: matchedSector?.name || undefined,
+              isOnLeave: Boolean(flowMeta && isOperatorOnLeaveToday(flowMeta, todayBrt)),
               funnels: normalizeIndustrialFunnels(rawFunnels),
             };
           });
@@ -1523,25 +1537,56 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           console.log(
             `[SdrEngine] 🎯 Transferência direta nominal confirmada para ${resolvedDirectOperator.operator.name} (${resolvedDirectOperator.operator.id}) — ausente=${resolvedDirectOperator.operator.isAbsent}`
           );
-        } else if (resolvedDirectOperator.status === "not_found") {
+        } else if (resolvedDirectOperator.status === "operator_absent" && resolvedDirectOperator.operator) {
           aiResult.isCompleted = false;
-          const promisedTransfer = aiResult.messagesToSend.some((m) =>
-            /\b(transfer|encaminh|passando|acionar|direcionar)\b/i.test(m)
-          );
-          if (promisedTransfer) {
-            const cited = resolvedDirectOperator.citedName || "essa pessoa";
+          const opName = resolvedDirectOperator.operator.name;
+          const asksChoice = aiResult.messagesToSend.some((m) => m.includes("?"));
+          if (!asksChoice) {
             aiResult.messagesToSend = [
-              `Não localizei ${cited} aqui na nossa equipe de atendimento.`,
-              "Como posso te ajudar hoje? Me conta o que você precisa que já te direciono para o responsável certo.",
+              `${opName} está ausente no momento.`,
+              "Você prefere falar com outro consultor da nossa equipe agora ou prefere aguardar o retorno?",
             ];
           }
+          console.log(
+            `[SdrEngine] ⏸️ Operador nominal ausente (${opName}) — perguntando ao cliente se prefere outro consultor ou aguardar.`
+          );
+        } else if (resolvedDirectOperator.status === "offer_transfer" && resolvedDirectOperator.operator) {
+          aiResult.isCompleted = false;
+          const opName = resolvedDirectOperator.operator.name;
+          const asksConfirmation = aiResult.messagesToSend.some((m) => m.includes("?"));
+          if (!asksConfirmation) {
+            aiResult.messagesToSend = [
+              `Gostaria que eu te transferisse para ${opName} para continuar de onde pararam?`,
+            ];
+          }
+          console.log(
+            `[SdrEngine] 💬 Menção em aberto detectada para ${opName} — oferecendo transferência direta antes de transferir.`
+          );
+        } else if (resolvedDirectOperator.status === "not_found") {
+          // Regra de parada segura: mesmo sem localizar o nome na lista, o Fagner para a triagem
+          // e passa para a equipe (awaiting_approval) em vez de ficar forçando perguntas no cliente.
+          aiResult.isCompleted = true;
+          const cited = resolvedDirectOperator.citedName || "essa pessoa";
+          const hasQuestionOrFalseTransfer = aiResult.messagesToSend.some(
+            (m) => m.includes("?") || /\b(j[aá]\s+(?:estou\s+te\s+)?transferindo|transferi\s+para)\b/i.test(m),
+          );
+          if (hasQuestionOrFalseTransfer || aiResult.messagesToSend.length === 0) {
+            aiResult.messagesToSend = [
+              `Não localizei ${cited} diretamente aqui na minha lista, mas já acionei nossa equipe para localizar e te encaminhar certinho.`,
+            ];
+          }
+          console.log(
+            `[SdrEngine] 🛑 Usuário nominal não localizado ("${cited}") — encerrando triagem em parada segura (revisão humana) sem forçar barra.`
+          );
         } else if (resolvedDirectOperator.status === "ambiguous_homonym") {
           aiResult.isCompleted = false;
           const homonymNames = (resolvedDirectOperator.homonyms || []).map((h) => h.name).join(" ou ");
           const asksClarification = aiResult.messagesToSend.some((m) => m.includes("?"));
           if (!asksClarification) {
             aiResult.messagesToSend = [
-              `Temos mais de uma pessoa com esse nome na nossa equipe (${homonymNames}).`,
+              homonymNames
+                ? `Temos mais de uma pessoa com esse nome na nossa equipe (${homonymNames}).`
+                : "Temos mais de uma pessoa com esse nome na nossa equipe.",
               "Com qual deles você gostaria de falar?",
             ];
           }
@@ -2042,7 +2087,105 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
                 }
               }
 
-              if (!handledBySiteWhatsappHandoff) {
+              let handledByDirectOperatorTransfer = false;
+              if (
+                !handledBySiteWhatsappHandoff &&
+                !isSiteConversationId(conversationId) &&
+                industrialRoute.reason === "direct_operator_requested" &&
+                industrialRoute.targetOperator?.id
+              ) {
+                const directStore = createIndustrialHandoffStore(db, ensureLocalCrmDealBeforeTransfer);
+                const directKey = {
+                  tenantId,
+                  conversationId,
+                  flowId: flowState.id,
+                  cycle: flowState.startedAt.toISOString(),
+                };
+                try {
+                  const preparedDirect = await directStore.prepare(directKey, {
+                    route: industrialRoute,
+                    data: updatedCollectedData,
+                    clientName,
+                    companyName: company,
+                    machineDecision,
+                    siteContext,
+                  });
+                  const directRes = preparedDirect
+                    ? await directStore.execute(directKey, { signal })
+                    : null;
+
+                  if (directRes && directRes.status === "transferred" && directRes.operator) {
+                    handledByDirectOperatorTransfer = true;
+                    industrialHandoff = directRes;
+                    industrialHandoffPersisted = true;
+                    industrialHandoffStoreRef = directStore;
+                    industrialHandoffKeyRef = directKey;
+                    allocatedOp = directRes.operator;
+                    localCrmResult = directRes.deal;
+
+                    const deliveredConvId = directRes.targetConversationId || conversationId;
+                    try {
+                      const sm = SessionManager.getInstance();
+                      if (directRes.targetConversationId && directRes.targetConversationId !== conversationId) {
+                        sm.notifyPublic(tenantId, {
+                          type: "queue_update",
+                          conversationId,
+                          contactId: convCheck?.contactId || undefined,
+                          contactName: clientName,
+                          queueState: "finalizados",
+                          operatorId: directRes.operator.id,
+                          walletOperatorId: directRes.operator.id,
+                          sectorId: directRes.sectorId || convCheck?.sectorId || undefined,
+                          responsibleName: directRes.operator.name,
+                        });
+                      }
+                      sm.notifyPublic(tenantId, {
+                        type: "chat_updated",
+                        chat: {
+                          id: deliveredConvId,
+                          contactId: convCheck?.contactId || undefined,
+                          queue: "meus",
+                          operatorId: directRes.operator.id,
+                          walletOperatorId: directRes.operator.id,
+                          responsibleName: directRes.operator.name,
+                          version: directRes.conversationVersion,
+                          sectorId: directRes.sectorId || convCheck?.sectorId || undefined,
+                          whatsappConnectionId: directRes.targetWhatsappConnectionId ?? null,
+                        },
+                      });
+                      sm.notifyPublic(tenantId, {
+                        type: "queue_update",
+                        conversationId: deliveredConvId,
+                        contactId: convCheck?.contactId || undefined,
+                        contactName: clientName,
+                        queueState: "meus",
+                        operatorId: directRes.operator.id,
+                        walletOperatorId: directRes.operator.id,
+                        sectorId: directRes.sectorId || convCheck?.sectorId || undefined,
+                        responsibleName: directRes.operator.name,
+                        version: directRes.conversationVersion,
+                      });
+                    } catch (sseErr: any) {
+                      console.warn("[SdrEngine] Aviso ao emitir SSE de transferência direta nominal:", sseErr?.message);
+                    }
+
+                    console.log(
+                      `[SdrEngine] ✅ Transferência direta nominal executada imediatamente para ${directRes.operator.name} (${directRes.operator.id}) na conversa ${deliveredConvId}.`,
+                    );
+                  } else {
+                    console.warn(
+                      `[SdrEngine] ⚠️ Transferência direta nominal não concluída (${directRes?.status || "prepare_failed"}) para ${conversationId} — aplicando parada segura em awaiting_approval para não forçar barra.`,
+                    );
+                  }
+                } catch (directErr: any) {
+                  console.error(
+                    `[SdrEngine] ❌ Erro na transferência direta nominal para ${conversationId} — aplicando parada segura em awaiting_approval:`,
+                    directErr?.message || directErr,
+                  );
+                }
+              }
+
+              if (!handledBySiteWhatsappHandoff && !handledByDirectOperatorTransfer) {
                 // O Fagner conclui a triagem, sugere destino + próximo operador do rodízio
                 // (sem consumir slot nem transferir), garante card no FUNIL CWR em CONTATANDO (apenas WhatsApp),
                 // envia mensagem neutra ao cliente e aguarda aprovação do SDR humano.
@@ -2192,8 +2335,12 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       }
 
       if (industrialTriage) {
+        const ownerCheckConversationId =
+          (industrialHandoff as { targetConversationId?: string } | null)?.targetConversationId ||
+          conversationId;
         const currentOwner = await db.query.conversations.findFirst({
-          where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.tenantId, tenantId), dEq(t.id, conversationId)),
+          where: (t, { eq: dEq, and: dAnd }) =>
+            dAnd(dEq(t.tenantId, tenantId), dEq(t.id, ownerCheckConversationId)),
         });
         if (
           !currentOwner ||

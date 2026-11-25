@@ -158,7 +158,12 @@ export function industrialHandoffOutcome(
 export function industrialHandoffMessage(
   status: IndustrialHandoffStatus,
   operatorName?: string,
-  options?: { isOperatorAbsent?: boolean; offHoursNotice?: string | null; isHumanRequestOnly?: boolean },
+  options?: {
+    isOperatorAbsent?: boolean;
+    offHoursNotice?: string | null;
+    isHumanRequestOnly?: boolean;
+    isDirectOperatorTransfer?: boolean;
+  },
 ): string | null {
   if (status === "awaiting_approval") {
     // Em awaiting_approval não há bolha fixa do servidor; o próprio Fagner entrega
@@ -168,7 +173,9 @@ export function industrialHandoffMessage(
   if (status === "transferred" && operatorName) {
     const base = options?.isOperatorAbsent
       ? `Seu atendimento foi encaminhado para ${operatorName}. No momento está ausente, mas em breve entrará em contato com você por aqui.`
-      : `Seu atendimento foi encaminhado para ${operatorName}. A equipe dará continuidade por aqui.`;
+      : options?.isDirectOperatorTransfer
+        ? `Claro! Já estou te transferindo para ${operatorName}, que dará continuidade ao seu atendimento por aqui.`
+        : `Seu atendimento foi encaminhado para ${operatorName}. A equipe dará continuidade por aqui.`;
     const offHours = options?.offHoursNotice?.trim();
     return offHours ? `${base}\n\n${offHours}` : base;
   }
@@ -189,13 +196,15 @@ export function industrialClientMessages(params: {
   const isOperatorAbsent = Boolean(
     params.result.operator?.isAbsent || params.route.targetOperator?.isAbsent,
   );
+  const isDirectOperatorTransfer = params.route.reason === "direct_operator_requested";
   const isHumanRequestOnly =
     params.route.reason === "human_requested" ||
-    params.route.reason === "direct_operator_requested";
+    params.route.reason === "direct_operator_requested" ||
+    params.route.reason === "direct_operator_not_found";
   const confirmation = industrialHandoffMessage(
     params.result.status,
     params.result.operator?.name,
-    { isOperatorAbsent, isHumanRequestOnly },
+    { isOperatorAbsent, isHumanRequestOnly, isDirectOperatorTransfer },
   );
   const claimsEffectPattern = INDUSTRIAL_CLAIMS_EFFECT_PATTERN;
   if (params.result.status === "resolved") {

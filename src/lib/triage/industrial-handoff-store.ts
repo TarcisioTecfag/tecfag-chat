@@ -1,5 +1,7 @@
+import crypto from "node:crypto";
 import { and, desc, eq, isNull, ne, sql } from "drizzle-orm";
-import { agentConfigs, agentFlowStates, contacts, conversations, operators, sectors } from "../../db/schema";
+import { agentConfigs, agentFlowStates, contacts, conversations, messages, operators, sectors } from "../../db/schema";
+import { getBrtTodayYmd, isOperatorOnLeaveToday } from "../valentina/rodizio-types";
 import {
   assessIndustrialReadiness,
   INDUSTRIAL_POLICY_VERSION,
@@ -370,9 +372,10 @@ export function createIndustrialHandoffStore(
               pendingIssue = "no_eligible_operator";
             } else {
               const flowOp = all.find((op) => op.id === targetOp.id);
+              const todayBrt = getBrtTodayYmd();
               const isAbsent = Boolean(
                 request.route.targetOperator.isAbsent ||
-                  flowOp?.isOnLeave === true ||
+                  (flowOp && isOperatorOnLeaveToday(flowOp, todayBrt)) ||
                   targetOp.status === "ausente",
               );
               const operator = {
@@ -445,6 +448,20 @@ export function createIndustrialHandoffStore(
                   .set({ walletOperatorId: operator.id, responsibleName: operator.name })
                   .where(and(eq(contacts.tenantId, key.tenantId), eq(contacts.id, contact.id)));
               }
+
+              const personaName = getAiPersona(key.tenantId).name;
+              await tx.insert(messages).values({
+                id: `sys-dir-${crypto.randomUUID()}`,
+                tenantId: key.tenantId,
+                conversationId: targetConversationId || key.conversationId,
+                senderType: "system",
+                senderName: personaName,
+                content: `${personaName} transferiu o atendimento diretamente para ${operator.name} (solicitação nominal do cliente).`,
+                type: "text",
+                status: "delivered",
+                isInternalNote: false,
+                sentAt: new Date(),
+              });
 
               if (rodizio) {
                 const inFlow = all.some((op) => op.id === operator.id);
@@ -731,6 +748,7 @@ export function createIndustrialHandoffStore(
                   result.operator?.isAbsent || request.route.targetOperator?.isAbsent,
                 ),
                 offHoursNotice,
+                isDirectOperatorTransfer: request.route.reason === "direct_operator_requested",
               },
             );
             meta.handoffReceipt = {

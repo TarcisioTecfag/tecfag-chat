@@ -31,6 +31,8 @@ const nullableTrimmedString = (max: number) =>
 
 const directOperatorIntentSet = new Set([
   "direct_transfer",
+  "confirm_absent_transfer",
+  "offer_transfer",
   "past_reference_only",
   "ambiguous_homonym",
   "not_found",
@@ -43,7 +45,13 @@ const directOperatorRequestSchema = z
     const obj = raw as Record<string, unknown>;
     const rawIntent = typeof obj.intent === "string" ? obj.intent.trim() : "";
     const intent = directOperatorIntentSet.has(rawIntent)
-      ? (rawIntent as "direct_transfer" | "past_reference_only" | "ambiguous_homonym" | "not_found")
+      ? (rawIntent as
+          | "direct_transfer"
+          | "confirm_absent_transfer"
+          | "offer_transfer"
+          | "past_reference_only"
+          | "ambiguous_homonym"
+          | "not_found")
       : null;
     const cleanStr = (v: unknown, max: number) => {
       if (typeof v !== "string") return null;
