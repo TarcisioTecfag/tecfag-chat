@@ -353,7 +353,11 @@ export function isExplicitReplacementPartsIntent(raw: string): boolean {
 }
 
 function textSubflow(raw: string): IndustrialSubflow | null {
-  const text = normalizeTriageText(raw);
+  const withoutEmails = String(raw || "").replace(
+    /\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b/gi,
+    " ",
+  );
+  const text = normalizeTriageText(withoutEmails);
   if (!text) return null;
   if (/\b(?:curriculo|vaga de emprego|vagas|trabalhar (?:na|com) voces)\b/.test(text))
     return "5B_CURRICULO";
@@ -383,10 +387,22 @@ function textSubflow(raw: string): IndustrialSubflow | null {
   }
   if (/\b(?:financeiro|pagamento|comprovante|fatura|prorrogacao)\b/.test(text)) return "2C_OUTROS";
   if (isTechnicalDocument(text)) return "3_AT";
-  if (
-    /\b(?:defeito|conserto|manutencao|garantia|assistencia|suporte tecnico|nao (?:liga|funciona|sela|corta)|maquina parada)\b/.test(
+  const hasExplicitFailureOrSupport =
+    /\b(?:defeito|conserto|garantia|assistencia|suporte tecnico|nao (?:liga|funciona|sela|corta)|maquina parada)\b/.test(
       text,
-    )
+    );
+  const mentionsMaintenanceOnlyAsRecipient =
+    /\bmanutencao\b/.test(text) &&
+    !hasExplicitFailureOrSupport &&
+    /(?:setor|departamento|equipe|pessoal|gerente|coordenador|responsavel|e-?mail)\s+(?:de|da)\s+manutencao|\bda\s+manutencao\b/.test(
+      text,
+    ) &&
+    /\b(?:oferta|black\s*friday|apresentacao|catalogo|cotacao|orcamento|proposta|comprar|adquirir|seladoras?|envasadoras?|maquinas?)\b/.test(
+      text,
+    );
+  if (
+    (hasExplicitFailureOrSupport || /\bmanutencao\b/.test(text)) &&
+    !mentionsMaintenanceOnlyAsRecipient
   ) {
     if (!/\b(?:quero comprar|gostaria de comprar|quero adquirir)\b/.test(text)) return "3_AT";
   }

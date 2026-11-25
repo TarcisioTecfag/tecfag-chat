@@ -54,6 +54,7 @@ export async function lookupKnownClientByPhoneOrContact(
     phone?: string | null;
     conversationId?: string | null;
     previousTriages?: Array<Record<string, any>> | null;
+    currentInProgressCompany?: string | null;
   },
 ): Promise<KnownClientProfile | null> {
   try {
@@ -155,6 +156,18 @@ export async function lookupKnownClientByPhoneOrContact(
       if (companyName) {
         const doc =
           c.cnpj || c.cpf || cnpjDetails?.cnpjFormatted || cnpjDetails?.cnpj || null;
+        const currentCompanyNorm = params.currentInProgressCompany
+          ? params.currentInProgressCompany.trim().toLowerCase()
+          : "";
+        const isOnlyUnverifiedCurrentCycleCompany =
+          !companyFromCnpj &&
+          !doc &&
+          !c.accountId &&
+          Boolean(currentCompanyNorm) &&
+          companyName.trim().toLowerCase() === currentCompanyNorm;
+        if (isOnlyUnverifiedCurrentCycleCompany) {
+          continue;
+        }
         const contactName = isValidKnownContactName(c.name) ? c.name : null;
         return {
           companyName: companyName.trim(),
@@ -226,7 +239,11 @@ export async function lookupKnownClientByPhoneOrContact(
             "QUAL O TIPO DE PRODUTO?",
           );
 
-          if (isValidKnownCompanyName(flowCompany)) {
+          const isCurrentInProgressFlow =
+            Boolean(params.conversationId) &&
+            flow.conversationId === params.conversationId &&
+            flow.outcome === "in_progress";
+          if (!isCurrentInProgressFlow && isValidKnownCompanyName(flowCompany)) {
             return {
               companyName: flowCompany.trim(),
               document: flowDoc || null,

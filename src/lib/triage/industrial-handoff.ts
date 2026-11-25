@@ -91,6 +91,24 @@ export function isPrematureIndustrialHandoffBubble(text: string): boolean {
   return INDUSTRIAL_CLAIMS_EFFECT_PATTERN.test(clean);
 }
 
+const ORPHAN_ANAPHORIC_CONNECTOR_PATTERN =
+  /^(?:enquanto\s+isso|nesse\s+meio\s+tempo|al[eé]m\s+disso|al[eé]m\s+desse|al[eé]m\s+dessa|tamb[eé]m|e\s+tamb[eé]m|mas\s+antes|por\s+isso|com\s+isso|sendo\s+assim|para\s+isso|assim\s+que\s+ele|ele\s+(?:vai|ir[aá]|pode))\b/i;
+
+export function startsWithOrphanAnaphoricConnector(text: string): boolean {
+  const clean = String(text || "").trim();
+  return Boolean(clean && ORPHAN_ANAPHORIC_CONNECTOR_PATTERN.test(clean));
+}
+
+export function stripLeadingOrphanAnaphoricConnector(text: string): string {
+  const clean = String(text || "").trim();
+  if (!clean) return "";
+  const stripped = clean
+    .replace(/^(?:enquanto\s+isso|nesse\s+meio\s+tempo)[,:\-–—\s]+/i, "")
+    .trim();
+  if (!stripped) return clean;
+  return stripped.charAt(0).toLocaleUpperCase("pt-BR") + stripped.slice(1);
+}
+
 export function claimsIndustrialHandoffEffect(messages: readonly string[]): boolean {
   return messages.some((text) => isPrematureIndustrialHandoffBubble(String(text || "")));
 }
@@ -300,6 +318,17 @@ export function evaluateIndustrialClientMessages(params: {
 
   const claimsSuccess = claimsIndustrialHandoffEffect(params.messages);
   if (!claimsSuccess) {
+    const cleanMessages = params.messages.map((m) => String(m || "").trim()).filter(Boolean);
+    if (cleanMessages.length > 0 && startsWithOrphanAnaphoricConnector(cleanMessages[0])) {
+      const missingFields = assessIndustrialReadiness(params.route, params.data).missing;
+      return {
+        messages: cleanMessages,
+        needsGeminiRewrite: true,
+        rewriteMode: "collecting_missing_fields",
+        missingFields,
+        safeBubbles: cleanMessages,
+      };
+    }
     return {
       messages: params.messages,
       needsGeminiRewrite: false,
@@ -319,7 +348,9 @@ export function evaluateIndustrialClientMessages(params: {
     .filter((m) => Boolean(m) && !isPrematureIndustrialHandoffBubble(m));
 
   const alreadyAsksQuestion = safeBubbles.some((m) => m.includes("?"));
-  if (safeBubbles.length > 0 && alreadyAsksQuestion) {
+  const firstBubbleIsOrphan =
+    safeBubbles.length > 0 && startsWithOrphanAnaphoricConnector(safeBubbles[0]);
+  if (safeBubbles.length > 0 && alreadyAsksQuestion && !firstBubbleIsOrphan) {
     return {
       messages: safeBubbles,
       needsGeminiRewrite: false,
@@ -349,5 +380,13 @@ export function industrialClientMessages(params: {
   messages: string[];
   knownCompanyToConfirm?: string | null;
 }): string[] {
-  return evaluateIndustrialClientMessages(params).messages;
+  const evaluated = evaluateIndustrialClientMessages(params);
+  if (
+    evaluated.messages.length > 0 &&
+    startsWithOrphanAnaphoricConnector(evaluated.messages[0])
+  ) {
+    const [first, ...rest] = evaluated.messages;
+    return [stripLeadingOrphanAnaphoricConnector(first), ...rest];
+  }
+  return evaluated.messages;
 }

@@ -352,6 +352,15 @@ export function finalizeIndustrialOpeningMessages(input: {
     const cleaned = cleanAiMessages
       .map((msg) => stripDuplicatePersonaIntroduction(msg, input.aiPersona.name))
       .filter(Boolean);
+    if (cleaned.length < cleanAiMessages.length && cleaned.length > 0) {
+      const strippedLead = cleaned[0]
+        .replace(/^(?:enquanto\s+isso|nesse\s+meio\s+tempo)[,:\-–—\s]+/i, "")
+        .trim();
+      if (strippedLead.length >= 4) {
+        cleaned[0] =
+          strippedLead.charAt(0).toLocaleUpperCase("pt-BR") + strippedLead.slice(1);
+      }
+    }
     return {
       messagesToSend: cleaned.length > 0 ? cleaned : cleanAiMessages,
       isGenericGreetingOnly: false,

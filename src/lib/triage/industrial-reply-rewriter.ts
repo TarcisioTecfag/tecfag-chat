@@ -4,6 +4,7 @@ import type { AiPersona } from "../ai-persona.ts";
 import {
   INDUSTRIAL_FALSE_SYSTEM_CLAIM_PATTERN,
   isPrematureIndustrialHandoffBubble,
+  stripLeadingOrphanAnaphoricConnector,
 } from "./industrial-handoff.ts";
 import type { CollectedFields, RequiredField } from "./industrial-policy.ts";
 
@@ -66,8 +67,30 @@ const rewriteResponseSchema = z.object({
     .transform((v) => v === true || v === "true"),
 });
 
+const CONSULTATIVE_FIELD_PRIORITY: readonly RequiredField[] = [
+  "request",
+  "application",
+  "production",
+  "name",
+  "document",
+];
+
+export function prioritizeMissingFieldsForConversation(
+  missingFields: readonly RequiredField[],
+): RequiredField[] {
+  const unique = [...new Set(missingFields)];
+  return unique.sort((a, b) => {
+    const idxA = CONSULTATIVE_FIELD_PRIORITY.indexOf(a);
+    const idxB = CONSULTATIVE_FIELD_PRIORITY.indexOf(b);
+    const rankA = idxA === -1 ? CONSULTATIVE_FIELD_PRIORITY.length : idxA;
+    const rankB = idxB === -1 ? CONSULTATIVE_FIELD_PRIORITY.length : idxB;
+    return rankA - rankB;
+  });
+}
+
 export function buildIndustrialReplyRewritePrompt(input: RewriteIndustrialReplyInput): string {
-  const missingLabels = (input.missingFields || []).map((field) => {
+  const orderedMissingFields = prioritizeMissingFieldsForConversation(input.missingFields || []);
+  const missingLabels = orderedMissingFields.map((field) => {
     if (field === "document" && input.knownCompanyToConfirm?.trim()) {
       return `confirmar se a empresa é "${input.knownCompanyToConfirm.trim()}" (ou informar o CNPJ/CPF caso seja outra)`;
     }
@@ -91,10 +114,11 @@ export function buildIndustrialReplyRewritePrompt(input: RewriteIndustrialReplyI
   switch (input.rewriteMode) {
     case "collecting_missing_fields":
       objectiveBlock = `OBJETIVO DESTE TURNO (COLETA EM ANDAMENTO):
-- A resposta anterior prometeu encaminhamento/transferência antes da hora enquanto ainda faltam dados: ${missingLabels.join("; ") || "esclarecer a necessidade do cliente"}.
-- PRIMEIRO avalie se o cliente está claramente resistindo ao questionário, dizendo que os dados JÁ CONSTAM em uma proposta/orçamento/cadastro existente, ou insistindo em falar apenas com o consultor/equipe:
+- A resposta anterior prometeu encaminhamento/transferência antes da hora ou deixou conector solto enquanto ainda faltam dados: ${missingLabels.join("; ") || "esclarecer a necessidade do cliente"}.
+- PRIMEIRO avalie se o cliente está claramente resistindo ao questionário, dizendo que os dados JÁ CONSTAM em uma proposta/orçamento/cadastro existente, insistindo em falar apenas com o consultor/equipe, ou insistindo que precisa apenas de uma especificação técnica objetiva ausente no contexto (ex.: torque em kgf·cm/N·m, dimensão exata, tensão, pressão) e resistindo a responder o questionário de qualificação:
   * Se SIM: defina \`shouldEscalateToReview: true\`, NÃO insista em perguntar o dado faltante e escreva 1 a 2 balões curtos, educados e naturais confirmando que vai direcionar para a equipe dar continuidade.
   * Se NÃO: defina \`shouldEscalateToReview: false\` e escreva 1 a 2 balões curtos, naturais e contextualizados ao histórico pedindo APENAS o próximo dado faltante (${missingLabels[0] || "o detalhe pendente"}).
+- NUNCA comece um balão com conectores órfãos como "Enquanto isso...", "Nesse meio tempo..." ou "Além disso...". Se os balões já aprovados estiverem falando de aplicação/especificação técnica do produto, NUNCA cole uma pergunta abrupta de CNPJ/CPF no 2º balão — mantenha a conversa fluida no mesmo assunto.
 - PROIBIDO quando \`shouldEscalateToReview: false\`: NÃO diga "já estou encaminhando", "já direcionei", "vou localizar e transferir" nem "em breve um especialista entrará em contato". Apenas responda com empatia/contexto e faça a pergunta pendente de forma humana.`;
       break;
     case "awaiting_approval":
@@ -161,18 +185,25 @@ export function sanitizeRewrittenIndustrialMessages(
     .map((m) => String(m || "").trim())
     .filter(Boolean);
 
-  if (rewriteMode === "collecting_missing_fields" && !shouldEscalateToReview) {
-    return cleaned.filter((m) => !isPrematureIndustrialHandoffBubble(m));
+  const sanitized =
+    rewriteMode === "collecting_missing_fields" && !shouldEscalateToReview
+      ? cleaned.filter((m) => !isPrematureIndustrialHandoffBubble(m))
+      : rewriteMode === "awaiting_approval" || rewriteMode === "direct_operator_not_found"
+        ? cleaned.filter(
+            (m) => !m.includes("?") && !INDUSTRIAL_FALSE_SYSTEM_CLAIM_PATTERN.test(m),
+          )
+        : rewriteMode === "resolved"
+          ? cleaned.filter((m) => !isPrematureIndustrialHandoffBubble(m))
+          : cleaned;
+
+  if (
+    sanitized.length > 0 &&
+    /^(?:enquanto\s+isso|nesse\s+meio\s+tempo)[,:\-–—\s]+/i.test(sanitized[0])
+  ) {
+    const [first, ...rest] = sanitized;
+    return [stripLeadingOrphanAnaphoricConnector(first), ...rest];
   }
-  if (rewriteMode === "awaiting_approval" || rewriteMode === "direct_operator_not_found") {
-    return cleaned.filter(
-      (m) => !m.includes("?") && !INDUSTRIAL_FALSE_SYSTEM_CLAIM_PATTERN.test(m),
-    );
-  }
-  if (rewriteMode === "resolved") {
-    return cleaned.filter((m) => !isPrematureIndustrialHandoffBubble(m));
-  }
-  return cleaned;
+  return sanitized;
 }
 
 /**

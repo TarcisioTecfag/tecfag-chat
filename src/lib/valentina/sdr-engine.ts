@@ -65,7 +65,7 @@ import {
 import { lookupKnownClientByPhoneOrContact } from "../triage/known-client-db";
 import { siteContextFromMessages } from "../livechat/site-context";
 import { runVtexStoreTurn } from "../vtex/runtime";
-import { guardVtexMessages } from "../vtex/turn";
+import { extractSitePageProduct, guardVtexMessages } from "../vtex/turn";
 import { readVtexEvidence } from "../vtex/contract";
 import { parseIndustrialAiResult } from "../triage/industrial-ai-result";
 import {
@@ -98,6 +98,7 @@ import {
   isWithinIndustrialSchedule,
   buildIndustrialOffHoursClosingNotice,
   isBotClosingOrInformativeMessage,
+  hasPartialCollectedData,
 } from "../triage/industrial-silence-policy";
 import { runIndustrialDecisor, lookupIndustrialBlockedFamily } from "../triage/industrial-decisor-runtime";
 import { applyMachineDecision, parseIndustrialCapital, type MachineDecision } from "../triage/industrial-decisor";
@@ -866,6 +867,10 @@ export class SdrEngine {
           previousTriages: Array.isArray(metaState.previousTriages)
             ? metaState.previousTriages
             : null,
+          currentInProgressCompany:
+            flowState?.outcome === "in_progress"
+              ? existingCollectedData["EMPRESA"]?.value || null
+              : null,
         });
 
         const recentBotMessages = historyMsgs
@@ -1003,6 +1008,62 @@ INSTRUÇÕES OBRIGATÓRIAS:
         });
       }
 
+      // Hidrata anexos de mídia do banco (`media_files`) antes do gate e da consulta VTEX
+      let hydratedDbAttachments: Awaited<ReturnType<typeof hydrateMediaAttachmentsFromDb>> = [];
+      try {
+        hydratedDbAttachments = await hydrateMediaAttachmentsFromDb({
+          db,
+          tenantId,
+          batchItems,
+          historyMsgs,
+        });
+      } catch (hydrateErr: any) {
+        console.warn("[SdrEngine] Aviso ao hidratar mídia do banco:", hydrateErr?.message || hydrateErr);
+      }
+
+      if (signal?.aborted) return false;
+
+      const hasMediaInBatch =
+        hydratedDbAttachments.length > 0 ||
+        batchItems.some(
+          (i) => i.mediaType === "image" || i.mediaType === "audio" || i.mediaType === "document",
+        );
+      const isClientDeclinedTurn =
+        industrialTriage &&
+        !hasMediaInBatch &&
+        isClientDecliningTriage(combinedBatchText);
+      const clientDeclinedWithFactualQuestion =
+        isClientDeclinedTurn && hasClientFactualQuestionInDecline(combinedBatchText);
+      const storeTurn =
+        industrialTriage && !isClientDeclinedTurn
+          ? await runVtexStoreTurn(db, tenantId, {
+              text: combinedBatchText,
+              siteContext,
+              previous: readVtexEvidence(metaState.vtexLookup) || undefined,
+              channel: isSiteConversationId(conversationId) ? "livechat" : "whatsapp",
+              signal,
+            }).catch(() => null)
+          : null;
+      if (signal?.aborted) return false;
+
+      const useVtexDirectReply = Boolean(
+        storeTurn && (storeTurn.mode !== "ai_context" || !vertexAi.isReady()),
+      );
+
+      const hasResolvedVtexProduct = Boolean(
+        storeTurn?.mode === "ai_context" &&
+          storeTurn.aiContext &&
+          !storeTurn.aiContext.includes("DIRETRIZ DE POLÍTICA COMERCIAL NO WHATSAPP"),
+      );
+      const sitePageProductModelHint = industrialTriage
+        ? storeTurn?.evidence?.products?.[0]?.name ||
+          extractSitePageProduct(siteContext)?.title ||
+          ""
+        : "";
+      const knowledgeQueryText = sitePageProductModelHint
+        ? `${batchSummary}\n${sitePageProductModelHint}\n${conversationHistoryText}`
+        : `${batchSummary}\n${conversationHistoryText}`;
+
       const hasPendingCompanyConfirmation = Boolean(
         (!industrialTriage && fetchedCnpjInfo?.valid && fetchedCnpjInfo?.razaoSocial) ||
           (knownClient && knownClientConfirmation === "pending"),
@@ -1015,13 +1076,14 @@ INSTRUÇÕES OBRIGATÓRIAS:
             batchSummary,
             conversationHistoryText,
             subflow: metaState.subflow || null,
+            hasResolvedVtexProduct,
             hasPendingCompanyConfirmation,
           })
         : null;
 
       const knowledgeContext = await getKnowledgeBaseContext(
         tenantId,
-        `${batchSummary}\n${conversationHistoryText}`,
+        knowledgeQueryText,
         industrialMachineSuggestionGate
           ? {
               suppressIndustrialModelListing: industrialMachineSuggestionGate.suppressModelListing,
@@ -1380,48 +1442,9 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         }
       }
 
-      // Hidrata anexos de mídia do banco (`media_files`) quando chegaram sem `mediaBase64`
-      // (ex.: imagem/áudio enviado antes da conversa entrar em `automacao` e acionado via `trigger_ai` ou recovery)
-      let hydratedDbAttachments: Awaited<ReturnType<typeof hydrateMediaAttachmentsFromDb>> = [];
-      try {
-        hydratedDbAttachments = await hydrateMediaAttachmentsFromDb({
-          db,
-          tenantId,
-          batchItems,
-          historyMsgs,
-        });
-      } catch (hydrateErr: any) {
-        console.warn("[SdrEngine] Aviso ao hidratar mídia do banco:", hydrateErr?.message || hydrateErr);
-      }
-
       if (signal?.aborted) return false;
 
-      const hasMediaInBatch =
-        hydratedDbAttachments.length > 0 ||
-        batchItems.some(
-          (i) => i.mediaType === "image" || i.mediaType === "audio" || i.mediaType === "document",
-        );
-      const isClientDeclinedTurn =
-        industrialTriage &&
-        !hasMediaInBatch &&
-        isClientDecliningTriage(combinedBatchText);
-      const clientDeclinedWithFactualQuestion =
-        isClientDeclinedTurn && hasClientFactualQuestionInDecline(combinedBatchText);
-      const storeTurn =
-        industrialTriage && !isClientDeclinedTurn
-          ? await runVtexStoreTurn(db, tenantId, {
-              text: combinedBatchText,
-              siteContext,
-              previous: readVtexEvidence(metaState.vtexLookup) || undefined,
-              channel: isSiteConversationId(conversationId) ? "livechat" : "whatsapp",
-              signal,
-            }).catch(() => null)
-          : null;
-      if (signal?.aborted) return false;
-
-      const useVtexDirectReply = Boolean(
-        storeTurn && (storeTurn.mode !== "ai_context" || !vertexAi.isReady()),
-      );
+      // 6. Consultar o Gemini 2.5 Pro via Vertex AI (100% Gemini — sem respostas prontas hardcoded)
 
       const promptText =
         industrialTriage
@@ -2080,6 +2103,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         funnelId: string;
         stageId: string;
       } | null = null;
+      let partialLeadRescuedAt: string | null = null;
 
       if (isCompleted && !wasAlreadyCompleted && !signal?.aborted) {
         try {
@@ -2101,6 +2125,39 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
               };
               allocatedOp = null;
               localCrmResult = null;
+              const isSitePartialCommercialClosing =
+                isCordialBotClosingTurn &&
+                !isClientDeclinedTurn &&
+                industrialReadiness?.action !== "inform" &&
+                isSiteConversationId(conversationId) &&
+                hasPartialCollectedData(updatedCollectedData) &&
+                (["MAQUINAS", "PERSONNALITE", "PECAS"].includes(industrialRoute.subflow || "") ||
+                  Boolean(extractSitePageProduct(siteContext)));
+              if (isSitePartialCommercialClosing) {
+                try {
+                  const rescuedDeal = await ensureLocalCrmDealBeforeTransfer({
+                    tenantId,
+                    conversationId,
+                    contactId: convCheck?.contactId || null,
+                    contactPhone,
+                    clientName,
+                    companyName: company,
+                    targetFunnel: effectiveTargetFunnel || "Máquinas",
+                    funnelStage: stageAndFunnel.funnelStage || "triagem",
+                    collectedData: updatedCollectedData,
+                    allocatedOperator: null,
+                  });
+                  if (rescuedDeal) {
+                    localCrmResult = rescuedDeal;
+                    partialLeadRescuedAt = now.toISOString();
+                  }
+                } catch (rescueErr: any) {
+                  console.warn(
+                    `[SdrEngine] Aviso ao salvar lead parcial no encerramento do site (${conversationId}):`,
+                    rescueErr?.message || rescueErr,
+                  );
+                }
+              }
             } else {
               // ── MODO HUMAN-IN-THE-LOOP (TECFAG / FAGNER) ────────────────────────
               // Canal Site (`conv-lc-*`): ao concluir a triagem no site, dispara automaticamente
@@ -2612,6 +2669,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
                 localCrmDealAction: localCrmResult.action,
               }
             : {}),
+          ...(partialLeadRescuedAt ? { partialLeadRescuedAt } : {}),
           ...(allocatedOp?.id ? { allocatedOperatorId: allocatedOp.id } : {}),
           ...(allocatedOp?.name ? { allocatedOperatorName: allocatedOp.name } : {}),
         };
@@ -2624,9 +2682,13 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
               .update(agentFlowStates)
               .set({
                 currentStep: industrialTriage
-                  ? isClientDeclinedTurn || isCordialBotClosingTurn
+                  ? isClientDeclinedTurn
                     ? "Encerrado (Sem interesse)"
-                    : industrialReadiness?.action === "inform"
+                    : isCordialBotClosingTurn
+                      ? partialLeadRescuedAt
+                        ? "Encerrado (Lead Parcial Site)"
+                        : "Encerrado (Sem interesse)"
+                      : industrialReadiness?.action === "inform"
                       ? "Concluído (Informativo)"
                       : industrialHandoff.status === "waiting_for_team"
                         ? "Aguardando equipe"

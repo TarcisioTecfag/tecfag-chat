@@ -58,6 +58,31 @@ function extractSkuIdFromStoreUrl(rawUrl?: string): string | undefined {
   }
 }
 
+export function extractSitePageProduct(
+  siteContext: unknown,
+): { url: string; title: string; skuId?: string } | null {
+  const ctx = readSiteContext(siteContext);
+  if (!ctx) return null;
+  for (const candidate of [ctx.page, ctx.entry]) {
+    if (!candidate?.url) continue;
+    try {
+      const parsed = new URL(candidate.url);
+      if (/^\/[^/]+\/p\/?$/i.test(parsed.pathname)) {
+        return {
+          url: candidate.url,
+          title: candidate.title || "",
+          ...(extractSkuIdFromStoreUrl(candidate.url)
+            ? { skuId: extractSkuIdFromStoreUrl(candidate.url) }
+            : {}),
+        };
+      }
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
 const PURE_BRAZILIAN_DOCUMENT_PATTERN =
   /^\s*(?:(?:meu\s+|numero\s+d[eo]\s+)?(?:cpf|cnpj)\s*[:#-]?\s*)?(?:\d{11}|\d{14}|\d{3}\.\d{3}\.\d{3}-\d{2}|\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})\s*[.!]?\s*$/i;
 
@@ -79,6 +104,7 @@ export function deriveVtexQuery(
   const price = /\b(?:preco|valor|quanto custa|custa quanto)\b/.test(normalized);
   const availability = /\b(?:estoque|disponibilidade|disponivel|pronta entrega)\b/.test(normalized);
   const product = readSiteContext(siteContext)?.product;
+  const pageProduct = !product ? extractSitePageProduct(siteContext) : null;
   const postal = text.match(/\b\d{5}-?\d{3}\b/)?.[0];
   // Escolha numérica após `choices` aceita apenas SKUs curtos (1 a 7 dígitos), nunca CEP (8), CPF (11) ou CNPJ (14).
   const sku =
@@ -86,7 +112,7 @@ export function deriveVtexQuery(
     (previous?.status === "choices" ? text.match(/^\s*(\d{1,7})\s*$/)?.[1] : undefined);
   const url = extractStoreProductUrl(text, siteContext);
   const postalReply = postal && previous?.selectedSkuId && /^\s*\d{5}-?\d{3}[.!]?\s*$/.test(text);
-  const hasStoreContext = Boolean(product || sku || url || previous?.selectedSkuId);
+  const hasStoreContext = Boolean(product || pageProduct || sku || url || previous?.selectedSkuId);
   // Extrai possível produto/modelo explicitamente nomeado antes de decidir se termos técnicos ativam a loja.
   const named = text
     .match(
@@ -115,14 +141,25 @@ export function deriveVtexQuery(
       normalizedNamed,
     );
   const hasNamedProduct = Boolean(named && !generic && named.length >= 3 && named.length <= 120);
+  const changingProduct = /\b(?:outro|outra|diferente|mudar|trocar de modelo)\b/.test(normalized);
+  const hasTechnicalSpecTerm =
+    /\b(?:especificac\w*|ficha\s+tecnica|medidas?|dimens(?:ao|oes)|potencia|voltagem|tensao|torque|kgf[\s-]*cm|n\.?m\b|pressao|bar\b|psi\b|capacidade|velocidade|rpm\b|watt\w*|hz\b|peso|diametro|comprimento|largura|altura|consumo|bicos?|material|inox|garantia|caracteristicas?|detalhes|manual|sku|informacoes\s+sobre|atende|funciona|serve\s+para)\b/.test(
+      normalized,
+    );
+  const hasSitePageDemonstrativeQuestion =
+    Boolean(pageProduct) &&
+    !changingProduct &&
+    /\b(?:dest[ae]|dess[ae]|est[ae]|ess[ae]|n?est[ae]|n?ess[ae]|del[ae]|da\s+(?:maquina|rosqueadeira|seladora|envasadora|dosadora|empacotadora|rotuladora|fechadora|embaladora)|do\s+(?:equipamento|tunel|datador|produto|modelo))\b/.test(
+      normalized,
+    ) &&
+    (text.includes("?") ||
+      /^\s*(?:qual|quais|como|quanto|tem|ela|ele|essa|esse|esta|este)\b/.test(normalized));
   const detail =
     (hasStoreContext && availability) ||
     (hasNamedProduct &&
       /\b(?:especificac|ficha tecnica|medidas|dimensoes|potencia|voltagem)\w*/.test(normalized)) ||
-    (hasStoreContext &&
-      /\b(?:especificac|ficha tecnica|medidas|dimensoes|potencia|voltagem|sku|informacoes sobre)\w*/.test(
-        normalized,
-      ));
+    (hasStoreContext && hasTechnicalSpecTerm) ||
+    hasSitePageDemonstrativeQuestion;
   if (!shipping && !price && !detail && !sku && !url && !postalReply) return null;
   const urlSkuId = extractSkuIdFromStoreUrl(url);
   let query: VtexQuery | null = sku
@@ -133,7 +170,6 @@ export function deriveVtexQuery(
   // Um produto novo nomeado na mensagem não pode herdar silenciosamente o SKU anterior.
   if (!query && hasNamedProduct && named)
     query = { kind: "term", value: named, quantity: 1 };
-  const changingProduct = /\b(?:outro|outra|diferente|mudar|trocar de modelo)\b/.test(normalized);
   if (
     !query &&
     !changingProduct &&
@@ -150,6 +186,16 @@ export function deriveVtexQuery(
     query = { kind: "sku", value: previous.selectedSkuId, quantity: 1 };
   if (!query && !changingProduct && product)
     query = { kind: "url", value: product.url, quantity: 1 };
+  let isImplicitSitePage = false;
+  if (!query && !changingProduct && pageProduct) {
+    query = {
+      kind: "url",
+      value: pageProduct.url,
+      ...(pageProduct.skuId ? { skuId: pageProduct.skuId } : {}),
+      quantity: 1,
+    };
+    isImplicitSitePage = true;
+  }
   return {
     query: query
       ? {
@@ -164,6 +210,7 @@ export function deriveVtexQuery(
         : price
           ? ("price" as const)
           : ("details" as const),
+    isImplicitSitePage,
   };
 }
 const money = (value: number) =>
@@ -234,6 +281,7 @@ function selectCleanVtexDetails(product: VtexProduct): {
 export function formatVtexAiContext(
   result: VtexResult,
   channel: VtexChannel = "whatsapp",
+  userQuestion?: string,
 ): string | null {
   if (
     result.status !== "matched" &&
@@ -269,9 +317,28 @@ export function formatVtexAiContext(
     lines.push(`- Resumo oficial do produto: ${smartTruncate(description, 600)}`);
   }
   if (specifications.length > 0) {
+    const questionTokens = userQuestion
+      ? [
+          ...new Set(
+            normalizeVtexCompare(userQuestion)
+              .split(/[^a-z0-9]+/)
+              .filter((t) => t.length >= 3),
+          ),
+        ]
+      : [];
+    const orderedSpecs =
+      questionTokens.length > 0
+        ? [...specifications].sort(([keyA, valA], [keyB, valB]) => {
+            const hayA = normalizeVtexCompare(`${keyA} ${valA}`);
+            const hayB = normalizeVtexCompare(`${keyB} ${valB}`);
+            const scoreA = questionTokens.reduce((acc, tok) => acc + (hayA.includes(tok) ? 1 : 0), 0);
+            const scoreB = questionTokens.reduce((acc, tok) => acc + (hayB.includes(tok) ? 1 : 0), 0);
+            return scoreB - scoreA;
+          })
+        : specifications;
     lines.push("- Especificações técnicas oficiais:");
-    let budget = 1400;
-    for (const [key, value] of specifications.slice(0, 8)) {
+    let budget = 2200;
+    for (const [key, value] of orderedSpecs.slice(0, 16)) {
       const compactVal = smartTruncate(value, 360);
       if (!compactVal || compactVal.length > budget) continue;
       lines.push(`  • ${key}: ${compactVal}`);

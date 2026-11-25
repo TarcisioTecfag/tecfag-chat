@@ -83,6 +83,14 @@ export async function runVtexStoreTurn(
     ) {
       return null;
     }
+    if (
+      request.isImplicitSitePage &&
+      (result.status === "not_found" ||
+        result.status === "unavailable" ||
+        result.status === "policy_blocked")
+    ) {
+      return null;
+    }
     // Em consultas de detalhes/link/ficha do produto (tanto no WhatsApp quanto no Site/LiveChat),
     // entrega os dados oficiais limpos para o Fagner (Gemini) responder de forma curta, consultiva
     // e obrigatoriamente com uma pergunta de continuidade da triagem (evitando texto truncado sem gancho).
@@ -91,7 +99,9 @@ export async function runVtexStoreTurn(
       request.intent === "details" &&
       (result.status === "matched" ||
         (result.status === "choices" && result.products.length === 1));
-    const aiContext = shouldFeedAiContext ? formatVtexAiContext(result, input.channel) : null;
+    const aiContext = shouldFeedAiContext
+      ? formatVtexAiContext(result, input.channel, input.text)
+      : null;
     const baseMessages = formatVtexAnswer(result, request.intent);
     const livechatNeedsHook =
       input.channel === "livechat" &&
@@ -111,6 +121,9 @@ export async function runVtexStoreTurn(
       ...(aiContext ? { aiContext } : {}),
     };
   } catch {
+    if (request.isImplicitSitePage) {
+      return null;
+    }
     return {
       messages: [
         "A consulta da loja está indisponível agora. A equipe responsável pode conferir os dados.",

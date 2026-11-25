@@ -466,15 +466,43 @@ export function buildIndustrialFollowUpText(params: {
 
   if (params.stage === 1) {
     const greeting = firstName ? `Oi, ${firstName}!` : "Oi!";
-    if (missingFields.some((f) => f.includes("cnpj") || f.includes("cpf") || f.includes("empresa"))) {
+    const companyEntry = params.collectedData?.["EMPRESA"] as { value?: unknown } | string | undefined;
+    const companyRaw =
+      typeof companyEntry === "string"
+        ? companyEntry.trim()
+        : typeof companyEntry?.value === "string"
+          ? companyEntry.value.trim()
+          : "";
+    const hasCompanyFilled =
+      Boolean(companyRaw) && !/^(aguardando|n[aã]o informado|-|\?)$/i.test(companyRaw);
+
+    if (
+      missingFields.some(
+        (f) => f === "document" || f.includes("cnpj") || f.includes("cpf") || f.includes("empresa"),
+      )
+    ) {
+      if (hasCompanyFilled) {
+        return topic
+          ? `${greeting} Para finalizar seu atendimento sobre ${topic}, consegue me informar o CNPJ ou CPF para o cadastro?`
+          : `${greeting} Para finalizar seu atendimento, consegue me informar o CNPJ ou CPF para o cadastro?`;
+      }
       return topic
         ? `${greeting} Se estiver sem o CNPJ fácil agora, pode mandar só o nome da empresa que eu já adianto seu atendimento sobre ${topic}.`
         : `${greeting} Se estiver sem o CNPJ fácil agora, pode mandar só o nome da empresa que eu já adianto seu atendimento por aqui.`;
     }
-    if (missingFields.some((f) => f.includes("volume") || f.includes("produc"))) {
+    if (
+      missingFields.some(
+        (f) => f === "production" || f.includes("volume") || f.includes("produc"),
+      )
+    ) {
       return topic
         ? `${greeting} Para o especialista indicar a melhor opção em ${topic}, você tem uma ideia aproximada da sua produção diária?`
         : `${greeting} Para o especialista indicar a melhor opção, você tem uma ideia aproximada da sua produção diária?`;
+    }
+    if (missingFields.some((f) => f === "name" || f.includes("nome"))) {
+      return topic
+        ? `${greeting} Para eu encaminhar sua solicitação sobre ${topic}, como você se chama?`
+        : `${greeting} Para eu encaminhar sua solicitação para a equipe, como você se chama?`;
     }
     if (topic) {
       return `${greeting} Seguimos com o atendimento sobre ${topic} por aqui — assim que puder responder minha última pergunta, já dou sequência.`;
@@ -507,7 +535,7 @@ const SUBSTANTIVE_PARTIAL_LEAD_KEYS = new Set([
   "QUAL O TIPO DE PRODUTO?",
 ]);
 
-function hasPartialCollectedData(collectedData?: Record<string, unknown> | null): boolean {
+export function hasPartialCollectedData(collectedData?: Record<string, unknown> | null): boolean {
   if (!collectedData || typeof collectedData !== "object") return false;
   for (const [key, raw] of Object.entries(collectedData)) {
     if (key.startsWith("_")) continue;

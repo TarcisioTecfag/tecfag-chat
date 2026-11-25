@@ -54,12 +54,17 @@ export interface IndustrialFollowUpAiResult {
 }
 
 const MISSING_FIELD_LABELS: Record<string, string> = {
-  "NOME COMPLETO": "nome completo",
+  "NOME COMPLETO": "nome completo da pessoa (NÃO peça o nome da empresa)",
+  name: "nome completo da pessoa (NÃO peça o nome da empresa)",
   "CNPJ OU CPF": "CNPJ ou CPF (se não tiver fácil agora, nome da empresa/cidade já ajuda)",
+  document: "CNPJ ou CPF (se não tiver fácil agora, nome da empresa/cidade já ajuda)",
   EMPRESA: "nome da empresa",
   "MÁQUINA / PEÇA / INTERESSE": "máquina, peça ou interesse específico",
+  request: "qual máquina, peça ou demanda específica o cliente precisa",
   "RAMO / O QUE EMBALA": "produto/aplicação",
+  application: "produto ou aplicação que vai embalar/processar",
   "VOLUME / PRODUÇÃO": "estimativa de produção diária/mensal",
+  production: "estimativa de produção por hora ou por dia",
   "SETOR / FUNIL DE DESTINO": "motivo do contato",
 };
 
@@ -73,33 +78,89 @@ const INVENTED_PRICE_PATTERN = /r\$\s*\d[\d.,]*/i;
 const PROMISED_IMMEDIATE_CALL_PATTERN =
   /\b(?:vou\s+te\s+ligar\s+agora|te\s+ligo\s+em\s+instantes|especialista\s+est[aá]\s+entrando\s+agora|pre[cç]o\s+promocional\s+s[oó]\s+hoje)\b/i;
 
+function getFilledCollectedString(
+  collectedData: Record<string, unknown> | null | undefined,
+  key: string,
+): string {
+  if (!collectedData || typeof collectedData !== "object") return "";
+  const raw = collectedData[key];
+  const val =
+    typeof raw === "string"
+      ? raw.trim()
+      : typeof (raw as { value?: unknown } | null)?.value === "string"
+        ? String((raw as { value?: unknown }).value).trim()
+        : "";
+  if (!val || /^(aguardando|n[aã]o informado|-|\?)$/i.test(val)) return "";
+  return val;
+}
+
 function summarizeCollectedData(collectedData?: Record<string, unknown> | null): string {
   if (!collectedData || typeof collectedData !== "object") return "Nenhum dado coletado ainda.";
   const lines: string[] = [];
-  for (const [key, raw] of Object.entries(collectedData)) {
+  for (const key of Object.keys(collectedData)) {
     if (key.startsWith("_")) continue;
-    const val =
-      typeof raw === "string"
-        ? raw.trim()
-        : typeof (raw as { value?: unknown } | null)?.value === "string"
-          ? String((raw as { value?: unknown }).value).trim()
-          : "";
-    if (!val || /^(aguardando|n[aã]o informado|-|\?)$/i.test(val)) continue;
+    const val = getFilledCollectedString(collectedData, key);
+    if (!val) continue;
     const displayVal = key === "NOME COMPLETO" ? formatFirstNameTitleCase(val) || val : val;
     lines.push(`- ${key}: ${displayVal.slice(0, 120)}`);
   }
   return lines.length > 0 ? lines.join("\n") : "Nenhum dado coletado ainda.";
 }
 
-function summarizeMissingFields(missingFields?: string[] | null): string {
+function isPendingFieldAlreadyCollected(
+  field: string,
+  collectedData?: Record<string, unknown> | null,
+): boolean {
+  if (!collectedData) return false;
+  const norm = field.trim().toLowerCase();
+  if (norm === "name" || norm === "nome completo") {
+    return Boolean(getFilledCollectedString(collectedData, "NOME COMPLETO"));
+  }
+  if (norm === "empresa") {
+    return Boolean(getFilledCollectedString(collectedData, "EMPRESA"));
+  }
+  if (norm === "document" || norm === "cnpj ou cpf" || norm === "cnpj" || norm === "cpf") {
+    const hasDoc = Boolean(
+      getFilledCollectedString(collectedData, "CNPJ OU CPF") ||
+        getFilledCollectedString(collectedData, "CNPJ") ||
+        getFilledCollectedString(collectedData, "CPF"),
+    );
+    const hasConfirmedCompany =
+      Boolean(getFilledCollectedString(collectedData, "_KNOWN_COMPANY_CONFIRMED")) &&
+      Boolean(getFilledCollectedString(collectedData, "EMPRESA"));
+    return hasDoc || hasConfirmedCompany;
+  }
+  if (norm === "request" || norm === "máquina / peça / interesse" || norm === "maquina / peca / interesse") {
+    return Boolean(
+      getFilledCollectedString(collectedData, "MÁQUINA / PEÇA / INTERESSE") ||
+        getFilledCollectedString(collectedData, "SOLICITAÇÃO") ||
+        getFilledCollectedString(collectedData, "PRODUTO DE INTERESSE"),
+    );
+  }
+  if (norm === "application" || norm === "ramo / o que embala") {
+    return Boolean(getFilledCollectedString(collectedData, "RAMO / O QUE EMBALA"));
+  }
+  if (norm === "production" || norm === "volume / produção" || norm === "volume / producao") {
+    return Boolean(getFilledCollectedString(collectedData, "VOLUME / PRODUÇÃO"));
+  }
+  return Boolean(getFilledCollectedString(collectedData, field));
+}
+
+function summarizeMissingFields(
+  missingFields?: string[] | null,
+  collectedData?: Record<string, unknown> | null,
+): string {
   if (!Array.isArray(missingFields) || missingFields.length === 0) {
     return "Nenhum campo formal listado (avaliar última pergunta aberta na conversa).";
   }
-  return missingFields
+  const remaining = missingFields
     .filter((f): f is string => typeof f === "string" && f.trim().length > 0)
-    .slice(0, 8)
-    .map((f) => `- ${MISSING_FIELD_LABELS[f] || f}`)
-    .join("\n");
+    .filter((f) => !isPendingFieldAlreadyCollected(f, collectedData))
+    .slice(0, 8);
+  if (remaining.length === 0) {
+    return "Nenhum campo formal pendente (avaliar última pergunta aberta na conversa).";
+  }
+  return remaining.map((f) => `- ${MISSING_FIELD_LABELS[f] || f}`).join("\n");
 }
 
 function formatRecentTranscript(
@@ -143,7 +204,7 @@ export function buildIndustrialFollowUpJudgePrompt(input: IndustrialFollowUpAiIn
   const nowLabel = `${zonedNow.dateIso} ${String(zonedNow.hour).padStart(2, "0")}:${String(zonedNow.minute).padStart(2, "0")} (${tz})`;
   const transcript = formatRecentTranscript(input.recentMessages, input.personaName, tz);
   const collectedBlock = summarizeCollectedData(input.collectedData);
-  const missingBlock = summarizeMissingFields(input.missingFields);
+  const missingBlock = summarizeMissingFields(input.missingFields, input.collectedData);
   const article = input.personaGender === "female" ? "a" : "o";
   const channelLabel = input.channel === "site" ? "Chat ao vivo no Site (visitante em sessão curta)" : "WhatsApp";
   const rawFirst = extractRawFirstName(input.collectedData);
@@ -202,6 +263,7 @@ ${stageGuidance}
 - Sem aspas, sem markdown (sem **negrito** ou listas), no máximo 1 emoji sutil ou nenhum.
 - PROIBIDO inventar preço/valor (R$), desconto, prazo de entrega ou modelos de máquinas que NÃO apareceram na conversa.
 - PROIBIDO prometer ligação ou retorno humano imediato.
+- PROIBIDO pedir qualquer dado que já conste em DADOS JÁ COLETADOS (ex.: se EMPRESA já estiver preenchida, NUNCA peça o nome da empresa novamente; se faltar apenas o nome da pessoa, pergunte como ela se chama e nunca o nome da empresa).
 
 Responda EXCLUSIVAMENTE com JSON puro neste formato:
 {

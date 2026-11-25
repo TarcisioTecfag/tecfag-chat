@@ -167,7 +167,7 @@ export function evaluateKnownCompanyConfirmation(params: {
     new RegExp(`\\b${escapeRegexToken(tok)}\\b`).test(text),
   );
   const hasCompanyConfirmCue =
-    /\b(?:sim|isso|certo|correto|sou da|falo da|trabalho na|minha empresa|nossa empresa|meu cnpj|nosso cnpj|ja tem meu cnpj|esse mesmo|essa mesma|aquele mesmo|aquela mesma|a mesma|o mesmo)\b/.test(
+    /\b(?:sim|isso|certo|correto|sou d[aoe]|falo d[aoe]|trabalho n[ao]|somos d[ao]|represento [ao]|aqui e d[ao]|minha empresa|nossa empresa|meu cnpj|nosso cnpj|ja tem meu cnpj|esse mesmo|essa mesma|aquele mesmo|aquela mesma|a mesma|o mesmo)\b/.test(
       text,
     ) ||
     (significantTokens.length > 0 &&
