@@ -207,10 +207,13 @@ describe("catálogo e Decisor industrial sem provedor", () => {
         "resale_or_tender",
       );
     });
-  it("capital cadastral é promotor de revisão e não comprova linha da máquina", async () => {
+  it("capital cadastral alto gera alerta informativo sem derrubar sugestão Semi-Industrial", async () => {
     const result = await decide({ input: { ...input(), capitalSocial: 350000 } });
-    assert.equal(result.reason, "capital_requires_review");
+    assert.equal(result.status, "confirmed");
+    assert.equal(result.reason, "catalog_confirmed");
     assert.equal(result.line, "SEMI-INDUSTRIAL");
+    assert.equal(result.highCapitalSocialAlert, true);
+    assert.equal(result.capitalSocial, 350000);
   });
   for (const [raw, expected] of [
     ["R$ 350.000,00", 350000],

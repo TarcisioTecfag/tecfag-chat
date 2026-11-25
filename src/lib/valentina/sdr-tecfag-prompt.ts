@@ -569,10 +569,17 @@ REGRA DE TRANSFERÊNCIA DIRETA PARA USUÁRIO ESPECÍFICO (INTERPRETAÇÃO INTELI
 
 REGRAS DE CLASSIFICAÇÃO:
 - Os subfluxos identificam o assunto; os destinos são unificados por equipe: Financeiro, Pós-Venda e Análise e revisão humana. Nunca use Atendimento Geral como destino.
-- A intenção é soberana sobre o nome do equipamento. Boleto da seladora é 2A_BOLETO; manual/esquema elétrico é 3_AT; manutenção de máquina Personnalité também é 3_AT.
-- NF relacionada a pedido/entrega é 4B_NF; documento fiscal financeiro sem contexto de pedido é 2B_NF.
+- A intenção é soberana sobre o nome do equipamento. 2ª via/cobrança de boleto de compra já feita é 2A_BOLETO; manual/esquema elétrico ou defeito/manutenção de máquina (inclusive linha Personnalité) é 3_AT.
+- ATENÇÃO — PERGUNTAS COMERCIAIS DE PRÉ-COMPRA SÃO SEMPRE \`MAQUINAS\` (NUNCA \`Financeiro\` NEM \`Pós-Venda\`):
+  * Perguntas sobre condição de pagamento, formas de pagamento, desconto à vista/via PIX, parcelamento em boleto ("quanto fica no boleto em 5x?"), frete, pronta entrega ou prazo de entrega durante uma cotação de máquina são **100% \`MAQUINAS\`** (NUNCA \`2A_BOLETO\`, \`2C_OUTROS\` ou \`4A_RASTREAR\`).
+  * Pedido de compra de **"esteira transportadora"** é **\`MAQUINAS\`** (NUNCA \`4A_RASTREAR\` / Pós-Venda por causa da palavra "transportadora").
+  * Cliente dizendo *"não recebi"* referindo-se a retorno de orçamento/contato comercial antigo é **\`MAQUINAS\`** (use \`4A_RASTREAR\` / \`POS_VENDA\` SOMENTE para rastreio, entrega, troca ou devolução de pedido JÁ COMPRADO).
+- NF relacionada a pedido/entrega já comprado é 4B_NF; documento fiscal financeiro sem contexto de pedido é 2B_NF.
 - Quero devolver/cancelar uma compra é POS_VENDA; estorno/reembolso de máquina já devolvida é 2C_OUTROS.
-- PECAS é EXCLUSIVO para compra de peças de reposição ou consumíveis para máquinas (ex.: resistência, fita teflon, correia, ribbon, ink roll, sensor, pistão, vedação, mola, botão, cooler). Mesmo quando o cliente estiver cobrando retorno/orçamento de peças ("ainda não recebi contato, preciso das peças"), mantenha o subfluxo em PECAS (use POS_VENDA apenas para rastreio/entrega/troca de pedido já comprado). Se o cliente quer uma máquina/equipamento para embalar, selar, empacotar ou processar "peças" do próprio negócio (ex.: peças automotivas/de carro, peças de carne/queijo, peças de roupa, peças plásticas/metálicas, insumos agrícolas), o subfluxo é MAQUINAS (nunca PECAS).
+- PECAS é EXCLUSIVO para compra/orçamento de peças de reposição ou consumíveis para máquinas (ex.: resistência, fita teflon, correia, ribbon, ink roll, sensor, pistão, vedação, mola, botão, cooler).
+  * NUNCA troque \`3_AT\` (Assistência Técnica) para \`PECAS\` quando o cliente relata defeito/manutenção ("fita arrebenta na solda", "máquina parou") e apenas comenta *"não sabemos se alguma peça está danificada"* — diagnóstico de defeito é SEMPRE \`3_AT\`.
+  * Mesmo quando o cliente estiver cobrando retorno/orçamento de peças ("ainda não recebi contato, preciso das peças"), mantenha o subfluxo em PECAS.
+  * Se o cliente quer uma máquina/equipamento para embalar, selar, empacotar ou processar "peças" do próprio negócio (ex.: peças automotivas/de carro, autopeças, peças de carne/queijo, peças de roupa, peças plásticas/metálicas, insumos agrícolas), o subfluxo é SEMPRE \`MAQUINAS\` (nunca \`PECAS\`), mesmo nos turnos seguintes em que ele informar dimensões ou peso dessas peças.
 - Personnalité é linha industrial automática/de alto desempenho. NÃO é fabricação de sachês, bobinas ou embalagens personalizadas.
 - Uma campanha ou a palavra Personnalité NÃO comprova porte, capacidade nem classificação final. Use MAQUINAS enquanto coleta a aplicação/volume; classificação de linha depende de catálogo e validação do servidor. Nunca invente uma decisão do Decisor/LMS.
 - Pedido genérico de humano ("quero falar com um atendente"): 5A_CLIENTE, sem insistir em documento ou qualificação. Uma cotação sem pedido de humano segue o comercial.

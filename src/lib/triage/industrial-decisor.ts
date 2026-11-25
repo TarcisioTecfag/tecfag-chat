@@ -9,12 +9,16 @@ import type { IndustrialMachine, IndustrialSettings } from "./industrial-setting
 export interface MachineDecision {
   status: "confirmed" | "review" | "not_offered";
   machineId: string | null;
+  candidateMachineIds?: string[];
   line: IndustrialMachine["line"] | null;
   confidence: number;
-  method: "exact_catalog" | "vertex_catalog" | "rule";
+  method: "exact_catalog" | "exact_catalog_line" | "vertex_catalog" | "vertex_catalog_line" | "rule";
   reason: string;
   catalogRevision: number;
   catalogFingerprint?: string;
+  highCapitalSocialAlert?: boolean;
+  capitalSocial?: number;
+  lineCorrectedFromCatalog?: boolean;
 }
 export interface MachineDecisionInput {
   interest: string;
@@ -39,10 +43,34 @@ export function parseIndustrialCapital(value: unknown): number | undefined {
 const suggestionSchema = z
   .object({
     machineId: z.string().min(1).max(160).nullable(),
+    candidateMachineIds: z.array(z.string().min(1).max(160)).max(6).optional(),
     confidence: z.number().finite().min(0).max(1),
     reason: z.string().max(600),
   })
   .strict();
+
+/**
+ * Proteção defensiva enquanto o catálogo oficial não passa pela higienização completa:
+ * itens etiquetados como PERSONNALITE cujo próprio nome declara máquina Manual, Semiautomática
+ * ou de Pedal (ex.: "Seladora em L Manual" BSF-501, "FQS450 - SELADORA L SEMI AUTOMATICA COM TUNEL")
+ * são reclassificados defensivamente para SEMI-INDUSTRIAL para evitar falsos Personnalité.
+ */
+export function resolveEffectiveCatalogLine(machine: IndustrialMachine): {
+  line: IndustrialMachine["line"];
+  corrected: boolean;
+} {
+  if (machine.line !== "PERSONNALITE") {
+    return { line: machine.line, corrected: false };
+  }
+  const normName = normalizeTriageText(machine.name || "");
+  const isManualOrSemiName =
+    /\b(?:manual|semi\s*automatic[ao]|semiautomatic[ao]|de\s+pedal)\b/.test(normName) &&
+    !/\b(?:termoformadora|blister|encapsuladora|prensa|comprimidos)\b/.test(normName);
+  if (isManualOrSemiName) {
+    return { line: "SEMI-INDUSTRIAL", corrected: true };
+  }
+  return { line: machine.line, corrected: false };
+}
 const categories = [
   "seladora",
   "envasadora",
@@ -257,7 +285,44 @@ export function prepareMachineDecision(
         return referenceIn(input.interest) && referenceIn(input.customerContext);
       }),
   );
-  if (exact.length > 1) return { decision: review("ambiguous_exact_match"), candidates: [] };
+  if (exact.length > 1) {
+    const compatibleExact = exact.filter((machine) => compatibleCategory(input.interest, machine));
+    if (compatibleExact.length > 0) {
+      const resolvedExact = compatibleExact.map((machine) => ({
+        machine,
+        effective: resolveEffectiveCatalogLine(machine),
+      }));
+      const distinctLines = new Set(resolvedExact.map((item) => item.effective.line));
+      const anyOverCapacity = resolvedExact.some((item) =>
+        exceedsCatalogCapacity(input.production, item.machine.production),
+      );
+      if (distinctLines.size === 1 && !anyOverCapacity) {
+        const [commonLine] = Array.from(distinctLines);
+        const highCapitalSocialAlert =
+          commonLine === "SEMI-INDUSTRIAL" && (input.capitalSocial || 0) >= 350_000;
+        const decision: MachineDecision = {
+          status: "confirmed",
+          machineId: null,
+          candidateMachineIds: resolvedExact.map((item) => item.machine.id),
+          line: commonLine,
+          confidence: 0.95,
+          method: "exact_catalog_line",
+          reason: "catalog_line_confirmed_model_tbd",
+          catalogRevision: revision,
+          highCapitalSocialAlert,
+          ...(highCapitalSocialAlert ? { capitalSocial: input.capitalSocial } : {}),
+          ...(resolvedExact.some((item) => item.effective.corrected)
+            ? { lineCorrectedFromCatalog: true }
+            : {}),
+        };
+        return {
+          decision,
+          candidates: [],
+        };
+      }
+    }
+    return { decision: review("ambiguous_exact_match"), candidates: [] };
+  }
   if (exact.length === 1)
     return {
       decision: confirmMachine(exact[0], revision, input, "exact_catalog", 1),
@@ -300,20 +365,26 @@ function confirmMachine(
   method: MachineDecision["method"],
   confidence: number,
 ): MachineDecision {
+  const { line: effectiveLine, corrected } = resolveEffectiveCatalogLine(machine);
   let reason = "catalog_confirmed";
   if (!compatibleCategory(input.interest, machine)) reason = "category_conflict";
   else if (exceedsCatalogCapacity(input.production, machine.production))
     reason = "capacity_requires_review";
-  else if (machine.line === "SEMI-INDUSTRIAL" && (input.capitalSocial || 0) >= 350_000)
-    reason = "capital_requires_review";
+  // Decisão 3: Capital Social >= R$ 350.000 NÃO derruba mais o destino para Análise e revisão humana;
+  // vira alerta informativo no card de Aprovação SDR para o avaliador decidir se sobe para Personnalité.
+  const highCapitalSocialAlert =
+    effectiveLine === "SEMI-INDUSTRIAL" && (input.capitalSocial || 0) >= 350_000;
   return {
     status: reason === "catalog_confirmed" ? "confirmed" : "review",
     machineId: machine.id,
-    line: machine.line,
+    line: effectiveLine,
     confidence,
     method,
     reason,
     catalogRevision: revision,
+    highCapitalSocialAlert,
+    ...(highCapitalSocialAlert ? { capitalSocial: input.capitalSocial } : {}),
+    ...(corrected ? { lineCorrectedFromCatalog: true } : {}),
   };
 }
 /** Compara somente unidade e período compatíveis; não inventa jornada diária nem densidade. */
@@ -351,10 +422,7 @@ export function validateMachineSuggestion(
   input: MachineDecisionInput,
 ): MachineDecision {
   const result = suggestionSchema.safeParse(raw);
-  const machine = result.success
-    ? candidates.find((candidate) => candidate.id === result.data.machineId && candidate.active)
-    : null;
-  if (!result.success || !machine || result.data.confidence < 0.95)
+  if (!result.success) {
     return {
       status: "review",
       machineId: null,
@@ -364,8 +432,92 @@ export function validateMachineSuggestion(
       reason: "unconfirmed_model_match",
       catalogRevision: revision,
     };
-  // A linha e o nome vêm do catálogo do tenant; o JSON do modelo só sugere um ID.
-  return confirmMachine(machine, revision, input, "vertex_catalog", result.data.confidence);
+  }
+
+  const machine = result.data.machineId
+    ? candidates.find((candidate) => candidate.id === result.data.machineId && candidate.active)
+    : null;
+
+  if (machine && result.data.confidence >= 0.95) {
+    // A linha e o nome vêm do catálogo do tenant (com proteção defensiva p/ Manual/Semi);
+    // o JSON do modelo só sugere um ID.
+    return confirmMachine(machine, revision, input, "vertex_catalog", result.data.confidence);
+  }
+
+  // Decisão 3: múltiplos modelos compatíveis da MESMA linha no catálogo (sem conflito Semi x Personnalité)
+  // já confirmam a LINHA para pré-preencher a Aprovação SDR (mantendo 100% da revisão humana SDR).
+  const rawCandidateIds = Array.isArray(result.data.candidateMachineIds)
+    ? Array.from(new Set(result.data.candidateMachineIds))
+    : [];
+  if (rawCandidateIds.length > 0 && result.data.confidence >= 0.85) {
+    const matchedCandidates = rawCandidateIds
+      .map((id) => candidates.find((candidate) => candidate.id === id && candidate.active))
+      .filter((item): item is IndustrialMachine => Boolean(item))
+      .filter((item) => compatibleCategory(input.interest, item));
+
+    if (matchedCandidates.length > 0) {
+      const resolved = matchedCandidates.map((item) => ({
+        machine: item,
+        effective: resolveEffectiveCatalogLine(item),
+      }));
+      const distinctLines = new Set(resolved.map((item) => item.effective.line));
+      if (distinctLines.size > 1) {
+        return {
+          status: "review",
+          machineId: null,
+          candidateMachineIds: resolved.map((item) => item.machine.id),
+          line: null,
+          confidence: result.data.confidence,
+          method: "vertex_catalog_line",
+          reason: "ambiguous_line_conflict",
+          catalogRevision: revision,
+        };
+      }
+      const anyOverCapacity = resolved.some((item) =>
+        exceedsCatalogCapacity(input.production, item.machine.production),
+      );
+      if (anyOverCapacity) {
+        return {
+          status: "review",
+          machineId: null,
+          candidateMachineIds: resolved.map((item) => item.machine.id),
+          line: Array.from(distinctLines)[0],
+          confidence: result.data.confidence,
+          method: "vertex_catalog_line",
+          reason: "capacity_requires_review",
+          catalogRevision: revision,
+        };
+      }
+      const [commonLine] = Array.from(distinctLines);
+      const highCapitalSocialAlert =
+        commonLine === "SEMI-INDUSTRIAL" && (input.capitalSocial || 0) >= 350_000;
+      return {
+        status: "confirmed",
+        machineId: null,
+        candidateMachineIds: resolved.map((item) => item.machine.id),
+        line: commonLine,
+        confidence: result.data.confidence,
+        method: "vertex_catalog_line",
+        reason: "catalog_line_confirmed_model_tbd",
+        catalogRevision: revision,
+        highCapitalSocialAlert,
+        ...(highCapitalSocialAlert ? { capitalSocial: input.capitalSocial } : {}),
+        ...(resolved.some((item) => item.effective.corrected)
+          ? { lineCorrectedFromCatalog: true }
+          : {}),
+      };
+    }
+  }
+
+  return {
+    status: "review",
+    machineId: null,
+    line: null,
+    confidence: 0,
+    method: "vertex_catalog",
+    reason: "unconfirmed_model_match",
+    catalogRevision: revision,
+  };
 }
 export function applyMachineDecision(
   route: IndustrialRoute,

@@ -289,18 +289,61 @@ export const IndustrialApprovalPanel = React.memo(function IndustrialApprovalPan
         setStageId(firstStage?.id || "");
       }
     }
-    // Se operador atual não está no novo setor, sugere o próximo elegível desse setor
+    // Se operador atual não está no novo setor, sugere o próximo elegível desse setor:
+    // prioriza estritamente operadores participantes do rodízio (`isParticipating === true`)
+    // para evitar puxar membros fora da fila (ex.: Adriano Ordonho em Personnalité).
     const sec = options.sectors.find((s) => s.id === nextSectorId);
     if (sec && sec.operatorIds.length > 0 && !sec.operatorIds.includes(operatorId)) {
-      const candidates = options.operators
-        .filter((op) => sec.operatorIds.includes(op.id) && !op.isOnLeave)
-        .sort(
-          (a, b) =>
-            a.leadsReceivedCount - a.compensation - (b.leadsReceivedCount - b.compensation) ||
-            a.name.localeCompare(b.name),
-        );
-      if (candidates[0]) {
-        setOperatorId(candidates[0].id);
+      const sortByLoad = (
+        a: ApprovalOptionsPayload["operators"][number],
+        b: ApprovalOptionsPayload["operators"][number],
+      ) =>
+        a.leadsReceivedCount - a.compensation - (b.leadsReceivedCount - b.compensation) ||
+        a.name.localeCompare(b.name);
+      const participatingCandidates = options.operators
+        .filter((op) => sec.operatorIds.includes(op.id) && op.isParticipating && !op.isOnLeave)
+        .sort(sortByLoad);
+      const fallbackSectorCandidates =
+        participatingCandidates.length > 0
+          ? participatingCandidates
+          : options.operators
+              .filter(
+                (op) =>
+                  sec.operatorIds.includes(op.id) &&
+                  !op.isOnLeave &&
+                  op.status?.toLowerCase() !== "ausente",
+              )
+              .sort(sortByLoad);
+      if (fallbackSectorCandidates[0]) {
+        setOperatorId(fallbackSectorCandidates[0].id);
+      }
+    }
+  };
+
+  // Sincroniza o Setor de Destino quando o aprovador escolhe um operador pertencente a outro setor
+  // (evita gravar "Máquinas" no histórico quando o lead foi encaminhado para um consultor de Personnalité/Peças).
+  const handleOperatorChange = (nextOperatorId: string) => {
+    setOperatorId(nextOperatorId);
+    if (!options) return;
+    const currentSector = options.sectors.find((s) => s.id === sectorId);
+    if (currentSector && currentSector.operatorIds.includes(nextOperatorId)) {
+      return;
+    }
+    const operatorSectors = options.sectors.filter((s) => s.operatorIds.includes(nextOperatorId));
+    if (operatorSectors.length === 1) {
+      const targetSec = operatorSectors[0];
+      setSectorId(targetSec.id);
+      const matchedDest = Object.values(options.destinations).find(
+        (d) => d.sectorId === targetSec.id,
+      );
+      if (matchedDest?.pipelineId) {
+        setPipelineId(matchedDest.pipelineId);
+        if (matchedDest.stageId) {
+          setStageId(matchedDest.stageId);
+        } else {
+          const firstStage = options.stages.find((s) => s.pipelineId === matchedDest.pipelineId);
+          setStageId(firstStage?.id || "");
+        }
       }
     }
   };
@@ -487,6 +530,30 @@ export const IndustrialApprovalPanel = React.memo(function IndustrialApprovalPan
             </div>
           )}
 
+          {pending?.highCapitalSocialAlert && (
+            <div className="flex items-start gap-2 rounded-xl border border-sky-500/35 bg-sky-500/10 p-2 text-[11px] text-sky-900 dark:text-sky-200">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-sky-600 dark:text-sky-300" />
+              <span>
+                <strong>Porte elevado</strong>
+                {typeof pending.capitalSocial === "number"
+                  ? ` (Capital Social R$ ${pending.capitalSocial.toLocaleString("pt-BR")})`
+                  : " (Capital Social ≥ R$ 350 mil)"}
+                : sugestão mantida em <strong>{pending.targetFunnel || "Máquinas"}</strong> — avalie
+                se há potencial para <strong>Personnalité</strong>.
+              </span>
+            </div>
+          )}
+
+          {pending?.modelSelectionPending && (
+            <div className="flex items-start gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-2 text-[11px] text-emerald-900 dark:text-emerald-200">
+              <Sparkles className="h-3.5 w-3.5 shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-300" />
+              <span>
+                Linha <strong>{pending.targetFunnel || "comercial"}</strong> confirmada no catálogo
+                (múltiplos modelos compatíveis — modelo exato a validar pelo consultor).
+              </span>
+            </div>
+          )}
+
           {loadingOptions && !options ? (
             <SdrApprovalOptionsSkeleton />
           ) : (
@@ -529,11 +596,12 @@ export const IndustrialApprovalPanel = React.memo(function IndustrialApprovalPan
                     </span>
                     {pending?.suggestedOperatorName && (
                       <span className="ml-auto text-[10px] sm:text-[9px] font-semibold text-emerald-600 dark:text-emerald-400 normal-case truncate max-w-full">
-                        Próx. Rodízio: {pending.suggestedOperatorName}
+                        {pending?.suggestedBySectorFallback ? "Equipe:" : "Próx. Rodízio:"}{" "}
+                        {pending.suggestedOperatorName}
                       </span>
                     )}
                   </label>
-                  <Select value={operatorId} onValueChange={setOperatorId}>
+                  <Select value={operatorId} onValueChange={handleOperatorChange}>
                     <SelectTrigger className="h-10 sm:h-8.5 text-xs rounded-xl">
                       <SelectValue placeholder="Selecione o responsável..." />
                     </SelectTrigger>

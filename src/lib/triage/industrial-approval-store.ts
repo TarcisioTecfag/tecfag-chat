@@ -24,7 +24,7 @@ import { SdrDebouncer } from "../valentina/sdr-debouncer";
 import { getBrtTodayYmd, isOperatorOnLeaveToday } from "../valentina/rodizio-types";
 import { isSiteConversationId } from "../livechat/site-channel-policy";
 import { ensureCwrDealOnContacting, moveDealOnSdrApproval } from "./industrial-cwr-crm";
-import type { MachineDecision } from "./industrial-decisor";
+import { resolveEffectiveCatalogLine, type MachineDecision } from "./industrial-decisor";
 import { industrialHandoffMessage } from "./industrial-handoff";
 import {
   assessIndustrialReadiness,
@@ -94,12 +94,16 @@ export interface PendingApprovalSuggestion {
   suggestedOperatorId: string | null;
   suggestedOperatorName: string | null;
   suggestedOperatorIsAbsent: boolean;
+  suggestedBySectorFallback?: boolean;
   suggestedPipelineId: string | null;
   suggestedPipelineName: string | null;
   suggestedStageId: string | null;
   suggestedStageName: string | null;
   reason: string | null;
   needsReview: boolean;
+  highCapitalSocialAlert?: boolean;
+  capitalSocial?: number | null;
+  modelSelectionPending?: boolean;
   dealId: string | null;
   clientName: string;
   companyName: string;
@@ -211,15 +215,37 @@ export async function computePendingApprovalSuggestion(
   let readiness = assessIndustrialReadiness(route, data);
   const machine = params.machineDecision;
   const isCommercial = ["MAQUINAS", "PERSONNALITE"].includes(route.subflow || "");
-  const validCatalogDecision =
+  const validSingleModelDecision =
     machine?.status === "confirmed" &&
     (machine.line === "SEMI-INDUSTRIAL" || machine.line === "PERSONNALITE") &&
     Number.isFinite(machine.confidence) &&
     machine.confidence >= 0.95 &&
     machine.confidence <= 1 &&
+    Boolean(machine.machineId) &&
     settingsState.settings.catalog.some(
-      (entry) => entry.active && entry.id === machine.machineId && entry.line === machine.line,
+      (entry) =>
+        entry.active &&
+        entry.id === machine.machineId &&
+        resolveEffectiveCatalogLine(entry).line === machine.line,
     );
+  const validLineGroupDecision =
+    machine?.status === "confirmed" &&
+    (machine.line === "SEMI-INDUSTRIAL" || machine.line === "PERSONNALITE") &&
+    (machine.method === "vertex_catalog_line" || machine.method === "exact_catalog_line") &&
+    Number.isFinite(machine.confidence) &&
+    machine.confidence >= 0.85 &&
+    machine.confidence <= 1 &&
+    Array.isArray(machine.candidateMachineIds) &&
+    machine.candidateMachineIds.length > 0 &&
+    machine.candidateMachineIds.every((id) =>
+      settingsState.settings.catalog.some(
+        (entry) =>
+          entry.active &&
+          entry.id === id &&
+          resolveEffectiveCatalogLine(entry).line === machine.line,
+      ),
+    );
+  const validCatalogDecision = validSingleModelDecision || validLineGroupDecision;
 
   if (isCommercial && !validCatalogDecision && route.reason !== "direct_operator_requested") {
     readiness = { ...readiness, action: "review", createsDeal: false };
@@ -258,6 +284,7 @@ export async function computePendingApprovalSuggestion(
   let suggestedOperatorId: string | null = null;
   let suggestedOperatorName: string | null = null;
   let suggestedOperatorIsAbsent = false;
+  let suggestedBySectorFallback = false;
 
   // Caso 1: pedido nominal de operador específico (ainda assim aguarda aprovação do SDR!)
   if (route.reason === "direct_operator_requested" && route.targetOperator?.id) {
@@ -359,6 +386,38 @@ export async function computePendingApprovalSuggestion(
             ) || null;
         }
       }
+    } else if (sectorOpIds && sectorOpIds.length > 0) {
+      // Fallback por setor (ex.: setor Peças onde os membros ainda não estão no rodízio):
+      // pré-seleciona o membro disponível do setor com menor carga pendente para evitar dropdown vazio.
+      const flowById = new Map(flowOps.map((op) => [op.id, op]));
+      const sectorCandidates = sectorOpIds
+        .map((id) => opById.get(id))
+        .filter((op): op is NonNullable<typeof op> => Boolean(op))
+        .filter((op) => {
+          const fOp = flowById.get(op.id);
+          const onLeave = Boolean(fOp && isOperatorOnLeaveToday(fOp, todayBrt));
+          const isAusente = normalizeTriageText(op.status || "") === "ausente";
+          return !onLeave && !isAusente;
+        })
+        .map((op) => {
+          const fOp = flowById.get(op.id);
+          return {
+            id: op.id,
+            name: op.name,
+            leadsReceivedCount: Number(fOp?.leadsReceivedCount || 0),
+            compensation: Number(fOp?.compensation || 0),
+          };
+        });
+      const fallbackSorted = sortIndustrialRodizioCandidatesWithPendingLoad(
+        sectorCandidates,
+        pendingCountByOperatorId,
+      );
+      if (fallbackSorted[0]) {
+        suggestedOperatorId = fallbackSorted[0].id;
+        suggestedOperatorName = fallbackSorted[0].name;
+        suggestedOperatorIsAbsent = false;
+        suggestedBySectorFallback = true;
+      }
     }
   }
 
@@ -424,12 +483,21 @@ export async function computePendingApprovalSuggestion(
     suggestedOperatorId,
     suggestedOperatorName,
     suggestedOperatorIsAbsent,
+    suggestedBySectorFallback,
     suggestedPipelineId: suggestedPipeline?.id || null,
     suggestedPipelineName: suggestedPipeline?.name || null,
     suggestedStageId: suggestedStage?.id || null,
     suggestedStageName: suggestedStage?.name || null,
     reason: route.reason || null,
     needsReview: Boolean(route.needsReview || readiness.action === "review"),
+    highCapitalSocialAlert: Boolean(machine?.highCapitalSocialAlert),
+    capitalSocial:
+      typeof machine?.capitalSocial === "number" && Number.isFinite(machine.capitalSocial)
+        ? machine.capitalSocial
+        : null,
+    modelSelectionPending: Boolean(
+      validLineGroupDecision && machine?.reason === "catalog_line_confirmed_model_tbd",
+    ),
     dealId: resolvedDealId,
     clientName: params.clientName,
     companyName: params.companyName,
@@ -1120,14 +1188,70 @@ export async function approveIndustrialTriage(
           });
 
     // 5. Concluir ciclo da triagem (`outcome = "transferred"`) e limpar `pendingApproval`
+    //    Preserva `triageAccuracy` IMUTÁVEL comparando a sugestão original do Fagner com o destino aprovado.
     const cycleIso = flow ? flow.startedAt.toISOString() : now.toISOString();
     if (flow) {
+      const originalTargetFunnel =
+        pending?.targetFunnel ??
+        (typeof flowMeta.targetFunnel === "string" ? flowMeta.targetFunnel : null);
+      const originalSectorId = pending?.suggestedSectorId ?? null;
+      const originalSectorName = pending?.suggestedSectorName ?? null;
+      const originalOperatorId = pending?.suggestedOperatorId ?? null;
+      const originalOperatorName = pending?.suggestedOperatorName ?? null;
+      const normOrigFunnel = originalTargetFunnel
+        ? normalizeTriageText(normalizeIndustrialFunnel(originalTargetFunnel))
+        : null;
+      const normApprovedFunnel = targetFunnel
+        ? normalizeTriageText(normalizeIndustrialFunnel(targetFunnel))
+        : null;
+      const normOrigSector = originalSectorName ? normalizeTriageText(originalSectorName) : null;
+      const normApprovedSector = resolvedSectorName ? normalizeTriageText(resolvedSectorName) : null;
+      const triageAccuracy = {
+        version: 1 as const,
+        recordedAt: now.toISOString(),
+        originalSuggestion: {
+          subflow: pending?.subflow ?? (typeof flowMeta.subflow === "string" ? flowMeta.subflow : null),
+          targetFunnel: originalTargetFunnel,
+          sectorId: originalSectorId,
+          sectorName: originalSectorName,
+          operatorId: originalOperatorId,
+          operatorName: originalOperatorName,
+          machineId:
+            typeof (flowMeta.machineDecision as Record<string, unknown> | undefined)?.machineId === "string"
+              ? ((flowMeta.machineDecision as Record<string, unknown>).machineId as string)
+              : null,
+          machineLine:
+            typeof (flowMeta.machineDecision as Record<string, unknown> | undefined)?.line === "string"
+              ? ((flowMeta.machineDecision as Record<string, unknown>).line as string)
+              : null,
+          needsReview: Boolean(pending?.needsReview ?? flowMeta.needsReview),
+          highCapitalSocialAlert: Boolean(pending?.highCapitalSocialAlert),
+          modelSelectionPending: Boolean(pending?.modelSelectionPending),
+        },
+        approvedOutcome: {
+          targetFunnel,
+          sectorId: resolvedSectorId,
+          sectorName: resolvedSectorName,
+          operatorId: targetOp.id,
+          operatorName: targetOp.name,
+          approvedByOperatorId: actor.id,
+          approvedByOperatorName: actor.name,
+        },
+        funnelMatched: Boolean(normOrigFunnel && normApprovedFunnel && normOrigFunnel === normApprovedFunnel),
+        sectorMatched: Boolean(
+          (originalSectorId && resolvedSectorId && originalSectorId === resolvedSectorId) ||
+            (normOrigSector && normApprovedSector && normOrigSector === normApprovedSector),
+        ),
+        operatorMatched: Boolean(originalOperatorId && originalOperatorId === targetOp.id),
+      };
+
       const nextMeta: Record<string, unknown> = {
         ...flowMeta,
         targetFunnel,
         handoffStatus: "transferred",
         readyForHandoff: false,
         pendingApproval: null,
+        triageAccuracy,
         allocatedOperatorId: targetOp.id,
         allocatedOperatorName: targetOp.name,
         approvedBy: {

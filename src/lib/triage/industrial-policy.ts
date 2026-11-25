@@ -306,13 +306,13 @@ export function stripNonReplacementPartsContext(normalizedText: string): string 
       /\b(?:maquinas?|equipamentos?|soluc(?:ao|oes)|linhas?|seladoras?|envasadoras?|dosadoras?|empacotadoras?|rotuladoras?|embaladoras?|datador\w*|tuneis|tunel|personnalite|personalite)\s+(?:[a-z0-9]+\s+){0,4}para\s+(?:as\s+|os\s+)?(?:pecas?|insumos?)\b/g,
       (match) => match.replace(/\bpara\s+(?:as\s+|os\s+)?(?:pecas?|insumos?)\b$/, ""),
     )
-    // 4. Unidade de produtividade/contagem ("500 peças por hora", "300 peças/dia", "quantas peças")
+    // 4. Unidade de produtividade/contagem ("500 peças por hora", "300 peças/dia", "quantas peças", "10 a 20 peças")
     .replace(
       /\b(?:\d+(?:[.,]\d+)*(?:\s*(?:a|ate|mil))?\s*(?:\d+(?:[.,]\d+)*)?|quantas?|cerca de \d+|aproximadamente \d+)\s*pecas?\s*(?:\/|por\s+|ao\s+|na\s+|no\s+|a\s+)(?:min(?:uto)?s?|h|hr|horas?|dias?|semanas?|mes(?:es)?|turnos?|lotes?|caixas?|pacotes?|embalagens?|sacos?)\b/g,
       " ",
     )
     .replace(/\bquantas?\s+pecas?\b/g, " ")
-    // 5. Medidas / peso do produto do cliente ("altura da peça", "a peça pesa 30g", "cada peça mede 14x14")
+    // 5. Medidas / peso / diagnóstico incerto ("altura da peça", "a peça pesa 30g", "não sabemos se alguma peça danificada")
     .replace(
       /\b(?:altura|largura|comprimento|espessura|tamanho|dimens(?:ao|oes)|medidas?|peso)\s+(?:aproximad[ao]s?\s+)?(?:da|das|de cada)\s+pecas?\b/g,
       " ",
@@ -321,9 +321,13 @@ export function stripNonReplacementPartsContext(normalizedText: string): string 
       /\b(?:a|as|cada|essa|essas|esta|estas|nossa|nossas)\s+pecas?\s+(?:tem|mede|medem|pesa|pesam|possui|possuem|e de|sao de)\b/g,
       " ",
     )
+    .replace(
+      /\b(?:nao\s+(?:sabemos|sei)|talvez|pode\s+ser|ver\s+se|verificar\s+se)\s+(?:se\s+)?(?:e\s+|ha\s+|tem\s+)?(?:alguma\s+|uma\s+)?pecas?\s+(?:danificad[ao]s?|quebrad[ao]s?|queimad[ao]s?|com\s+defeito|solta|gasta)\b/g,
+      " ",
+    )
     // 6. Ramos / produtos não-reposição ("auto peças", "peças de carro/carne/queijo/roupa", "insumos agrícolas")
     .replace(
-      /\b(?:auto\s*pecas?|moto\s*pecas?|pecas?\s+(?:automotiv[ao]s?|de\s+(?:carro|carros|moto|motos|caminhao|caminhoes|veiculo|veiculos|automovel|automoveis|bicicleta|bicicletas|roupa|roupas|vestuario|tecido|carne|carnes|queijo|queijos|frango|peixe|bacalhau|frios|embutidos|madeira|plastico|metal|ferro|aco|aluminio|vidro|ceramica|borracha|decoracao|artesanato|bijuteria|joia|joias|moveis)|intim[ao]s?|plastic[ao]s?|metalic[ao]s?|usinad[ao]s?|injetad[ao]s?|textil|texteis|confeccao))\b/g,
+      /\b(?:auto\s*pecas?|moto\s*pecas?|pecas?\s+(?:automotiv[ao]s?|de\s+(?:carro|carros|moto|motos|caminhao|caminhoes|veiculo|veiculos|automovel|automoveis|bicicleta|bicicletas|roupa|roupas|vestuario|tecido|carne|carnes|queijo|queijos|frango|peixe|bacalhau|frios|embutidos|madeira|plastico|metal|ferro|aco|aluminio|vidro|ceramica|borracha|decoracao|artesanato|bijuteria|joia|joias|moveis|relogio|ferragem|ferragens|eletronica|eletronicas)|intim[ao]s?|plastic[ao]s?|metalic[ao]s?|usinad[ao]s?|injetad[ao]s?|textil|texteis|confeccao))\b/g,
       " ",
     )
     .replace(
@@ -360,9 +364,72 @@ export function isExplicitReplacementPartsIntent(raw: string): boolean {
   return REPLACEMENT_PARTS_EXPLICIT_RE.test(cleaned) || REPLACEMENT_PARTS_PHRASE_RE.test(cleaned);
 }
 
+/**
+ * Detecta linguagem comercial de pré-compra (condição de pagamento, boleto parcelado, desconto PIX,
+ * prazo de entrega, pronta entrega, frete ou "esteira transportadora") para impedir que regex
+ * sequestre vendas novas para Financeiro ou Pós-Venda.
+ */
+export function isPrePurchaseCommercialInquiry(raw: string): boolean {
+  const text = normalizeTriageText(raw);
+  if (!text) return false;
+  return (
+    /\b(?:cotacao|orcamento|proposta|quanto custa|valor d[ao]|preco d[ao]|quero comprar|gostaria de comprar|tenho interesse)\b/.test(
+      text,
+    ) ||
+    /\b(?:condic(?:ao|oes)\s+de\s+pagamento|formas?\s+de\s+pagamento|desconto\s+(?:no|via|a\s+vista|pix)|pagamento\s+(?:via|no)\s+pix|no\s+boleto\s+em\s+\d+x|boleto\s+parcelado|aceita(?:m)?\s+boleto|parcela(?:r|mento|do))\b/.test(
+      text,
+    ) ||
+    /\b(?:prazo\s+de\s+entrega|pronta\s+entrega|frete\s+para|valor\s+do\s+frete|esteira\s+transportadora)\b/.test(
+      text,
+    )
+  );
+}
+
+function isExplicitBoletoBillingIntent(text: string): boolean {
+  if (!/\b(?:boleto|cobranca|inadimplencia)\b/.test(text)) return false;
+  // Pergunta comercial de pagamento/parcelamento em cotação NÃO é setor Financeiro (2A_BOLETO)
+  const isCommercialQuoteBoleto =
+    /\b(?:no\s+boleto\s+em\s+\d+x|boleto\s+parcelado|aceita(?:m)?\s+boleto|pagar\s+(?:no|por|via)\s+boleto|fazer\s+no\s+boleto|condic(?:ao|oes)\s+de\s+pagamento|formas?\s+de\s+pagamento|parcelamento\s+no\s+boleto)\b/.test(
+      text,
+    ) ||
+    (/\b(?:cotacao|orcamento|quanto\s+(?:fica|custa|da)|valor\s+d[ao]|quero\s+comprar)\b/.test(
+      text,
+    ) &&
+      !/\b(?:segunda\s+via|2a\s+via|2\s+via|vencido|venceu|em\s+aberto|atraso|atualizar|reemitir|prorrogar|cobranca|inadimplencia)\b/.test(
+        text,
+      ));
+  return !isCommercialQuoteBoleto;
+}
+
+function isExplicitFinancialOtherIntent(text: string): boolean {
+  // "pagamento" solto em "condição de pagamento" / "pagamento via PIX" é comercial, NÃO Financeiro
+  const hasStrongFinanceTerm =
+    /\b(?:setor\s+financeiro|departamento\s+financeiro|falar\s+com\s+(?:o\s+)?financeiro|\bfinanceiro\b|comprovante(?:\s+de\s+pagamento)?|fatura\b|prorrogacao|baixa\s+de\s+pagamento|duplicidade\s+de\s+pagamento|erro\s+no\s+pagamento|ja\s+efetuei\s+o\s+pagamento|ja\s+paguei)\b/.test(
+      text,
+    );
+  if (!hasStrongFinanceTerm) return false;
+  // Mesmo citando "financeiro", se for pergunta de condição/cotação sem cobrança/comprovante, não forçar 2C_OUTROS
+  if (
+    isPrePurchaseCommercialInquiry(text) &&
+    !/\b(?:setor\s+financeiro|departamento\s+financeiro|falar\s+com\s+(?:o\s+)?financeiro|comprovante|prorrogacao|ja\s+paguei|fatura|estorn\w*|reembols\w*)\b/.test(
+      text,
+    )
+  ) {
+    return false;
+  }
+  return true;
+}
+
 function isExplicitOrderTrackingContext(text: string): boolean {
-  return /\b(?:rastre\w*|meu pedido|nosso pedido|numero do pedido|pedido\s+\d|ainda nao recebi|nao recebi (?:a|as|o|os|minha|meu)|nao chegou|ainda nao chegou|cade (?:meu|o|a|as|os) (?:pedido|maquina|seladora|envasadora|equipamento|encomenda)|comprei|compramos|nota fiscal|danfe|entrega do meu|prazo de entrega da minha)\b/.test(
-    text,
+  // Remove explicitamente "esteira transportadora" e "prazo de entrega / pronta entrega" antes de testar
+  const sanitized = text
+    .replace(/\besteira\s+transportadora\b/g, " ")
+    .replace(/\b(?:prazo\s+de\s+entrega|pronta\s+entrega|valor\s+da\s+entrega|frete\s+e\s+entrega)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!sanitized) return false;
+  return /\b(?:rastre\w*|codigo\s+de\s+rastre\w*|meu\s+pedido|nosso\s+pedido|numero\s+do\s+pedido|pedido\s+\d|pedido\s+(?:chegou|existente)|status\s+d[ao]\s+(?:meu\s+|nosso\s+)?(?:pedido|entrega)|ainda\s+nao\s+recebi\s+(?:a|as|o|os|minha|meu|nada)?\s*(?:maquina|seladora|envasadora|equipamento|encomenda|pedido|peca|mercadoria)|nao\s+recebi\s+(?:a|as|o|os|minha|meu)\s*(?:maquina|seladora|envasadora|equipamento|encomenda|pedido|peca|mercadoria)|nao\s+chegou|ainda\s+nao\s+chegou|cade\s+(?:meu|o|a|as|os)\s+(?:pedido|maquina|seladora|envasadora|equipamento|encomenda)|entrega\s+do\s+(?:meu|nosso)\s+(?:pedido|equipamento|maquina)|previsao\s+de\s+entrega\s+do\s+(?:meu|nosso)\s+pedido|data\s+prevista\s+de\s+entrega\s+do\s+pedido|nota\s+fiscal\s+do\s+pedido|danfe)\b/.test(
+    sanitized,
   );
 }
 
@@ -479,14 +546,14 @@ function textSubflow(raw: string): IndustrialSubflow | null {
   }
   if (pendingReturn || /\b(?:devolucao|cancelamento (?:do|de) pedido)\b/.test(text))
     return "POS_VENDA";
-  if (/\b(?:boleto|cobranca|inadimplencia)\b/.test(text)) return "2A_BOLETO";
+  if (isExplicitBoletoBillingIntent(text)) return "2A_BOLETO";
   if (/\b(?:nota fiscal|nf|danfe|xml)\b/.test(text)) {
     return /\b(?:pedido|compra|entrega|rastre\w*)\b/.test(text) ? "4B_NF" : "2B_NF";
   }
-  if (/\b(?:financeiro|pagamento|comprovante|fatura|prorrogacao)\b/.test(text)) return "2C_OUTROS";
+  if (isExplicitFinancialOtherIntent(text)) return "2C_OUTROS";
   if (isTechnicalDocument(text)) return "3_AT";
   const hasExplicitFailureOrSupport =
-    /\b(?:defeito|conserto|garantia|assistencia|suporte tecnico|nao (?:liga|funciona|sela|corta)|maquina parada)\b/.test(
+    /\b(?:defeito|conserto|garantia|assistencia|suporte tecnico|nao (?:liga|funciona|sela|corta)|maquina parada|fita (?:arrebenta|rompendo|quebrando))\b/.test(
       text,
     );
   const mentionsMaintenanceOnlyAsRecipient =
@@ -504,12 +571,7 @@ function textSubflow(raw: string): IndustrialSubflow | null {
   ) {
     if (!/\b(?:quero comprar|gostaria de comprar|quero adquirir)\b/.test(text)) return "3_AT";
   }
-  if (
-    /\b(?:rastre\w*|transportadora|entrega|pedido (?:chegou|existente)|ainda nao recebi|nao recebi (?:a|as|o|os|minha|meu)|nao chegou|ainda nao chegou|cade (?:meu|o|a|as|os) (?:pedido|maquina|seladora|envasadora|equipamento|encomenda))\b/.test(
-      text,
-    )
-  )
-    return "4A_RASTREAR";
+  if (isExplicitOrderTrackingContext(text)) return "4A_RASTREAR";
   if (isExistingCommercialProposalInquiry(text)) {
     return "5A_CLIENTE";
   }
@@ -524,11 +586,84 @@ function textSubflow(raw: string): IndustrialSubflow | null {
     return "POS_VENDA";
   if (isReplacementPartsIntent(text)) return "PECAS";
   if (
-    /\b(?:maquinas?|seladoras?|envasadoras?|dosadoras?|empacotadoras?|rotuladoras?|embaladoras?|datador\w*|encapsuladoras?|tuneis|tunel|personnalite|personalite|orcamento|cotacao|quero comprar)\b/.test(
+    /\b(?:maquinas?|esteiras?|seladoras?|envasadoras?|dosadoras?|empacotadoras?|rotuladoras?|embaladoras?|datador\w*|encapsuladoras?|fechadoras?|rosqueadeiras?|arqueadoras?|tuneis|tunel|personnalite|personalite|orcamento|cotacao|quero comprar)\b/.test(
       text,
     )
   )
     return "MAQUINAS";
+  return null;
+}
+
+/**
+ * Override estrito de segurança: dispara APENAS para intenções 100% inequívocas
+ * que realmente podem prevalecer sobre o subfluxo declarado pelo Gemini
+ * (currículo, fornecedor, estorno/devolução, 2ª via boleto, NF/DANFE/XML, defeito/suporte técnico
+ * explícito, rastreio explícito de pedido já comprado ou proposta já emitida).
+ * NUNCA dispara por palavras comerciais soltas ("pagamento", "entrega", "transportadora", "peças de carro").
+ */
+function strictHardOverrideSubflow(
+  raw: string,
+  existingSubflow?: IndustrialSubflow | null,
+): IndustrialSubflow | null {
+  const withoutEmails = String(raw || "").replace(
+    /\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b/gi,
+    " ",
+  );
+  const text = normalizeTriageText(withoutEmails);
+  if (!text) return null;
+  if (isCurriculumOrJobIntent(text)) return "5B_CURRICULO";
+  if (isSupplierOrPartnershipOffer(text)) return "5C_COMPRAS";
+
+  const pendingReturn =
+    /\b(?:quero|queria|preciso|vou|gostaria de|como faco para) (?:fazer (?:a |uma )?)?(?:devolver|devolucao|cancelar)\b/.test(
+      text,
+    );
+  const returned = /\b(?:devolvi|devolvemos|devolvid[oa]s?|ja devol\w*)\b/.test(text);
+  if (
+    /\b(?:estorn\w*|reembols\w*|ressarc\w*|restituicao|dinheiro de volta)\b/.test(text) ||
+    (returned && /\b(?:dinheiro|valor|pagamento|credito)\b/.test(text))
+  ) {
+    return pendingReturn && !returned ? "POS_VENDA" : "2C_OUTROS";
+  }
+  if (pendingReturn || /\b(?:devolucao|cancelamento (?:do|de) pedido)\b/.test(text)) {
+    return "POS_VENDA";
+  }
+  if (isExplicitBoletoBillingIntent(text)) return "2A_BOLETO";
+  if (/\b(?:nota fiscal|nf|danfe|xml)\b/.test(text) && !/\b(?:emite|emitir|com)\s+nota\s+fiscal\b/.test(text)) {
+    return /\b(?:pedido|compra|entrega|rastre\w*)\b/.test(text) ? "4B_NF" : "2B_NF";
+  }
+  if (isExplicitFinancialOtherIntent(text)) return "2C_OUTROS";
+  if (isTechnicalDocument(text)) return "3_AT";
+  const hasExplicitFailureOrSupport =
+    /\b(?:defeito|conserto|garantia|assistencia tecnica|suporte tecnico|nao (?:liga|funciona|sela|corta)|maquina parada|fita (?:arrebenta|rompendo|quebrando))\b/.test(
+      text,
+    );
+  const mentionsMaintenanceOnlyAsRecipient =
+    /\bmanutencao\b/.test(text) &&
+    !hasExplicitFailureOrSupport &&
+    /(?:setor|departamento|equipe|pessoal|gerente|coordenador|responsavel|e-?mail)\s+(?:de|da)\s+manutencao|\bda\s+manutencao\b/.test(
+      text,
+    ) &&
+    /\b(?:oferta|black\s*friday|apresentacao|catalogo|cotacao|orcamento|proposta|comprar|adquirir|seladoras?|envasadoras?|maquinas?)\b/.test(
+      text,
+    );
+  if (
+    (hasExplicitFailureOrSupport || /\bmanutencao\b/.test(text)) &&
+    !mentionsMaintenanceOnlyAsRecipient &&
+    !/\b(?:quero comprar|gostaria de comprar|quero adquirir)\b/.test(text)
+  ) {
+    return "3_AT";
+  }
+  if (isExplicitOrderTrackingContext(text)) return "4A_RASTREAR";
+  if (isExistingCommercialProposalInquiry(text)) return "5A_CLIENTE";
+  // Peças só faz hard-override se for intenção explícita de reposição E não estiver em suporte técnico nem falando de máquina para embalar peças
+  if (
+    existingSubflow !== "3_AT" &&
+    isExplicitReplacementPartsIntent(text) &&
+    !/\b(?:embalar|empacotar|selar|envasar|dosar|rotular|personnalite|personalite)\b/.test(text)
+  ) {
+    return "PECAS";
+  }
   return null;
 }
 
@@ -900,48 +1035,76 @@ export function resolveIndustrialRoute(input: ResolveIndustrialRouteInput): Indu
     "QUAL O TIPO DE PRODUTO?",
     "PRODUTO DE INTERESSE",
   );
+  const existing =
+    declaredSubflow(input.existingSubflow) ||
+    declaredSubflow(input.existingFunnel) ||
+    declaredSubflow(collectedValue(input.collectedData, "SETOR / FUNIL DE DESTINO", "SETOR"));
   const declared = declaredSubflow(input.aiSubflow) || declaredSubflow(input.aiTargetFunnel);
+  const hardCurrent = strictHardOverrideSubflow(input.text || "", existing);
   const fromFields = textSubflow(interest);
-  // Uma intenção específica é soberana sobre a linha/produto comercial declarado pelo LLM,
-  // exceto quando há apenas menção ambígua de "peça(s)" sem contexto de reposição enquanto o LLM
-  // já classificou o atendimento como comercial (ex.: resposta "Peças" à pergunta do que embala).
   const commercial = new Set<IndustrialSubflow>(["MAQUINAS", "PERSONNALITE"]);
-  const normalizedCurrentText = normalizeTriageText(input.text || "");
-  const effectiveCurrentText =
+
+  // Proteção contra falso PECAS do próprio LLM quando o cliente quer máquina p/ embalar peças
+  // (ex.: "embalar peças de carro") ou está em manutenção técnica ("não sabemos se alguma peça danificada").
+  let effectiveDeclared = declared;
+  if (declared === "PECAS") {
+    const rawCombined = normalizeTriageText(`${input.text || ""} ${interest}`);
+    const hasExplicitPart =
+      isExplicitReplacementPartsIntent(input.text || "") ||
+      isExplicitReplacementPartsIntent(interest);
+    const interestIsMachine = fromFields !== null && commercial.has(fromFields);
+    const interestIsSupport = fromFields === "3_AT";
+    const mentionsPartsWordOnlyAsProductOrDamage =
+      /\b(?:pecas?|insumos?)\b/.test(rawCombined) && !isReplacementPartsIntent(rawCombined);
+    if (!hasExplicitPart && existing === "3_AT" && (interestIsSupport || mentionsPartsWordOnlyAsProductOrDamage)) {
+      effectiveDeclared = "3_AT";
+    } else if (!hasExplicitPart && interestIsMachine && existing && commercial.has(existing)) {
+      effectiveDeclared = existing;
+    } else if (
+      !hasExplicitPart &&
+      mentionsPartsWordOnlyAsProductOrDamage &&
+      /\b(?:embalar|empacotar|selar|envasar|dosar|rotular|maquina|equipamento|solucao|linha|personnalite)\b/.test(
+        rawCombined,
+      )
+    ) {
+      effectiveDeclared = "MAQUINAS";
+    }
+  }
+
+  // Nova hierarquia de autoridade (Decisão 1):
+  // 1) hardCurrent: override estrito apenas p/ casos 100% inequívocos (currículo, fornecedor, estorno, 2ª via boleto, defeito explícito, rastreio de pedido já comprado).
+  // 2) effectiveDeclared: classificação semântica do Gemini no contexto completo da conversa (SOBERANA sobre regex fraco).
+  // 3) strictFieldOverride: apenas quando Gemini retornou null e o interesse já tem intenção inequívoca.
+  // 4) Fallback heurístico (fromCurrentText / fromFields) + estabilidade da rota anterior (existing).
+  const strictFieldOverride = !effectiveDeclared
+    ? strictHardOverrideSubflow(interest, existing)
+    : null;
+
+  const effectiveFallbackText =
     fromCurrentText === "PECAS" &&
-    declared &&
-    (commercial.has(declared) || declared === "5C_COMPRAS") &&
+    existing &&
+    (commercial.has(existing) || existing === "3_AT") &&
     !isExplicitReplacementPartsIntent(input.text || "")
       ? null
-      : fromCurrentText === "4A_RASTREAR" &&
-          declared === "5C_COMPRAS" &&
-          !isExplicitOrderTrackingContext(normalizedCurrentText)
-        ? null
-        : fromCurrentText;
-  const specificFieldIntent =
-    fromFields &&
-    !commercial.has(fromFields) &&
-    !(
-      fromFields === "PECAS" &&
-      declared &&
-      (commercial.has(declared) || declared === "5C_COMPRAS") &&
-      !isExplicitReplacementPartsIntent(interest)
-    ) &&
-    !(
-      fromFields === "4A_RASTREAR" &&
-      declared === "5C_COMPRAS" &&
-      !isExplicitOrderTrackingContext(normalizeTriageText(interest))
-    )
-      ? fromFields
-      : null;
-  let subflow = effectiveCurrentText || specificFieldIntent || declared || fromFields;
-  let reason: IndustrialRoute["reason"] =
-    effectiveCurrentText || specificFieldIntent || fromFields ? "intent" : "declared_route";
+      : fromCurrentText;
+
+  let subflow =
+    hardCurrent ||
+    effectiveDeclared ||
+    strictFieldOverride ||
+    effectiveFallbackText ||
+    fromFields ||
+    null;
+  let reason: IndustrialRoute["reason"] = hardCurrent
+    ? "intent"
+    : effectiveDeclared
+      ? "declared_route"
+      : strictFieldOverride || effectiveFallbackText || fromFields
+        ? "intent"
+        : "declared_route";
+
   if (!subflow) {
-    subflow =
-      declaredSubflow(collectedValue(input.collectedData, "SETOR / FUNIL DE DESTINO", "SETOR")) ||
-      declaredSubflow(input.existingSubflow) ||
-      declaredSubflow(input.existingFunnel);
+    subflow = existing;
     reason = "previous_route";
   }
   if (input.aiFunnelStage === "sem_resposta" && !fromCurrentText && !declared && !fromFields) {

@@ -918,7 +918,7 @@ export async function executeTriageAuditMcpTool(
       >();
       for (const j of journalRows) {
         const triageMeta = (j.metaDetails as any)?.industrialTriage;
-        if (triageMeta?.version !== "1") continue;
+        if (String(triageMeta?.version ?? "") !== "1") continue;
         const entry = {
           at: safeIso(j.sentAt),
           kind: String(triageMeta.kind || "note"),
@@ -1019,6 +1019,7 @@ export async function executeTriageAuditMcpTool(
           handoffIssue: (monitoring as any)?.handoffIssue ?? null,
           targetFunnel,
           machineDecision: (monitoring as any)?.machineDecision ?? meta?.machineDecision ?? null,
+          triageAccuracy: (monitoring as any)?.triageAccuracy ?? meta?.triageAccuracy ?? null,
           pendingApproval: pendingApprovalRaw
             ? {
                 targetFunnel: pendingApprovalRaw.targetFunnel ?? null,

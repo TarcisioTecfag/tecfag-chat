@@ -106,6 +106,10 @@ import {
 } from "../triage/industrial-silence-policy";
 import { runIndustrialDecisor, lookupIndustrialBlockedFamily } from "../triage/industrial-decisor-runtime";
 import { applyMachineDecision, parseIndustrialCapital, type MachineDecision } from "../triage/industrial-decisor";
+import {
+  validateFinalIndustrialSubflow,
+  type FinalSubflowValidationResult,
+} from "../triage/industrial-final-classifier";
 import { collectedValue } from "../triage/industrial-policy";
 import {
   resolveTenantActiveProvider,
@@ -1975,6 +1979,43 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       };
       let industrialRoute = industrialTriage ? resolveIndustrialRoute(routeInput) : null;
       let machineDecision: MachineDecision | undefined;
+      let finalSubflowValidation: FinalSubflowValidationResult | undefined;
+
+      // Validação semântica final no fechamento (Decisão 1):
+      // antes de abrir Aprovação SDR ou rodar o Decisor de Catálogo, audita o diálogo completo
+      // para corrigir desvios clássicos (cotação c/ PIX -> Financeiro, esteira transportadora -> Pós-Venda,
+      // "embalar peças de carro" -> Peças, defeito técnico -> Peças).
+      if (
+        industrialTriage &&
+        industrialRoute &&
+        assessIndustrialReadiness(industrialRoute, updatedCollectedData).ready &&
+        aiResult.isCompleted === true &&
+        !hasPendingTriageQuestion(aiResult.messagesToSend) &&
+        !signal?.aborted
+      ) {
+        const excerptLines = [
+          ...historyMsgs
+            .slice(-14)
+            .map((m) => `${m.senderType === "client" ? "Cliente" : aiPersona.name}: ${String(m.content || "").slice(0, 350)}`),
+          `Cliente: ${combinedBatchText.slice(0, 600)}`,
+        ].join("\n");
+        const finalAudit = await validateFinalIndustrialSubflow({
+          tenantId,
+          conversationId,
+          currentRoute: industrialRoute,
+          collectedData: updatedCollectedData,
+          conversationExcerpt: excerptLines,
+          signal,
+        });
+        finalSubflowValidation = finalAudit.validation;
+        if (finalAudit.validation.applied) {
+          console.log(
+            `[SdrEngine] 🛡️ Auditoria final corrigiu setor (${conversationId}): ${finalAudit.validation.originalSubflow} -> ${finalAudit.validation.validatedSubflow} (conf=${finalAudit.validation.confidence}, motivo=${finalAudit.validation.reason})`,
+          );
+          industrialRoute = finalAudit.route;
+        }
+      }
+
       if (industrialRoute && ["MAQUINAS", "PERSONNALITE"].includes(industrialRoute.subflow || "")
         && !(assessIndustrialReadiness(industrialRoute, updatedCollectedData).ready && aiResult.isCompleted === true && !hasPendingTriageQuestion(aiResult.messagesToSend))) {
         try {
@@ -2705,6 +2746,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
             turnRecoveryAttempts: 0,
             turnRecoveryNextAttemptAt: null,
             ...(machineDecision ? { machineDecision } : {}),
+            ...(finalSubflowValidation ? { finalSubflowValidation } : {}),
           } : {}),
           ...(localCrmResult
             ? {

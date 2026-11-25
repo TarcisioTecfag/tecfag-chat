@@ -206,14 +206,26 @@ export function projectIndustrialMonitoring(
             suggestedOperatorId: text(pendingApproval.suggestedOperatorId),
             suggestedOperatorName: text(pendingApproval.suggestedOperatorName),
             suggestedOperatorIsAbsent: pendingApproval.suggestedOperatorIsAbsent === true,
+            suggestedBySectorFallback: pendingApproval.suggestedBySectorFallback === true,
             suggestedPipelineId: text(pendingApproval.suggestedPipelineId),
             suggestedPipelineName: text(pendingApproval.suggestedPipelineName),
             suggestedStageId: text(pendingApproval.suggestedStageId),
             suggestedStageName: text(pendingApproval.suggestedStageName),
             reason: text(pendingApproval.reason),
             needsReview: pendingApproval.needsReview === true,
+            highCapitalSocialAlert: pendingApproval.highCapitalSocialAlert === true,
+            capitalSocial:
+              typeof pendingApproval.capitalSocial === "number" &&
+              Number.isFinite(pendingApproval.capitalSocial)
+                ? pendingApproval.capitalSocial
+                : null,
+            modelSelectionPending: pendingApproval.modelSelectionPending === true,
             dealId: text(pendingApproval.dealId),
           }
+        : null,
+    triageAccuracy:
+      meta.triageAccuracy && typeof meta.triageAccuracy === "object" && !Array.isArray(meta.triageAccuracy)
+        ? (meta.triageAccuracy as Record<string, unknown>)
         : null,
   };
 }
