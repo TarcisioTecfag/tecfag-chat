@@ -10,14 +10,13 @@ import { SdrDebouncer } from "./sdr-debouncer";
 import { ensureLocalCrmDealBeforeTransfer } from "./sdr-crm-local";
 import { markIndustrialNoResponse } from "../triage/industrial-silence-store";
 import {
-  parseIndustrialScheduleConfig,
-  isWithinIndustrialSchedule,
   parseIndustrialSilenceConfig,
   evaluateIndustrialSilence,
   buildIndustrialFollowUpText,
   deterministicIndustrialFollowUpMessageId,
   selectRecentCycleMessages,
 } from "../triage/industrial-silence-policy";
+import { loadIndustrialBusinessHoursForTenant } from "../triage/industrial-business-hours-store";
 import { decideIndustrialFollowUpWithAi } from "../triage/industrial-followup-ai";
 import { isSiteConversationId } from "../livechat/site-channel-policy";
 import { findActiveWhatsappSessionForSiteContact } from "../livechat/site-cross-channel-guard";
@@ -111,8 +110,9 @@ export class SdrFollowupEngine {
     if (!silenceCfg.enabled) return;
 
     const now = nowOverride || new Date();
-    const scheduleCfg = parseIndustrialScheduleConfig(configData);
-    const withinSchedule = isWithinIndustrialSchedule(now, scheduleCfg);
+    const { config: scheduleCfg, evaluation: businessHours } =
+      await loadIndustrialBusinessHoursForTenant(db, tenantId, now, configData);
+    const withinSchedule = businessHours.isWithinSchedule;
     const persona = getAiPersona(tenantId);
 
     const activeFlows = await db
@@ -248,6 +248,7 @@ export class SdrFollowupEngine {
           now,
           withinSchedule,
           scheduleStartHour: scheduleCfg.startHour,
+          scheduleStartMinute: scheduleCfg.startMinute,
           scheduleTimezone: scheduleCfg.timezone,
           flow: {
             id: flow.id,
@@ -273,10 +274,6 @@ export class SdrFollowupEngine {
           recentMessages: cycleMsgs,
           config: silenceCfg,
         });
-
-        if (decision.action === "none") {
-          continue;
-        }
 
         if (decision.action === "cancel_by_human") {
           await db
@@ -324,6 +321,10 @@ export class SdrFollowupEngine {
           continue;
         }
 
+        if (decision.action === "none" && !decision.rescuePartialLead) {
+          continue;
+        }
+
         // Resolver telefone do contato para resgate parcial ou envio WhatsApp
         let contactPhone = "";
         if (conv?.contactId) {
@@ -336,9 +337,10 @@ export class SdrFollowupEngine {
         }
 
         let partialLeadRescuedAt: string | undefined;
+        let rescuedDeal: Awaited<ReturnType<typeof ensureLocalCrmDealBeforeTransfer>> | null = null;
         if (decision.rescuePartialLead) {
           try {
-            await ensureLocalCrmDealBeforeTransfer({
+            rescuedDeal = await ensureLocalCrmDealBeforeTransfer({
               tenantId,
               conversationId: flow.conversationId,
               contactId: conv?.contactId || null,
@@ -355,6 +357,96 @@ export class SdrFollowupEngine {
               rescueErr?.message,
             );
           }
+        }
+
+        if (decision.action === "none") {
+          if (partialLeadRescuedAt) {
+            const rescuedMetaPatch = {
+              ...meta,
+              partialLeadRescuedAt,
+              ...(rescuedDeal
+                ? {
+                    localCrmDealId: rescuedDeal.dealId,
+                    localCrmDealTitle: rescuedDeal.dealTitle,
+                    localCrmDealAction: rescuedDeal.action,
+                  }
+                : {}),
+            };
+            await db
+              .update(agentFlowStates)
+              .set({ metadata: rescuedMetaPatch })
+              .where(
+                and(
+                  eq(agentFlowStates.id, flow.id),
+                  eq(agentFlowStates.tenantId, tenantId),
+                  eq(agentFlowStates.outcome, "in_progress"),
+                  isNull(agentFlowStates.completedAt),
+                ),
+              );
+
+            const interestRaw = String(
+              collectedData["MÁQUINA / PEÇA / INTERESSE"]?.value ||
+                collectedData["SOLICITAÇÃO"]?.value ||
+                collectedData["PRODUTO DE INTERESSE"]?.value ||
+                "",
+            ).trim();
+            const hasRealInterest =
+              interestRaw.length >= 2 && !/^aguardando/i.test(interestRaw);
+            const isExpiredSiteSession =
+              decision.reason === "site_followup_stage_limit" ||
+              decision.reason === "site_session_expired_for_followup";
+
+            if (isSiteConversationId(flow.conversationId) && isExpiredSiteSession && hasRealInterest) {
+              try {
+                const { prepareIndustrialApproval, notifySdrTeamApprovalPending } = await import(
+                  "../triage/industrial-approval-store"
+                );
+                const { INDUSTRIAL_REVIEW_FUNNEL } = await import("../triage/industrial-policy");
+                const cycleIsoForApproval = flow.startedAt ? flow.startedAt.toISOString() : now.toISOString();
+                const approvalPrep = await prepareIndustrialApproval(
+                  db,
+                  {
+                    tenantId,
+                    conversationId: flow.conversationId,
+                    flowId: flow.id,
+                    cycle: cycleIsoForApproval,
+                  },
+                  {
+                    route: {
+                      subflow: "5A_CLIENTE",
+                      funnelStage: "outros",
+                      targetFunnel: INDUSTRIAL_REVIEW_FUNNEL,
+                      needsReview: true,
+                      reason: "specialist_review",
+                    },
+                    data: collectedData,
+                    clientName: String(collectedData["NOME COMPLETO"]?.value || "Visitante do Site"),
+                    companyName: String(collectedData["EMPRESA"]?.value || "Empresa não informada"),
+                    contactId: conv?.contactId || null,
+                    siteContext: meta.siteContext,
+                  },
+                );
+                if (approvalPrep.prepared && approvalPrep.suggestion) {
+                  void notifySdrTeamApprovalPending(db, {
+                    tenantId,
+                    conversationId: flow.conversationId,
+                    suggestion: approvalPrep.suggestion,
+                  }).catch((err: any) =>
+                    console.warn(
+                      "[SdrFollowupEngine] Aviso ao notificar SDR sobre resgate parcial do Site:",
+                      err?.message,
+                    ),
+                  );
+                }
+              } catch (approvalErr: any) {
+                console.warn(
+                  `[SdrFollowupEngine] Aviso ao abrir aprovação SDR para lead parcial do Site (${flow.conversationId}):`,
+                  approvalErr?.message,
+                );
+              }
+            }
+          }
+          continue;
         }
 
         const cycleIso = flow.startedAt ? flow.startedAt.toISOString() : "cycle-0";

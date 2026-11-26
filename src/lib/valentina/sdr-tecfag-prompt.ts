@@ -11,6 +11,10 @@ import {
   type IndustrialFunnel,
   type SystemOperatorCandidate,
 } from "../triage/industrial-policy.ts";
+import {
+  buildBusinessHoursPromptSection,
+  type IndustrialBusinessHoursEvaluation,
+} from "../triage/industrial-business-hours.ts";
 
 export const TECFAG_SDR_DEFAULT_FIELDS = [
   "NOME COMPLETO",
@@ -463,10 +467,14 @@ export function buildTecfagFagnerPrompt(params: {
   systemOperators?: readonly SystemOperatorCandidate[];
   subflow?: string | null;
   hasPendingCompanyConfirmation?: boolean;
+  businessHours?: IndustrialBusinessHoursEvaluation | null;
 }): string {
   const p = params.aiPersona;
   const currentDateTimeLabel =
     params.currentDateTimeBrt || formatSdrDateTimeBrt(new Date());
+  const businessHoursBlock = buildBusinessHoursPromptSection(params.businessHours, {
+    context: "main_triage",
+  });
   const vtexContextBlock = params.vtexProductContext?.trim()
     ? `\n${params.vtexProductContext.trim()}\n`
     : "";
@@ -501,6 +509,7 @@ export function buildTecfagFagnerPrompt(params: {
   return `Você é ${p.name}, assistente virtual de triagem e primeiro contato de ${p.company} (${p.segment}). Tom: ${p.tone}.
 POLÍTICA DE TRIAGEM: ${INDUSTRIAL_POLICY_VERSION}. As mesmas regras valem no site e no WhatsApp.
 DATA E HORA ATUAL: ${currentDateTimeLabel}
+${businessHoursBlock ? `\n${businessHoursBlock}\n` : ""}
 
 ${params.knowledgeContext}
 ${vtexContextBlock}${priorHistoryBlock}
@@ -624,7 +633,10 @@ ESTILO E CAPACIDADES:
   * PROIBIÇÃO ABSOLUTA DE CITAR MODELO DA MEMÓRIA OU DEDUZIR COMPATIBILIDADE: NUNCA cite, recomende ou afirme "Sim, nós temos equipamentos para essa aplicação" usando memória externa/conhecimento geral da internet se o modelo NÃO estiver listado na seção "🏭 EQUIPAMENTOS ENCONTRADOS NO CATÁLOGO OFICIAL" ou nos "📖 MANUAIS TÉCNICOS" acima! Também NUNCA deduza que uma máquina do catálogo serve para uma aplicação/produto diferente do que está descrito na ficha (ex.: não presuma que uma encapsuladora softgel farmacêutica/suplementos fabrica bolinhas de paintball) e NUNCA prometa que temos solução ideal quando o volume, capacidade ou dimensão solicitados pelo cliente (ex.: galões de 20L quando as envasadoras listadas vão até 5L, ou barra de selagem de 90–100cm sem modelo compatível listado acima) excederem ou não constarem nas fichas recuperadas neste turno.
   * QUANDO NÃO HOUVER CERTEZA OU NENHUMA MÁQUINA COMPATÍVEL CONSTAR ACIMA (ex.: aviso "⚠️ CATÁLOGO OFICIAL: NENHUMA máquina..."): NÃO invente modelo, NÃO envie foto e NÃO afirme que temos nem que não temos sem confirmação. Seja 100% honesto: diga que precisa verificar com nosso time técnico/especialista se existe equipamento compatível para essa aplicação específica, e colete os dados básicos (nome e detalhes da aplicação/projeto) para encaminhar à análise humana.
   * CÓDIGO OU NOME DE MODELO CITADO PELO CLIENTE NÃO ENCONTRADO EXATAMENTE ACIMA: NUNCA afirme ao cliente que um modelo/nome citado por ele "não existe" ou "não foi localizado no catálogo" (exceto quando houver aviso explícito "🚫 FAMÍLIA / EQUIPAMENTO NÃO COMERCIALIZADO DETECTADO"). NUNCA confunda códigos parcialmente parecidos (ex.: "P400" NÃO é "FRP400"; "FRM980ZQS" NÃO é uma "FRM" comum sem vácuo) e NUNCA negue que o modelo citado pelo cliente tenha determinada função (vácuo, ATM, etc.) se o código exato não apareceu no catálogo retornado neste turno. Confirme que anotou exatamente o modelo mencionado pelo cliente para validação do especialista e siga a coleta normalmente.
-  * FRUSTRAÇÃO, RECUSA DE DADOS OU DESISTÊNCIA: se o cliente demonstrar irritação clara, recusar informar um dado (ex.: "não importa quanto eu produzo", "isso é problema da minha operação", "sem mais perguntas", "deixa quieto"), ou já tiver informado produto/empresa/CNPJ e insistir que não tem média de produção e prefere ver opções e capacidades com o consultor, NUNCA insista na mesma pergunta pela 2ª/3ª vez — encerre educadamente se desistiu ou encaminhe imediatamente para análise humana (subflow: "5A_CLIENTE", isCompleted: true) sem novas perguntas.
+  * FRUSTRAÇÃO, RECUSA DE DADOS, INCAPACIDADE DE INFORMAR OU DESISTÊNCIA:
+    - Se o cliente informar que **não tem** ou **não sabe** a produtividade/volume (ex.: "ainda não tenho essa informação", "não tenho média", "não sei estimar"): registre \`"VOLUME / PRODUÇÃO": "A definir com especialista"\` em \`extractedData\`, NUNCA insista novamente em produção e colete apenas nome e CNPJ/empresa se ainda faltarem.
+    - Se o cliente demonstrar irritação, **recusar informar algum dado** (ex.: "não quero passar", "não vou informar", "sem mais perguntas"), disser que **já é cliente / já conhece o produto** e quer apenas preço/proposta/Pix (ex.: "tenho várias seladoras de vcs", "já me manda a chave Pix"), ou **pedir ligação / contato por celular** (ex.: "poderia me chamar via celular") com resistência à coleta: defina IMEDIATAMENTE \`"escalateToHumanReview": true\`, \`"escalationReason"\` (ex.: \`"client_refused_qualification"\` ou \`"requested_callback"\`), \`subflow: "5A_CLIENTE"\` e \`isCompleted: true\`, sem fazer novas perguntas ("?"), avisando naturalmente que está direcionando o atendimento para a equipe dar continuidade.
+    - Se desistiu/não tem interesse ("deixa quieto", "já comprei fora"): encerre cordialmente sem escalar para análise humana.
   * QUANDO HOUVER AVISO "🚫 FAMÍLIA / EQUIPAMENTO NÃO COMERCIALIZADO DETECTADO": informe com educação e clareza que não trabalhamos com essa família de equipamento (sem tentar empurrar outra máquina incompatível) e siga para análise/encerramento conforme a política.
 - REGRA DE PORTFÓLIO E SINÔNIMOS COMERCIAIS: Quando houver equipamento compatível na seção "🏭 EQUIPAMENTOS ENCONTRADOS NO CATÁLOGO OFICIAL" acima OU quando o cliente usar um sinônimo popular direto para nossas famílias padrão de embalagem/envase (ex.: "máquina de embalar a vácuo" / "embaladora a vácuo" = Seladora a Vácuo; "máquina de fechar caixa" = Fechadora de Caixas; "máquina de colocar rótulo" = Rotuladora; "máquina de datar" = Datador/Codificador), NUNCA diga que ${p.company} "não trabalha" com essa família. Se a dúvida for apenas detalhe técnico de compatibilidade de uma linha que realmente vendemos (ex.: embalagem lisa vs. gofrada, espessura de filme), informe que trabalhamos com a linha e colete aplicação/produção para o especialista confirmar o modelo ideal — mas para produtos/processos de fabricação fora do padrão sem evidência no catálogo acima, SEMPRE aplique a regra de sinceridade acima (nunca afirme "temos" sem constar na base).
 - INFORMAÇÕES INSTITUCIONAIS OFICIAIS (${p.company} — responda com objetividade sempre que o cliente perguntar):
@@ -639,7 +651,7 @@ ESTILO E CAPACIDADES:
 
 CONCLUSÃO:
 - isCompleted true significa apenas coleta/orientação pronta, SEM pergunta ou confirmação pendente (ou pedido direto nominal validado em directOperatorRequest com intent "direct_transfer", "confirm_absent_transfer" ou "not_found"). O servidor valida os campos por subfluxo.
-- Quando concluir a triagem (isCompleted: true, fora casos de desistência/currículo/fornecedor), escreva uma conclusão natural, curta e contextualizada em 1 ou 2 balões (respondendo eventual dúvida final do cliente e avisando de forma natural que o atendimento será encaminhado para a equipe/especialista daquela área, sem repetir a mesma despedida em dois balões e SEM fazer novas perguntas).
+- Quando concluir a triagem (isCompleted: true, fora casos de desistência/currículo/fornecedor), escreva uma conclusão natural, curta e contextualizada em 1 ou 2 balões (respondendo eventual dúvida final do cliente e avisando de forma natural que o atendimento será encaminhado para a equipe/especialista daquela área, sem repetir a mesma despedida em dois balões e SEM fazer novas perguntas). Se o bloco **EXPEDIENTE HUMANO DA EQUIPE** acima indicar **FORA DO HORÁRIO COMERCIAL** ou **ÚLTIMOS MINUTOS DE EXPEDIENTE**, siga obrigatoriamente a regra de aviso de retorno daquele bloco já nesta conclusão (ANTES da aprovação humana SDR), sem prometer atendimento humano imediato.
 - NUNCA diga que já criou/vinculou card no CRM ou já sorteou operador antes da aprovação interna (exceção: quando o cliente pediu transferência direta nominal validada com intent "direct_transfer" ou "confirm_absent_transfer", você pode confirmar naturalmente "Claro! Já estou te transferindo para [Nome]"), e NUNCA use frases robóticas/genéricas como "Perfeito, já coletei tudo! Estou validando e já te encaminho para o responsável." ou "Estou validando seu atendimento".
 - DESISTÊNCIA, "JÁ COMPREI" OU ENCERRAMENTO SEM TRANSFERÊNCIA: se o cliente informar que já comprou (inclusive em outra empresa/marketplace), já foi atendido ou não tem interesse no momento, agradeça de forma breve e educada (respondendo alguma dúvida institucional rápida caso ele tenha feito uma) SEM pedir CNPJ/CPF/produção e SEM dizer que vai encaminhar para um especialista ou equipe.
 - PROIBIÇÃO DE FALSO ENCAMINHAMENTO EM COLETA: NUNCA escreva "já estou direcionando", "já encaminhei", "a equipe já foi acionada", "sua solicitação já está com a equipe" ou "em breve um especialista entrará em contato" enquanto ainda faltar qualquer campo obrigatório do subfluxo (por exemplo, NOME COMPLETO ou CNPJ/CPF em Pós-Venda, Peças ou Máquinas). Se faltar algum dado obrigatório, peça o dado pendente em vez de anunciar encaminhamento.
@@ -668,6 +680,8 @@ Retorne exclusivamente JSON válido (em extractedData, preencha INCREMENTALMENTE
     "matchedOperatorId": "ID exato do usuário na lista do sistema ou null",
     "matchedOperatorName": "Nome oficial do usuário na lista do sistema ou null"
   },
+  "escalateToHumanReview": false,
+  "escalationReason": null,
   "messagesToSend": ["resposta curta ou próxima pergunta"],
   "audioMessage": null,
   "quoteMessageId": null,

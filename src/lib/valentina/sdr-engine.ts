@@ -13,7 +13,12 @@ import { vertexAi, MultimodalPart } from "../vertex-ai";
 import { SessionManager, resolveRealJid } from "../baileys/session-manager";
 import { QueuedMessageItem } from "./sdr-debouncer";
 import { hydrateMediaAttachmentsFromDb } from "./media-hydration";
-import { extractCnpjFromText, fetchCnpjInfo } from "./cnpj-service";
+import {
+  extractCnpjFromPdfBase64,
+  extractCnpjFromText,
+  extractValidCnpjFromDocumentText,
+  fetchCnpjInfo,
+} from "./cnpj-service";
 import {
   getKnowledgeBaseContext,
   getRealMediaFiles,
@@ -53,6 +58,9 @@ import {
   isVagueIndustrialProductionValue,
   isClientDecliningTriage,
   isClientResistingProductionQuestion,
+  isClientUnableOrRefusingProduction,
+  isClientRefusingAdditionalQualification,
+  botAlreadyAskedMissingField,
   isTerseProductionFrustrationTurn,
   hasClientFactualQuestionInDecline,
   isAutomatedBotOrUraMessage,
@@ -81,8 +89,17 @@ import {
   industrialHandoffOutcome,
   type IndustrialHandoffResult,
 } from "../triage/industrial-handoff";
-import { rewriteIndustrialReplyWithGemini } from "../triage/industrial-reply-rewriter";
+import {
+  rewriteIndustrialReplyWithGemini,
+  composeIndustrialSiteBridgeAckWithGemini,
+} from "../triage/industrial-reply-rewriter";
 import { createIndustrialHandoffStore } from "../triage/industrial-handoff-store";
+import {
+  buildFallbackIndustrialBusinessHoursClosing,
+  messagesCoverIndustrialBusinessHoursNotice,
+  type IndustrialBusinessHoursEvaluation,
+} from "../triage/industrial-business-hours";
+import { loadIndustrialBusinessHoursForTenant } from "../triage/industrial-business-hours-store";
 import {
   evaluateIndustrialSdrOwnershipGuard,
   fetchLatestPublicOutboundMessage,
@@ -101,10 +118,8 @@ import { appendIndustrialJournal } from "../triage/industrial-triage-journal-sto
 import {
   selectRecentCycleMessages,
   buildIndustrialReactivationPatch,
-  parseIndustrialScheduleConfig,
-  isWithinIndustrialSchedule,
-  buildIndustrialOffHoursClosingNotice,
   isBotClosingOrInformativeMessage,
+  isClientReschedulingTurn,
   hasPartialCollectedData,
 } from "../triage/industrial-silence-policy";
 import { runIndustrialDecisor, lookupIndustrialBlockedFamily } from "../triage/industrial-decisor-runtime";
@@ -143,6 +158,8 @@ export interface SdrAiResult {
   targetFunnel?: string | null;
   subflow?: string | null;
   directOperatorRequest?: DirectOperatorAiDecision | null;
+  escalateToHumanReview?: boolean;
+  escalationReason?: string | null;
   messagesToSend: string[];
   audioMessage?: {
     text: string;
@@ -419,11 +436,30 @@ export class SdrEngine {
             !signal?.aborted
           ) {
             try {
+              const loadedBh = await loadIndustrialBusinessHoursForTenant(
+                db,
+                tenantId,
+                new Date(),
+                configData,
+              );
+              const ackText =
+                loadedBh.evaluation.enabled && loadedBh.evaluation.status !== "open"
+                  ? await composeIndustrialSiteBridgeAckWithGemini({
+                      tenantId,
+                      conversationId,
+                      aiPersona,
+                      clientReplyText: incomingBatchText,
+                      businessHours: loadedBh.evaluation,
+                      signal,
+                    })
+                  : "Perfeito! Confirmação recebida por aqui. Nossa equipe já está com todos os detalhes da sua triagem do site e dará continuidade em breve.";
+
+              if (signal?.aborted) return false;
               const ackRes = await sendSdrChannelText({
                 tenantId,
                 conversationId,
                 phone: contactPhone,
-                text: "Perfeito! Confirmação recebida por aqui. Nossa equipe já está com todos os detalhes da sua triagem do site e dará continuidade em breve.",
+                text: ackText,
                 idempotencyMessageId: `msg-site-bridge-ack-${flowState.id.slice(0, 36)}`,
                 expectedOperatorId: null,
               });
@@ -436,10 +472,11 @@ export class SdrEngine {
                       ...flowMetaCheck,
                       siteBridgeAckSent: true,
                       siteBridgeAckSentAt: new Date().toISOString(),
+                      siteBridgeAckBusinessHoursStatus: loadedBh.evaluation.status,
                     },
                   })
                   .where(and(eq(agentFlowStates.tenantId, tenantId), eq(agentFlowStates.id, flowState.id)));
-                console.log(`[SdrEngine] ✅ Confirmação única pós-ponte Site→WhatsApp enviada em awaiting_approval (${conversationId}).`);
+                console.log(`[SdrEngine] ✅ Confirmação única pós-ponte Site→WhatsApp enviada em awaiting_approval (${conversationId}, expediente=${loadedBh.evaluation.status}).`);
               }
             } catch (ackErr: any) {
               console.warn(`[SdrEngine] Aviso ao enviar confirmação pós-ponte Site→WhatsApp (${conversationId}):`, ackErr?.message);
@@ -951,9 +988,42 @@ export class SdrEngine {
         currentDataSummary[k] = v.value;
       }
 
-      // 5.1 Verificar se o lote contém algum CNPJ para validação matemática e consulta à API (cnpj.ws)
+      // Hidrata anexos de mídia do banco (`media_files`) ANTES da extração de CNPJ e da consulta VTEX
+      let hydratedDbAttachments: Awaited<ReturnType<typeof hydrateMediaAttachmentsFromDb>> = [];
+      try {
+        hydratedDbAttachments = await hydrateMediaAttachmentsFromDb({
+          db,
+          tenantId,
+          batchItems,
+          historyMsgs,
+        });
+      } catch (hydrateErr: any) {
+        console.warn("[SdrEngine] Aviso ao hidratar mídia do banco:", hydrateErr?.message || hydrateErr);
+      }
+
+      if (signal?.aborted) return false;
+
+      // 5.1 Verificar se o lote (texto ou PDF anexado) contém algum CNPJ para validação matemática e consulta à API (cnpj.ws)
       let cnpjDirective = "";
-      const detectedCnpjCandidate = extractCnpjFromText(combinedBatchText);
+      let detectedCnpjCandidate = extractCnpjFromText(combinedBatchText);
+      if (!detectedCnpjCandidate && industrialTriage) {
+        const pdfCandidates = [
+          ...batchItems
+            .filter((i) => i.mediaBase64 && (i.mimeType === "application/pdf" || i.mediaType === "document"))
+            .map((i) => i.mediaBase64!),
+          ...hydratedDbAttachments
+            .filter((a) => a.mediaBase64 && (a.mimeType === "application/pdf" || a.mediaType === "document"))
+            .map((a) => a.mediaBase64),
+        ];
+        for (const pdfB64 of pdfCandidates) {
+          const pdfCnpj = await extractCnpjFromPdfBase64(pdfB64);
+          if (pdfCnpj) {
+            detectedCnpjCandidate = pdfCnpj;
+            console.log(`[SdrEngine] 📄 CNPJ extraído diretamente de PDF anexado: ${pdfCnpj}`);
+            break;
+          }
+        }
+      }
       let fetchedCnpjInfo: Awaited<ReturnType<typeof fetchCnpjInfo>> | null = null;
 
       if (detectedCnpjCandidate) {
@@ -966,6 +1036,12 @@ export class SdrEngine {
             existingCollectedData,
             applyValidatedCnpjToCollectedData(existingCollectedData, cnpjInfo),
           );
+          if (existingCollectedData["CNPJ OU CPF"]?.value) {
+            currentDataSummary["CNPJ OU CPF"] = existingCollectedData["CNPJ OU CPF"].value;
+          }
+          if (existingCollectedData["EMPRESA"]?.value) {
+            currentDataSummary["EMPRESA"] = existingCollectedData["EMPRESA"].value;
+          }
         }
 
         if (cnpjInfo.valid && cnpjInfo.details) {
@@ -1023,21 +1099,6 @@ INSTRUÇÕES OBRIGATÓRIAS:
           targetFunnel: metaState.targetFunnel || null,
         });
       }
-
-      // Hidrata anexos de mídia do banco (`media_files`) antes do gate e da consulta VTEX
-      let hydratedDbAttachments: Awaited<ReturnType<typeof hydrateMediaAttachmentsFromDb>> = [];
-      try {
-        hydratedDbAttachments = await hydrateMediaAttachmentsFromDb({
-          db,
-          tenantId,
-          batchItems,
-          historyMsgs,
-        });
-      } catch (hydrateErr: any) {
-        console.warn("[SdrEngine] Aviso ao hidratar mídia do banco:", hydrateErr?.message || hydrateErr);
-      }
-
-      if (signal?.aborted) return false;
 
       const hasMediaInBatch =
         hydratedDbAttachments.length > 0 ||
@@ -1466,6 +1527,27 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
       if (signal?.aborted) return false;
 
+      // 5.9 Carregar avaliação real de expediente humano + feriados do tenant (`commercial_calendar_days`)
+      let industrialBusinessHours: IndustrialBusinessHoursEvaluation | null = null;
+      if (industrialTriage) {
+        try {
+          const loadedBh = await loadIndustrialBusinessHoursForTenant(
+            db,
+            tenantId,
+            promptNow,
+            configData,
+          );
+          industrialBusinessHours = loadedBh.evaluation;
+        } catch (bhErr: any) {
+          console.warn(
+            "[SdrEngine] ⚠️ Falha ao carregar expediente humano industrial:",
+            bhErr?.message || bhErr,
+          );
+        }
+      }
+
+      if (signal?.aborted) return false;
+
       // 6. Consultar o Gemini 2.5 Pro via Vertex AI (100% Gemini — sem respostas prontas hardcoded)
 
       const promptText =
@@ -1489,6 +1571,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
               systemOperators,
               subflow: metaState.subflow || null,
               hasPendingCompanyConfirmation,
+              businessHours: industrialBusinessHours,
             })
           : valemPromptText;
 
@@ -1639,7 +1722,11 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           const hasQuestionOrFalseTransfer = aiResult.messagesToSend.some(
             (m) => m.includes("?") || /\b(j[aá]\s+(?:estou\s+te\s+)?transferindo|transferi\s+para)\b/i.test(m),
           );
-          if (hasQuestionOrFalseTransfer || aiResult.messagesToSend.length === 0) {
+          const missingOffHoursNotice = !messagesCoverIndustrialBusinessHoursNotice(
+            aiResult.messagesToSend,
+            industrialBusinessHours,
+          );
+          if (hasQuestionOrFalseTransfer || missingOffHoursNotice || aiResult.messagesToSend.length === 0) {
             const rewritten = await rewriteIndustrialReplyWithGemini({
               tenantId,
               conversationId,
@@ -1648,6 +1735,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
               conversationHistoryText,
               batchSummary,
               collectedData: existingCollectedData,
+              businessHours: industrialBusinessHours,
               directOperatorContext: { citedName: cited },
               signal,
             });
@@ -1865,12 +1953,51 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         Object.assign(updatedCollectedData, enriched);
       }
 
-      // 8.0.1 Enriquecimento pós-extração de CNPJ (ex.: cliente informou CNPJ por ÁUDIO ou IMAGEM)
+      const allCycleBotMessages = historyMsgs
+        .filter((m) => m.senderType === "bot")
+        .map((m) => String(m.content || ""));
+      const allCycleClientMessages = [
+        ...historyMsgs
+          .filter((m) => m.senderType === "client")
+          .map((m) => String(m.content || "")),
+        combinedBatchText,
+      ];
+
+      // 8.0.0 Captura imediata de "não tenho / não sei" em VOLUME / PRODUÇÃO para nunca insistir em loop
+      if (
+        industrialTriage &&
+        !isClientDeclinedTurn &&
+        !collectedValue(updatedCollectedData, "VOLUME / PRODUÇÃO") &&
+        (isClientUnableOrRefusingProduction(combinedBatchText) ||
+          (botAlreadyAskedMissingField(allCycleBotMessages, "production") &&
+            allCycleClientMessages.some((m) => isClientUnableOrRefusingProduction(m))))
+      ) {
+        updatedCollectedData["VOLUME / PRODUÇÃO"] = {
+          value: "A definir com especialista",
+          status: "filled",
+        };
+        console.log(
+          `[SdrEngine] ✅ VOLUME / PRODUÇÃO preenchido como "A definir com especialista" (${conversationId}: cliente sem estimativa/resistiu).`,
+        );
+      }
+
+      // 8.0.1 Enriquecimento pós-extração de CNPJ (ex.: cliente informou CNPJ por ÁUDIO, IMAGEM ou PDF)
       if (!detectedCnpjCandidate) {
-        const extractedDocRaw = String(
+        let extractedDocRaw = String(
           updatedCollectedData["CNPJ OU CPF"]?.value || updatedCollectedData["CNPJ"]?.value || "",
         ).trim();
-        const extractedDocDigits = extractedDocRaw.replace(/\D/g, "");
+        let extractedDocDigits = extractedDocRaw.replace(/\D/g, "");
+        if (industrialTriage && extractedDocDigits.length !== 14 && aiResult.mediaDescription) {
+          const descCnpj = extractValidCnpjFromDocumentText(aiResult.mediaDescription);
+          if (descCnpj) {
+            extractedDocRaw = descCnpj;
+            extractedDocDigits = descCnpj.replace(/\D/g, "");
+            updatedCollectedData["CNPJ OU CPF"] = { value: descCnpj, status: "filled" };
+            console.log(
+              `[SdrEngine] 📄 CNPJ recuperado via mediaDescription (${conversationId}): ${descCnpj}`,
+            );
+          }
+        }
         const hasCompanyAlready = Boolean(
           updatedCollectedData["EMPRESA"]?.value &&
             String(updatedCollectedData["EMPRESA"].value).trim() !== "" &&
@@ -2051,39 +2178,74 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       }
       let stageAndFunnel = industrialRoute || resolveLegacySdrStageAndFunnel({ ...routeInput, existingFunnel: metaState.targetFunnel || "Máquinas" });
       let industrialReadiness = industrialRoute ? assessIndustrialReadiness(industrialRoute, updatedCollectedData) : null;
+      const clientRescheduledNow = industrialTriage ? isClientReschedulingTurn(combinedBatchText) : false;
 
-      // Escape hatch de produtividade: quando já temos 6/7 campos (nome, empresa/CNPJ, máquina e aplicação)
-      // e falta EXCLUSIVAMENTE `production`, se o cliente resistir explicitamente ("me passa as opções e suas
-      // capacidades", "sem mais perguntas") ou enviar resposta mínima/frustrada (".") após já ter informado que
-      // não tem média/estimativa, escala imediatamente para Análise e revisão humana sem insistir em loop.
+      // Escalonamento garantido para Análise e revisão humana (fim do loop/purgatório):
+      // Aciona sempre que o cliente recusa/não consegue informar dados, é recorrente pedindo preço/proposta/Pix,
+      // pede ligação/contato por celular, Gemini sinaliza `escalateToHumanReview`, ou o bot tenta encerrar um
+      // lead comercial substancial sem pergunta quando o dado faltante já foi pedido (ou é apenas produção/documento).
       if (
         industrialTriage &&
         industrialRoute &&
         !isClientDeclinedTurn &&
-        ["MAQUINAS", "PERSONNALITE"].includes(industrialRoute.subflow || "") &&
-        industrialReadiness &&
-        industrialReadiness.missing.length === 1 &&
-        industrialReadiness.missing[0] === "production"
+        !clientRescheduledNow &&
+        !isIndustrialInformativeSubflow(industrialRoute.subflow) &&
+        industrialRoute.reason !== "direct_operator_requested"
       ) {
-        const recentClientMsgs = historyMsgs
-          .filter((m) => m.senderType === "client")
-          .slice(-3)
-          .map((m) => String(m.content || ""));
-        const priorProductionUncertainty = recentClientMsgs.some(
-          (msg) =>
-            isClientResistingProductionQuestion(msg) ||
-            /\b(?:nao tenho (?:uma )?media|nao sei a media|nao tenho estimativa|sem estimativa|ainda nao sei)\b/i.test(
-              msg.normalize("NFD").replace(/[\u0300-\u036f]/g, ""),
-            ),
+        const llmRequestedEscalation = aiResult.escalateToHumanReview === true;
+        const clientRefusedOrRequestedCallback =
+          isClientRefusingAdditionalQualification(combinedBatchText) ||
+          (Boolean(industrialReadiness && !industrialReadiness.ready) &&
+            hasPartialCollectedData(updatedCollectedData) &&
+            allCycleClientMessages.some((m) => isClientRefusingAdditionalQualification(m)));
+        const terseProductionFrustration = Boolean(
+          ["MAQUINAS", "PERSONNALITE"].includes(industrialRoute.subflow || "") &&
+            industrialReadiness &&
+            industrialReadiness.missing.length === 1 &&
+            industrialReadiness.missing[0] === "production" &&
+            isTerseProductionFrustrationTurn(combinedBatchText) &&
+            allCycleClientMessages.slice(0, -1).some((m) => isClientUnableOrRefusingProduction(m)),
         );
-        const resistedProductionNow =
-          isClientResistingProductionQuestion(combinedBatchText) ||
-          (priorProductionUncertainty && isTerseProductionFrustrationTurn(combinedBatchText));
-        if (resistedProductionNow) {
+        const deadEndClosingWithSubstantialLead = Boolean(
+          industrialReadiness &&
+            !industrialReadiness.ready &&
+            (aiResult.isCompleted === true || claimsIndustrialHandoffEffect(aiResult.messagesToSend)) &&
+            !hasPendingTriageQuestion(aiResult.messagesToSend) &&
+            hasPartialCollectedData(updatedCollectedData) &&
+            hasProduct &&
+            (hasName || hasCompany || hasCnpj) &&
+            (industrialReadiness.missing.every((f) =>
+              botAlreadyAskedMissingField(allCycleBotMessages, f),
+            ) ||
+              (industrialReadiness.missing.length === 1 &&
+                industrialReadiness.missing[0] === "production") ||
+              (industrialReadiness.missing.length === 1 &&
+                industrialReadiness.missing[0] === "document" &&
+                hasCompany)),
+        );
+
+        if (
+          llmRequestedEscalation ||
+          clientRefusedOrRequestedCallback ||
+          terseProductionFrustration ||
+          deadEndClosingWithSubstantialLead
+        ) {
+          const escalationCause = [
+            llmRequestedEscalation ? `llm:${aiResult.escalationReason || "true"}` : null,
+            clientRefusedOrRequestedCallback ? "refused_or_callback_or_pix" : null,
+            terseProductionFrustration ? "terse_production_frustration" : null,
+            deadEndClosingWithSubstantialLead ? "dead_end_substantial_lead" : null,
+          ]
+            .filter(Boolean)
+            .join(",");
           console.log(
-            `[SdrEngine] 🛟 Escape hatch de produtividade acionado (${conversationId}): 6/7 campos completos e cliente resistiu à estimativa → escalando para Análise e revisão humana.`,
+            `[SdrEngine] 🛟 Escalonamento garantido para Análise e revisão humana (${conversationId}): ${escalationCause}`,
           );
-          if (!updatedCollectedData["VOLUME / PRODUÇÃO"]?.value) {
+          if (
+            !updatedCollectedData["VOLUME / PRODUÇÃO"]?.value &&
+            ["MAQUINAS", "PERSONNALITE"].includes(industrialRoute.subflow || "") &&
+            (terseProductionFrustration || clientRefusedOrRequestedCallback)
+          ) {
             updatedCollectedData["VOLUME / PRODUÇÃO"] = {
               value: "A definir com especialista",
               status: "filled",
@@ -2164,13 +2326,32 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         const cordialClosingFromBot =
           !isInformativeResolution &&
           !hasPendingQuestion &&
+          !clientRescheduledNow &&
           !useVtexDirectReply &&
           isBotClosingOrInformativeMessage(aiResult.messagesToSend.join(" "));
+        const hasActiveCommercialLead =
+          !isClientDeclinedTurn &&
+          hasPartialCollectedData(updatedCollectedData) &&
+          Boolean(hasProduct && (hasName || hasCompany || hasCnpj));
         const implicitReadyHandoff =
           Boolean(industrialReadiness?.ready) &&
           claimsIndustrialHandoffEffect(aiResult.messagesToSend);
         if (isInformativeResolution) {
           isCompleted = !useVtexDirectReply;
+        } else if (cordialClosingFromBot && hasActiveCommercialLead) {
+          console.log(
+            `[SdrEngine] 🛟 Despedida cordial bloqueada para lead comercial ativo (${conversationId}) → escalando para Análise e revisão humana.`,
+          );
+          industrialRoute = {
+            subflow: "5A_CLIENTE",
+            funnelStage: "outros",
+            targetFunnel: INDUSTRIAL_REVIEW_FUNNEL,
+            needsReview: true,
+            reason: "specialist_review",
+          };
+          stageAndFunnel = industrialRoute;
+          industrialReadiness = assessIndustrialReadiness(industrialRoute, updatedCollectedData);
+          isCompleted = true;
         } else if (cordialClosingFromBot) {
           isCordialBotClosingTurn = true;
           isCompleted = true;
@@ -2290,6 +2471,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
                   contactId: convCheck?.contactId || null,
                   machineDecision,
                   siteContext,
+                  businessHours: industrialBusinessHours,
                 });
                 if (siteWaRes.handedOff) {
                   handledBySiteWhatsappHandoff = true;
@@ -2603,6 +2785,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
             data: updatedCollectedData,
             messages: aiResult.messagesToSend,
             knownCompanyToConfirm: pendingKnownCompanyToConfirm,
+            businessHours: industrialBusinessHours,
           });
           if (evaluated.needsGeminiRewrite && evaluated.rewriteMode) {
             const rewritten = await rewriteIndustrialReplyWithGemini({
@@ -2618,6 +2801,18 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
               knownCompanyToConfirm: pendingKnownCompanyToConfirm,
               safeBubbles: evaluated.safeBubbles,
               originalMessages: aiResult.messagesToSend,
+              businessHours: industrialBusinessHours,
+              directOperatorContext:
+                evaluated.rewriteMode === "direct_operator_transferred"
+                  ? {
+                      operatorName:
+                        industrialHandoff.operator?.name || allocatedOp?.name || null,
+                      isOperatorAbsent: Boolean(
+                        industrialHandoff.operator?.isAbsent ||
+                          industrialRoute.targetOperator?.isAbsent,
+                      ),
+                    }
+                  : undefined,
               signal,
             });
             if (signal?.aborted) return false;
@@ -2704,6 +2899,30 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
               aiResult.messagesToSend = [
                 `Para envio de propostas de produtos, parcerias, serviços de transportadora ou venda de insumos, pedimos gentilmente que encaminhe as informações para o e-mail do nosso setor responsável: ${INDUSTRIAL_SUPPLIERS_EMAIL}.`,
               ];
+            } else if (
+              evaluated.rewriteMode === "awaiting_approval" &&
+              industrialBusinessHours?.enabled &&
+              industrialBusinessHours.status !== "open"
+            ) {
+              aiResult.messagesToSend = [
+                buildFallbackIndustrialBusinessHoursClosing(industrialBusinessHours, {
+                  mode: "awaiting_approval",
+                }),
+              ];
+            } else if (
+              evaluated.rewriteMode === "direct_operator_transferred" &&
+              industrialBusinessHours?.enabled
+            ) {
+              aiResult.messagesToSend = [
+                buildFallbackIndustrialBusinessHoursClosing(industrialBusinessHours, {
+                  operatorName: industrialHandoff.operator?.name || allocatedOp?.name || null,
+                  isOperatorAbsent: Boolean(
+                    industrialHandoff.operator?.isAbsent ||
+                      industrialRoute.targetOperator?.isAbsent,
+                  ),
+                  mode: "transferred",
+                }),
+              ];
             } else if (evaluated.safeBubbles.length > 0) {
               aiResult.messagesToSend = evaluated.safeBubbles;
             } else {
@@ -2714,15 +2933,6 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
             }
           } else {
             aiResult.messagesToSend = evaluated.messages;
-          }
-        }
-        if (industrialHandoff.status === "transferred") {
-          const scheduleCfg = parseIndustrialScheduleConfig(configData);
-          if (scheduleCfg.enabled && !isWithinIndustrialSchedule(now, scheduleCfg)) {
-            aiResult.messagesToSend = [
-              ...aiResult.messagesToSend,
-              buildIndustrialOffHoursClosingNotice(now, scheduleCfg, allocatedOp?.name || null),
-            ];
           }
         }
       }

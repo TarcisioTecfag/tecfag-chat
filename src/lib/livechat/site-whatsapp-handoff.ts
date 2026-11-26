@@ -55,6 +55,9 @@ import {
 } from "../triage/industrial-policy";
 import type { IndustrialDatabase, RodizioConfig } from "../triage/industrial-rodizio-store";
 import { appendIndustrialJournal } from "../triage/industrial-triage-journal-store";
+import type { IndustrialBusinessHoursEvaluation } from "../triage/industrial-business-hours";
+import { loadIndustrialBusinessHoursForTenant } from "../triage/industrial-business-hours-store";
+import { composeIndustrialSiteClosingWithGemini } from "../triage/industrial-reply-rewriter";
 import { normalizeCanonicalPhone } from "../utils";
 import { outboundQueue } from "../whatsapp/outbound";
 import {
@@ -81,6 +84,7 @@ export interface SiteWhatsappHandoffInput {
   contactId: string | null;
   machineDecision?: MachineDecision;
   siteContext?: unknown;
+  businessHours?: IndustrialBusinessHoursEvaluation | null;
 }
 
 export interface SiteWhatsappHandoffResult {
@@ -534,10 +538,29 @@ export async function dispatchSiteTriageToWhatsApp(
     templateSentAtMs = Number.isFinite(parsedSentAt) ? parsedSentAt : Date.now();
   }
 
-  const closingMessageForSite = buildSiteToWhatsappClosingMessage(
+  const effectiveBusinessHours =
+    input.businessHours ??
+    (await loadIndustrialBusinessHoursForTenant(database, tenantId, new Date())).evaluation;
+
+  const fallbackClosingMessageForSite = buildSiteToWhatsappClosingMessage(
     input.clientName || contact.name,
-    { hasActiveHuman: waPrep.hasActiveHuman },
+    {
+      hasActiveHuman: waPrep.hasActiveHuman,
+      businessHours: effectiveBusinessHours,
+    },
   );
+  const closingMessageForSite =
+    effectiveBusinessHours.enabled && effectiveBusinessHours.status !== "open"
+      ? await composeIndustrialSiteClosingWithGemini({
+          tenantId,
+          conversationId: siteConversationId,
+          aiPersona: persona,
+          clientName: input.clientName || contact.name,
+          hasActiveHuman: waPrep.hasActiveHuman,
+          businessHours: effectiveBusinessHours,
+          fallbackText: fallbackClosingMessageForSite,
+        })
+      : fallbackClosingMessageForSite;
 
   // 6. Pós-envio confirmado: copiar histórico do site (incluindo despedida do bot no site),
   //    criar card no funil correto, estacionar WhatsApp em `awaiting_approval` herdando 100%

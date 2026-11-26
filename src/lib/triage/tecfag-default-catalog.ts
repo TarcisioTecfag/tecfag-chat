@@ -9,10 +9,14 @@ import {
   type IndustrialSettings,
 } from "./industrial-settings";
 
+import type { NonWorkingCalendarDay } from "./industrial-business-hours";
+
 export interface IndustrialChoices {
   sectors: { id: string; name: string }[];
   pipelines: { id: string; name: string }[];
   stages: { id: string; name: string; pipelineId: string }[];
+  serverNowIso?: string;
+  upcomingNonWorkingDays?: NonWorkingCalendarDay[];
 }
 
 export const TECFAG_DEFAULT_CATALOG: IndustrialMachine[] =

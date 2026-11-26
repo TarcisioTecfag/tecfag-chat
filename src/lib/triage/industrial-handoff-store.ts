@@ -47,10 +47,10 @@ import { getAiPersona } from "../ai-persona";
 import { readSiteContext, type SiteContext } from "../livechat/site-context";
 import { isSiteConversationId } from "../livechat/site-channel-policy";
 import {
-  buildIndustrialOffHoursClosingNotice,
-  isWithinIndustrialSchedule,
-  parseIndustrialScheduleConfig,
-} from "./industrial-silence-policy";
+  buildFallbackIndustrialBusinessHoursClosing,
+  type IndustrialBusinessHoursEvaluation,
+} from "./industrial-business-hours";
+import { loadIndustrialBusinessHoursForTenant } from "./industrial-business-hours-store";
 import {
   handoffConversationAcrossChannels,
   resolveOperatorDedicatedConnection,
@@ -729,28 +729,40 @@ export function createIndustrialHandoffStore(
           if (result.status === "transferred" || result.status === "resolved") {
             const committedDate = new Date();
             const committedIso = committedDate.toISOString();
-            const scheduleCfg = parseIndustrialScheduleConfig(settings);
-            const offHoursNotice =
-              result.status === "transferred" &&
-              scheduleCfg.enabled &&
-              !isWithinIndustrialSchedule(committedDate, scheduleCfg)
-                ? buildIndustrialOffHoursClosingNotice(
-                    committedDate,
-                    scheduleCfg,
-                    result.operator?.name || null,
-                  )
-                : null;
-            const confirmationText = industrialHandoffMessage(
-              result.status,
-              result.operator?.name,
-              {
-                isOperatorAbsent: Boolean(
-                  result.operator?.isAbsent || request.route.targetOperator?.isAbsent,
-                ),
-                offHoursNotice,
-                isDirectOperatorTransfer: request.route.reason === "direct_operator_requested",
-              },
+            const isOpAbsent = Boolean(
+              result.operator?.isAbsent || request.route.targetOperator?.isAbsent,
             );
+            const isDirectTransfer = request.route.reason === "direct_operator_requested";
+            let confirmationText: string | null = null;
+            if (result.status === "transferred" && result.operator?.name) {
+              const loadedBh = await loadIndustrialBusinessHoursForTenant(
+                tx,
+                key.tenantId,
+                committedDate,
+                settings as unknown as Record<string, unknown>,
+              );
+              const bhEval: IndustrialBusinessHoursEvaluation = loadedBh.evaluation;
+              confirmationText =
+                bhEval.enabled && bhEval.status !== "open"
+                  ? buildFallbackIndustrialBusinessHoursClosing(bhEval, {
+                      operatorName: result.operator.name,
+                      isOperatorAbsent: isOpAbsent,
+                      mode: "transferred",
+                    })
+                  : industrialHandoffMessage(result.status, result.operator.name, {
+                      isOperatorAbsent: isOpAbsent,
+                      isDirectOperatorTransfer: isDirectTransfer,
+                    });
+            } else {
+              confirmationText = industrialHandoffMessage(
+                result.status,
+                result.operator?.name,
+                {
+                  isOperatorAbsent: isOpAbsent,
+                  isDirectOperatorTransfer: isDirectTransfer,
+                },
+              );
+            }
             meta.handoffReceipt = {
               cycle: key.cycle,
               committedAt: committedIso,

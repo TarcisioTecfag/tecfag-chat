@@ -59,6 +59,12 @@ import {
   type IndustrialSettings,
 } from "@/lib/triage/industrial-settings";
 import {
+  parseTimeToMinutes,
+  toIndustrialScheduleSettings,
+  type IndustrialScheduleSettings,
+} from "@/lib/triage/industrial-business-hours";
+import { IndustrialBusinessHoursTab } from "./IndustrialBusinessHoursTab";
+import {
   exportIndustrialCatalogCsv,
   parseIndustrialCatalogCsv,
 } from "@/lib/triage/industrial-catalog-csv";
@@ -387,7 +393,7 @@ function CustomDateTimePicker({
 // COMPONENTE PRINCIPAL: INDUSTRIAL TRIAGE SETTINGS
 // ══════════════════════════════════════════════════════════════════════════════
 
-type ActiveSectionTab = "catalog" | "destinations" | "blocked";
+type ActiveSectionTab = "catalog" | "destinations" | "blocked" | "schedule";
 
 export function IndustrialTriageSettings() {
   const { tenant } = useChat();
@@ -605,6 +611,17 @@ export function IndustrialTriageSettings() {
     () => DESTINATION_KEYS.filter((key) => resolveIndustrialDestination(settings, key).conflict),
     [settings],
   );
+
+  const effectiveSchedule: IndustrialScheduleSettings = useMemo(
+    () => toIndustrialScheduleSettings(settings.schedule),
+    [settings.schedule],
+  );
+
+  const scheduleHasError = useMemo(() => {
+    const startMins = parseTimeToMinutes(effectiveSchedule.startTime);
+    const endMins = parseTimeToMinutes(effectiveSchedule.endTime);
+    return startMins === null || endMins === null || endMins <= startMins;
+  }, [effectiveSchedule]);
 
   const configuredDestinationsCount = useMemo(
     () =>
@@ -974,13 +991,19 @@ export function IndustrialTriageSettings() {
           <SystemTooltip
             content={
               dirty
-                ? "Salvar todas as alterações do catálogo, famílias bloqueadas e destinos no banco de dados"
+                ? "Salvar todas as alterações do catálogo, famílias bloqueadas, destinos e expediente no banco de dados"
                 : "Todas as configurações já estão salvas na revisão atual"
             }
           >
             <button
               type="button"
-              disabled={busy || !dirty || conflicts.length > 0 || destinationConflicts.length > 0}
+              disabled={
+                busy ||
+                !dirty ||
+                conflicts.length > 0 ||
+                destinationConflicts.length > 0 ||
+                scheduleHasError
+              }
               onClick={() => void save()}
               className="px-3.5 py-1.5 rounded-xl bg-primary hover:bg-primary-hover text-primary-foreground text-xs font-extrabold flex items-center gap-1.5 shadow-soft transition cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
             >
@@ -1077,6 +1100,32 @@ export function IndustrialTriageSettings() {
                     }`}
                   >
                     {settings.blockedFamilies.length}
+                  </span>
+                </button>
+              </SystemTooltip>
+
+              <SystemTooltip content="Configurar horário comercial da empresa, janela de transição, integração com feriados e prévia ao vivo do aviso do Fagner">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("schedule")}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-extrabold transition flex items-center gap-2 cursor-pointer border ${
+                    activeTab === "schedule"
+                      ? "bg-primary text-primary-foreground border-primary shadow-soft"
+                      : "bg-muted/30 text-muted-foreground hover:bg-muted hover:text-foreground border-border"
+                  }`}
+                >
+                  <Clock className="h-3.5 w-3.5" />
+                  <span>Expediente</span>
+                  <span
+                    className={`px-1.5 py-0.2 rounded-md text-[10px] font-black ${
+                      activeTab === "schedule"
+                        ? "bg-white/20 text-white"
+                        : "bg-card text-foreground border border-border"
+                    }`}
+                  >
+                    {effectiveSchedule.enabled
+                      ? `${effectiveSchedule.startTime}–${effectiveSchedule.endTime}`
+                      : "Off"}
                   </span>
                 </button>
               </SystemTooltip>
@@ -2552,6 +2601,21 @@ export function IndustrialTriageSettings() {
                   )}
                 </div>
               )}
+
+              {/* ── ABA 4: EXPEDIENTE HUMANO DO FAGNER ─────────────────────── */}
+              {activeTab === "schedule" && (
+                <IndustrialBusinessHoursTab
+                  schedule={effectiveSchedule}
+                  onChange={(nextSchedule) =>
+                    update({
+                      ...settings,
+                      schedule: nextSchedule,
+                    })
+                  }
+                  upcomingNonWorkingDays={choices.upcomingNonWorkingDays || []}
+                  disabled={busy}
+                />
+              )}
             </>
           )}
 
@@ -2561,20 +2625,24 @@ export function IndustrialTriageSettings() {
               <div className="flex items-center gap-2 text-xs font-bold text-foreground">
                 <AlertTriangle className="h-4 w-4 text-primary shrink-0" />
                 <span>
-                  Você possui alterações em rascunho no catálogo ou nos destinos. Salve para aplicar
-                  na operação do Fagner.
+                  Você possui alterações em rascunho no catálogo, destinos ou expediente. Salve para
+                  aplicar na operação do Fagner.
                 </span>
               </div>
               <button
                 type="button"
                 disabled={
-                  busy || !dirty || conflicts.length > 0 || destinationConflicts.length > 0
+                  busy ||
+                  !dirty ||
+                  conflicts.length > 0 ||
+                  destinationConflicts.length > 0 ||
+                  scheduleHasError
                 }
                 onClick={() => void save()}
                 className="px-4 py-2 rounded-xl bg-primary hover:bg-primary-hover text-primary-foreground text-xs font-extrabold flex items-center gap-1.5 shadow-soft transition cursor-pointer disabled:opacity-50 shrink-0"
               >
                 <Save className="h-3.5 w-3.5" />
-                <span>{busy ? "Salvando…" : "Salvar catálogo e destinos"}</span>
+                <span>{busy ? "Salvando…" : "Salvar alterações"}</span>
               </button>
             </div>
           )}

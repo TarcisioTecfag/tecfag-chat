@@ -51,12 +51,13 @@ import {
   type IndustrialDestinationKey,
 } from "./industrial-settings";
 import { readIndustrialSettings } from "./industrial-settings-store";
+import { deterministicIndustrialHandoffConfirmMessageId } from "./industrial-silence-policy";
 import {
-  buildIndustrialOffHoursClosingNotice,
-  deterministicIndustrialHandoffConfirmMessageId,
-  isWithinIndustrialSchedule,
-  parseIndustrialScheduleConfig,
-} from "./industrial-silence-policy";
+  buildFallbackIndustrialBusinessHoursClosing,
+  type IndustrialBusinessHoursEvaluation,
+} from "./industrial-business-hours";
+import { loadIndustrialBusinessHoursForTenant } from "./industrial-business-hours-store";
+import { composeIndustrialTransferNoticeWithGemini } from "./industrial-reply-rewriter";
 import { appendIndustrialJournal } from "./industrial-triage-journal-store";
 import { isSdrAnalysisFlowOperator } from "./sdr-disabled-routing";
 import {
@@ -898,6 +899,13 @@ export async function approveIndustrialTriage(
   }
 
   const persona = getAiPersona(tenantId);
+  const preCommitNow = new Date();
+  const loadedBusinessHours = await loadIndustrialBusinessHoursForTenant(
+    database,
+    tenantId,
+    preCommitNow,
+  );
+  const businessHoursEval: IndustrialBusinessHoursEvaluation = loadedBusinessHours.evaluation;
 
   const committed = await database.transaction(async (tx) => {
     const rodizioRow = await lockIndustrialRodizio(tx, tenantId);
@@ -1165,27 +1173,20 @@ export async function approveIndustrialTriage(
       });
     }
 
-    // 4. Montar mensagem de confirmação ao cliente (com aviso de fora do expediente se fora do horário)
-    const [sdrConfigRow] = await tx
-      .select({ config: agentConfigs.config })
-      .from(agentConfigs)
-      .where(and(eq(agentConfigs.tenantId, tenantId), eq(agentConfigs.agentType, "sdr")))
-      .limit(1);
-    const scheduleCfg = parseIndustrialScheduleConfig(
-      (sdrConfigRow?.config as Record<string, unknown> | undefined) || {},
-    );
-    const offHoursNotice =
-      scheduleCfg.enabled && !isWithinIndustrialSchedule(now, scheduleCfg)
-        ? buildIndustrialOffHoursClosingNotice(now, scheduleCfg, targetOp.name)
-        : null;
-
+    // 4. Montar confirmação fallback para o outbox transacional (a redação natural 100% via
+    //    Gemini com expediente real + feriados ocorre pós-commit para nunca segurar lock no banco).
     const confirmationText =
       input.sendClientConfirmation === false
         ? null
-        : industrialHandoffMessage("transferred", targetOp.name, {
-            isOperatorAbsent,
-            offHoursNotice,
-          });
+        : businessHoursEval.enabled && businessHoursEval.status !== "open"
+          ? buildFallbackIndustrialBusinessHoursClosing(businessHoursEval, {
+              operatorName: targetOp.name,
+              isOperatorAbsent,
+              mode: "transferred",
+            })
+          : industrialHandoffMessage("transferred", targetOp.name, {
+              isOperatorAbsent,
+            });
 
     // 5. Concluir ciclo da triagem (`outcome = "transferred"`) e limpar `pendingApproval`
     //    Preserva `triageAccuracy` IMUTÁVEL comparando a sugestão original do Fagner com o destino aprovado.
@@ -1368,6 +1369,7 @@ export async function approveIndustrialTriage(
       contactId: contact?.id || conv.contactId || null,
       contactPhone: contact?.phone || conv.contactPhone || "",
       collectedData,
+      isOperatorAbsent,
       confirmationText,
       flowId: flow?.id || null,
       cycleIso,
@@ -1458,6 +1460,19 @@ export async function approveIndustrialTriage(
   let clientNotified = false;
   if (committed.confirmationText) {
     try {
+      const finalConfirmationText =
+        businessHoursEval.enabled && businessHoursEval.status !== "open"
+          ? await composeIndustrialTransferNoticeWithGemini({
+              tenantId,
+              conversationId,
+              aiPersona: persona,
+              operatorName: committed.operator.name,
+              isOperatorAbsent: committed.isOperatorAbsent,
+              clientName: committed.clientName,
+              targetFunnel: committed.targetFunnel,
+              businessHours: businessHoursEval,
+            })
+          : committed.confirmationText;
       const idempotencyMessageId = committed.flowId
         ? deterministicIndustrialHandoffConfirmMessageId(tenantId, committed.flowId, committed.cycleIso)
         : `hconf-appr-${Date.now()}-${crypto.randomUUID().slice(0, 6)}`;
@@ -1465,7 +1480,7 @@ export async function approveIndustrialTriage(
         tenantId,
         conversationId,
         phone: committed.contactPhone,
-        text: committed.confirmationText,
+        text: finalConfirmationText,
         idempotencyMessageId,
         expectedOperatorId: committed.operator.id,
       });

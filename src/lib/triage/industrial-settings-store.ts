@@ -10,6 +10,11 @@ import {
   type IndustrialSettings,
   type IndustrialDestination,
 } from "./industrial-settings";
+import {
+  getZonedDateParts,
+  parseIndustrialScheduleConfig,
+} from "./industrial-business-hours";
+import { loadTenantNonWorkingCalendarDays } from "./industrial-business-hours-store";
 import type { IndustrialDatabase, IndustrialTransaction } from "./industrial-rodizio-store";
 import type { HandoffIssueCode } from "./industrial-handoff-issues";
 
@@ -154,11 +159,60 @@ export async function saveIndustrialSettings(
         enabled: 0,
         config,
       });
+
+    // Espelha o expediente salvo também em `agentConfigs(sdr).config.industrialSchedule`
+    // dentro do mesmo tenant para manter 100% de consistência com leitores legados.
+    if (settings.schedule) {
+      const normalizedSchedule = parseIndustrialScheduleConfig({ schedule: settings.schedule });
+      const [sdrRow] = await tx
+        .select()
+        .from(agentConfigs)
+        .where(and(eq(agentConfigs.tenantId, tenantId), eq(agentConfigs.agentType, "sdr")))
+        .limit(1);
+      if (sdrRow) {
+        const sdrCfg =
+          sdrRow.config && typeof sdrRow.config === "object"
+            ? (sdrRow.config as Record<string, unknown>)
+            : {};
+        await tx
+          .update(agentConfigs)
+          .set({
+            config: {
+              ...sdrCfg,
+              industrialSchedule: {
+                enabled: normalizedSchedule.enabled,
+                workDays: normalizedSchedule.workDays,
+                weekdays: normalizedSchedule.weekdays,
+                startHour: normalizedSchedule.startHour,
+                startMinute: normalizedSchedule.startMinute,
+                endHour: normalizedSchedule.endHour,
+                endMinute: normalizedSchedule.endMinute,
+                startTime: normalizedSchedule.startTime,
+                endTime: normalizedSchedule.endTime,
+                closingSoonMinutes: normalizedSchedule.closingSoonMinutes,
+                respectCommercialCalendar: normalizedSchedule.respectCommercialCalendar,
+                timezone: normalizedSchedule.timezone,
+              },
+            },
+            updatedAt: new Date(),
+          })
+          .where(and(eq(agentConfigs.tenantId, tenantId), eq(agentConfigs.id, sdrRow.id)));
+      }
+    }
     return { revision: config.revision, settings };
   });
 }
 export async function industrialSettingsChoices(database: IndustrialDatabase, tenantId: string) {
-  const [sectorRows, pipelineRows, stageRows] = await Promise.all([
+  const now = new Date();
+  const { dateIso } = getZonedDateParts(now);
+  const fromDateIso = new Date(new Date(`${dateIso}T12:00:00.000Z`).getTime() - 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+  const toDateIso = new Date(new Date(`${dateIso}T12:00:00.000Z`).getTime() + 90 * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+
+  const [sectorRows, pipelineRows, stageRows, nonWorkingDays] = await Promise.all([
     database
       .select({ id: sectors.id, name: sectors.name })
       .from(sectors)
@@ -180,10 +234,13 @@ export async function industrialSettingsChoices(database: IndustrialDatabase, te
       .from(crmStages)
       .where(eq(crmStages.tenantId, tenantId))
       .orderBy(asc(crmStages.orderIndex)),
+    loadTenantNonWorkingCalendarDays(database, tenantId, fromDateIso, toDateIso).catch(() => []),
   ]);
   return {
     sectors: sectorRows,
     pipelines: pipelineRows,
     stages: stageRows.filter((stage) => !stage.isWinStage && !stage.isLossStage),
+    serverNowIso: now.toISOString(),
+    upcomingNonWorkingDays: nonWorkingDays,
   };
 }

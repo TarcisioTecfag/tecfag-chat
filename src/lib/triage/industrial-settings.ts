@@ -5,6 +5,12 @@ import {
   type IndustrialRoute,
   type IndustrialSubflow,
 } from "./industrial-policy.ts";
+import {
+  industrialScheduleSchema,
+  type IndustrialScheduleSettings,
+} from "./industrial-business-hours.ts";
+
+export { industrialScheduleSchema, type IndustrialScheduleSettings };
 
 export const INDUSTRIAL_SETTINGS_AGENT = "industrial_triage";
 export const INDUSTRIAL_DESTINATIONS = {
@@ -68,6 +74,7 @@ export const industrialSettingsSchema = z
       )
       .max(200),
     destinations: z.record(destinationSchema),
+    schedule: industrialScheduleSchema.optional(),
   })
   .strict()
   .superRefine((value, ctx) => {

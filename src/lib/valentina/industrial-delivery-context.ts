@@ -11,11 +11,8 @@ import {
 import { getAiPersona } from "../ai-persona";
 import { isSiteConversationId, parseSiteChannelSettings } from "../livechat/site-channel-policy";
 import { getMetaServiceWindow } from "../whatsapp/meta-policy";
-import {
-  isWithinIndustrialSchedule,
-  parseIndustrialScheduleConfig,
-  parseIndustrialSilenceConfig,
-} from "../triage/industrial-silence-policy";
+import { parseIndustrialSilenceConfig } from "../triage/industrial-silence-policy";
+import { loadIndustrialBusinessHoursForTenant } from "../triage/industrial-business-hours-store";
 
 export type IndustrialDeliveryContext = {
   flowId: string;
@@ -238,13 +235,21 @@ export async function validateIndustrialDelivery(
     (identity.scheduleOnly ||
       message.retryCount > 0 ||
       now.getTime() - message.sentAt.getTime() > 60_000) &&
-    parseIndustrialSilenceConfig(context.settings).pauseOutsideSchedule &&
-    !isWithinIndustrialSchedule(now, parseIndustrialScheduleConfig(context.settings))
-  )
-    return {
-      decision: "defer",
-      reason: "Recuperação automática aguardando expediente configurado.",
-    } as const;
+    parseIndustrialSilenceConfig(context.settings).pauseOutsideSchedule
+  ) {
+    const { evaluation: bhEval } = await loadIndustrialBusinessHoursForTenant(
+      db,
+      message.tenantId,
+      now,
+      context.settings,
+    );
+    if (!bhEval.isWithinSchedule) {
+      return {
+        decision: "defer",
+        reason: "Recuperação automática aguardando expediente configurado.",
+      } as const;
+    }
+  }
   if (
     message.provider === "meta" &&
     !(await getMetaServiceWindow(message.tenantId, message.conversationId, now)).open

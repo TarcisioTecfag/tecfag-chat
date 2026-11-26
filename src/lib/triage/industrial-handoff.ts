@@ -1,5 +1,6 @@
 import {
   assessIndustrialReadiness,
+  hasPendingTriageQuestion,
   INDUSTRIAL_CURRICULUM_SOLIDES_URL,
   INDUSTRIAL_REVIEW_FUNNEL,
   INDUSTRIAL_SUPPLIERS_EMAIL,
@@ -7,6 +8,10 @@ import {
   type CollectedFields,
   type IndustrialRoute,
 } from "./industrial-policy.ts";
+import {
+  messagesCoverIndustrialBusinessHoursNotice,
+  type IndustrialBusinessHoursEvaluation,
+} from "./industrial-business-hours.ts";
 
 export interface HandoffOperator {
   id: string;
@@ -61,7 +66,7 @@ export const INDUSTRIAL_GENERIC_CLOSING_PATTERN =
  * nem duplicar antes da bolha oficial de encaminhamento em `awaiting_approval`/`transferred`.
  */
 export const INDUSTRIAL_CLAIMS_EFFECT_PATTERN =
-  /(?:j[aá] (?:criei|vinculei|transferi|encaminhei|direcionei|redirecionei|acionei|passei|enviei)|(?:card|negocia[cç][aã]o|atendimento|solicita[cç][aã]o|contato|pedido|caso|demanda).{0,55}(?:criad[oa]|vinculad[oa]|transferid[oa]|encaminhad[oa]|direcionad[oa]|redirecionad[oa]|j[aá] est[aá] com|foi direcionad[oa]|foi encaminhad[oa]|foi transferid[oa]|foi enviad[oa]|(?:ser[aá]|vai ser)\s+(?:verificad[oa]|analisad[oa]|avaliad[oa]|atendid[oa]|tratad[oa]|acompanhad[oa])\s+pel[oa])|(?:estou|te|vou) (?:te )?(?:transferindo|transferir|encaminhando|encaminhar|direcionando|direcionar|redirecionando|redirecionar|acionando|acionar|passando|passar)|vou\s+(?:solicitar|pedir|passar|enviar|encaminhar)\b.{0,70}\b(?:para|a|à)\s+(?:a\s+|o\s+)?(?:noss[oa]\s+)?(?:equipe|especialista|consultor(?:a|es)?|setor|time|p[oó]s[\s-]?venda|financeiro|suporte|pe[cç]as)|(?:equipe|especialista|consultor(?:a|es)?|setor|time|p[oó]s[\s-]?venda|financeiro|suporte|pe[cç]as).{0,65}(?:j[aá] (?:foi acionad[oa]|recebeu|est[aá] com|dar[aá] andamento|consegue\s+(?:preparar|elaborar|montar|verificar|analisar|avaliar|apresentar|enviar|dar)|ir[aá]|vai)|(?:ir[aá]|vai|pode|poder[aá])\s+(?:assumir|entrar em contato|retornar|dar andamento|dar continuidade|atender|verificar|analisar|avaliar|preparar|elaborar|apresentar|detalhar|cotar|cuidar|alinhar|enviar)|entrar[aá] em contato|retornar[aá](?: o contato)?|assumir[aá]|dar[aá] continuidade|dar[aá] prioridade|avaliar[aá]|analisar[aá]|verificar[aá]|preparar[aá]|elaborar[aá]|apresentar[aá]|detalhar[aá]|cotar[aá]|cuidar[aá])|\bele\s+poder[aá]\s+(?:detalhar|apresentar|alinhar|verificar|analisar|elaborar|preparar)|j[aá] coletei tudo|estou validando|j[aá]\s+s[aã]o\s+o\s+ponto\s+de\s+partida)/i;
+  /(?:j[aá]\s+(?:criei|vinculei|transferi|encaminhei|direcionei|redirecionei|acionei|passei|enviei|solicitei|registrei)\b|\bregistrei\s+(?:todos\s+os\s+detalhes|as\s+informa[cç][oõ]es|os\s+dados|sua\s+solicita[cç][aã]o)\b|(?:card|negocia[cç][aã]o|atendimento|solicita[cç][aã]o|contato|pedido|caso|demanda|proposta)[^.!?]{0,70}(?:criad[oa]|vinculad[oa]|transferid[oa]|encaminhad[oa]|direcionad[oa]|redirecionad[oa]|registrad[oa]|solicitad[oa]|j[aá]\s+est[aá]\s+(?:com|sendo\s+preparad[oa]|preparando)|foi\s+(?:direcionad[oa]|encaminhad[oa]|transferid[oa]|enviad[oa]|registrad[oa])|(?:ser[aá]|vai\s+ser)\s+(?:verificad[oa]|analisad[oa]|avaliad[oa]|atendid[oa]|tratad[oa]|acompanhad[oa])\s+pel[oa])|(?:estou|te|vou)\s+(?:te\s+)?(?:transferindo|transferir|encaminhando|encaminhar|direcionando|direcionar|redirecionando|redirecionar|acionando|acionar|passando|passar)|(?:j[aá]\s+)?estou\s+solicitando\s+(?:a\s+)?(?:sua\s+)?(?:proposta|cota[cç][aã]o|or[cç]amento)|(?:equipe|especialista|consultor(?:a|es)?|setor|time|p[oó]s[\s-]?venda|financeiro|suporte|pe[cç]as)[^.!?]{0,160}(?:j[aá]\s+(?:foi\s+acionad[oa]|recebeu|est[aá]\s+com|est[aá]\s+preparando|dar[aá]\s+andamento|consegue\s+(?:preparar|elaborar|montar|verificar|analisar|avaliar|apresentar|enviar|dar)|ir[aá]|vai)|(?:ir[aá]|vai|pode|poder[aá])\s+(?:assumir|entrar\s+em\s+contato|retornar|dar\s+andamento|dar\s+continuidade|atender|verificar|analisar|avaliar|preparar|elaborar|apresentar|detalhar|cotar|cuidar|alinhar|enviar|mandar|fazer\s+a\s+an[aá]lise)|entrar[aá]\s+em\s+contato|retornar[aá](?:\s+o\s+contato)?|assumir[aá]|dar[aá]\s+continuidade|dar[aá]\s+prioridade|avaliar[aá]|analisar[aá]|verificar[aá]|preparar[aá]|elaborar[aá]|apresentar[aá]|detalhar[aá]|cotar[aá]|cuidar[aá]|enviar[aá]|mandar[aá]|far[aá]\s+a\s+an[aá]lise)|\b(?:em\s+(?:instantes|breve)|logo\s+mais)[^.!?]{0,90}(?:entrar[aá]\s+em\s+contato|enviar[aá]|retornar[aá]|falar[aá]\s+com\s+voc[eê]|dar[aá]\s+continuidade)\b|\bele\s+poder[aá]\s+(?:detalhar|apresentar|alinhar|verificar|analisar|elaborar|preparar)|j[aá]\s+coletei\s+tudo|estou\s+validando|j[aá]\s+s[aã]o\s+o\s+ponto\s+de\s+partida)/i;
 
 export function isRedundantIndustrialClosingMessage(text: string): boolean {
   const clean = String(text || "").trim();
@@ -209,7 +214,12 @@ export function industrialHandoffMessage(
 export interface EvaluatedIndustrialClientMessages {
   messages: string[];
   needsGeminiRewrite: boolean;
-  rewriteMode: "collecting_missing_fields" | "awaiting_approval" | "resolved" | null;
+  rewriteMode:
+    | "collecting_missing_fields"
+    | "awaiting_approval"
+    | "resolved"
+    | "direct_operator_transferred"
+    | null;
   missingFields: import("./industrial-policy.ts").RequiredField[];
   safeBubbles: string[];
 }
@@ -218,8 +228,9 @@ export interface EvaluatedIndustrialClientMessages {
  * Avalia e sanitiza as mensagens geradas pelo Gemini sem NUNCA injetar perguntas prontas/robóticas
  * hardcoded durante a coleta.
  * Quando uma promessa prematura de encaminhamento é removida durante `collecting` ou quando não
- * sobra nenhum balão aproveitável em `awaiting_approval`/`resolved`, sinaliza `needsGeminiRewrite: true`
- * para que o Gemini redija a continuação 100% contextualizada.
+ * sobra nenhum balão aproveitável em `awaiting_approval`/`resolved` (ou quando falta o aviso real
+ * de expediente/feriado fora do horário), sinaliza `needsGeminiRewrite: true` para que o Gemini
+ * redija a continuação 100% contextualizada.
  */
 export function evaluateIndustrialClientMessages(params: {
   result: IndustrialHandoffResult;
@@ -227,6 +238,8 @@ export function evaluateIndustrialClientMessages(params: {
   data: CollectedFields;
   messages: string[];
   knownCompanyToConfirm?: string | null;
+  businessHours?: IndustrialBusinessHoursEvaluation | null;
+  clientRescheduled?: boolean;
 }): EvaluatedIndustrialClientMessages {
   const isOperatorAbsent = Boolean(
     params.result.operator?.isAbsent || params.route.targetOperator?.isAbsent,
@@ -297,7 +310,8 @@ export function evaluateIndustrialClientMessages(params: {
 
   if (params.result.status === "awaiting_approval") {
     // Preserva integralmente as mensagens naturais e contextualizadas do Fagner (ex.: explicação
-    // técnica + aviso natural de encaminhamento ao setor), SEM anexar nenhuma bolha genérica fixa.
+    // técnica + aviso natural de encaminhamento ao setor + aviso de expediente fora do horário),
+    // SEM anexar nenhuma bolha genérica fixa.
     // Remove apenas perguntas pendentes (que deixariam o cliente no vácuo na pausa de aprovação)
     // e falsas alegações de efeitos internos/transferência nominal ou a antiga frase banida.
     const cleanedReplies = params.messages
@@ -309,12 +323,57 @@ export function evaluateIndustrialClientMessages(params: {
           !INDUSTRIAL_FALSE_SYSTEM_CLAIM_PATTERN.test(m),
       )
       .slice(0, 4);
+    const coversBusinessHours = messagesCoverIndustrialBusinessHoursNotice(
+      cleanedReplies,
+      params.businessHours,
+    );
+    const needsRewrite = cleanedReplies.length === 0 || !coversBusinessHours;
     return {
       messages: cleanedReplies,
-      needsGeminiRewrite: cleanedReplies.length === 0,
-      rewriteMode: cleanedReplies.length === 0 ? "awaiting_approval" : null,
+      needsGeminiRewrite: needsRewrite,
+      rewriteMode: needsRewrite ? "awaiting_approval" : null,
       missingFields: [],
       safeBubbles: cleanedReplies,
+    };
+  }
+
+  if (
+    params.result.status === "transferred" &&
+    params.result.operator?.name &&
+    params.businessHours?.enabled &&
+    params.businessHours.status !== "open"
+  ) {
+    // Fora do expediente ou na janela de transição: 100% redigido pelo Gemini (sem balão fixo
+    // colado pelo servidor). Se o próprio Gemini já citou o consultor e explicou o expediente
+    // sem contradição, preserva; caso contrário solicita reescrita contextual via Gemini.
+    const operatorFirstName = params.result.operator.name.trim().split(/\s+/)[0] || "";
+    const cleanedDirect = params.messages
+      .map((m) => String(m || "").trim())
+      .filter(
+        (m) =>
+          Boolean(m) &&
+          !m.includes("?") &&
+          !/(?:j[aá]\s+(?:criei|vinculei)\b|(?:card|negocia[cç][aã]o)\s+(?:j[aá]\s+)?(?:criad[oa]|vinculad[oa])|j[aá]\s+coletei\s+tudo|estou\s+validando)/i.test(
+            m,
+          ),
+      )
+      .slice(0, 4);
+    const mentionsOperator =
+      Boolean(operatorFirstName) &&
+      cleanedDirect.some((m) =>
+        m.toLocaleLowerCase("pt-BR").includes(operatorFirstName.toLocaleLowerCase("pt-BR")),
+      );
+    const coversBusinessHours = messagesCoverIndustrialBusinessHoursNotice(
+      cleanedDirect,
+      params.businessHours,
+    );
+    const needsRewrite = cleanedDirect.length === 0 || !mentionsOperator || !coversBusinessHours;
+    return {
+      messages: cleanedDirect,
+      needsGeminiRewrite: needsRewrite,
+      rewriteMode: needsRewrite ? "direct_operator_transferred" : null,
+      missingFields: [],
+      safeBubbles: cleanedDirect,
     };
   }
 
@@ -354,8 +413,13 @@ export function evaluateIndustrialClientMessages(params: {
   const claimsSuccess = claimsIndustrialHandoffEffect(params.messages);
   if (!claimsSuccess) {
     const cleanMessages = params.messages.map((m) => String(m || "").trim()).filter(Boolean);
-    if (cleanMessages.length > 0 && startsWithOrphanAnaphoricConnector(cleanMessages[0])) {
-      const missingFields = assessIndustrialReadiness(params.route, params.data).missing;
+    const missingFields = assessIndustrialReadiness(params.route, params.data).missing;
+    const hasQuestion = hasPendingTriageQuestion(cleanMessages);
+    if (
+      cleanMessages.length > 0 &&
+      (startsWithOrphanAnaphoricConnector(cleanMessages[0]) ||
+        (!hasQuestion && !params.clientRescheduled && missingFields.length > 0))
+    ) {
       return {
         messages: cleanMessages,
         needsGeminiRewrite: true,

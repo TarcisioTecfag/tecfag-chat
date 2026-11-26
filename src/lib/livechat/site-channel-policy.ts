@@ -3,6 +3,7 @@
  * Sem IO: compartilhado pelo adaptador WebSocket, pelo SdrEngine e pelos testes.
  */
 import { isValidIndustrialPersonName, isValidTriageDocument } from "../triage/industrial-policy.ts";
+import type { IndustrialBusinessHoursEvaluation } from "../triage/industrial-business-hours.ts";
 
 /** Canal registrado em `contacts.mainChannel` — mesmo valor já reconhecido pela UI e pelo Supervisor. */
 export const SITE_CHANNEL = "livechat";
@@ -89,7 +90,10 @@ export function isCommercialSiteDestination(destinationKey?: string | null): boo
 /** Mensagem limpa exibida no chat do site após o disparo confirmado do template oficial no WhatsApp. */
 export function buildSiteToWhatsappClosingMessage(
   clientName?: string | null,
-  options?: { hasActiveHuman?: boolean },
+  options?: {
+    hasActiveHuman?: boolean;
+    businessHours?: IndustrialBusinessHoursEvaluation | null;
+  },
 ): string {
   const clean = (clientName || "").trim();
   const isGeneric =
@@ -98,10 +102,18 @@ export function buildSiteToWhatsappClosingMessage(
     /^\+?\d{6,20}$/.test(clean.replace(/[\s().-]/g, ""));
   const first = !isGeneric ? clean.split(/\s+/)[0]?.replace(/[^\p{L}'-]/gu, "") || "" : "";
   const greeting = first.length >= 2 ? `Perfeito, ${first}!` : "Perfeito!";
-  if (options?.hasActiveHuman) {
-    return `${greeting} Já reuni as informações do seu atendimento e repassei tudo no seu atendimento que já está aberto no WhatsApp para darmos continuidade por lá.`;
+  const base = options?.hasActiveHuman
+    ? `${greeting} Já reuni as informações do seu atendimento e repassei tudo no seu atendimento que já está aberto no WhatsApp para darmos continuidade por lá.`
+    : `${greeting} Já reuni as informações do seu atendimento e eu mesmo acabei de te chamar no seu WhatsApp para darmos continuidade por lá.`;
+
+  const bh = options?.businessHours;
+  if (bh?.enabled && bh.status === "closed") {
+    return `${base} Como estamos fora do nosso horário comercial, nosso especialista dará continuidade ao seu atendimento por lá ${bh.nextOpen.label}.`;
   }
-  return `${greeting} Já reuni as informações do seu atendimento e eu mesmo acabei de te chamar no seu WhatsApp para darmos continuidade por lá.`;
+  if (bh?.enabled && bh.status === "closing_soon") {
+    return `${base} Nosso expediente comercial vai até as ${bh.endTimeLabel}, então caso o especialista não consiga retornar ainda hoje, o atendimento segue por lá ${bh.nextOpen.label}.`;
+  }
+  return base;
 }
 
 /** Origem ausente só é aceita quando não há lista configurada. */

@@ -1,5 +1,26 @@
 import crypto from "node:crypto";
 import { isOwnSdrOutboundSender } from "./industrial-ownership-guard.ts";
+import {
+  DEFAULT_INDUSTRIAL_SCHEDULE,
+  parseIndustrialScheduleConfig,
+  getZonedDateParts,
+  isWithinIndustrialSchedule,
+  getNextIndustrialOpenInfo,
+  buildIndustrialOffHoursClosingNotice,
+  type IndustrialScheduleConfig,
+  type NonWorkingCalendarDay,
+} from "./industrial-business-hours.ts";
+
+export {
+  DEFAULT_INDUSTRIAL_SCHEDULE,
+  parseIndustrialScheduleConfig,
+  getZonedDateParts,
+  isWithinIndustrialSchedule,
+  getNextIndustrialOpenInfo,
+  buildIndustrialOffHoursClosingNotice,
+  type IndustrialScheduleConfig,
+  type NonWorkingCalendarDay,
+};
 
 function isExternalHumanAgentMessage(msg: {
   senderType: string;
@@ -14,27 +35,6 @@ function isSiteConversationId(conversationId: string): boolean {
     (conversationId.startsWith("conv-lc-") || conversationId.startsWith("site-"))
   );
 }
-
-export interface IndustrialScheduleConfig {
-  enabled: boolean;
-  /** 0 = Domingo, 1 = Segunda ... 6 = Sábado */
-  workDays: number[];
-  weekdays: number[];
-  /** Hora inicial (0..23) no fuso configurado */
-  startHour: number;
-  /** Hora final (1..24) no fuso configurado */
-  endHour: number;
-  timezone: string;
-}
-
-export const DEFAULT_INDUSTRIAL_SCHEDULE: IndustrialScheduleConfig = {
-  enabled: true,
-  workDays: [1, 2, 3, 4, 5],
-  weekdays: [1, 2, 3, 4, 5],
-  startHour: 8,
-  endHour: 18,
-  timezone: "America/Sao_Paulo",
-};
 
 export interface IndustrialSilenceConfig {
   enabled: boolean;
@@ -79,76 +79,10 @@ export const DEFAULT_INDUSTRIAL_SILENCE_CONFIG: IndustrialSilenceConfig = {
   pauseFollowUpOutsideSchedule: true,
 };
 
-const WEEKDAY_NAMES_PT = [
-  "Domingo",
-  "Segunda-feira",
-  "Terça-feira",
-  "Quarta-feira",
-  "Quinta-feira",
-  "Sexta-feira",
-  "Sábado",
-] as const;
-
-const WEEKDAY_MAP: Record<string, number> = {
-  Sun: 0,
-  Mon: 1,
-  Tue: 2,
-  Wed: 3,
-  Thu: 4,
-  Fri: 5,
-  Sat: 6,
-};
-
 function clampInt(value: unknown, fallback: number, min: number, max: number): number {
   const num = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(num)) return fallback;
   return Math.min(max, Math.max(min, Math.trunc(num)));
-}
-
-export function parseIndustrialScheduleConfig(
-  raw?: Record<string, unknown> | null,
-): IndustrialScheduleConfig {
-  const source =
-    raw && typeof raw.industrialSchedule === "object" && raw.industrialSchedule !== null
-      ? (raw.industrialSchedule as Record<string, unknown>)
-      : raw || {};
-
-  const enabled =
-    typeof source.enabled === "boolean" ? source.enabled : DEFAULT_INDUSTRIAL_SCHEDULE.enabled;
-
-  const rawDays = Array.isArray(source.workDays)
-    ? source.workDays
-    : Array.isArray(source.weekdays)
-      ? source.weekdays
-      : null;
-
-  const days = rawDays
-    ? Array.from(
-        new Set(
-          rawDays
-            .map((d) => Number(d))
-            .filter((d) => Number.isInteger(d) && d >= 0 && d <= 6),
-        ),
-      ).sort((a, b) => a - b)
-    : DEFAULT_INDUSTRIAL_SCHEDULE.workDays;
-
-  const normalizedDays = days.length > 0 ? days : DEFAULT_INDUSTRIAL_SCHEDULE.workDays;
-  const startHour = clampInt(source.startHour, DEFAULT_INDUSTRIAL_SCHEDULE.startHour, 0, 23);
-  const rawEnd = clampInt(source.endHour, DEFAULT_INDUSTRIAL_SCHEDULE.endHour, 1, 24);
-  const endHour = rawEnd > startHour ? rawEnd : Math.min(24, startHour + 1);
-  const timezone =
-    typeof source.timezone === "string" && source.timezone.trim()
-      ? source.timezone.trim()
-      : DEFAULT_INDUSTRIAL_SCHEDULE.timezone;
-
-  return {
-    enabled,
-    workDays: normalizedDays,
-    weekdays: normalizedDays,
-    startHour,
-    endHour,
-    timezone,
-  };
 }
 
 export function parseIndustrialSilenceConfig(
@@ -249,131 +183,6 @@ export function parseIndustrialSilenceConfig(
     pauseOutsideSchedule,
     pauseFollowUpOutsideSchedule: pauseOutsideSchedule,
   };
-}
-
-export function getZonedDateParts(
-  now: Date,
-  timezone = DEFAULT_INDUSTRIAL_SCHEDULE.timezone,
-): { weekday: number; hour: number; minute: number; dateIso: string } {
-  const safeTz = timezone || DEFAULT_INDUSTRIAL_SCHEDULE.timezone;
-  let parts: Intl.DateTimeFormatPart[];
-  try {
-    parts = new Intl.DateTimeFormat("en-US", {
-      timeZone: safeTz,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      weekday: "short",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    }).formatToParts(now);
-  } catch {
-    parts = new Intl.DateTimeFormat("en-US", {
-      timeZone: DEFAULT_INDUSTRIAL_SCHEDULE.timezone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      weekday: "short",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    }).formatToParts(now);
-  }
-
-  const map: Record<string, string> = {};
-  for (const part of parts) {
-    map[part.type] = part.value;
-  }
-  const weekday = WEEKDAY_MAP[map.weekday] ?? now.getUTCDay();
-  const rawHour = Number.parseInt(map.hour ?? "0", 10);
-  const hour = rawHour === 24 ? 0 : Number.isFinite(rawHour) ? rawHour : 0;
-  const minute = Number.parseInt(map.minute ?? "0", 10) || 0;
-  const dateIso = `${map.year || "1970"}-${map.month || "01"}-${map.day || "01"}`;
-  return { weekday, hour, minute, dateIso };
-}
-
-export function isWithinIndustrialSchedule(
-  now: Date,
-  config?: Partial<IndustrialScheduleConfig> | null,
-): boolean {
-  const cfg = parseIndustrialScheduleConfig(config as Record<string, unknown>);
-  if (!cfg.enabled) return true;
-  const { weekday, hour } = getZonedDateParts(now, cfg.timezone);
-  if (!cfg.workDays.includes(weekday)) return false;
-  return hour >= cfg.startHour && hour < cfg.endHour;
-}
-
-export function getNextIndustrialOpenInfo(
-  now: Date,
-  config?: Partial<IndustrialScheduleConfig> | null,
-): {
-  dayName: string;
-  startHour: number;
-  isToday: boolean;
-  isTomorrow: boolean;
-  label: string;
-} {
-  const cfg = parseIndustrialScheduleConfig(config as Record<string, unknown>);
-  const { weekday, hour } = getZonedDateParts(now, cfg.timezone);
-  const startHour = cfg.startHour;
-
-  if (cfg.workDays.includes(weekday) && hour < startHour) {
-    const dayName = WEEKDAY_NAMES_PT[weekday];
-    return {
-      dayName,
-      startHour,
-      isToday: true,
-      isTomorrow: false,
-      label: `hoje a partir das ${startHour}h`,
-    };
-  }
-
-  for (let offset = 1; offset <= 7; offset++) {
-    const candidate = (weekday + offset) % 7;
-    if (cfg.workDays.includes(candidate)) {
-      const dayName = WEEKDAY_NAMES_PT[candidate];
-      const isTomorrow = offset === 1;
-      const dayPrep = candidate === 0 || candidate === 6 ? "no" : "na";
-      return {
-        dayName,
-        startHour,
-        isToday: false,
-        isTomorrow,
-        label: isTomorrow
-          ? `amanhã a partir das ${startHour}h`
-          : `${dayPrep} ${dayName.toLowerCase()} a partir das ${startHour}h`,
-      };
-    }
-  }
-
-  const fallbackIdx = cfg.workDays[0] ?? 1;
-  const fallbackDay = WEEKDAY_NAMES_PT[fallbackIdx];
-  const fallbackPrep = fallbackIdx === 0 || fallbackIdx === 6 ? "no" : "na";
-  return {
-    dayName: fallbackDay,
-    startHour,
-    isToday: false,
-    isTomorrow: false,
-    label: `${fallbackPrep} ${fallbackDay.toLowerCase()} a partir das ${startHour}h`,
-  };
-}
-
-/**
- * Quando uma transferência ocorre fora do expediente humano, informa o próximo horário
- * real de abertura da equipe sem prometer contato imediato.
- */
-export function buildIndustrialOffHoursClosingNotice(
-  now: Date,
-  config?: Partial<IndustrialScheduleConfig> | null,
-  operatorName?: string | null,
-): string {
-  const nextOpen = getNextIndustrialOpenInfo(now, config);
-  const firstName = operatorName ? operatorName.trim().split(/\s+/)[0] : null;
-  if (firstName) {
-    return `Nosso expediente comercial já encerrou por hoje, então ${firstName} dará continuidade ao seu atendimento ${nextOpen.label}.`;
-  }
-  return `Nosso atendimento humano retoma ${nextOpen.label}, quando a equipe dará continuidade por aqui.`;
 }
 
 export function deterministicIndustrialFollowUpMessageId(
@@ -567,6 +376,8 @@ export interface IndustrialSilenceEvalInput {
   withinSchedule: boolean;
   /** Hora de abertura configurada do expediente comercial (padrão 8). */
   scheduleStartHour?: number;
+  /** Minuto de abertura configurado do expediente comercial (padrão 0). */
+  scheduleStartMinute?: number;
   /** Timezone configurado do expediente comercial (padrão America/Sao_Paulo). */
   scheduleTimezone?: string;
   flow: {
@@ -607,6 +418,16 @@ export interface IndustrialSilenceEvalDecision {
 
 const CLIENT_RESCHEDULE_PATTERN =
   /\b(?:amanha|na\s+segunda|segunda[\s-]?feira|terca[\s-]?feira|quarta[\s-]?feira|quinta[\s-]?feira|sexta[\s-]?feira|semana\s+que\s+vem|mais\s+tarde|depois\s+(?:eu\s+|te\s+)?(?:mando|envio|passo|falo|conversamos|retorno)|em\s+horario\s+comercial|no\s+proximo\s+dia\s+util|vou\s+(?:precisar\s+)?pegar\s+.*amanha|a\s+gente\s+conversa\s+(?:amanha|segunda|depois))\b/i;
+
+export function isClientReschedulingTurn(raw: string): boolean {
+  const normalized = String(raw || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+  if (!normalized) return false;
+  return CLIENT_RESCHEDULE_PATTERN.test(normalized);
+}
 
 const NON_COMMERCIAL_SILENCE_EXEMPT_SUBFLOWS = new Set([
   "5B_CURRICULO",
@@ -877,12 +698,18 @@ export function evaluateIndustrialSilence(
     typeof input.scheduleStartHour === "number" && Number.isFinite(input.scheduleStartHour)
       ? Math.trunc(input.scheduleStartHour)
       : DEFAULT_INDUSTRIAL_SCHEDULE.startHour;
+  const scheduleStartMinute =
+    typeof input.scheduleStartMinute === "number" && Number.isFinite(input.scheduleStartMinute)
+      ? Math.max(0, Math.min(59, Math.trunc(input.scheduleStartMinute)))
+      : DEFAULT_INDUSTRIAL_SCHEDULE.startMinute;
+  const scheduleStartTotalMinutes = scheduleStartHour * 60 + scheduleStartMinute;
   if (cfg.pauseOutsideSchedule && input.withinSchedule && cfg.morningSoftStartMinutes > 0) {
     const zonedLastMsg = getZonedDateParts(new Date(lastMsgMs), tz);
+    const lastMsgMinutesOfDay = zonedLastMsg.hour * 60 + zonedLastMsg.minute;
     const sentBeforeTodayOpen =
-      zonedLastMsg.dateIso < zonedNow.dateIso || zonedLastMsg.hour < scheduleStartHour;
+      zonedLastMsg.dateIso < zonedNow.dateIso || lastMsgMinutesOfDay < scheduleStartTotalMinutes;
     const nowMinutesOfDay = zonedNow.hour * 60 + zonedNow.minute;
-    const softStartMinutesOfDay = scheduleStartHour * 60 + cfg.morningSoftStartMinutes;
+    const softStartMinutesOfDay = scheduleStartTotalMinutes + cfg.morningSoftStartMinutes;
     if (sentBeforeTodayOpen && nowMinutesOfDay < softStartMinutesOfDay) {
       return { action: "none", reason: "morning_soft_start_window", rescuePartialLead };
     }
