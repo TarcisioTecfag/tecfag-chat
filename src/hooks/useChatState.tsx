@@ -15,6 +15,7 @@ import { GroupPermissions, DEFAULT_ADMIN_PERMISSIONS, normalizeGroupPermissions 
 import { parseAppRoute, parseChatQueueFromSearch } from "@/lib/app-routes";
 import { clearWhatsappConnectionsCache } from "./useWhatsappConnections";
 import { getAiPersona } from "@/lib/ai-persona";
+import { formatMetaErrorMessagePt } from "@/lib/whatsapp/meta-template-common";
 import { sortAlphabeticallyByName } from "@/lib/operator-initial-navigation";
 import { resolveTemplateVariables } from "@/lib/utils";
 import {
@@ -254,6 +255,7 @@ type ChatContextType = {
     metaTemplate?: { name: string; language: string; parameters: string[] },
     intent?: { id: string; conversationId: string; tenantId: string; expectedContextVersion?: number; noteScope?: "current" | "general" },
   ) => Promise<boolean>;
+  dismissPendingMessage: (chatId: string, messageIdOrClientId: string) => void;
   captureChat: (id: string) => void;
   transferChat: (
     id: string,
@@ -3588,33 +3590,50 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const pendingTime = optTime.time;
       const nowIso = optTime.sentAtISO;
       setConversations((previous) =>
-        previous.map((chat) =>
-          chat.id === targetChatId
-            ? {
-                ...chat,
-                lastMessageTime: pendingTime,
-                lastMessageAtISO: nowIso,
-                messages: [
-                  ...chat.messages,
-                  {
-                    id: optimisticMessageId,
-                    clientMessageId,
-                    author: "Você",
-                    text,
-                    time: pendingTime,
-                    sentAtISO: nowIso,
-                    side: "out" as const,
-                    senderType: "agent",
-                    status: "sending",
-                    provider: currentChat.whatsappConnectionId ? "baileys" : activeProvider,
-                    quotedMessageId: quotedMessage?.id || null,
-                    quotedMessageSender: quotedMessage?.sender || null,
-                    quotedMessageContent: quotedMessage?.content || null,
-                  },
-                ],
-              }
-            : chat,
-        ),
+        previous.map((chat) => {
+          if (chat.id !== targetChatId) return chat;
+          const alreadyExists = chat.messages.some(
+            (m) => m.id === optimisticMessageId || m.clientMessageId === clientMessageId,
+          );
+          const nextMessages = alreadyExists
+            ? chat.messages.map((m) =>
+                m.id === optimisticMessageId || m.clientMessageId === clientMessageId
+                  ? {
+                      ...m,
+                      id: optimisticMessageId,
+                      clientMessageId,
+                      status: "sending",
+                      errorMessage: undefined,
+                      time: pendingTime,
+                      sentAtISO: nowIso,
+                    }
+                  : m,
+              )
+            : [
+                ...chat.messages,
+                {
+                  id: optimisticMessageId,
+                  clientMessageId,
+                  author: "Você",
+                  text,
+                  time: pendingTime,
+                  sentAtISO: nowIso,
+                  side: "out" as const,
+                  senderType: "agent",
+                  status: "sending",
+                  provider: currentChat.whatsappConnectionId ? "baileys" : activeProvider,
+                  quotedMessageId: quotedMessage?.id || null,
+                  quotedMessageSender: quotedMessage?.sender || null,
+                  quotedMessageContent: quotedMessage?.content || null,
+                },
+              ];
+          return {
+            ...chat,
+            lastMessageTime: pendingTime,
+            lastMessageAtISO: nowIso,
+            messages: nextMessages,
+          };
+        }),
       );
     }
     let sentTextMessageId: string | undefined;
@@ -3743,9 +3762,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           );
         }
         console.error("Falha ao enviar mensagem de WhatsApp pelo backend:", err);
+        const friendlyErrMsg =
+          formatMetaErrorMessagePt(err?.message) || err?.message || "Conexão falhou";
         toast.error(partAlreadySent
-          ? `Envio parcial: ${err.message || "um anexo falhou"}. Confira o histórico antes de repetir.`
-          : `Erro ao enviar mensagem: ${err.message || "Conexão falhou"}`);
+          ? `Envio parcial: ${friendlyErrMsg}. Confira o histórico antes de repetir.`
+          : `Erro ao enviar mensagem: ${friendlyErrMsg}`);
         return false;
       }
     } else {
@@ -3929,6 +3950,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 id: sentTextMessageId || m.id,
                 clientMessageId,
                 status: sentTextStatus || "sent",
+                errorMessage: undefined,
                 sentAtISO: resolvedTextStamp.sentAtISO,
                 time: resolvedTextStamp.time,
                 date: resolvedTextStamp.date,
@@ -3978,6 +4000,29 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
     return true;
   };
+
+  const dismissPendingMessage = useCallback((chatId: string, messageIdOrClientId: string) => {
+    const cleanKey = String(messageIdOrClientId || "").trim();
+    if (!chatId || !cleanKey) return;
+    const rawClientId = cleanKey.startsWith("pending-") ? cleanKey.slice("pending-".length) : cleanKey;
+    const pendingId = cleanKey.startsWith("pending-") ? cleanKey : `pending-${cleanKey}`;
+    setConversations((previous) =>
+      previous.map((chat) =>
+        chat.id === chatId
+          ? {
+              ...chat,
+              messages: chat.messages.filter(
+                (msg) =>
+                  !(
+                    msg.id.startsWith("pending-") &&
+                    (msg.id === pendingId || msg.clientMessageId === rawClientId)
+                  ),
+              ),
+            }
+          : chat,
+      ),
+    );
+  }, []);
 
   const captureChat = async (id: string) => {
     const previousState = conversationsRef.current.find((c) => c.id === id);
@@ -6862,6 +6907,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         deleteTemplate,
         
         sendMessage,
+        dismissPendingMessage,
         captureChat,
         transferChat,
         finishChat,

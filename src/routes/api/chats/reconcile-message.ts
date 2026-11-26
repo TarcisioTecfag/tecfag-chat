@@ -1,11 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "../../../db";
 import { messages, conversations } from "../../../db/schema";
 import { requireSession } from "../../../lib/auth-session";
 import { dispatchStored, storedResult } from "../../../lib/whatsapp/dispatch";
 import { SessionManager } from "../../../lib/baileys/session-manager";
 import { requireConversationWriteAccess } from "../../../lib/access-control/conversation-access";
+import { extractPendingClientMessageId } from "../../../lib/whatsapp/reconcile-client";
 
 export const Route = createFileRoute("/api/chats/reconcile-message")({
   server: {
@@ -17,14 +18,41 @@ export const Route = createFileRoute("/api/chats/reconcile-message")({
         const tenantId = session.tenantId;
         try {
           const body = await request.json();
-          if (typeof body.messageId !== "string")
+          const rawMessageId = typeof body.messageId === "string" ? body.messageId.trim() : "";
+          const rawClientMessageId =
+            typeof body.clientMessageId === "string" ? body.clientMessageId.trim() : "";
+          const fallbackClientMessageId = extractPendingClientMessageId(
+            rawMessageId,
+            rawClientMessageId,
+          );
+          if (!rawMessageId && !fallbackClientMessageId)
             return Response.json({ error: "Informe a mensagem." }, { status: 400 });
-          const [msg] = await db
-            .select()
-            .from(messages)
-            .where(and(eq(messages.tenantId, tenantId), eq(messages.id, body.messageId)));
+
+          let msg: (typeof messages.$inferSelect) | undefined;
+          if (rawMessageId && !rawMessageId.startsWith("pending-")) {
+            const [byId] = await db
+              .select()
+              .from(messages)
+              .where(and(eq(messages.tenantId, tenantId), eq(messages.id, rawMessageId)));
+            msg = byId;
+          }
+          if (!msg && fallbackClientMessageId) {
+            const [byIdempotencyKey] = await db
+              .select()
+              .from(messages)
+              .where(
+                and(
+                  eq(messages.tenantId, tenantId),
+                  eq(messages.idempotencyKey, fallbackClientMessageId),
+                ),
+              );
+            msg = byIdempotencyKey;
+          }
           if (!msg || msg.direction !== "outbound" || msg.isInternalNote)
-            return Response.json({ error: "Envio não encontrado." }, { status: 404 });
+            return Response.json(
+              { error: "Envio não encontrado.", code: "MESSAGE_NOT_FOUND" },
+              { status: 404 },
+            );
           const denied = await requireConversationWriteAccess(session, msg.conversationId);
           if (denied) return denied;
           const [conv] = await db

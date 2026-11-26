@@ -401,13 +401,30 @@ export function analyzeContactPhoneForUndeliverable(
 }
 
 /**
- * Traduz mensagens técnicas comuns da Meta Cloud API para português amigável.
+ * Identifica erros nativos de rede/transporte do navegador quando o fetch() cai antes
+ * de receber resposta HTTP do servidor (ex.: Firefox "NetworkError when attempting to fetch resource.",
+ * Chrome "Failed to fetch", Safari "Load failed", AbortError/timeout).
+ */
+export function isBrowserNetworkFetchError(error?: string | null): boolean {
+  const raw = String(error || "").trim();
+  if (!raw) return false;
+  return /networkerror\s+when\s+attempting\s+to\s+fetch\s+resource|failed\s+to\s+fetch|load\s+failed|network\s+request\s+failed|err_network|err_internet_disconnected|the\s+operation\s+was\s+aborted|signal\s+is\s+aborted/i.test(
+    raw,
+  );
+}
+
+/**
+ * Traduz mensagens técnicas comuns da Meta Cloud API e falhas de rede do navegador
+ * para português amigável.
  */
 export function formatMetaErrorMessagePt(
   error?: string | null,
   phone?: string | null,
 ): string | null {
   if (!error) return null;
+  if (isBrowserNetworkFetchError(error)) {
+    return "Falha de conexão com o servidor no momento do envio. Verifique sua internet e clique em Reenviar.";
+  }
   if (isMetaEcosystemEngagementError(error)) {
     return "Limite de frequência de Marketing da Meta (Erro 131049): este contato já atingiu o limite temporário de mensagens de Marketing no WhatsApp. Envie um template de Utilidade.";
   }

@@ -28,9 +28,15 @@ import { EmojiPicker } from "./EmojiPicker";
 import { QuickResponsesPopover } from "./QuickResponsesPopover";
 import { MetaTemplateSelectModal, Meta24hInfoModal, type ApprovedMetaTemplate } from "./MetaTemplateSelectModal";
 import {
+  formatMetaErrorMessagePt,
   isMetaExperimentError,
   isMetaUndeliverableError,
 } from "@/lib/whatsapp/meta-template-common";
+import {
+  extractPendingClientMessageId,
+  isOptimisticPendingMessageId,
+  reconcileOrRetryMessage,
+} from "@/lib/whatsapp/reconcile-client";
 import { analyzeMetaUnsupportedMessage } from "@/lib/whatsapp/meta-message-text";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -1207,6 +1213,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     setActiveQueue,
     activeProvider: tenantActiveProvider,
     sendMessage,
+    dismissPendingMessage,
     captureChat,
     transferChat,
     finishChat,
@@ -4789,32 +4796,80 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                 }}
                 onReconcile={async (id, action, uncertain) => {
                   if (foreignConversation) { toast.info("Abra a conversa deste número para revisar o envio."); return; }
-                  if (
-                    uncertain &&
-                    !window.confirm(
-                      action === "confirm_sent"
-                        ? "Você conferiu o WhatsApp e confirma que a mensagem já foi enviada?"
-                        : "Você conferiu o histórico e confirma que a mensagem anterior NÃO foi enviada?",
-                    )
-                  )
-                    return;
+                  const resolvedClientMessageId = extractPendingClientMessageId(id, m.clientMessageId);
                   try {
-                    const response = await fetch(`${BACKEND_URL}/api/chats/reconcile-message`, {
-                      method: "POST",
-                      credentials: "include",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({
-                        messageId: id,
-                        action,
-                        confirmNotDelivered: action === "resend" && uncertain,
-                      }),
+                    const outcome = await reconcileOrRetryMessage({
+                      messageId: id,
+                      clientMessageId: m.clientMessageId,
+                      action,
+                      uncertain,
+                      confirmPrompt: (prompt) => window.confirm(prompt),
+                      callReconcileApi: async (payload) => {
+                        const response = await fetch(`${BACKEND_URL}/api/chats/reconcile-message`, {
+                          method: "POST",
+                          credentials: "include",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify(payload),
+                        });
+                        const body = await response.json().catch(() => ({}));
+                        return { status: response.status, ok: response.ok, body };
+                      },
+                      resendLocally: async (clientId) => {
+                        const matchingIntent = localPending.find(
+                          (row) => row.id === clientId && row.conversationId === activeChat.id,
+                        );
+                        const retryIntent = matchingIntent || {
+                          id: clientId,
+                          conversationId: activeChat.id,
+                          tenantId: tenant,
+                        };
+                        const retryQuoted =
+                          matchingIntent?.quoted ??
+                          (m.quotedMessageId
+                            ? {
+                                id: m.quotedMessageId,
+                                sender: m.quotedMessageSender || "",
+                                content: m.quotedMessageContent || "",
+                              }
+                            : null);
+                        return sendMessage(
+                          matchingIntent ? matchingIntent.text : m.text,
+                          false,
+                          matchingIntent?.attachments,
+                          retryQuoted,
+                          undefined,
+                          retryIntent,
+                        );
+                      },
                     });
-                    const result = await response.json();
-                    if (!response.ok) throw new Error(result.error);
-                    if (!result.success) throw new Error(result.error || "Envio ainda não confirmado.");
-                    if (m.clientMessageId) {
-                      await removeBrowserIntent(m.clientMessageId);
-                      setLocalPending((rows) => rows.filter((row) => row.id !== m.clientMessageId));
+
+                    if (outcome.outcome === "cancelled") return;
+                    if (outcome.outcome === "local_resend_failed") return;
+
+                    if (outcome.outcome === "not_found_on_server_for_confirm") {
+                      toast.error(outcome.error);
+                      return;
+                    }
+
+                    if (outcome.outcome === "error") {
+                      toast.error(outcome.error);
+                      return;
+                    }
+
+                    if (resolvedClientMessageId) {
+                      await removeBrowserIntent(resolvedClientMessageId);
+                      setLocalPending((rows) =>
+                        rows.filter((row) => row.id !== resolvedClientMessageId),
+                      );
+                    }
+
+                    if (outcome.outcome === "resent_locally") {
+                      toast.success("Mensagem reenviada com sucesso.");
+                      return;
+                    }
+
+                    if (isOptimisticPendingMessageId(id)) {
+                      dismissPendingMessage(activeChat.id, id);
                     }
                     toast.success(
                       action === "confirm_sent"
@@ -4823,9 +4878,9 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                     );
                     window.dispatchEvent(new Event("chat:reconnected"));
                   } catch (error) {
-                    toast.error(
-                      error instanceof Error ? error.message : "Não foi possível reconciliar.",
-                    );
+                    const rawMessage =
+                      error instanceof Error ? error.message : "Não foi possível reconciliar.";
+                    toast.error(formatMetaErrorMessagePt(rawMessage) || rawMessage);
                   }
                 }}
                 onBubbleClick={handleBubbleClick}
@@ -4880,6 +4935,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                     onClick={async () => {
                       await removeBrowserIntent(item.id);
                       setLocalPending((rows) => rows.filter((row) => row.id !== item.id));
+                      dismissPendingMessage(activeChat.id, item.id);
                     }}
                   >
                     Descartar

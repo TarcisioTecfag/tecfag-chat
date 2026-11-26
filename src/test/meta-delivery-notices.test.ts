@@ -4,6 +4,7 @@ import {
   analyzeContactPhoneForUndeliverable,
   buildExperimentFallbackCandidates,
   formatMetaErrorMessagePt,
+  isBrowserNetworkFetchError,
   isMetaExperimentError,
   isMetaUndeliverableError,
 } from "../lib/whatsapp/meta-template-common";
@@ -81,5 +82,20 @@ describe("meta-delivery-notices", () => {
     expect(candidates[0].previewText).toBe(
       "Olá Angelo, aqui é Isabella da TECFAG. Podemos dar sequência ao seu atendimento?",
     );
+  });
+
+  it("detects and translates browser NetworkError / Failed to fetch errors to Portuguese", () => {
+    expect(isBrowserNetworkFetchError("NetworkError when attempting to fetch resource.")).toBe(true);
+    expect(isBrowserNetworkFetchError("Failed to fetch")).toBe(true);
+    expect(isBrowserNetworkFetchError("Load failed")).toBe(true);
+    expect(isBrowserNetworkFetchError("The operation was aborted.")).toBe(true);
+    expect(isBrowserNetworkFetchError("Message undeliverable")).toBe(false);
+
+    const ptFirefox = formatMetaErrorMessagePt("NetworkError when attempting to fetch resource.");
+    expect(ptFirefox).toContain("Falha de conexão com o servidor");
+    expect(ptFirefox).toContain("Reenviar");
+
+    const ptChrome = formatMetaErrorMessagePt("Failed to fetch");
+    expect(ptChrome).toBe(ptFirefox);
   });
 });
