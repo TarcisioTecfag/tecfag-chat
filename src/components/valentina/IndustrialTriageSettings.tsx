@@ -34,6 +34,7 @@ import {
   Eye,
   EyeOff,
   FileJson,
+  FileSpreadsheet,
   Building2,
   GitBranch,
   ListChecks,
@@ -58,7 +59,12 @@ import {
   type IndustrialSettings,
 } from "@/lib/triage/industrial-settings";
 import {
+  exportIndustrialCatalogCsv,
+  parseIndustrialCatalogCsv,
+} from "@/lib/triage/industrial-catalog-csv";
+import {
   getDefaultIndustrialCatalog,
+  TECFAG_DEFAULT_CATALOG,
   inferMachineCategory,
   MACHINE_CATEGORY_OPTIONS,
   DESTINATION_DETAILS,
@@ -434,6 +440,7 @@ export function IndustrialTriageSettings() {
   const [blockedReason, setBlockedReason] = useState("Equipamento fora da linha comercial Tecfag");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const csvFileInputRef = useRef<HTMLInputElement>(null);
   const backend = import.meta.env.VITE_BACKEND_URL || "";
 
   // Carregamento inicial + Hidratação automática das 1.037 máquinas se banco estiver vazio
@@ -861,14 +868,33 @@ export function IndustrialTriageSettings() {
     toast.success("Catálogo exportado em JSON com sucesso!");
   };
 
+  const handleExportCsv = () => {
+    const csvContent = exportIndustrialCatalogCsv(settings.catalog);
+    const blob = new Blob([csvContent], {
+      type: "text/csv;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `catalogo-triagem-tecfag-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.success("Catálogo exportado em CSV com sucesso!");
+  };
+
   const handleRestoreDefaultCatalog = () => {
     const restored = getDefaultIndustrialCatalog();
+    const semiActive = restored.filter((m) => m.active && m.line === "SEMI-INDUSTRIAL").length;
+    const persActive = restored.filter((m) => m.active && m.line === "PERSONNALITE").length;
+    const inactive = restored.filter((m) => !m.active).length;
     update({
       ...settings,
       catalog: restored,
     });
     toast.success(
-      `Catálogo base Tecfag restaurado com ${restored.length} máquinas (367 Semi-Industrial + 670 Personnalité)!`,
+      `Catálogo base Tecfag restaurado com ${restored.length} itens (${semiActive} Semi-Industrial • ${persActive} Personnalité${inactive > 0 ? ` • ${inactive} inativos` : ""})!`,
     );
   };
 
@@ -1089,6 +1115,59 @@ export function IndustrialTriageSettings() {
                 }}
               />
 
+              <input
+                ref={csvFileInputRef}
+                type="file"
+                accept=".csv,text/csv"
+                disabled={busy}
+                className="hidden"
+                onChange={async (event) => {
+                  const file = event.target.files?.[0];
+                  if (!file) return;
+                  try {
+                    if (file.size > 8_000_000) throw new Error("Arquivo excede o limite de 8 MB");
+                    const result = parseIndustrialCatalogCsv(await file.text(), settings.catalog);
+                    update({ ...settings, catalog: result.catalog });
+                    setMessageType("info");
+                    setMessage(
+                      `CSV importado: ${result.totalRows} equipamentos (${result.semiCount} Semi • ${result.personnaliteCount} Personnalité${result.inactiveCount > 0 ? ` • ${result.inactiveCount} inativos` : ""}; ${result.updatedCount} atualizados, ${result.createdCount} novos). Clique em "Salvar Alterações" para persistir.`,
+                    );
+                    toast.success(
+                      `${result.totalRows} equipamentos importados do CSV! Clique em Salvar Alterações.`,
+                    );
+                  } catch (error) {
+                    const errMsg = error instanceof Error ? error.message : "Planilha CSV inválida";
+                    setMessageType("error");
+                    setMessage(errMsg);
+                    toast.error(errMsg);
+                  }
+                  event.target.value = "";
+                }}
+              />
+
+              <SystemTooltip content="Importar planilha CSV no padrão oficial Tecfag (LINHA, NOME, CÓD. NEXT, SKU, PRODUTIVIDADE, DESCRIÇÃO, STATUS)">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => csvFileInputRef.current?.click()}
+                  className="px-2.5 py-1.5 rounded-xl border border-primary/30 bg-primary/8 hover:bg-primary/15 text-xs font-bold text-primary flex items-center gap-1.5 transition cursor-pointer"
+                >
+                  <FileSpreadsheet className="h-3.5 w-3.5" />
+                  <span>Importar CSV</span>
+                </button>
+              </SystemTooltip>
+
+              <SystemTooltip content="Baixar catálogo completo em CSV compatível com Excel e Google Sheets">
+                <button
+                  type="button"
+                  onClick={handleExportCsv}
+                  className="px-2.5 py-1.5 rounded-xl border border-border bg-card hover:bg-muted text-xs font-bold text-foreground flex items-center gap-1.5 transition cursor-pointer"
+                >
+                  <Download className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span>Exportar CSV</span>
+                </button>
+              </SystemTooltip>
+
               <SystemTooltip content="Importar arquivo JSON de catálogo (substitui a lista em rascunho)">
                 <button
                   type="button"
@@ -1112,7 +1191,9 @@ export function IndustrialTriageSettings() {
                 </button>
               </SystemTooltip>
 
-              <SystemTooltip content="Restaurar as 1.037 máquinas oficiais do catálogo padrão Tecfag (367 Semi-Industrial e 670 Personnalité)">
+              <SystemTooltip
+                content={`Restaurar as ${TECFAG_DEFAULT_CATALOG.length} máquinas oficiais saneadas da base Tecfag (${TECFAG_DEFAULT_CATALOG.filter((m) => m.active && m.line === "SEMI-INDUSTRIAL").length} Semi-Industrial e ${TECFAG_DEFAULT_CATALOG.filter((m) => m.active && m.line === "PERSONNALITE").length} Personnalité ativos)`}
+              >
                 <button
                   type="button"
                   disabled={busy}
@@ -1120,7 +1201,7 @@ export function IndustrialTriageSettings() {
                   className="px-2.5 py-1.5 rounded-xl border border-border bg-card hover:bg-muted text-xs font-bold text-muted-foreground hover:text-foreground flex items-center gap-1.5 transition cursor-pointer"
                 >
                   <RotateCcw className="h-3.5 w-3.5" />
-                  <span>Restaurar Base (1.037)</span>
+                  <span>Restaurar Base ({TECFAG_DEFAULT_CATALOG.length})</span>
                 </button>
               </SystemTooltip>
             </div>

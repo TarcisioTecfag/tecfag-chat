@@ -367,7 +367,7 @@
     "name": "Esteira de Roletes Motorizada",
     "sku": "260",
     "code": "PAMQESAU001",
-    "line": "PERSONNALITE",
+    "line": "SEMI-INDUSTRIAL",
     "production": "Manual (depende do operador)",
     "description": "Esteira de roletes livres com 2 metros de comprimento, excelente equipamento no auxílio do transporte de caixas, proporcionando uma melhora na logística interna que podem ser transportadas até o estoque ou diretamente para a expedição. Reduzindo assim a trabalho e otimizando o espaço e tempo dos colaboradores. É possível acoplar uma a outra para atender qualquer necessidade de comprimento.",
     "aliases": [],
@@ -378,7 +378,7 @@
     "name": "Esteira com Ajuste de 90°",
     "sku": "257",
     "code": "PAMQESMA001",
-    "line": "PERSONNALITE",
+    "line": "SEMI-INDUSTRIAL",
     "production": "15 m/min",
     "description": "Esteira de roletes motorizados com 1 metro de comprimento, excelente equipamento no auxílio do transporte de caixas, proporcionando uma melhora na logística interna além de poder ser ajustada em 90º de acordo com a demanda de produção. Os produtos podem ser transportadas diretamente ao estoque ou expedição, reduzindo assim a trabalho e otimizando o espaço e tempo dos colaboradores. É possível acoplar uma a outra para atender qualquer necessidade de comprimento.",
     "aliases": [],
@@ -389,7 +389,7 @@
     "name": "Esteira de Roletes Livres",
     "sku": "258",
     "code": "PAMQESMA002",
-    "line": "PERSONNALITE",
+    "line": "SEMI-INDUSTRIAL",
     "production": "15m/min",
     "description": "Esteira de roletes livres com 1 metro de comprimento, excelente equipamento no auxílio do transporte de caixas, proporcionando uma melhora na logística interna que podem ser transportadas até o estoque ou diretamente para a expedição. Reduzindo assim a trabalho e otimizando o espaço e tempo dos colaboradores. É possível acoplar uma a outra para atender qualquer necessidade de comprimento.",
     "aliases": [],
@@ -400,7 +400,7 @@
     "name": "Esteira de Roletes Livres",
     "sku": "262",
     "code": "PAMQESMA003",
-    "line": "PERSONNALITE",
+    "line": "SEMI-INDUSTRIAL",
     "production": "15m/min",
     "description": "Esteira de roletes livres com 2 metros de comprimento, excelente equipamento no auxílio do transporte de caixas, proporcionando uma melhora na logística interna que podem ser transportadas até o estoque ou diretamente para a expedição. Reduzindo assim a trabalho e otimizando o espaço e tempo dos colaboradores. É possível acoplar uma a outra para atender qualquer necessidade de comprimento.",
     "aliases": [],
@@ -411,7 +411,7 @@
     "name": "Esteira Articulada Expansiva de 3m",
     "sku": "",
     "code": "PAMQESMN003",
-    "line": "PERSONNALITE",
+    "line": "SEMI-INDUSTRIAL",
     "production": "Manual (depende do operador)",
     "description": "Expansível até 3 metros, a ERC3M é um excelente equipamento no auxílio do transporte de caixas, proporcionando uma melhora na logística interna que pode transportar desde o estoque até diretamente para a expedição, reduzindo assim, a trabalho e otimizando espaço e tempo dos colaboradores. É possível acoplar uma a outra para atender qualquer necessidade de comprimento.",
     "aliases": [],
@@ -422,7 +422,7 @@
     "name": "ESTEIRA ARTICULADA RETA MODULAR",
     "sku": "",
     "code": "PAMQESMN004",
-    "line": "PERSONNALITE",
+    "line": "SEMI-INDUSTRIAL",
     "production": "",
     "description": "",
     "aliases": [],
@@ -433,7 +433,7 @@
     "name": "ESTEIRA TRANSP. EM LONA PINT. ACO CARB. C/ INVER. (2500MM X 500MM)",
     "sku": "",
     "code": "PAMQESMN010",
-    "line": "PERSONNALITE",
+    "line": "SEMI-INDUSTRIAL",
     "production": "",
     "description": "",
     "aliases": [],
@@ -444,7 +444,7 @@
     "name": "ERC11M/D - ESTEIRA FLEXIVEL C/ ROLETES MOTORIZADOS",
     "sku": "",
     "code": "PAMQESMN011",
-    "line": "PERSONNALITE",
+    "line": "SEMI-INDUSTRIAL",
     "production": "",
     "description": "",
     "aliases": [],
@@ -496,7 +496,7 @@
   },
   {
     "id": "catalog-46",
-    "name": "FO800 - EMBALADORA CONT. FLOW PACK  P/ BALAS (220V)",
+    "name": "FO800 - EMBALADORA CONT. FLOW PACK P/ BALAS (220V)",
     "sku": "",
     "code": "PAMQFPAU023",
     "line": "PERSONNALITE",
@@ -661,7 +661,7 @@
   },
   {
     "id": "catalog-61",
-    "name": "DXDY-1000AIII- MAQ. AUT. P/ ENVAZ.  LIQUIDOS",
+    "name": "DXDY-1000AIII- MAQ. AUT. P/ ENVAZ. LIQUIDOS",
     "sku": "",
     "code": "PAMQLQAU002",
     "line": "PERSONNALITE",
@@ -731,7 +731,7 @@
     "sku": "432",
     "code": "PAMQSLAU004",
     "line": "SEMI-INDUSTRIAL",
-    "production": "com melhor qualidade na selagem de embalagens.",
+    "production": "",
     "description": "A Seladora Contínua FRD1000, líder absoluto em vendas do seu segmento, conquistou o mercado pela eficiência de seu trabalho. Substituindo as seladoras de pedal por um modelo eficiente e automático, este equipamento traz o aumento da produtividade com melhor qualidade na selagem de embalagens. Seladora Automática Contínua",
     "aliases": [],
     "active": true
@@ -760,7 +760,7 @@
   },
   {
     "id": "catalog-70",
-    "name": "FRL600B-SELADORA CONT. C/  DAT. ACO PINTADO(220V)",
+    "name": "FRL600B-SELADORA CONT. C/ DAT. ACO PINTADO(220V)",
     "sku": "",
     "code": "PAMQSLAU008",
     "line": "SEMI-INDUSTRIAL",
@@ -782,7 +782,7 @@
   },
   {
     "id": "catalog-72",
-    "name": "FRL600BS-SELADORA CONT.  C/  DAT. ACO INOX (220V)",
+    "name": "FRL600BS-SELADORA CONT. C/ DAT. ACO INOX (220V)",
     "sku": "",
     "code": "PAMQSLAU011",
     "line": "SEMI-INDUSTRIAL",
@@ -863,7 +863,7 @@
     "sku": "433",
     "code": "PAMQSLAU021",
     "line": "SEMI-INDUSTRIAL",
-    "production": "com melhor qualidade na selagem de embalagens.",
+    "production": "",
     "description": "A Seladora Contínua FRD1000, líder absoluto em vendas do seu segmento, conquistou o mercado pela eficiência de seu trabalho. Substituindo as seladoras de pedal por um modelo eficiente e automático, este equipamento traz o aumento da produtividade com melhor qualidade na selagem de embalagens. Seladora Automática Contínua",
     "aliases": [],
     "active": true
@@ -907,7 +907,7 @@
     "sku": "435",
     "code": "PAMQSLAU027",
     "line": "SEMI-INDUSTRIAL",
-    "production": "com melhor qualidade na selagem de embalagens.",
+    "production": "",
     "description": "A Seladora Contínua FRD1000, líder absoluto em vendas do seu segmento, conquistou o mercado pela eficiência de seu trabalho. Substituindo as seladoras de pedal por um modelo eficiente e automático, este equipamento traz o aumento da produtividade com melhor qualidade na selagem de embalagens. Seladora Automática Contínua",
     "aliases": [],
     "active": true
@@ -1926,7 +1926,7 @@
   },
   {
     "id": "catalog-176",
-    "name": "DB388F - EMPACOTADORA AUTOM. VOL.  P/ POS - ACO INOX",
+    "name": "DB388F - EMPACOTADORA AUTOM. VOL. P/ POS - ACO INOX",
     "sku": "",
     "code": "PAMQGPAU005",
     "line": "PERSONNALITE",
@@ -1951,7 +1951,7 @@
     "name": "Esteira de Roletes Motorizada",
     "sku": "259",
     "code": "PAMQESMA004",
-    "line": "PERSONNALITE",
+    "line": "SEMI-INDUSTRIAL",
     "production": "Manual (depende do operador)",
     "description": "Esteira de roletes livres com 1 metro de comprimento, excelente equipamento no auxílio do transporte de caixas, proporcionando uma melhora na logística interna que podem ser transportadas até o estoque ou diretamente para a expedição. Reduzindo assim a trabalho e otimizando o espaço e tempo dos colaboradores. É possível acoplar uma a outra para atender qualquer necessidade de comprimento.",
     "aliases": [],
@@ -2025,7 +2025,7 @@
   },
   {
     "id": "catalog-185",
-    "name": "DB388A - EMPACOTADORA AUTOM. VOL.  P/ POS - ACO INOX",
+    "name": "DB388A - EMPACOTADORA AUTOM. VOL. P/ POS - ACO INOX",
     "sku": "",
     "code": "PAMQGPAU006",
     "line": "PERSONNALITE",
@@ -2138,7 +2138,7 @@
     "name": "BC1M/W300P ESTEIRA TRASP. EM LONA 1M X 30CM LARG. C/ CONTROL. VELOC.",
     "sku": "",
     "code": "PAMQESMN012",
-    "line": "PERSONNALITE",
+    "line": "SEMI-INDUSTRIAL",
     "production": "",
     "description": "",
     "aliases": [],
@@ -2205,7 +2205,7 @@
     "sku": "",
     "code": "PAMQSLAU035",
     "line": "SEMI-INDUSTRIAL",
-    "production": "com melhor qualidade na selagem de embalagens.",
+    "production": "",
     "description": "A Seladora Contínua FRD1000, líder absoluto em vendas do seu segmento, conquistou o mercado pela eficiência de seu trabalho. Substituindo as seladoras de pedal por um modelo eficiente e automático, este equipamento traz o aumento da produtividade com melhor qualidade na selagem de embalagens. Seladora Automática Contínua",
     "aliases": [],
     "active": true
@@ -2260,8 +2260,8 @@
     "sku": "",
     "code": "PAMQSLAU036",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "50 produtos/min",
+    "description": "Seladora Automática em  \"L\"  com alta performance de produção, a ASS500LB possui grande suporte para aplicação de filmes termoencolhives em  produtos diversos, podendo ser usada para produtos alimenticios. Possui sistemas de rodizios direcionais que permitem facil locomoção e adequação as diversas linhas de produção.",
     "aliases": [],
     "active": true
   },
@@ -2337,8 +2337,8 @@
     "sku": "",
     "code": "PAMQSLSA012",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "6000 comprimidos/h",
+    "description": "Usada para pressionar diferentes tipos de materiais em comprimidos, a TD pode ser muito amplamente utilizada em produtos farmacêuticos, alimentícios, hospitalares, produção de ensaios laboratoriais e produção em pequenos lotes em geral.\n\nDe fácil manutenção, podendo ser adaptada em qualquer local de trabalho. Com profundidade ajustável, o equipamento permite pressionar o tamanho diferente de cada produto, realizando a forma desejada.",
     "aliases": [],
     "active": true
   },
@@ -2388,7 +2388,7 @@
   },
   {
     "id": "catalog-218",
-    "name": "DXDF60CR - EMPACOTADORA AUT. C/ MIXER  P/ POS DE BAIXA FLUIDEZ",
+    "name": "DXDF60CR - EMPACOTADORA AUT. C/ MIXER P/ POS DE BAIXA FLUIDEZ",
     "sku": "",
     "code": "PAMQGPAU014",
     "line": "PERSONNALITE",
@@ -2424,7 +2424,7 @@
     "name": "SB1000F - EMPACOTADORA SEMI AUTOMATICA PARA POS",
     "sku": "",
     "code": "PAMQGPAU018",
-    "line": "PERSONNALITE",
+    "line": "SEMI-INDUSTRIAL",
     "production": "",
     "description": "",
     "aliases": [],
@@ -2513,7 +2513,7 @@
     "sku": "481",
     "code": "PAMQSLAU041",
     "line": "PERSONNALITE",
-    "production": "Até\n25 pcs/min",
+    "production": "Até 25 pcs/min",
     "description": "Econômica e versátil, a BSF-5545LE é amplamente utilizada nas\nindústrias em geral em diversos tipos de aplicações. Possui um\nsistema de empacotamento e selagem automático que trabalha\ncom filmes de dupla camada, selando-os na vertical e horizontal,\ncom grande eficiência. Além disso, é equipada com tecnologia\nIHM, o que torna seus ajustes e operações simples e práticas.",
     "aliases": [],
     "active": true
@@ -2524,14 +2524,14 @@
     "sku": "",
     "code": "PAMQSLAU042",
     "line": "PERSONNALITE",
-    "production": "Até\n25 pcs/min",
+    "production": "Até 25 pcs/min",
     "description": "Econômica e versátil, a BSF-5545LE é amplamente utilizada nas\nindústrias em geral em diversos tipos de aplicações. Possui um\nsistema de empacotamento e selagem automático que trabalha\ncom filmes de dupla camada, selando-os na vertical e horizontal,\ncom grande eficiência. Além disso, é equipada com tecnologia\nIHM, o que torna seus ajustes e operações simples e práticas.",
     "aliases": [],
     "active": true
   },
   {
     "id": "catalog-231",
-    "name": "DXDK-2000II EMPACOTADORA VOL. AUTOM. P/ GRAOS   220V/60HZ,1 FASE",
+    "name": "DXDK-2000II EMPACOTADORA VOL. AUTOM. P/ GRAOS 220V/60HZ,1 FASE",
     "sku": "199",
     "code": "PAMQGPAU020",
     "line": "PERSONNALITE",
@@ -2690,7 +2690,7 @@
     "code": "PAMQSLTU035",
     "line": "SEMI-INDUSTRIAL",
     "production": "0-10 m/min",
-    "description": "A Seladora Manual tipo L BSF-501 é amplamente utilizada pelas indústrias em geral para selar plásticos filmes termosseláveis, na vertical e horizontal, com o objetivo de vedá-los por completo e conferir-lhes um aspecto comercial. Possui um painel de controle compacto, de fácil operação, com interruptores bem acessíveis e sinalizados. Ademais, pode ser utilizada tanto em conjunto com os túneis de encolhimento, como independentemente.",
+    "description": "",
     "aliases": [],
     "active": true
   },
@@ -2712,7 +2712,7 @@
     "code": "PAMQSLAU048",
     "line": "PERSONNALITE",
     "production": "0-25 peças/min",
-    "description": "A Seladora Manual tipo L BSF-501 é amplamente utilizada pelas indústrias em geral para selar plásticos filmes termosseláveis, na vertical e horizontal, com o objetivo de vedá-los por completo e conferir-lhes um aspecto comercial. Possui um painel de controle compacto, de fácil operação, com interruptores bem acessíveis e sinalizados. Ademais, pode ser utilizada tanto em conjunto com os túneis de encolhimento, como independentemente.",
+    "description": "",
     "aliases": [],
     "active": true
   },
@@ -2743,7 +2743,7 @@
     "name": "Esteira Motorizada com Lona - Inox",
     "sku": "261",
     "code": "PAMQESAU004",
-    "line": "PERSONNALITE",
+    "line": "SEMI-INDUSTRIAL",
     "production": "9-30 m/min",
     "description": "Versátil, compacta e eficaz, a esteira pode ser utilizada pelas indústrias em geral, em diversos tipos de aplicações como empacotamento de produtos, codificação, rotulação e outros, sem ocupar espaço e demandar grande tempo de instalação e ajustes. Transporta garrafas de vidro e plástico, latas de metal, caixas de papelão, rótulos entre muitos outros produtos, em até 30 metros por minuto.",
     "aliases": [],
@@ -2751,10 +2751,10 @@
   },
   {
     "id": "catalog-251",
-    "name": "BC2.5M/W500S -  ESTEIRA TRASP. INOX  LONA C2,5M X L50CM/ACO INOX/CONTROL. VELOC.",
+    "name": "BC2.5M/W500S - ESTEIRA TRASP. INOX LONA C2,5M X L50CM/ACO INOX/CONTROL. VELOC.",
     "sku": "",
     "code": "PAMQESMN013",
-    "line": "PERSONNALITE",
+    "line": "SEMI-INDUSTRIAL",
     "production": "",
     "description": "",
     "aliases": [],
@@ -2798,7 +2798,7 @@
     "name": "Esteira Transportadora",
     "sku": "",
     "code": "PAMQESMN0014",
-    "line": "PERSONNALITE",
+    "line": "SEMI-INDUSTRIAL",
     "production": "30m/min",
     "description": "A esteira BC1M/W300P foi projetada para manusear embalagens de dimensões variadas, como: Caixas, fardos, sacos, ou até mesmo produtos pequenos e delicado. Dentre as grandes vantagens de utilizar esta esteira, está a sua praticidade de operação, otimização do tempo na movimentação de mercadorias, usando mínima mão de obra com baixo investimento. Ideal para trabalhar com automação, como leitores de códigos de barras, sensores ópticos e datadores inkjet, pois mantém sua velocidade constante.",
     "aliases": [],
@@ -2806,7 +2806,7 @@
   },
   {
     "id": "catalog-256",
-    "name": "FRG2001E/2 -  ENVASADORA E SELADORA AUTOMATICA DE COPOS 2 BICOS",
+    "name": "FRG2001E/2 - ENVASADORA E SELADORA AUTOMATICA DE COPOS 2 BICOS",
     "sku": "929",
     "code": "PAMQLQAU031",
     "line": "PERSONNALITE",
@@ -2897,7 +2897,7 @@
     "name": "BC2M/300S ESTEIRA TRASP. INOX EM LONA 2M X 30CM LARG. C/ CONTROL. VELOC.",
     "sku": "",
     "code": "PAMQESMN015",
-    "line": "PERSONNALITE",
+    "line": "SEMI-INDUSTRIAL",
     "production": "",
     "description": "",
     "aliases": [],
@@ -2908,7 +2908,7 @@
     "name": "Esteira Transportadora em Lona - Inox",
     "sku": "",
     "code": "PAMQESMN016",
-    "line": "PERSONNALITE",
+    "line": "SEMI-INDUSTRIAL",
     "production": "30m/min",
     "description": "A esteira BC2.5M/300S foi projetada para manusear embalagens de dimensões variadas, como: Caixas, fardos, sacos, ou até mesmo produtos pequenos e delicado. Dentre as grandes vantagens de utilizar esta esteira, está a sua praticidade de operação, otimização do tempo na movimentação de mercadorias, usando mínima mão de obra com baixo investimento. Ideal para trabalhar com automação, como leitores de códigos de barras, sensores ópticos e datadores inkjet, pois mantém sua velocidade constante. Esteira Transportadora em Lona - Inox",
     "aliases": [],
@@ -3140,8 +3140,8 @@
     "sku": "",
     "code": "PAMQGPAU030",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "10-50 embalagens/ min",
+    "description": "Empacotadora vertical automática ideal para fazer embalagens tipo almofada e tipo kraft . Entre as principais caractéristicas da máquina estão : troca de  tubo de formação simples e rapida, feita sem ferramentas; CLP IHM  multilinguagem; sistema duplo de servo para transporte do filme , com correias de tração á vácuo; porta de segurança com sistema de  inter travamento ; rebobinação perfeita do filme , mordente rapidos de trocar e 8 receitas de produtos.",
     "aliases": [],
     "active": true
   },
@@ -3151,8 +3151,8 @@
     "sku": "",
     "code": "PAMQGPAU031",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "5-20",
+    "description": "Empacotadora  vertical automática ideal para fazer embalagens tipo  kraft. Entre as principais caracteristicas da maquina estão : troca de tubo de  formação  simples  e rápida , feita sem ferramentas : CLP e IHM multilinguagem ; sistema duplo de servo para transporte  do filme , com correias de tração a vacuo ; porta segurança com sistema de intertravamento ;  rebobinação perfeita do filme ; mordentes rápidos de trocar  e 8 receitas de produtos.",
     "aliases": [],
     "active": true
   },
@@ -3213,10 +3213,10 @@
   },
   {
     "id": "catalog-293",
-    "name": "FPC420 - ESTEIRA TRANSP. 200MM  C/ CONTR. DE VEL.",
+    "name": "FPC420 - ESTEIRA TRANSP. 200MM C/ CONTR. DE VEL.",
     "sku": "",
     "code": "PAMQESMN017",
-    "line": "PERSONNALITE",
+    "line": "SEMI-INDUSTRIAL",
     "production": "",
     "description": "",
     "aliases": [],
@@ -3231,7 +3231,7 @@
     "production": "",
     "description": "",
     "aliases": [],
-    "active": true
+    "active": false
   },
   {
     "id": "catalog-295",
@@ -3279,12 +3279,12 @@
   },
   {
     "id": "catalog-299",
-    "name": "ZXJ-4030 - MAQUINA  AUTOMAT. DE ENCAIXOTAMENTO",
+    "name": "ZXJ-4030 - MAQUINA AUTOMAT. DE ENCAIXOTAMENTO",
     "sku": "",
     "code": "PAMQCCAU010",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "60 caixas/hora",
+    "description": "A encaixotadora automática para frascos ZXJ-4537/LP realiza automática  e seguidamente três processos: Organização de frascos , colocação de frascos , em caixas , e liberação de caixas após encaixotamento.\nA maquina tem CLP , alarme de falta de caixas , operação e manuseio faceis.\nCom ela , reduz-se custos , mão de obra e aumenta -se o rendimento.",
     "aliases": [],
     "active": true
   },
@@ -3415,8 +3415,8 @@
     "sku": "854",
     "code": "PAMQGPAU034",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "30-80 saquinhos/min",
+    "description": "A EXACTA 320C é uma empacotadora com balança eletrônica de 10 (dez) cabeças responsável por formar, dosar e selar saquinhos com vários tipos de pequenos grânulos ou pós, por exemplo, balas, biscoitinhos, sementes torradas, frutos secos, açúcar, leite em pó, sabão em pó e outros produtos similares. Assim, a aplicação da EXACTA 320C se estende a indústrias de segmento de artigos/produtos de alimentação, higiene e hardware, medicina, química. Além disso, a máquina possui estrutura de aço inoxidável 304 e adota tecnologia (HMI) com touch screen, permitindo que o usuário opere e monitore a máquina facilmente.",
     "aliases": [],
     "active": true
   },
@@ -3444,7 +3444,7 @@
   },
   {
     "id": "catalog-314",
-    "name": "CVL-II ALIMENTADOR DE CAPSULAS  VAZIAS",
+    "name": "CVL-II ALIMENTADOR DE CAPSULAS VAZIAS",
     "sku": "",
     "code": "PAMQSLSA034",
     "line": "PERSONNALITE",
@@ -3591,8 +3591,8 @@
     "sku": "",
     "code": "PAMQSLAU057",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "0-45 pcs/min",
+    "description": "A seladora em L  ASS5545 é responsável por empacotar e selar produtos diversos, por exemplo, caixas, potes, bandejas de ovos, bebidas, livros. artigos de papelaria, ferramentas e muito mais. Para isso conta com mesas (esteiras) e cabeçote com regulagem para diferentes tamanhos de produtos, laminas de selagem teflonadas para um perfeito efeito  e acabamento e selagem , cabine de proteção, tela IHM com touch screen  para promover uma experiencia de operação unica ao usuário e mais.",
     "aliases": [],
     "active": true
   },
@@ -3624,8 +3624,8 @@
     "sku": "920",
     "code": "PAMQLQAU037",
     "line": "PERSONNALITE",
-    "production": "Até 60-120 caixas/min",
-    "description": "Adequada para avançar sachês, máscaras faciais, frascos medicinais, pãezinhos e outros produtos semelhantes, em caixas. Na linha, o produto é ordenad. A bula é dobrada (de 1 a 4 dobras), abre e forma a caixa, e, em seguida, os produtos e bulas são inseridas nela. Imprimi números de lote. A selagem da caixa é feita com dispositivo de dobra ou cola quente.",
+    "production": "",
+    "description": "",
     "aliases": [],
     "active": true
   },
@@ -3730,7 +3730,7 @@
   },
   {
     "id": "catalog-340",
-    "name": "FM2 - LINHA COMPLETA P/ FABRICACAO  MASCARAS CIR. 3 CAMADAS SEL. ULTRASSON",
+    "name": "FM2 - LINHA COMPLETA P/ FABRICACAO MASCARAS CIR. 3 CAMADAS SEL. ULTRASSON",
     "sku": "",
     "code": "PAMQSLAU059",
     "line": "PERSONNALITE",
@@ -3884,7 +3884,7 @@
   },
   {
     "id": "catalog-354",
-    "name": "FSM1- LINHA COMPLETA P/ FABR.  MASCARA. CIR. 3 CAMADAS SEL. ULTRASSON",
+    "name": "FSM1- LINHA COMPLETA P/ FABR. MASCARA. CIR. 3 CAMADAS SEL. ULTRASSON",
     "sku": "",
     "code": "PAMQSLAU061",
     "line": "PERSONNALITE",
@@ -3906,7 +3906,7 @@
   },
   {
     "id": "catalog-356",
-    "name": "FRP770W/400 - SELADORA CONTINUA C/ ESTEIRA 400MM  DE LARGURA",
+    "name": "FRP770W/400 - SELADORA CONTINUA C/ ESTEIRA 400MM DE LARGURA",
     "sku": "428",
     "code": "PAMQSLAU062",
     "line": "SEMI-INDUSTRIAL",
@@ -3998,8 +3998,8 @@
     "sku": "",
     "code": "PAMQLQAU040",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "15-35 ciclos/min (por bico)",
+    "description": "A Envasadora Automática APF300-4B integra princípios pneumáticos, mecânicos e elétricos, possui contador para controlar o volume de enchimento e foi projetada com bico de enchimento especial para reduzir bolhas durante a dosagem. É amplamente utilizada para envasar uma variedade de semifluidos, produtos pastosos, espessos, molhos e uma variedade de materiais que envolvem produtos granulares. Portanto, a APF300-4B envasa com eficiência e precisão produtos como bebidas de polpa, mel, molho de tomate, geleia, manteiga de amendoim, molho de pimenta e muitos outros mais.",
     "aliases": [],
     "active": true
   },
@@ -4020,8 +4020,8 @@
     "sku": "",
     "code": "PAMQLQAU042",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "16-20 ciclos/min por bico",
+    "description": "A APF2500-4B foi desenvolvida para o envase automático de líquidos, semilíquidos e produtos pastosos com mais constância de volume, melhor rendimento e maior estabilidade no enchimento. A Envasadora Automática de 4 Bicos para Líquidos e Pastosos APF2500-4B atende uma faixa ampla de aplicações, como bebidas de polpa, mel, molho de tomate, geleia, manteiga de amendoim e molho de pimenta. Isso coloca a APF2500-4B em um perfil versátil para operações que trabalham com diferentes viscosidades e precisam manter fluxo produtivo mais organizado, inclusive em células compactas próximas de uma empacotadora.",
     "aliases": [],
     "active": true
   },
@@ -4031,14 +4031,14 @@
     "sku": "",
     "code": "PAMQLQAU043",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "15-35 ciclos/min (por bico)",
+    "description": "A Envasadora Automática APF5000-4B integra princípios pneumáticos, mecânicos e elétricos, possui contador para controlar o volume de enchimento e foi projetada com bico de enchimento especial para reduzir bolhas durante a dosagem. É amplamente utilizada para envasar uma variedade de semifluidos, produtos pastosos, espessos, molhos e uma variedade de materiais que envolvem produtos granulares. Portanto, a APF5000-4B envasa com eficiência e precisão produtos como bebidas de polpa, mel, molho de tomate, geleia, manteiga de amendoim, molho de pimenta e muitos outros mais.",
     "aliases": [],
     "active": true
   },
   {
     "id": "catalog-368",
-    "name": "Envasadora Automáticas com\n2 Bicos para Líquidos e Pastosos",
+    "name": "Envasadora Automáticas com 2 Bicos para Líquidos e Pastosos",
     "sku": "",
     "code": "PAMQLQAU044",
     "line": "PERSONNALITE",
@@ -4053,8 +4053,8 @@
     "sku": "",
     "code": "PAMQLQAU045",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "15-35 ciclos/min (por bico)",
+    "description": "A Envasadora Automática APF300-2B integra princípios pneumáticos, mecânicos e elétricos, possui contador para controlar o volume de enchimento e foi projetada com bico de enchimento especial para reduzir bolhas durante a dosagem. É amplamente utilizada para envasar uma variedade de semifluidos, produtos pastosos, espessos, molhos e uma variedade de materiais que envolvem produtos granulares. Portanto, a APF300-2B envasa com eficiência e precisão produtos como bebidas de polpa, mel, molho de tomate, geleia, manteiga de amendoim, molho de pimenta e muitos outros mais.",
     "aliases": [],
     "active": true
   },
@@ -4071,7 +4071,7 @@
   },
   {
     "id": "catalog-371",
-    "name": "Envasadora Automáticas com\n2 Bicos para Líquidos e Pastosos",
+    "name": "Envasadora Automáticas com 2 Bicos para Líquidos e Pastosos",
     "sku": "",
     "code": "PAMQLQAU047",
     "line": "PERSONNALITE",
@@ -4097,14 +4097,14 @@
     "sku": "",
     "code": "PAMQLQAU049",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "15-35 ciclos/min (por bico)",
+    "description": "A Envasadora Automática APF5000-2B integra princípios pneumáticos, mecânicos e elétricos, possui contador para controlar o volume de enchimento e foi projetada com bico de enchimento especial para reduzir bolhas durante a dosagem. É amplamente utilizada para envasar uma variedade de semifluidos, produtos pastosos, espessos, molhos e uma variedade de materiais que envolvem produtos granulares. Portanto, a APF5000-2B envasa com eficiência e precisão produtos como bebidas de polpa, mel, molho de tomate, geleia, manteiga de amendoim, molho de pimenta e muitos outros mais.",
     "aliases": [],
     "active": true
   },
   {
     "id": "catalog-374",
-    "name": "Envasadora Automáticas com\n6 Bicos para Líquidos e Pastosos",
+    "name": "Envasadora Automáticas com 6 Bicos para Líquidos e Pastosos",
     "sku": "",
     "code": "PAMQLQAU050",
     "line": "PERSONNALITE",
@@ -4119,8 +4119,8 @@
     "sku": "",
     "code": "PAMQLQAU051",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "15-35 ciclos/min",
+    "description": "A Envasadora Automática APF300-4B integra princípios pneumáticos, mecânicos e elétricos, possui contador para controlar o volume de enchimento e foi projetada com bico de enchimento especial para reduzir bolhas durante a dosagem. É amplamente utilizada para envasar uma variedade de semifluidos, produtos pastosos, espessos, molhos e uma variedade de materiais que envolvem produtos granulares. Portanto, a APF300-4B envasa com eficiência e precisão produtos como bebidas de polpa, mel, molho de tomate, geleia, manteiga de amendoim, molho de pimenta e muitos outros mais.",
     "aliases": [],
     "active": true
   },
@@ -4137,7 +4137,7 @@
   },
   {
     "id": "catalog-377",
-    "name": "Envasadora Automáticas com\n6 Bicos para Líquidos e Pastosos",
+    "name": "Envasadora Automáticas com 6 Bicos para Líquidos e Pastosos",
     "sku": "",
     "code": "PAMQLQAU053",
     "line": "PERSONNALITE",
@@ -4152,8 +4152,8 @@
     "sku": "",
     "code": "PAMQLQAU054",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "15-35 ciclos/min (por bico)",
+    "description": "A APF2500-B é uma envasadora automática de 8 bicos responsável por envasar produtos pastosos. Funciona por princípio eletromecânico e pneumático e possui ajuste para o volume e dosagem, o que possibilita a adequação a diversas demandas de produção. Fácil de operar, em painel digital (HMI) touch screen e alta tecnologia, a APF2500-B oferece uma solução ideal de envase para as indústrias em geral, com aumento de produtividade e padrão de qualidade.",
     "aliases": [],
     "active": true
   },
@@ -4174,8 +4174,8 @@
     "sku": "",
     "code": "PAMQLQAU056",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "16-20 ciclos/min (por bico)",
+    "description": "A Envasadora Automática ALF1000-4B integra princípios pneumáticos, mecânicos e elétricos, possui contador para controlar o volume de enchimento e foi projetada com bico de enchimento especial para reduzir bolhas durante a dosagem. É amplamente utilizada para envasar uma variedade de líquidos, como sucos, xaropes, molhos, vinagres, óleos de soja, óleos vegetais, condimentos, água mineral, bebidas alcoólicas, perfumes, álcool em gel, shampoos e condicionadores.",
     "aliases": [],
     "active": true
   },
@@ -4196,8 +4196,8 @@
     "sku": "230",
     "code": "PAMQLQAU058",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "1200 envases por hora",
+    "description": "A Envasadora Automática de 4 Bicos para Líquidos - ALF 5000-4B é capaz de encher automaticamente até 1200 frascos por hora, dependendo do volume e velocidade. Com alto índice de precisão, a máquina envasa grande variedade de líquidos, em dosagens ajustáveis entre 50ml e 500ml.\n \nPrática e precisa\nTotalmente automática, a Envasadora Automática de 4 Bicos para Líquidos - ALF 500-4B envasa líquidos de baixa densidade e óleos de baixa viscosidade em geral, frios ou aquecidos até a temperatura de 80°C (vale observar que a envasadora não realiza o aquecimento dos produtos).\nCom índice de variação de dosagem de ± 0,5%, a máquina pode encher até 1200 frascos por hora com volumes ajustáveis entre 50ml e 500ml. \n \nModerna\nA Envasadora Automática de 4 Bicos para Líquidos tem painel digital IHM colorido e Touch Screen, por meio do qual são feitos os ajustes (dosagem, velocidade de envase, velocidade da esteira etc.).\nA máquina também conta com sensores para evitar o desperdício do produto a ser envasado, como o que detecta o posicionamento dos frascos em relação aos bicos para acionar o dispositivo que segura o frasco pelo gargalo, mantendo-o firme durante o envase.\n \nEstrutura\nFabricada em aço inoxidável, a Envasadora Automática de 4 Bicos para Líquidos - ALF 500-4B atende aos padrões de segurança e higiene alimentar, possuindo o selo CE. A máquina tem mangueira de sucção conectada a tonéis ou reservatórios, mantendo o líquido completamente isolado de contato externo durante o processo de envase.\nA esteira da Envasadora Automática de 4 Bicos para Líquidos - ALF 500-4B também é de aço inox, podendo ter sua velocidade ajustada conforme a demanda. \n \nAtende empresas de vários setores\nAltamente produtiva, a Envasadora Automática de 4 Bicos para Líquidos é indicada para médias e grandes empresas dos mais diversos setores, já que pode operar com uma grande variedade de líquidos.\nA máquina envasa líquidos como água mineral, sucos, bebidas alcoólicas, óleos vegetais, molhos, vinagres,",
     "aliases": [],
     "active": true
   },
@@ -4207,8 +4207,8 @@
     "sku": "216",
     "code": "PAMQLQAU059",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "16-20 ciclos/min por bico",
+    "description": "A ALF1000-4B foi projetada para realizar o envase automático de líquidos com mais constância de volume, melhor ritmo operacional e mais estabilidade no processo. A Envasadora Automática de 4 Bicos para Líquidos ALF1000-4B atende uma faixa ampla de aplicações, incluindo sucos, xaropes, molhos, vinagres, óleos, condimentos, água mineral, bebidas alcoólicas e perfumes. Isso coloca a ALF1000-4B em um perfil versátil para operações que trabalham com diferentes tipos de líquidos em uma mesma lógica de produção, próxima da rotina encontrada em linhas automáticas e empacotadoras integradas.",
     "aliases": [],
     "active": true
   },
@@ -4218,8 +4218,8 @@
     "sku": "",
     "code": "PAMQLQAU060",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "16-20 ciclos/min (por bico)",
+    "description": "Envasadora Automática ALF2500-4B integra princípios pneumáticos, mecânicos e elétricos, possui contador para controlar o volume de enchimento e foi projetada com bico de enchimento especial para reduzir bolhas durante a dosagem. É amplamente utilizada para envasar uma variedade de líquidos, como sucos, xaropes, molhos, vinagres, óleos de soja, óleos vegetais, condimentos, água mineral, bebidas alcoólicas, perfumes, álcool em gel, shampoos e condicionadores.",
     "aliases": [],
     "active": true
   },
@@ -4229,8 +4229,8 @@
     "sku": "",
     "code": "PAMQLQAU061",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "16-20 ciclos/min (por bico)",
+    "description": "A Envasadora Automática ALF5000-4B integra princípios pneumáticos, mecânicos e elétricos, possui contador para controlar o volume de enchimento e foi projetada com bico de enchimento especial para reduzir bolhas durante a dosagem. É amplamente utilizada para envasar uma variedade de líquidos, como sucos, xaropes, molhos, vinagres, óleos de soja, óleos vegetais, condimentos, água mineral, bebidas alcoólicas, perfumes, álcool em gel, shampoos e condicionadores.",
     "aliases": [],
     "active": true
   },
@@ -4240,8 +4240,8 @@
     "sku": "",
     "code": "PAMQLQAU062",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "16-20 ciclos/min (por bico)",
+    "description": "A Envasadora Automática ALF1000-2B integra princípios pneumáticos, mecânicos e elétricos, possui contador para controlar o volume de enchimento e foi projetada com bico de enchimento especial para reduzir bolhas durante a dosagem. É amplamente utilizada para envasar uma variedade de líquidos, como sucos, xaropes, molhos, vinagres, óleos de soja, óleos vegetais, condimentos, água mineral, bebidas alcoólicas, perfumes, álcool em gel, shampoos e condicionadores.",
     "aliases": [],
     "active": true
   },
@@ -4251,8 +4251,8 @@
     "sku": "",
     "code": "PAMQLQAU063",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "16-20 ciclos/min",
+    "description": "A Envasadora Automática ALF300-2B integra princípios pneumáticos, mecânicos e elétricos, possui contador para controlar o volume de enchimento e foi projetada com bico de enchimento especial para reduzir bolhas durante a dosagem. É amplamente utilizada para envasar uma variedade de líquidos, como sucos, xaropes, molhos, vinagres, óleos de soja, óleos vegetais, condimentos, água mineral, bebidas alcoólicas, perfumes, álcool em gel, shampoos e condicionadores.",
     "aliases": [],
     "active": true
   },
@@ -4262,8 +4262,8 @@
     "sku": "720",
     "code": "PAMQLQAU064",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "600 envases por hora",
+    "description": "A Envasadora Automática de 2 Bicos para Líquidos - ALF 500-2B é capaz de encher automaticamente até 600 frascos por hora, dependendo do volume e velocidade. Com alto índice de precisão, a máquina envasa grande variedade de líquidos, em dosagens ajustáveis entre 50ml e 500ml.\n \nPrática e precisa\nTotalmente automática, a Envasadora Automática de 2 Bicos para Líquidos - ALF 500-2B envasa líquidos de baixa densidade e óleos de baixa viscosidade em geral, frios ou aquecidos até a temperatura de 80°C (vale observar que a envasadora não realiza o aquecimento dos produtos).\nCom índice de variação de dosagem de ± 0,5%, a máquina pode encher até 600 frascos por hora com volumes ajustáveis entre 50ml e 500ml. \n \nModerna\nA Envasadora Automática de 2 Bicos para Líquidos tem painel digital IHM colorido e Touch Screen, por meio do qual são feitos os ajustes (dosagem, velocidade de envase, velocidade da esteira etc.).\nA máquina também conta com sensores para evitar o desperdício do produto a ser envasado, como o que detecta o posicionamento dos frascos em relação aos bicos para acionar o dispositivo que segura o frasco pelo gargalo, mantendo-o firme durante o envase.\n \nEstrutura\nFabricada em aço inoxidável, a Envasadora Automática de 2 Bicos para Líquidos - ALF 500-2B atende aos padrões de segurança e higiene alimentar, possuindo o selo CE. A máquina tem mangueira de sucção conectada a tonéis ou reservatórios, mantendo o líquido completamente isolado de contato externo durante o processo de envase.\nA esteira da Envasadora Automática de 2 Bicos para Líquidos - ALF 500-2B também é de aço inox, podendo ter sua velocidade ajustada conforme a demanda. \n \nAtende empresas de vários setores\nAltamente produtiva, a Envasadora Automática de 2 Bicos para Líquidos é indicada para médias e grandes empresas dos mais diversos setores, já que pode operar com uma grande variedade de líquidos.\nA máquina envasa líquidos como água mineral, sucos, bebidas alcoólicas, óleos vegetais, molhos, vinagres, co",
     "aliases": [],
     "active": true
   },
@@ -4273,8 +4273,8 @@
     "sku": "215",
     "code": "PAMQLQAU065",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "16-20 ciclos/min (por bico)",
+    "description": "A Envasadora Automática de 2 Bicos para Líquidos - ALF 1000-2B é capaz de encher automaticamente até 600 frascos por hora, dependendo do volume e velocidade. Com alto índice de precisão, mais de 99%, a máquina envasa grande variedade de líquidos, em dosagens ajustáveis entre 100ml e 1000ml.\n \nPrática e precisa\nTotalmente automática, a Envasadora Automática de 2 Bicos para Líquidos - ALF 1000-2B envasa líquidos de baixa densidade e óleos de baixa viscosidade em geral, frios ou aquecidos até a temperatura de 80°C (vale observar que a envasadora não realiza o aquecimento dos produtos).\nCom índice de variação de dosagem de ± 0,5%, a máquina pode encher até 600 frascos por hora com volumes ajustáveis entre 100ml e 1000ml. \n \nModerna\nA Envasadora Automática de 2 Bicos para Líquidos - ALF 1000-2B tem painel digital IHM colorido e Touch Screen, por meio do qual são feitos os ajustes (dosagem, velocidade de envase, velocidade da esteira etc.).\nA máquina também conta com sensores para evitar o desperdício do produto a ser envasado, como o que detecta o posicionamento dos frascos em relação aos bicos para acionar o dispositivo que segura o frasco pelo gargalo, mantendo-o firme durante o envase.\n \nEstrutura\nFabricada em aço inoxidável, a Envasadora Automática de 2 Bicos para Líquidos - ALF 1000-2B atende aos padrões de segurança e higiene alimentar, possuindo o selo CE. A máquina tem mangueira de sucção conectada a tonéis ou outros reservatórios, mantendo o líquido completamente isolado de contato externo durante o processo de envase.\nA esteira da Envasadora Automática de 2 Bicos para Líquidos - ALF 1000-2B também é de aço inox, podendo ter sua velocidade ajustada conforme a demanda.\n \nAtende empresas de vários setores\nAltamente produtiva, a Envasadora Automática de 2 Bicos para Líquidos - ALF 1000-2B é indicada para médias e grandes empresas dos mais diversos setores, já que pode operar com uma grande variedade de líquidos.\nA máquina envasa líquidos como água mineral, sucos, b",
     "aliases": [],
     "active": true
   },
@@ -4284,8 +4284,8 @@
     "sku": "",
     "code": "PAMQLQAU066",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "16-20 ciclos/min (por bico)",
+    "description": "A Envasadora Automática ALF2500-2B integra princípios pneumáticos, mecânicos e elétricos, possui contador para controlar o volume de enchimento e foi projetada com bico de enchimento especial para reduzir bolhas durante a dosagem. É amplamente utilizada para envasar uma variedade de líquidos, como sucos, xaropes, molhos, vinagres, óleos de soja, óleos vegetais, condimentos, água mineral, bebidas alcoólicas, perfumes, álcool em gel, shampoos e condicionadores.",
     "aliases": [],
     "active": true
   },
@@ -4295,8 +4295,8 @@
     "sku": "",
     "code": "PAMQLQAU067",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "16-20 ciclos/min (por bico)",
+    "description": "A Envasadora Automática  ALF5000-2B  integra princípios pneumáticos, mecânicos e elétricos, possui contador para controlar o volume de enchimento e foi projetada com bico de enchimento especial para reduzir bolhas durante a dosagem. É amplamente utilizada para envasar uma variedade de líquidos, como sucos, xaropes, molhos, vinagres, óleos de soja, óleos vegetais, condimentos, água mineral, bebidas alcoólicas, perfumes, álcool em gel, shampoos e condicionadores.",
     "aliases": [],
     "active": true
   },
@@ -4368,7 +4368,7 @@
   },
   {
     "id": "catalog-398",
-    "name": "Envasadora Automáticas\ncom 8 Bicos para Líquidos e Pastosos",
+    "name": "Envasadora Automáticas com 8 Bicos para Líquidos e Pastosos",
     "sku": "",
     "code": "PAMQLQAU074",
     "line": "PERSONNALITE",
@@ -4390,7 +4390,7 @@
   },
   {
     "id": "catalog-400",
-    "name": "Envasadora Automáticas\ncom 8 Bicos para Líquidos e Pastosos",
+    "name": "Envasadora Automáticas com 8 Bicos para Líquidos e Pastosos",
     "sku": "",
     "code": "PAMQLQAU077",
     "line": "PERSONNALITE",
@@ -4405,8 +4405,8 @@
     "sku": "",
     "code": "PAMQLQAU078",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "15-35 ciclos/min ( por bico )",
+    "description": "A APF2500-B é uma envasadora automática de 8 bicos responsável por envasar produtos pastosos. Funciona por princípio eletromecânico e pneumático e possui ajuste para o volume e dosagem, o que possibilita a adequação a diversas demandas de produção. Fácil de operar, em painel digital (HMI) touch screen e alta tecnologia, a APF2500-B oferece uma solução ideal de envase para as indústrias em geral, com aumento de produtividade e padrão de qualidade.",
     "aliases": [],
     "active": true
   },
@@ -4460,8 +4460,8 @@
     "sku": "",
     "code": "PAMQLQAU083",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "16-20 ciclos/min (por bico)",
+    "description": "A Envasadora Automática ALF1000-B8 integra princípios pneumáticos, mecânicos e elétricos, possui contador para controlar o volume de enchimento e foi projetada com bico de enchimento especial para reduzir bolhas durante a dosagem. É amplamente utilizada para envasar uma variedade de líquidos, como sucos, xaropes, molhos, vinagres, óleos de soja, óleos vegetais, condimentos, água mineral, bebidas alcoólicas, perfumes, álcool em gel, shampoos e condicionadores.",
     "aliases": [],
     "active": true
   },
@@ -4571,13 +4571,13 @@
     "code": "PAMQSLTU059",
     "line": "PERSONNALITE",
     "production": "",
-    "description": "",
+    "description": "O Túnel de Esterilização com Luz Ultravioleta e Ozônio UVS é a solução definitiva para garantir a qualidade e segurança dos seus produtos industriais. Um equipamento para empresas que buscam o mais alto padrão de higiene e esterilização.\n\nCom dupla tecnologia, o túnel garante produtos livres de todo tipo de contaminação. Enquanto a luz UV de alta intensidade garante a esterilização de produtos, o ozônio é poderoso agente esterilizante contra resíduos químicos. O sistema de esterilização por ozônio atende aos mais rigorosos padrões de qualidade.\n\n Funcionamento \nCom uma área de trabalho de 1200 mm², o Túnel de Esterilização oferece espaço suficiente para processar vários tipos de produtos de maneira eficiente. As áreas de alimentação e descarga de 400 mm² facilitam a integração em sua linha de produção.\n\nApós os frascos saírem alinhados da Mesa Acumuladora, eles são direcionados para o Túnel UV, onde são emitidos raios Ultravioletas sobre as embalagens ou produtos, esses raios são responsáveis por eliminar 99% dos vírus e bactérias, garantindo assim, que os frascos estejam higienizados e esterilizados para receberem os produtos. \n\n Aplicação e Estrutura \nSua estrutura é toda em aço inox, seguindo os padrões da BPF – Boas Práticas de Fabricação. Para garantir o efeito de esterilização, o túnel conta com 12 tubos Ultravioleta, disposto pelos 4 cantos da câmara interna e 2 refletores de UV.\n\nAmplamente utilizado nos segmentos de Nutracêuticos, Fármacos, Alimentício e Hospitalar, o túnel pode ser utilizado para vários produtos como máscaras, frascos e embalagens de vitaminas e nutracêuticos em geral, máscaras, ataduras, medicamentos e outros.",
     "aliases": [],
     "active": true
   },
   {
     "id": "catalog-417",
-    "name": "R610 - ESTEIRA ANGULAR 90 GRAUS P/  TRASNPORTE DE RASCOS",
+    "name": "R610 - ESTEIRA ANGULAR 90 GRAUS P/ TRASNPORTE DE RASCOS",
     "sku": "",
     "code": "PAMQESMN019",
     "line": "PERSONNALITE",
@@ -4602,7 +4602,7 @@
     "name": "ESTEIRA TRANSPORTADORA 1M C/ CONTROLE DE VELOC. P/ AUTOM.",
     "sku": "",
     "code": "PAMQESMA006",
-    "line": "PERSONNALITE",
+    "line": "SEMI-INDUSTRIAL",
     "production": "",
     "description": "",
     "aliases": [],
@@ -4669,8 +4669,8 @@
     "sku": "",
     "code": "PAMQSLAU069",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "30-60 pcs/min",
+    "description": "Essa maquina é responsável por produzir de modo totalmente automático aventais em  TNT, com capacidade de produção de 30 a 60 peças por minuto.Realiza desde a  alimentação da matéria prima á dobragem, formatação, corte e liberação do avental  é controlada e monitorada de maneira simples e prática por meio de painel  digital  (IHM/CLP) . Com alto nivél de automação e desempenho estavél, promove especialmente aumento de produtividade e padrão de qualidade.",
     "aliases": [],
     "active": true
   },
@@ -4680,8 +4680,8 @@
     "sku": "",
     "code": "PAMQSLAU070",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "10-20 pcs/min",
+    "description": "Essa máquina  tem por função produzir  lençóis hospitalares com elásticos nas bordas, em produtividade de 10 á 20 peças por minuto.\nRealiza da alimentação á finalização do produto em modo totalmente automático, inclusive, utilizando-se de princípios pneumáticos , e é equipada com componentes de qualidade e três sistemas de ultrasssom, para garantir  a eficiência produtiva dentro das empresas.  Além disso, possibilita o uso de matérias primas de diferentes tamanhos.",
     "aliases": [],
     "active": true
   },
@@ -4768,8 +4768,8 @@
     "sku": "919",
     "code": "PAMQLQAU088",
     "line": "PERSONNALITE",
-    "production": "Até 180 caixas/min",
-    "description": "Equipamento com alta estabilidade, estrutura simples e operação fácil, sobradura e transmissão automática, formação de caixa por sucção, mecanismo de alimentação de acompanhamento de servo de múltiplas estações. Além disso, sua roda planetária de estação dupla abre a caixa para fora e tem um dispositivo e pré-formação para garantir que a caixa seja totalmente aberta e formada.",
+    "production": "",
+    "description": "",
     "aliases": [],
     "active": true
   },
@@ -4958,7 +4958,7 @@
     "production": "",
     "description": "",
     "aliases": [],
-    "active": true
+    "active": false
   },
   {
     "id": "catalog-452",
@@ -4999,8 +4999,8 @@
     "sku": "850",
     "code": "PAMQGPAU050",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "50-70 embalagens/min",
+    "description": "A EXACTA 1328 foi desenvolvida para empacotar pós como leite em pó, pó de café, talco e outros produtos com características semelhantes. A Empacotadora de Pó EXACTA 1328 foi pensada para operações que precisam de mais repetibilidade, melhor acabamento final e maior ritmo de produção na etapa de embalagem. Em linhas que buscam automatizar o fracionamento de pós, a máquina se posiciona como uma solução compacta e eficiente, próxima da lógica de uma envasadora aplicada ao processo de embalagem.",
     "aliases": [],
     "active": true
   },
@@ -5105,7 +5105,7 @@
   },
   {
     "id": "catalog-465",
-    "name": "UCC10  - MOINHO TRITURADOR PARA ESPECIARIAS",
+    "name": "UCC10 - MOINHO TRITURADOR PARA ESPECIARIAS",
     "sku": "",
     "code": "PAMQGPAU051",
     "line": "SEMI-INDUSTRIAL",
@@ -5164,7 +5164,7 @@
     "sku": "1153",
     "code": "PAACSLAU347",
     "line": "PERSONNALITE",
-    "production": "Manual (depende do operador)",
+    "production": "",
     "description": "Esta envasadora e contadora tem por função contabilizar e envasar de pequenas a grandes quantidades de cápsulas e demais produtos, de modo automático e contínuo. Possuindo 32 canais vibratórios e alto nível de automação (IHM, função de contagem, velocidade de produção ajustável, parada automática etc.) pode ser tanto utilizada à parte como integrada em linhas de alta performance.",
     "aliases": [],
     "active": true
@@ -5186,8 +5186,8 @@
     "sku": "",
     "code": "PAMQGPAU054",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "20-40 saquinhos/min",
+    "description": "A EXACTA 320B é uma empacotadora com balança eletrônica de 4 (quatro) cabeças responsável por formar, dosar e selar saquinhos com vários tipos de pequenos grânulos ou pós, por exemplo, balas, biscoitinhos, sementes torradas, frutos secos, açúcar, leite em pó, sabão em pó e outros produtos similares. Assim, a aplicação da EXACTA 320B se estende a indústrias de segmento de artigos/produtos de alimentação, higiene e hardware, medicina, química. Além disso, a máquina possui estrutura de aço inoxidável 304 e adota tecnologia (HMI) com touch screen, permitindo que o usuário opere e monitore a máquina facilmente.",
     "aliases": [],
     "active": true
   },
@@ -5230,7 +5230,7 @@
     "sku": "",
     "code": "PAMQIPMN085",
     "line": "PERSONNALITE",
-    "production": "para Frascos Cilíndricos",
+    "production": "",
     "description": "A Rotuladora SFL120 é responsável por rotular frascos cilíndricos em alta velocidade. Para isso, conta com alto nível de automação e estrutura de qualidade, realizando a rotulagem dos frascos com enorme precisão, garantido o padrão de qualidade. Além disso, com painel digital (IHM) e ajustes intuitivos, é simples e prática de operar. Rotuladora de Alta Velocidade",
     "aliases": [],
     "active": true
@@ -5358,14 +5358,14 @@
   },
   {
     "id": "catalog-488",
-    "name": "SWP1 - PLATAFORMA P/ EMP. AUTOM.  EM ACO INOX",
+    "name": "SWP1 - PLATAFORMA P/ EMP. AUTOM. EM ACO INOX",
     "sku": "",
     "code": "PAMQGPAU059",
     "line": "PERSONNALITE",
     "production": "",
     "description": "",
     "aliases": [],
-    "active": true
+    "active": false
   },
   {
     "id": "catalog-489",
@@ -5374,7 +5374,7 @@
     "code": "PAMQSLSA077",
     "line": "PERSONNALITE",
     "production": "",
-    "description": "",
+    "description": "Este elevador  possui sistema de transporte vertical , com transmissão de 90 graus , podendo ser integrado a linhas de empacotamento para alimentar equipamentos  como balanças  eletronicas multicabeças e empacotadoras VFFS.",
     "aliases": [],
     "active": true
   },
@@ -5406,14 +5406,14 @@
     "sku": "",
     "code": "PAMQSLTU061",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "0-35 m/min",
+    "description": "O  túnel de encolhimento a vapor para sleeve PM-1800 pode ser aplicado a diferentes tipos de garrafas como redondas , quadradas e planas. Adota tubo sem costura , e a distribuição  de tambor de vapor  de baixa pressão e o bico de vapor  usam o estilo de separação que torna o tunel liso. \nO bocal  de vapor é dividido em três segmentos ajustaveis ; altura , posição e saida podendo  ser ajustadas , assim  garantindo um efeito de encolhimento ideal .\nAlem disso , possui operação e manutenção simples e praticas e estrutura de aço inoxidável de alta qualidade .",
     "aliases": [],
     "active": true
   },
   {
     "id": "catalog-493",
-    "name": "TUNEL DE SECAGEN POR AR COMPRIMIDO  E CALOR",
+    "name": "TUNEL DE SECAGEN POR AR COMPRIMIDO E CALOR",
     "sku": "",
     "code": "PAMQSLTU062",
     "line": "PERSONNALITE",
@@ -5559,9 +5559,9 @@
     "name": "BC2.5M/W300P - ESTEIRA TRASP. EM LONA C2,5M X L30CM C/ CONTROL. VELOC.",
     "sku": "",
     "code": "PAMQESMN020",
-    "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "line": "SEMI-INDUSTRIAL",
+    "production": "30 m/min",
+    "description": "A esteira BC2.5M/300P foi projetada para movimentar embalagens de diversos variados, como: Caixas, fardos, sacos, ou até mesmo produtos pequenos e delicados. Dentre as grandes vantagens de utilizar esta esteira, está a sua praticidade de operação, otimização do tempo na movimentação de mercadorias, usando mínima mão de obra com baixo investimento. Ideal para trabalhar com automação, como leitores de códigos de barras, sensores ópticos e datadores inkjet, pois mantém sua velocidade constante.",
     "aliases": [],
     "active": true
   },
@@ -5699,7 +5699,7 @@
   },
   {
     "id": "catalog-519",
-    "name": "LINHA/COMBINACAO DE MAQUINAS AUTOMATICAS  P/ ENVASE DE CAPSULAS",
+    "name": "LINHA/COMBINACAO DE MAQUINAS AUTOMATICAS P/ ENVASE DE CAPSULAS",
     "sku": "292",
     "code": "PAMQLQAU097",
     "line": "PERSONNALITE",
@@ -5845,7 +5845,7 @@
     "name": "Seladora em L Manual",
     "sku": "",
     "code": "PAMQSLAU078",
-    "line": "PERSONNALITE",
+    "line": "SEMI-INDUSTRIAL",
     "production": "8-12 pcs/min",
     "description": "A Seladora Manual tipo L BSF-501 é amplamente utilizada pelas indústrias em geral para selar plásticos filmes termosseláveis, na vertical e horizontal, com o objetivo de vedá-los por completo e conferir-lhes um aspecto comercial. Possui um painel de controle compacto, de fácil operação, com interruptores bem acessíveis e sinalizados. Ademais, pode ser utilizada tanto em conjunto com os túneis de encolhimento, como independentemente.",
     "aliases": [],
@@ -5867,7 +5867,7 @@
     "name": "Seladora Pneumática Semiautomática de Caixas",
     "sku": "",
     "code": "PAMQCCSA032",
-    "line": "PERSONNALITE",
+    "line": "SEMI-INDUSTRIAL",
     "production": "20 m/min",
     "description": "A Seladora Pneumática Semiautomática de Caixas de Papelão possibilita o ajuste de vários tamanhos de caixas por meio de regulagem automática, pneumaticamente, selando as partes superior e inferior da caixa. É ideal para uso em linhas de produção de larga escala, pois economiza trabalho, fita adesiva e padroniza a selagem. Seladora Pneumática Semiautomática de Caixas",
     "aliases": [],
@@ -5904,7 +5904,7 @@
     "production": "",
     "description": "",
     "aliases": [],
-    "active": true
+    "active": false
   },
   {
     "id": "catalog-538",
@@ -5912,8 +5912,8 @@
     "sku": "",
     "code": "PAMQSLSA089",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "30-32 vezes/min",
+    "description": "A TFF tem a função de testar a dureza, friabilidade, tempo de desintegração e taxa de dissolução dos comprimidos, equipamento muito ideal para setores nutracêuticos e farmacêuticos.\n\nA máquina adota um sistema inteligente capaz de controlar as funções (detecção, aquecimento da bomba de água, temperatura, cronometragem, diagnóstico e precisão da temperatura) de forma automática. Além disso, possui uma estrutura de aço inoxidável SUS316.\n\nMáquina de impressão de resultados (opcional).",
     "aliases": [],
     "active": true
   },
@@ -5944,7 +5944,7 @@
     "name": "BC2.5M/W500P - ESTEIRA TRASP. EM LONA C2,5M X L50CM C/ CONTROL. VELOC.",
     "sku": "",
     "code": "PAMQESMN022",
-    "line": "PERSONNALITE",
+    "line": "SEMI-INDUSTRIAL",
     "production": "",
     "description": "",
     "aliases": [],
@@ -5963,7 +5963,7 @@
   },
   {
     "id": "catalog-543",
-    "name": "Envasadora Automáticas com\n6 Bicos para Líquidos e Pastosos",
+    "name": "Envasadora Automáticas com 6 Bicos para Líquidos e Pastosos",
     "sku": "",
     "code": "PAMQLQAU098",
     "line": "PERSONNALITE",
@@ -5974,12 +5974,12 @@
   },
   {
     "id": "catalog-544",
-    "name": "XGG - ROSQUEADEIRA AUTOMATICA  C/ ELEVADOR AUTOM. DE TAMPAS",
+    "name": "XGG - ROSQUEADEIRA AUTOMATICA C/ ELEVADOR AUTOM. DE TAMPAS",
     "sku": "",
     "code": "PAMQRSSA011",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "20-25 frascos/min",
+    "description": "Esta rosqueadeira automática é responsável por não só realizar o arranjo das tampas , como também e colocação e rosqueamento destas nos frascos.\nDestacando -se por sua alta perfomance e aplicabilidade, pode ser utilizada da indústrias em geral , inclusive integrada em linha.\nAlem disso ,  com interação homem -maquina  (IHM) e painel digital ( touch screen ) oferece uma  experiência de uso única ao usuário.",
     "aliases": [],
     "active": true
   },
@@ -6304,7 +6304,7 @@
   },
   {
     "id": "catalog-574",
-    "name": "TANQUE REATOR ABERTO ENCAMISADO 50L C/ MIXER E  CONTROLE DE INCLINACAO",
+    "name": "TANQUE REATOR ABERTO ENCAMISADO 50L C/ MIXER E CONTROLE DE INCLINACAO",
     "sku": "",
     "code": "PAMQSLSA099",
     "line": "PERSONNALITE",
@@ -6322,7 +6322,7 @@
     "production": "",
     "description": "",
     "aliases": [],
-    "active": true
+    "active": false
   },
   {
     "id": "catalog-576",
@@ -6429,8 +6429,8 @@
     "sku": "",
     "code": "PAMQGPAU076",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "25 a 50 embalagens por minuto",
+    "description": "A Exacta 2030B - Empacotadora Automática para Pós foi desenvolvida para operações que precisam empacotar produtos em pó em sachês com controle de dosagem, formação automática da embalagem, selagem e corte em sequência. Também pode ser procurada como envasadora automática de pó, já que realiza o preenchimento do produto por sistema de rosca antes da selagem final. É indicada para produtos como pré-treino, pó de café, whey e outros pós com características semelhantes, atendendo operações que precisam reduzir etapas manuais e padronizar o empacotamento.",
     "aliases": [],
     "active": true
   },
@@ -6516,7 +6516,7 @@
     "name": "FQS450 - SELADORA L SEMI AUTOMATICA COM TUNEL DE EMC. ACOPLADO",
     "sku": "",
     "code": "PAMQSLSA103",
-    "line": "PERSONNALITE",
+    "line": "SEMI-INDUSTRIAL",
     "production": "",
     "description": "",
     "aliases": [],
@@ -6528,8 +6528,8 @@
     "sku": "",
     "code": "PAMQGPAU077",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "25 a 35 embalagens/min",
+    "description": "A EXACTA 2830B foi desenvolvida para formar embalagens de sachê tipo stick e atender operações que trabalham com pós menos pegajosos, como leite em pó, açúcar, pó de café, whey e creatina. A Empacotadora Automática para Sachê Tipo Stick EXACTA 2830B automatiza uma etapa crítica da produção com mais repetibilidade, melhor apresentação final e maior ritmo de empacotamento. Em muitas operações, ela também se encaixa na lógica de uma envasadora para produtos em pó fracionados em stick.",
     "aliases": [],
     "active": true
   },
@@ -6678,12 +6678,12 @@
   },
   {
     "id": "catalog-608",
-    "name": "ALIMENTADOR DE ROSCA PARA POS ALT. 2,5METROS  - FUNIL 110 LITROS",
+    "name": "ALIMENTADOR DE ROSCA PARA POS ALT. 2,5METROS - FUNIL 110 LITROS",
     "sku": "945",
     "code": "PAMQGPAU080",
     "line": "PERSONNALITE",
     "production": "",
-    "description": "",
+    "description": "O Alimentador de Rosca ASF-250 realiza o abastecimento automático de máquinas de embalagem com produtos em pó. Sua estrutura inclinada permite a integração com as mais diversas linhas de produção.\n\nEstrutura da máquina\nEste alimentador possui dois motores: um de alimentação, e outro, de vibração, controlados independentemente. Sua rosca de dosagem pode girar em dois sentidos: no horário, para transportar o material, ou no anti-horário, para realização do processo de limpeza do equipamento.\n\nPara enviar a matéria-prima às máquinas, o ASF-250 utiliza uma rosca de dosagem, método que garante a estabilidade e precisão do processo. Com estrutura de aço inoxidável, a máquina pode ser utilizada nas indústrias em geral. Além disso, possui design modular em que funil e silo são separados, o que agiliza a manutenção e limpeza, otimizando todas as etapas da produção.\nEle também conta com um visor acrílico para monitorar o seu funcionamento e verificar se o produto está sendo transportado corretamente.\n\nProdutos e segmentos atendidos\nO Alimentador de Rosca tem como função abastecer as máquinas de embalagens. Pode ser utilizado para alimentos em pó, principalmente da indústria alimentícia e nutracêutica como açúcar, farinhas, suplementos em pó e outros.",
     "aliases": [],
     "active": true
   },
@@ -6804,7 +6804,7 @@
     "code": "PAMQSLTU066",
     "line": "PERSONNALITE",
     "production": "",
-    "description": "",
+    "description": "O Túnel UV possuem a função de esterilizar o frasco antes que seja inserido qualquer tipo de produto em sua superfície, eliminando vírus e bactérias, e assim receber o produto.\n\n Funcionamento e estrutura \nApós os frascos saírem alinhados da Mesa Acumuladora, eles são direcionados para o Túnel UV, onde são emitidos raios Ultravioletas sobre as embalagens, esses raios são responsáveis por eliminar 99% dos vírus e bactérias, garantindo assim, que os frascos estejam higienizados e esterilizados para receberem os produtos. Garantindo o máximo efeito de esterilização dos frascos.\n\nSua estrutura é toda em aço inox, seguindo os padrões da BPF – Boas Práticas de Fabricação. O túnel pode ser acoplado em esteiras de saída e entrada com praticidade e garantia de eficiência e conta com duas lâmpadas ultravioleta em sua câmara interna.\n\n Produtos e segmentos atendidos \nO Túnel UV pode ser aplicado em linhas de produção de uma ampla variedade de produtos e embalagens de indústrias como alimentos e bebidas, hospitalar, farmacêutica, química, cosméticos, produtos domésticos e muitos outros setores que requerem o cuidado de esterilização.",
     "aliases": [],
     "active": true
   },
@@ -7048,7 +7048,7 @@
     "production": "",
     "description": "",
     "aliases": [],
-    "active": true
+    "active": false
   },
   {
     "id": "catalog-642",
@@ -7180,7 +7180,7 @@
     "production": "",
     "description": "",
     "aliases": [],
-    "active": true
+    "active": false
   },
   {
     "id": "catalog-654",
@@ -7213,7 +7213,7 @@
     "production": "",
     "description": "",
     "aliases": [],
-    "active": true
+    "active": false
   },
   {
     "id": "catalog-657",
@@ -7224,11 +7224,11 @@
     "production": "",
     "description": "",
     "aliases": [],
-    "active": true
+    "active": false
   },
   {
     "id": "catalog-658",
-    "name": "TANQUE DE DISSOLVIMENTO P/ GELATINA  CAPAC. 1000 L",
+    "name": "TANQUE DE DISSOLVIMENTO P/ GELATINA CAPAC. 1000 L",
     "sku": "",
     "code": "PAMQGPAU099",
     "line": "PERSONNALITE",
@@ -7246,7 +7246,7 @@
     "production": "",
     "description": "",
     "aliases": [],
-    "active": true
+    "active": false
   },
   {
     "id": "catalog-660",
@@ -7287,8 +7287,8 @@
     "sku": "879",
     "code": "PAMQGPAU104",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "20-25 embalagens/min, dependendo do tamanho e do material de envase",
+    "description": "A EXACTA 220A foi desenvolvida para empacotar líquidos em embalagens de formato especial com mais precisão, ritmo de produção e repetibilidade no processo. A Empacotadora de Líquidos EXACTA 220A atende aplicações como geleia, ketchup, óleo e molho, entregando uma solução voltada para linhas que precisam fracionar produtos líquidos em pequenas doses com mais constância. Em operações compactas, ela também se encaixa com naturalidade na lógica de uma envasadora para líquidos porcionados.",
     "aliases": [],
     "active": true
   },
@@ -7298,8 +7298,8 @@
     "sku": "872",
     "code": "PAMQGPAU105",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "50 a 70 embalagens por minuto",
+    "description": "A EXACTA 1328/P - Empacotadora Automática para Pastosos foi desenvolvida para formar, envasar, selar e cortar embalagens flexíveis de produtos pastosos bombeáveis. Com produtividade de 50 a 70 embalagens por minuto, funil de 30 litros e sistema de alimentação por bomba, automatiza as principais etapas do empacotamento em uma única estrutura. O equipamento trabalha com inversor de frequência e sistema de alimentação de alta precisão, permitindo controlar o processo de formação da embalagem, alimentação do produto, selagem e corte. É uma solução para operações que precisam reduzir o envase manual e manter maior regularidade na apresentação dos pacotes.",
     "aliases": [],
     "active": true
   },
@@ -7642,7 +7642,7 @@
     "production": "",
     "description": "",
     "aliases": [],
-    "active": true
+    "active": false
   },
   {
     "id": "catalog-696",
@@ -7653,7 +7653,7 @@
     "production": "",
     "description": "",
     "aliases": [],
-    "active": true
+    "active": false
   },
   {
     "id": "catalog-697",
@@ -7664,7 +7664,7 @@
     "production": "",
     "description": "",
     "aliases": [],
-    "active": true
+    "active": false
   },
   {
     "id": "catalog-698",
@@ -7752,7 +7752,7 @@
     "production": "",
     "description": "",
     "aliases": [],
-    "active": true
+    "active": false
   },
   {
     "id": "catalog-706",
@@ -7792,7 +7792,7 @@
     "name": "Seladora em L Manual",
     "sku": "",
     "code": "PAMQSLTU068",
-    "line": "PERSONNALITE",
+    "line": "SEMI-INDUSTRIAL",
     "production": "8-12 pcs/min",
     "description": "A Seladora Manual tipo L BSF-501 é amplamente utilizada pelas indústrias em geral para selar plásticos filmes termosseláveis, na vertical e horizontal, com o objetivo de vedá-los por completo e conferir-lhes um aspecto comercial. Possui um painel de controle compacto, de fácil operação, com interruptores bem acessíveis e sinalizados. Ademais, pode ser utilizada tanto em conjunto com os túneis de encolhimento, como independentemente.",
     "aliases": [],
@@ -7803,7 +7803,7 @@
     "name": "Seladora em L Manual",
     "sku": "959",
     "code": "PAMQSLTU069",
-    "line": "PERSONNALITE",
+    "line": "SEMI-INDUSTRIAL",
     "production": "8-12 pcs/min",
     "description": "A Seladora Manual tipo L BSF-501 é amplamente utilizada pelas indústrias em geral para selar plásticos filmes termosseláveis, na vertical e horizontal, com o objetivo de vedá-los por completo e conferir-lhes um aspecto comercial. Possui um painel de controle compacto, de fácil operação, com interruptores bem acessíveis e sinalizados. Ademais, pode ser utilizada tanto em conjunto com os túneis de encolhimento, como independentemente.",
     "aliases": [],
@@ -7814,7 +7814,7 @@
     "name": "Seladora em L Manual",
     "sku": "958",
     "code": "PAMQSLTU070",
-    "line": "PERSONNALITE",
+    "line": "SEMI-INDUSTRIAL",
     "production": "8-12 pcs/min",
     "description": "A Seladora Manual tipo L BSF-501 é amplamente utilizada pelas indústrias em geral para selar plásticos filmes termosseláveis, na vertical e horizontal, com o objetivo de vedá-los por completo e conferir-lhes um aspecto comercial. Possui um painel de controle compacto, de fácil operação, com interruptores bem acessíveis e sinalizados. Ademais, pode ser utilizada tanto em conjunto com os túneis de encolhimento, como independentemente.",
     "aliases": [],
@@ -8048,7 +8048,11 @@
     "line": "SEMI-INDUSTRIAL",
     "production": "Ajustável conforme o material",
     "description": "A Pratic Seal - Seladora Portátil TC-20 é um equipamento de operação simples. A estrutura é delicada e pequena, pesando menos de 3Kg. A interface de operação é simples, a temperatura e velocidade podem ser ajustadas de acordo com as caractéristicas do material a ser selado, podem operar na velocidade de 5 metros por minuto. Excelente custo-benefício para pequenas empresas e lojas.",
-    "aliases": ["Pratic Seal", "TC-20", "Seladora Portátil Pratic Seal"],
+    "aliases": [
+      "Pratic Seal",
+      "TC-20",
+      "Seladora Portátil Pratic Seal"
+    ],
     "active": true
   },
   {
@@ -8059,7 +8063,11 @@
     "line": "SEMI-INDUSTRIAL",
     "production": "Ajustável conforme o material",
     "description": "A Pratic Seal - Seladora Portátil TC-20 é um equipamento de operação simples. A estrutura é delicada e pequena, pesando menos de 3Kg. A interface de operação é simples, a temperatura e velocidade podem ser ajustadas de acordo com as caractéristicas do material a ser selado, podem operar na velocidade de 5 metros por minuto. Excelente custo-benefício para pequenas empresas e lojas.",
-    "aliases": ["Pratic Seal", "TC-20", "Seladora Portátil Pratic Seal"],
+    "aliases": [
+      "Pratic Seal",
+      "TC-20",
+      "Seladora Portátil Pratic Seal"
+    ],
     "active": true
   },
   {
@@ -8100,7 +8108,7 @@
     "name": "Seladora em L Manual",
     "sku": "963",
     "code": "PAMQSLTU072",
-    "line": "PERSONNALITE",
+    "line": "SEMI-INDUSTRIAL",
     "production": "8-12 pcs/min",
     "description": "A Seladora Manual tipo L BSF-501 é amplamente utilizada pelas indústrias em geral para selar plásticos filmes termosseláveis, na vertical e horizontal, com o objetivo de vedá-los por completo e conferir-lhes um aspecto comercial. Possui um painel de controle compacto, de fácil operação, com interruptores bem acessíveis e sinalizados. Ademais, pode ser utilizada tanto em conjunto com os túneis de encolhimento, como independentemente.",
     "aliases": [],
@@ -8111,7 +8119,7 @@
     "name": "Seladora em L Manual",
     "sku": "962",
     "code": "PAMQSLTU073",
-    "line": "PERSONNALITE",
+    "line": "SEMI-INDUSTRIAL",
     "production": "8-12 pcs/min",
     "description": "A Seladora Manual tipo L BSF-501 é amplamente utilizada pelas indústrias em geral para selar plásticos filmes termosseláveis, na vertical e horizontal, com o objetivo de vedá-los por completo e conferir-lhes um aspecto comercial. Possui um painel de controle compacto, de fácil operação, com interruptores bem acessíveis e sinalizados. Ademais, pode ser utilizada tanto em conjunto com os túneis de encolhimento, como independentemente.",
     "aliases": [],
@@ -8123,8 +8131,8 @@
     "sku": "",
     "code": "PAMQGPAU127",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "60-100 por minuto.",
+    "description": "A empacotadora de balança circulares modelo AFP2030C é uma solução inovadora e completa para a embalagem de produtos diversos, especialmente aqueles com formas irregulares que não podem ser embalados em outras máquinas automáticas. Com sua tecnologia avançada e design flexível, essa máquina é capaz de lidar com uma ampla variedade de produtos, garantindo uma embalagem segura e eficiente.",
     "aliases": [],
     "active": true
   },
@@ -8134,8 +8142,8 @@
     "sku": "",
     "code": "PAMQGPAU128",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "60-100 sacos/min",
+    "description": "A EXACTA 2030A foi desenvolvida para o empacotamento vertical automático de produtos granulados, com foco em alta velocidade, constância de processo e melhor aproveitamento da operação. A Empacotadora Automática de Grãos EXACTA 2030A atende aplicações como amendoim, aveia, glutamato monossódico, sementes, açúcar, feijão e outros materiais granulados, entregando uma proposta objetiva para linhas que precisam fracionar produtos secos com mais ritmo. Em células mais organizadas, ela também se encaixa bem na lógica de uma envasadora voltada a produtos fracionados.",
     "aliases": [],
     "active": true
   },
@@ -8145,8 +8153,8 @@
     "sku": "1135",
     "code": "PAMQGPAU129",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "50 a 70 embalagens por minuto",
+    "description": "A EXACTA 1328/P - Empacotadora Automática para Pastosos foi desenvolvida para formar, envasar, selar e cortar embalagens flexíveis de produtos pastosos bombeáveis. Com produtividade de 50 a 70 embalagens por minuto, funil de 30 litros e sistema de alimentação por bomba, automatiza as principais etapas do empacotamento em uma única estrutura. O equipamento trabalha com inversor de frequência e sistema de alimentação de alta precisão, permitindo controlar o processo de formação da embalagem, alimentação do produto, selagem e corte. É uma solução para operações que precisam reduzir o envase manual e manter maior regularidade na apresentação dos pacotes.",
     "aliases": [],
     "active": true
   },
@@ -8680,7 +8688,7 @@
   },
   {
     "id": "catalog-790",
-    "name": "COLETOR DE PO P/ MAQUINA COMPRESSORAS DE COMPR.MODELO  FS29",
+    "name": "COLETOR DE PO P/ MAQUINA COMPRESSORAS DE COMPR.MODELO FS29",
     "sku": "",
     "code": "PAMQSLSA153",
     "line": "PERSONNALITE",
@@ -8705,9 +8713,9 @@
     "name": "ALB512 - ROTULADORA SEMI AUTOMATICAS PARA LACRES",
     "sku": "1063",
     "code": "PAMQIPMN107",
-    "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "line": "SEMI-INDUSTRIAL",
+    "production": "35 a 90 lacres/min",
+    "description": "A ALB-512 foi desenvolvida para a aplicação semiautomática de lacres em embalagens quadradas, retangulares e similares, realizando rotulagem frontal, lateral e de canto com mais padronização e acabamento uniforme. A Rotuladora Semiautomática para Lacres ALB-512 atende operações que precisam melhorar a segurança do fechamento e reduzir falhas de aplicação. Em linhas mais organizadas, ela contribui para um processo de acabamento mais estável e mais profissional.",
     "aliases": [],
     "active": true
   },
@@ -8750,8 +8758,8 @@
     "sku": "",
     "code": "PAMQSLAU147",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "0-100 pcs/min",
+    "description": "A seladora automática tipo L BSF-50C é um equipamento de alta velocidade  e enclausurado, ideal para embalar  alimentos, artigos  de papelaria, presentes , livros  e muito mais. Com setup rápido, alarme de emergência, trava de segurança e alimentação ajustavel para diversos tamanhos de filme, oferece precisão e segurança. Seu controle de temperatura e ajustes praticos garantem uma operação facil e eficiente, atendendo  perfeitamente ás demandas  de produtividade e versatilidade no processo de embalagem.",
     "aliases": [],
     "active": true
   },
@@ -8772,8 +8780,8 @@
     "sku": "1093",
     "code": "PAMQSLAU150",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "até 30 peças/min",
+    "description": "A ASS 5640 embala diversos produtos com plástico filme, garantindo proteção reforçada, acabamento profissional e até 1.800 embalagens/hora. Totalmente enclausurada, atende às normas NR12 e oferece máxima segurança ao operador.\n\nSeu sistema de passagem de filme, mesa móvel ajustável e controladores de temperatura e velocidade permitem operar e ajustar diferentes tamanhos de embalagens com facilidade, de bandejas de alimentos a caixas de papelão e itens variados.\n\nCom proteções integradas e alarmes de segurança, a máquina garante embalagens uniformes e confiáveis. Quando acoplada a túneis de encolhimento, adapta o plástico ao formato do produto, reforçando a apresentação profissional e a credibilidade da marca.\n\nIdeal para varejo, e-commerces e indústrias, a ASS 5640 transforma o fechamento de embalagens em um diferencial de segurança, padronização e eficiência.",
     "aliases": [],
     "active": true
   },
@@ -8867,7 +8875,7 @@
   },
   {
     "id": "catalog-807",
-    "name": "FS550-39G  PRENSA ROTATIVA AUTOMATICA P/ COMPRIMIDOS P/ ALTA COMPACTACAO",
+    "name": "FS550-39G PRENSA ROTATIVA AUTOMATICA P/ COMPRIMIDOS P/ ALTA COMPACTACAO",
     "sku": "",
     "code": "PAMQSLSA172",
     "line": "PERSONNALITE",
@@ -9091,8 +9099,8 @@
     "sku": "1132",
     "code": "PAMQGPAU151",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "15-70 embalagens/min",
+    "description": "A EXACTA 420F foi projetada para empacotar líquidos e semilíquidos em uma estrutura vertical de formação, envase e selagem contínua. A Empacotadora Automática de Alto Desempenho EXACTA 420F atende aplicações como ketchup, molho, leite, molho de soja, vinagre e outros produtos semelhantes, entregando uma proposta mais estável para linhas que precisam fracionar líquidos com mais ritmo e padronização. Em operações compactas, ela também se encaixa com naturalidade na lógica de uma envasadora para porções líquidas.",
     "aliases": [],
     "active": true
   },
@@ -9102,8 +9110,8 @@
     "sku": "1117",
     "code": "PAMQGPAU152",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "até 50 embalagens/min",
+    "description": "A EXACTA 420E é uma empacotadora automática desenvolvida para operações que precisam embalar pós finos e ultrafinos com mais precisão, constância e desempenho. A proposta da EXACTA 420E é unir formação da embalagem, dosagem e selagem em um único fluxo contínuo, entregando uma solução robusta para linhas de produção que exigem padronização e rendimento.",
     "aliases": [],
     "active": true
   },
@@ -9248,7 +9256,7 @@
     "production": "",
     "description": "",
     "aliases": [],
-    "active": true
+    "active": false
   },
   {
     "id": "catalog-842",
@@ -9274,7 +9282,7 @@
   },
   {
     "id": "catalog-844",
-    "name": "FS100-  PULVERIZADOR DE GETINA",
+    "name": "FS100- PULVERIZADOR DE GETINA",
     "sku": "",
     "code": "PAMQGPAU156",
     "line": "PERSONNALITE",
@@ -9292,7 +9300,7 @@
     "production": "",
     "description": "",
     "aliases": [],
-    "active": true
+    "active": false
   },
   {
     "id": "catalog-846",
@@ -9300,8 +9308,8 @@
     "sku": "",
     "code": "PAMQCCAU017",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "0-8 caixas/min",
+    "description": "A montadora  de caixas tecfag modelo CES9060N/A foi desenvolvida para montar caixas de papelão ondulado, dobrando  e selando as abas inferiores com fita adesiva a base de cola hot melt ou acrilica. Desenvolvida com seu exclusivo sistema mecânico de sincronismo, a  CES9060N/A  permite maiores velocidades sem comprometimento da eficiência.",
     "aliases": [],
     "active": true
   },
@@ -9373,7 +9381,7 @@
   },
   {
     "id": "catalog-853",
-    "name": "DXDY-600AIII- MAQ. AUT. P/ ENVAZ.  LIQUIDOS",
+    "name": "DXDY-600AIII- MAQ. AUT. P/ ENVAZ. LIQUIDOS",
     "sku": "",
     "code": "PAMQLQAU149",
     "line": "PERSONNALITE",
@@ -9399,8 +9407,8 @@
     "sku": "1099",
     "code": "PAMQGPAU160",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "30–60 sachês/min",
+    "description": "A EXACTA 1328V foi desenvolvida para o empacotamento automático de produtos em pó, com foco em padronização, precisão de dosagem e produtividade no processo. A Empacotadora Vertical de Sachês para Pós EXACTA 1328V atende operações que precisam produzir sachês individuais com selagem em 3 lados, mantendo mais constância no acabamento e mais controle no empacotamento. Em linhas mais organizadas, ela também se encaixa bem na lógica de uma envasadora voltada a produtos fracionados.",
     "aliases": [],
     "active": true
   },
@@ -9410,8 +9418,8 @@
     "sku": "",
     "code": "PAMQLQAU150",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "15-35 ciclos/min (por bico)",
+    "description": "Máquina Envasadora de Líquidos e Produtos Pastosos\n\nDescrição:\n\nUtiliza uma bomba de engrenagens de alta precisão para garantir um fluxo constante e preciso de líquido ou produto pastoso.\nO sistema de enchimento proporciona uma grande flexibilidade de ajuste fino no controle do volume de envase.\nVolume de Envase:\nAplicações, desde pequenos volumes até grandes quantidades.\nO volume de envase pode ser facilmente ajustado e controlado para atender às necessidades específicas do produto.\n\nConfiguração:\n\n4 bicos de envase, possibilitando uma alta produtividade e precisão no processo de envase.\nOs bicos de envase são projetados para garantir uma distribuição uniforme e precisa do produto.\n\nControle:\n\nControle de vazão ajustável para garantir a precisão do volume de envasamento.\nSistema de limpeza fácil e eficiente para minimizar a contaminação e garantir a higiene do produto.\nInterface de operação amigável e fácil de usar para permitir uma operação simples e eficiente.",
     "aliases": [],
     "active": true
   },
@@ -9527,7 +9535,7 @@
   },
   {
     "id": "catalog-867",
-    "name": "ENVASADORA 6 BICOS E  SELADORA DE AMPOLAS DE VIDRO",
+    "name": "ENVASADORA 6 BICOS E SELADORA DE AMPOLAS DE VIDRO",
     "sku": "",
     "code": "PAMQLQAU160",
     "line": "PERSONNALITE",
@@ -9560,7 +9568,7 @@
   },
   {
     "id": "catalog-870",
-    "name": "ENVASADORA 4  BICOS E  SELADORA DE AMPOLAS DE VIDRO",
+    "name": "ENVASADORA 4 BICOS E SELADORA DE AMPOLAS DE VIDRO",
     "sku": "",
     "code": "PAMQLQAU162",
     "line": "PERSONNALITE",
@@ -9597,8 +9605,8 @@
     "sku": "",
     "code": "PAMQGPAU162",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "10-20 frascos/min",
+    "description": "A envasadora rotativa de pós  é responsável por dosar e envasar produtos  em pó com eficiência e precisão , mesmo sem o uso de  balança. Seu sistema rotativo com cabeçote unico  permite uma produção continua e confiável , ideal para linhas de envase padronizadas.\nEquipada com  bico de envase , funil com separador de água  e tela digital  touch screen, proporciona uma operação  prática  e intuitiva .\nSeu design é perfeito para ambientes industriais com necessidade de precisão , como os setores alimenticio , quimico e farmaceuti co .",
     "aliases": [],
     "active": true
   },
@@ -9641,8 +9649,8 @@
     "sku": "",
     "code": "PAMQCCAU023",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "6–15 caixas/min",
+    "description": "A CES5040V/A foi projetada para a montagem automática de caixas de papelão, formando, abrindo e fechando a parte inferior das caixas com precisão e padronização. O equipamento atende aplicações logísticas e industriais que exigem ganho de produtividade, redução de esforço manual e padronização do processo de montagem de caixas.",
     "aliases": [],
     "active": true
   },
@@ -9651,7 +9659,7 @@
     "name": "Esteira de Roletes Livres",
     "sku": "",
     "code": "PAMQESMA007",
-    "line": "PERSONNALITE",
+    "line": "SEMI-INDUSTRIAL",
     "production": "15m/min",
     "description": "Esteira de roletes livres com 1 metro de comprimento, excelente equipamento no auxílio do transporte de caixas, proporcionando uma melhora na logística interna que podem ser transportadas até o estoque ou diretamente para a expedição. Reduzindo assim a trabalho e otimizando o espaço e tempo dos colaboradores. É possível acoplar uma a outra para atender qualquer necessidade de comprimento.",
     "aliases": [],
@@ -9736,7 +9744,7 @@
   },
   {
     "id": "catalog-886",
-    "name": "RBL80II  ROTULADORA AUTOM. DE MESA LINEAR P/ FRASCOS CILINDRICOS",
+    "name": "RBL80II ROTULADORA AUTOM. DE MESA LINEAR P/ FRASCOS CILINDRICOS",
     "sku": "1112",
     "code": "PAMQIPMN122",
     "line": "PERSONNALITE",
@@ -9773,8 +9781,8 @@
     "sku": "1098",
     "code": "PAMQSLSA235",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "6–18 m/min",
+    "description": "A FL4000A foi desenvolvida para realizar a selagem por indução de tampas em frascos e garrafas, garantindo vedação segura, inviolabilidade e maior proteção do produto. A Seladora por Indução com Resfriamento a Água FL4000A atende operações dos segmentos alimentício, cosmético, farmacêutico, químico e de bebidas, funcionando como apoio importante em linhas que precisam de mais segurança e padronização no fechamento.",
     "aliases": [],
     "active": true
   },
@@ -9795,8 +9803,8 @@
     "sku": "1077",
     "code": "PAMQRSSA033",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "1.500 – 3.000 garrafas/hora",
+    "description": "A Rosqueadeira Automática com Alimentador de Tampas ADC70 foi desenvolvida para automatizar o rosqueamento de tampas em frascos com mais produtividade, repetibilidade e segurança operacional. A ADC70 atende operações que trabalham com tampas plásticas de rosca e frascos em diferentes dimensões, sendo indicada para linhas dos setores alimentício, farmacêutico, cosmético, de bebidas e químico.",
     "aliases": [],
     "active": true
   },
@@ -9806,8 +9814,8 @@
     "sku": "1096",
     "code": "PAMQESAU016",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "40–80 frascos/min",
+    "description": "A Mesa Acumuladora Giratória BTT 1200 foi desenvolvida para realizar a alimentação, ordenação e saída direcional automática de frascos redondos em linhas de produção. O equipamento funciona como apoio essencial para processos de envase, rotulagem e fechamento, contribuindo para maior fluidez e organização do processo produtivo. Em linhas mais organizadas, a BTT 1200 ajuda a manter o fluxo mais estável entre etapas.",
     "aliases": [],
     "active": true
   },
@@ -9872,8 +9880,8 @@
     "sku": "1111",
     "code": "PAMQGPAU171",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "1.200 a 3.600 frascos/hora",
+    "description": "A VSF2000 foi desenvolvida para realizar a dosagem automática de materiais sólidos com foco em precisão, repetibilidade e ganho de produtividade. A Dosadora para Grãos e Granulados com 4 Balanças Lineares VSF2000 atende principalmente grãos e granulados e pode operar com alguns pós, desde que o material apresente fluxo, densidade e comportamento compatíveis com a aplicação. Com 4 balanças lineares, a máquina foi pensada para operações que precisam sair do processo manual ou instável e migrar para uma dosagem mais padronizada.",
     "aliases": [],
     "active": true
   },
@@ -9894,8 +9902,8 @@
     "sku": "1149",
     "code": "PAMQGPAU173",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "50 a 500 embalagens por minuto",
+    "description": "A EXACTA 1000A - Embaladora de Balas Flow Pack foi projetada para organizar, alimentar e embalar individualmente balas, doces e pequenos produtos alimentícios de formato regular. A máquina utiliza uma mesa giratória com cavidades produzidas conforme as dimensões do produto, permitindo separar e conduzir uma unidade por vez até o sistema de embalagem. Com produtividade de 50 a 500 embalagens por minuto, a EXACTA 1000A automatiza a alimentação que normalmente dependeria do posicionamento manual das balas. O sistema reduz erros de alimentação dupla e mantém fluxo contínuo entre organização do produto, formação da embalagem, selagem, corte e saída.",
     "aliases": [],
     "active": true
   },
@@ -10000,18 +10008,18 @@
   },
   {
     "id": "catalog-910",
-    "name": "APF5000-2B/R  ENVASADORA AUTOM. 2 BICOS C/ BOMBA DE ROTOR",
+    "name": "APF5000-2B/R ENVASADORA AUTOM. 2 BICOS C/ BOMBA DE ROTOR",
     "sku": "1192",
     "code": "PAMQLQAU172",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "15 a 35 ciclos por minuto por bico",
+    "description": "A APF5000-2B/R - Envasadora Automática com 2 Bicos e Bomba de Rotor foi configurada para operações que precisam envasar líquidos e produtos pastosos com maior viscosidade em recipientes de diferentes volumes. Com faixa de dosagem de 50 a 5000 ml, dois bicos de envase e produtividade de 15 a 35 ciclos por minuto por bico, a máquina atende processos que exigem maior regularidade no enchimento e menor dependência de operação manual.",
     "aliases": [],
     "active": true
   },
   {
     "id": "catalog-911",
-    "name": "ADC90 - ROSQUEADORA AUT. C/  SERVO MOTOR ALIMENTACAO DE TAMPAS POR ESTEIRA",
+    "name": "ADC90 - ROSQUEADORA AUT. C/ SERVO MOTOR ALIMENTACAO DE TAMPAS POR ESTEIRA",
     "sku": "",
     "code": "PAMQRSSA034",
     "line": "PERSONNALITE",
@@ -10066,7 +10074,7 @@
   },
   {
     "id": "catalog-916",
-    "name": "ALIMENTADOR A VACUO -  SW200",
+    "name": "ALIMENTADOR A VACUO - SW200",
     "sku": "",
     "code": "PAMQSLSA270",
     "line": "PERSONNALITE",
@@ -10081,7 +10089,7 @@
     "sku": "",
     "code": "PAMQSLSA271",
     "line": "PERSONNALITE",
-    "production": "",
+    "production": "40-60",
     "description": "",
     "aliases": [],
     "active": true
@@ -10099,7 +10107,7 @@
   },
   {
     "id": "catalog-919",
-    "name": "BTT/B - MESA ROTATIVA  ACUMULADORA (BUFFER TABLE)",
+    "name": "BTT/B - MESA ROTATIVA ACUMULADORA (BUFFER TABLE)",
     "sku": "",
     "code": "PAMQESAU018",
     "line": "PERSONNALITE",
@@ -10110,7 +10118,7 @@
   },
   {
     "id": "catalog-920",
-    "name": "MISTURADOR RIBBON BLENDER INDUSTRIAL  3000L",
+    "name": "MISTURADOR RIBBON BLENDER INDUSTRIAL 3000L",
     "sku": "",
     "code": "PAMQSLSA272",
     "line": "PERSONNALITE",
@@ -10187,7 +10195,7 @@
   },
   {
     "id": "catalog-927",
-    "name": "MISTURADOR RIBBON BLENDER INDUSTRIAL  100L",
+    "name": "MISTURADOR RIBBON BLENDER INDUSTRIAL 100L",
     "sku": "",
     "code": "PAMQSLSA275",
     "line": "PERSONNALITE",
@@ -10198,7 +10206,7 @@
   },
   {
     "id": "catalog-928",
-    "name": "MISTURADOR RIBBON BLENDER INDUSTRIAL  40L",
+    "name": "MISTURADOR RIBBON BLENDER INDUSTRIAL 40L",
     "sku": "",
     "code": "PAMQSLSA276",
     "line": "PERSONNALITE",
@@ -10356,8 +10364,8 @@
     "sku": "",
     "code": "PAMQGPAU180",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "5-40 por minuto",
+    "description": "A EXACTA 420B é uma empacotadora com balança eletrônica de 4 (quatro) cabeças responsável por formar, dosar e selar saquinhos com vários tipos de pequenos grânulos ou pós, por exemplo, balas, biscoitinhos, sementes torradas, frutos secos, açúcar, leite em pó, sabão em pó e outros produtos similares. Assim, a aplicação da EXACTA 420B se estende a indústrias de segmento de artigos/produtos de alimentação, higiene e hardware, medicina, química. Além disso, a máquina possui estrutura de aço inoxidável 304 e adota tecnologia (HMI) com touch screen, permitindo que o usuário opere e monitore a máquina facilmente.",
     "aliases": [],
     "active": true
   },
@@ -10378,8 +10386,8 @@
     "sku": "",
     "code": "PAMQGPAU181",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "até 240 pacotes por minuto",
+    "description": "A Exacta 960DH-8 - Empacotadora Automática Multilinhas para Pós foi desenvolvida para dosar, formar e selar sachês de produtos em pó em alta produtividade. Com operação em 8 vias, sistema de dosagem por rosca servoacionada e capacidade máxima de até 240 pacotes por minuto, atende operações que precisam transformar pós já formulados em embalagens individuais com formato Sachê 4 Soldas, controle de comprimento, corte, codificação e contagem de produto acabado.",
     "aliases": [],
     "active": true
   },
@@ -10550,7 +10558,7 @@
   },
   {
     "id": "catalog-960",
-    "name": "MISTURADOR RIBBON BLENDER INDUSTRIAL  500L",
+    "name": "MISTURADOR RIBBON BLENDER INDUSTRIAL 500L",
     "sku": "1116",
     "code": "PAMQSLSA305",
     "line": "PERSONNALITE",
@@ -10594,7 +10602,7 @@
   },
   {
     "id": "catalog-964",
-    "name": "ENVASADORA SEMI AUTOMATICA DE  TINTAS 1 A 30 LITROS FECHAMENTO VIA ROLETES",
+    "name": "ENVASADORA SEMI AUTOMATICA DE TINTAS 1 A 30 LITROS FECHAMENTO VIA ROLETES",
     "sku": "",
     "code": "PAMQLQAU179",
     "line": "PERSONNALITE",
@@ -10620,8 +10628,8 @@
     "sku": "1138",
     "code": "PAMQGPAU200",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "Velocidade de referência para 5 kg: 800 pacotes por hora / Velocidade máxima da empacotadora: até 50 pacotes por minuto",
+    "description": "A Exacta 620G - Empacotadora Automática para Grãos foi desenvolvida para formar, dosar e selar pacotes de grãos secos em embalagem flexível tipo Back Seal. Com aplicação configurada para arroz em pacotes de 5 kg, trabalha com filme composto, dosagem por conjunto volumétrico, injeção de nitrogênio e saída por esteira transportadora. É uma empacotadora indicada para operações que precisam transformar grãos soltos em pacotes padronizados, com melhor apresentação, controle de peso e fluxo contínuo de produção.",
     "aliases": [],
     "active": true
   },
@@ -10638,7 +10646,7 @@
   },
   {
     "id": "catalog-968",
-    "name": "APF20000-4B/R  ENVAS. AUTOM. 4 BICOS C/ BOMBA DE ENGRENAGEM INOX 304",
+    "name": "APF20000-4B/R ENVAS. AUTOM. 4 BICOS C/ BOMBA DE ENGRENAGEM INOX 304",
     "sku": "",
     "code": "PAMQLQAU188",
     "line": "PERSONNALITE",
@@ -10693,7 +10701,7 @@
   },
   {
     "id": "catalog-973",
-    "name": "FZL-S500 EMPACOTADORA  SEL. TRASEIRA  C/ DOSADOR P/ BATATA CHIPS",
+    "name": "FZL-S500 EMPACOTADORA SEL. TRASEIRA C/ DOSADOR P/ BATATA CHIPS",
     "sku": "1118",
     "code": "PAMQGPAU185",
     "line": "PERSONNALITE",
@@ -10741,8 +10749,8 @@
     "sku": "1125",
     "code": "PAMQSLAU223",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "Velocidade de rotação do robô: 35 a 90 m/min. Velocidade de subida e descida do carro: 1,4 a 5 m/min.",
+    "description": "O BL700R foi desenvolvido para envolver com filme stretch cargas paletizadas com mais flexibilidade, autonomia e praticidade operacional. Por ser um robô móvel auto propelido, ele atende operações que precisam envolver paletes sem depender de uma base fixa, o que amplia a adaptação do equipamento a diferentes layouts e necessidades de expedição.",
     "aliases": [],
     "active": true
   },
@@ -10770,7 +10778,7 @@
   },
   {
     "id": "catalog-980",
-    "name": "FZL-240S2 -  EMPACOTADORA AUTOMATICA SEL. 3 LADOS(SEM DOSADOR)",
+    "name": "FZL-240S2 - EMPACOTADORA AUTOMATICA SEL. 3 LADOS(SEM DOSADOR)",
     "sku": "",
     "code": "PAMQSLSA309",
     "line": "PERSONNALITE",
@@ -10792,7 +10800,7 @@
   },
   {
     "id": "catalog-982",
-    "name": "FZL-300S -  EMPACOTADORA AUTOMATICA SEL. 3 LADOS(SEM DOSADOR)",
+    "name": "FZL-300S - EMPACOTADORA AUTOMATICA SEL. 3 LADOS(SEM DOSADOR)",
     "sku": "",
     "code": "PAMQSLSA311",
     "line": "PERSONNALITE",
@@ -10950,8 +10958,8 @@
     "sku": "",
     "code": "PAMQGPAU203",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "25 a 35 sachês/min por via",
+    "description": "A Exacta 300Y-2 - Empacotadora Automática de 2 Vias para Líquidos e Pastosos Tipo Sachê 4 Soldas foi configurada para automatizar o empacotamento de produtos líquidos e pastosos em sachês individuais produzidos simultaneamente em duas vias. Cada via trabalha com produtividade de 25 a 35 sachês por minuto, utilizando filme composto termosselável e formando embalagens com quatro soldas. A configuração inclui sistema de aquecimento e agitação, bomba pneumática de diafragma, datador por ribbon de 2 cabeças e esteira para saída dos sachês acabados.",
     "aliases": [],
     "active": true
   },
@@ -10961,8 +10969,8 @@
     "sku": "1136",
     "code": "PAMQGPAU204",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "25-40 pacotes por minuto",
+    "description": "A Exacta 280BK-4 - Empacotadora Automática Stick Pack Multivias foi desenvolvida para formar, dosar, envasar e selar produtos granulados em embalagens estreitas do tipo Stick Pack com fechamento Back Seal. Com 4 vias de produção, dosagem por caneca volumétrica e velocidade de 25 a 40 pacotes por minuto por via, atende operações que precisam produzir embalagens individuais compactas com boa cadência, controle de formação e acabamento padronizado.",
     "aliases": [],
     "active": true
   },
@@ -10983,8 +10991,8 @@
     "sku": "1128",
     "code": "PAMQGPAU206",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "40-80 pacotes/min",
+    "description": "A TC300 foi projetada para envolver e selar caixas rígidas e cartuchos com filme termosselável, entregando acabamento tridimensional com padrão visual superior. A proposta do equipamento é atender linhas que precisam proteger o produto contra poeira, umidade e violação, mantendo uma apresentação final limpa, padronizada e com aspecto premium.",
     "aliases": [],
     "active": true
   },
@@ -11074,7 +11082,7 @@
     "production": "",
     "description": "",
     "aliases": [],
-    "active": true
+    "active": false
   },
   {
     "id": "catalog-1008",
@@ -11082,8 +11090,8 @@
     "sku": "",
     "code": "PAMQGPAU211",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "20 a 35 pacotes por minuto",
+    "description": "A Exacta 720DH-6 - Empacotadora Automática Multivias para Pós foi desenvolvida para formar, dosar, envasar e selar produtos em pó em embalagens Sachê 4 Soldas. Com 6 vias de produção, largura máxima de filme de 720 mm e produtividade de 20 a 35 pacotes por minuto por via, atende operações que precisam escalar a produção de sachês individuais com padronização de formato, corte, codificação e transporte de saída.",
     "aliases": [],
     "active": true
   },
@@ -11104,8 +11112,8 @@
     "sku": "1150",
     "code": "PAMQSLAU227",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "20 a 80 pacotes por minuto",
+    "description": "A BSF600X - Seladora Pillow-Pack com Túnel de Encolhimento Integrado reúne formação da embalagem, selagem contínua, corte transversal e encolhimento térmico em uma única linha automática. Com produtividade de 20 a 80 pacotes por minuto, atende operações que precisam embalar volumes maiores com mais continuidade, regularidade de acabamento e menor movimentação do produto entre etapas separadas. O equipamento trabalha com filme plano de até 590 mm de largura e filmes termoencolhíveis PE, POF e PVC. A integração entre o módulo Pillow-Pack e o túnel de encolhimento permite que o produto avance continuamente desde a entrada na máquina até a saída com a embalagem termoencolhida.",
     "aliases": [],
     "active": true
   },
@@ -11280,8 +11288,8 @@
     "sku": "",
     "code": "PAMQGPAU214",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "Produtividade por via: 20 a 35 sachês por minuto / Produtividade total: 120 a 210 sachês por minuto",
+    "description": "A EXACTA 600Y-6 - Empacotadora Automática Multivias para Líquidos e Pastosos Tipo Stick concentra alimentação do produto, dosagem, formação da embalagem, selagem, corte, marcação e transporte de saída em uma única solução industrial. Com 6 vias simultâneas e produtividade total de 120 a 210 sachês por minuto, atende operações que precisam ampliar a capacidade de empacotamento sem instalar várias máquinas individuais. A máquina utiliza dosagem por pistão servomotorizado, partes em contato com o produto em aço inox AISI 316L e estrutura externa em aço inox AISI 304. Sua configuração já inclui bomba lobular, agitador mecânico, alinhador automático de filme, cabine de proteção em vidro temperado, marcador a laser, plataforma de segurança e esteira transportadora de saída.",
     "aliases": [],
     "active": true
   },
@@ -11291,8 +11299,8 @@
     "sku": "",
     "code": "PAMQGPAU215",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "Produtividade por via: 20 a 35 sachês por minuto / Produtividade total: 160 a 280 sachês por minuto",
+    "description": "A EXACTA 600Y-8 - Empacotadora Automática Multivias para Líquidos e Pastosos Tipo Stick reúne alimentação do produto, dosagem, formação da embalagem, selagem, corte, marcação e transporte de saída em uma solução voltada a produções de alto volume. Com 8 vias simultâneas, a máquina alcança de 160 a 280 sachês por minuto, ampliando a capacidade produtiva sem exigir a instalação de várias empacotadoras independentes. O equipamento utiliza dosagem por pistão servomotorizado, partes em contato com o produto em aço inox AISI 316L e estrutura externa em aço inox AISI 304. A configuração inclui bomba lobular, agitador mecânico, alinhador automático de filme, cabine de proteção, marcador a laser, plataforma de segurança e esteira transportadora de saída, formando uma solução mais completa para operações industriais.",
     "aliases": [],
     "active": true
   },
@@ -11302,8 +11310,8 @@
     "sku": "",
     "code": "PAMQGPAU216",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "Produtividade por via: 20 a 35 sachês por minuto / Produtividade total: 200 a 350 sachês por minuto",
+    "description": "A EXACTA 600Y-10 - Empacotadora Automática Multivias para Líquidos e Pastosos Tipo Stick reúne dosagem, formação, selagem, corte, marcação e transporte de saída em uma solução projetada para produções de alto volume. Com 10 vias simultâneas, o equipamento produz de 200 a 350 sachês por minuto, reduzindo a área necessária para alcançar uma produtividade que normalmente exigiria várias máquinas independentes. O sistema utiliza dosagem por pistão servomotorizado, partes em contato com o produto em aço inox AISI 316L e estrutura externa em aço inox AISI 304. A configuração desta máquina também inclui bomba lobular de alimentação, agitador mecânico, alinhador automático de filme, cabine de proteção, marcador a laser, plataforma de acesso e esteira transportadora de saída.",
     "aliases": [],
     "active": true
   },
@@ -11390,8 +11398,8 @@
     "sku": "1193",
     "code": "PAMQIPMN135",
     "line": "PERSONNALITE",
-    "production": "",
-    "description": "",
+    "production": "40 a 100 frascos/min",
+    "description": "A ADC 400 - Rosqueadeira Linear Automática de Alta Velocidade automatiza o transporte, alimentação e fechamento de tampas em frascos, alcançando produtividade de 40 a 100 unidades por minuto. O sistema linear utiliza 8 rodas de fricção para realizar o rosqueamento enquanto os recipientes seguem pela esteira, reduzindo a necessidade de fechamento manual e aumentando a regularidade do processo. A configuração acompanha alimentador elevatório de tampas, permitindo abastecimento automático do conjunto de rosqueamento. Os ajustes de velocidade, altura e espaçamento também permitem trabalhar com diferentes dimensões de frascos e tampas dentro das faixas especificadas.",
     "aliases": [],
     "active": true
   },
@@ -11400,7 +11408,7 @@
     "name": "RC1.5M-ESTEIRA DE ROLETES LIVRES 1.5 M",
     "sku": "",
     "code": "PAMQESMA010",
-    "line": "PERSONNALITE",
+    "line": "SEMI-INDUSTRIAL",
     "production": "",
     "description": "",
     "aliases": [],

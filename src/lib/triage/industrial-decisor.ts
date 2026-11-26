@@ -65,7 +65,9 @@ export function resolveEffectiveCatalogLine(machine: IndustrialMachine): {
   const normName = normalizeTriageText(machine.name || "");
   const isManualOrSemiName =
     /\b(?:manual|semi\s*automatic[ao]|semiautomatic[ao]|de\s+pedal)\b/.test(normName) &&
-    !/\b(?:termoformadora|blister|encapsuladora|prensa|comprimidos)\b/.test(normName);
+    !/\b(?:termoformadora|blister|encapsuladora|prensa|comprimidos|goma|gummy|dragear|supositorio\w*|linha\s+semi\s*automatica|envasadora\s+semi\s*automatica\s+(?:para\s+pos|de\s+liquidos\s+para\s+bags|de\s+tintas))\b/.test(
+      normName,
+    );
   if (isManualOrSemiName) {
     return { line: "SEMI-INDUSTRIAL", corrected: true };
   }
@@ -96,6 +98,7 @@ const categories = [
   "misturador",
   "moinho",
   "polidora",
+  "esteira",
 ];
 const STOPWORDS = new Set([
   "para",
@@ -178,6 +181,7 @@ export function machineCategories(text: string) {
     montadora: ["montar", "montagem", "armadora"],
     encaixotadora: ["encaixotar", "encaixotamento"],
     envolvedora: ["envolver", "stretch", "estiravel"],
+    esteira: ["esteiras", "roletes"],
   };
   return Array.from(
     new Set([
