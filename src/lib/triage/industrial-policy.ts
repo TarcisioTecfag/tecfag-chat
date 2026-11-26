@@ -1620,7 +1620,7 @@ export function isVagueIndustrialProductionValue(raw?: string | null): boolean {
   // Qualquer dígito numérico (ex.: "3000/h", "50 por dia") ou declaração explícita de desconhecimento/escala já é válida
   if (/\d/.test(normalized)) return false;
   if (
-    /\b(?:nao sei|sem estimativa|nao tenho estimativa|nao tenho media|nao tenho uma media|a definir com especialista|ainda nao sei|ainda nao defini|comecando agora|iniciando|artesanal|escala industrial|pequena producao|media producao|alta producao|grande producao|pequena escala|media escala|alta escala|grande escala|baixo volume|medio volume|alto volume|grande volume)\b/.test(
+    /\b(?:nao sei|nao sei informar|nao tenho como saber|sem estimativa|nao tenho estimativa|nao tenho media|nao tenho uma media|ainda nao tenho essa informacao|nao tenho essa informacao|nao informado|a definir com especialista|ainda nao sei|ainda nao defini|comecando agora|iniciando|artesanal|escala industrial|pequena producao|media producao|alta producao|grande producao|pequena escala|media escala|alta escala|grande escala|baixo volume|medio volume|alto volume|grande volume)\b/.test(
       normalized,
     )
   ) {
@@ -1629,6 +1629,142 @@ export function isVagueIndustrialProductionValue(raw?: string | null): boolean {
   return /^(?:muit[oa]s?|bastante|pouc[oa]s?|vari[oa]s?|um pouco|demais|bem pouco|muita coisa|bastante coisa|grande quantidade|alta quantidade|em grande quantidade)(?:\s+[a-z]{2,}){0,3}$/.test(
     normalized,
   );
+}
+
+/**
+ * Detecta quando o cliente informa objetivamente que não sabe ou não possui a informação de
+ * produtividade/volume ("ainda não tenho essa informação", "não tenho estimativa", etc.), além
+ * da recusa explícita já tratada por `isClientResistingProductionQuestion`.
+ */
+export function isClientUnableOrRefusingProduction(raw: string): boolean {
+  const text = normalizeTriageText(raw);
+  if (!text || text.length > 320) return false;
+  if (
+    /\b\d[\d.,]*\s*(?:mil\s+)?(?:un(?:id(?:ade)?s?)?|pcs?|pecas?|pacotes?|sacos?|potes?|frascos?|garrafas?|caixas?|capsulas?|saches?|kg|quilos?|litros?|l)\s*(?:\/|\bpor\b|\bao\b|\bna\b|\bno\b)\s*(?:min(?:uto)?|h|hr|hora|dia|semana|mes|turno)\b/.test(
+      text,
+    )
+  ) {
+    return false;
+  }
+  if (isClientResistingProductionQuestion(raw)) return true;
+  return (
+    /\b(?:ainda\s+)?nao\s+tenho\s+(?:essa\s+|esta\s+)?(?:informacao|media|estimativa|previsao|dado|numero|ideia)\b/.test(
+      text,
+    ) ||
+    /\bnao\s+(?:sei|sabemos)\s+(?:ainda|informar|dizer|estimar|a\s+media|o\s+volume|a\s+producao|a\s+produtividade|quanto)\b/.test(
+      text,
+    ) ||
+    /\b(?:nao\s+faco\s+ideia|sem\s+(?:media|estimativa|previsao)\s*(?:de\s+producao|ainda)?|ainda\s+nao\s+defini(?:mos)?|nao\s+temos\s+(?:essa\s+)?(?:informacao|media|estimativa))\b/.test(
+      text,
+    )
+  );
+}
+
+/**
+ * Detecta quando o cliente recusa continuar respondendo ao questionário de qualificação, já é
+ * cliente recorrente pronto para comprar/Pix de modelo conhecido, ou pede contato humano por
+ * ligação/celular — devendo escalar imediatamente para Análise e revisão humana sem forçar barra.
+ */
+export function isClientRefusingAdditionalQualification(raw: string): boolean {
+  const clean = String(raw || "").trim();
+  if (!clean || clean.length > 420) return false;
+  if (isClientDecliningTriage(clean) || isAutomatedBotOrUraMessage({ text: clean })) {
+    return false;
+  }
+  if (isClientResistingProductionQuestion(clean)) return true;
+  const text = normalizeTriageText(clean);
+  if (!text) return false;
+
+  // 1. Recusa explícita de continuar questionário / informar dados (CNPJ, CPF, volume, etc.)
+  if (
+    /\b(?:nao\s+quero\s+(?:passar|informar|fornecer|dar|responder)|prefiro\s+nao\s+(?:passar|informar|fornecer|responder)|nao\s+vou\s+(?:passar|informar)|nao\s+estou\s+com\s+(?:o\s+)?(?:cnpj|cpf)|sem\s+(?:o\s+)?(?:cnpj|cpf)\s+(?:agora|aqui|facil)|muitas\s+perguntas|para\s+de\s+perguntar|chega\s+de\s+perguntas|sem\s+mais\s+perguntas|so\s+quero\s+(?:o\s+)?(?:preco|valor|orcamento|cotacao|falar\s+com\s+(?:um\s+)?(?:vendedor|consultor|humano|atendente)))\b/.test(
+      text,
+    )
+  ) {
+    return true;
+  }
+
+  // Não sequestra solicitações genuínas de assistência técnica/defeito ou peças de reposição
+  const isSupportOrPartsContext =
+    /\b(?:defeito|quebrou|nao\s+(?:liga|funciona|sela|corta|esquenta)|manual|assistencia\s+tecnica|suporte\s+tecnico|peca\s+de\s+reposicao|pecas\s+de\s+reposicao|resistencia|teflon|correia)\b/.test(
+      text,
+    );
+
+  // 2. Cliente recorrente que já possui/conhece a máquina e dispensa triagem técnica (Paulo/DB, Ricardo)
+  if (!isSupportOrPartsContext) {
+    const ownsMultipleOrPrior =
+      /\b(?:ja\s+)?(?:tenho|temos|uso|usamos|possuo|possuimos|comprei|compramos)\s+(?:varias?|diversas?|uma|duas|tres|\d+)\s+(?:maquinas?|seladoras?|envasadoras?|dosadoras?|rotuladoras?|empacotadoras?|equipamentos?)\b/.test(
+        text,
+      );
+    const recurrentBypassCue =
+      /\b(?:ja\s+conheco|conheco\s+o\s+produto|de\s+reserva|mais\s+uma|desculpe|nao\s+precisa\s+de|so\s+quero|so\s+preciso)\b/.test(
+        text,
+      );
+    const knowsProductOrIsClient =
+      /\b(?:ja\s+conheco\s+(?:o\s+produto|a\s+maquina|o\s+equipamento|os\s+equipamentos)|ja\s+sou\s+cliente|ja\s+somos\s+clientes?)\b/.test(
+        text,
+      );
+    const commercialBypassCue =
+      /\b(?:tenho\s+\d+|varias?\s+(?:seladoras?|maquinas?|envasadoras?)|so\s+(?:quero|preciso)|desculpe|preco|valor|proposta|pix|orcamento|cotacao|comprar\s+mais\s+uma)\b/.test(
+        text,
+      );
+    if (
+      (ownsMultipleOrPrior && recurrentBypassCue) ||
+      (knowsProductOrIsClient && commercialBypassCue)
+    ) {
+      return true;
+    }
+  }
+
+  // 3. Pronto para pagar / pedido explícito de chave Pix (Ricardo Wennek)
+  if (
+    /\b(?:ja\s+me\s+)?(?:manda|envia|passa)\s+(?:(?:o|a)\s+)?(?:chave\s+)?pix\b/.test(text) ||
+    /\bchave\s+pix\b.*\b(?:ja\s+faco|ja\s+pago|vou\s+pagar|fechar|comprar)\b/.test(text)
+  ) {
+    return true;
+  }
+
+  // 4. Pedido explícito de contato por ligação / celular (Luiz Ernani)
+  if (
+    /\b(?:poderia|pode|consegue|prefiro\s+que)\s+me\s+(?:chamar|ligar)\s+(?:via\s+|no\s+|por\s+|pelo\s+)?(?:celular|telefone|ligacao|whats(?:app)?)\b/.test(
+      text,
+    ) ||
+    /\b(?:me\s+liga|liga\s+(?:pra|para)\s+mim|quero\s+(?:falar|conversar)\s+(?:por|ao)\s+telefone|prefiro\s+(?:falar|conversar)\s+por\s+(?:telefone|ligacao))\b/.test(
+      text,
+    )
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+/** Verifica se o próprio Fagner já perguntou um determinado campo obrigatório neste ciclo. */
+export function botAlreadyAskedMissingField(
+  botMessages: readonly string[],
+  field: RequiredField,
+): boolean {
+  const pattern = (() => {
+    switch (field) {
+      case "production":
+        return /\b(?:producao|produtividade|volume\s+de\s+producao|volume\s+aproximado|quantos?\s+(?:pacotes?|sacos?|frascos?|unidades?|potes?|kg|quilos?|packs?|kits?|caixas?)\s+(?:por|\/))\b/;
+      case "document":
+        return /\b(?:cnpj|cpf|nome\s+da\s+sua\s+empresa|para\s+qual\s+empresa)\b/;
+      case "application":
+        return /\b(?:o\s+que\s+(?:exatamente\s+)?(?:voce\s+)?(?:vai|pretende|precisa)\s+(?:embalar|envasar|selar|produzir|processar|rotular|datar)|qual\s+(?:sera\s+a\s+|e\s+a\s+)?aplicacao|qual\s+produto\s+voce\s+pretende)\b/;
+      case "name":
+        return /\b(?:qual\s+(?:e\s+)?(?:o\s+)?seu\s+nome|como\s+(?:voce\s+)?se\s+chama)\b/;
+      case "request":
+        return /\b(?:qual\s+(?:maquina|equipamento|peca|solucao)|como\s+posso\s+te\s+ajudar)\b/;
+      default:
+        return null;
+    }
+  })();
+  if (!pattern) return false;
+  return botMessages.some((msg) => {
+    const text = normalizeTriageText(String(msg || ""));
+    return Boolean(text && pattern.test(text));
+  });
 }
 
 const ACTIVE_DEMAND_CUE_PATTERN =

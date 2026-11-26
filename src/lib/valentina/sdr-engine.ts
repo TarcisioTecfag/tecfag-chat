@@ -2786,6 +2786,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
             messages: aiResult.messagesToSend,
             knownCompanyToConfirm: pendingKnownCompanyToConfirm,
             businessHours: industrialBusinessHours,
+            clientRescheduled: clientRescheduledNow,
           });
           if (evaluated.needsGeminiRewrite && evaluated.rewriteMode) {
             const rewritten = await rewriteIndustrialReplyWithGemini({
@@ -2822,8 +2823,8 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
               industrialHandoff.status === "collecting" &&
               flowState
             ) {
-              // Escape hatch inteligente do Gemini: cliente resistiu ao questionário ou indicou
-              // que os dados já constam na proposta — escala imediatamente para revisão humana!
+              // Escape hatch inteligente do Gemini: cliente resistiu ao questionário, pediu ligação/Pix
+              // ou indicou que os dados já constam na proposta — escala para revisão humana (e Ponte Site→WA no Site)!
               const reviewRoute: IndustrialRoute = {
                 subflow: "5A_CLIENTE",
                 funnelStage: "outros",
@@ -2831,58 +2832,125 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
                 needsReview: true,
                 reason: "specialist_review",
               };
-              const { prepareIndustrialApproval, notifySdrTeamApprovalPending } = await import(
-                "../triage/industrial-approval-store"
-              );
-              const approvalPrep = await prepareIndustrialApproval(
-                db,
-                {
-                  tenantId,
-                  conversationId,
-                  flowId: flowState.id,
-                  cycle: flowState.startedAt.toISOString(),
-                },
-                {
-                  route: reviewRoute,
-                  data: updatedCollectedData,
-                  clientName: updatedCollectedData["NOME COMPLETO"]?.value || "Cliente WhatsApp",
-                  companyName: updatedCollectedData["EMPRESA"]?.value || "Empresa não informada",
-                  contactId: convCheck?.contactId || null,
-                  machineDecision,
-                  siteContext,
-                },
-              );
-              if (approvalPrep.prepared && approvalPrep.suggestion) {
-                industrialRoute = reviewRoute;
-                stageAndFunnel = {
-                  funnelStage: reviewRoute.funnelStage,
-                  targetFunnel: reviewRoute.targetFunnel,
-                };
-                industrialHandoff = {
-                  status: "awaiting_approval",
-                  operator: null,
-                  deal: approvalPrep.suggestion.dealId
-                    ? {
-                        dealId: approvalPrep.suggestion.dealId,
-                        dealTitle: updatedCollectedData["NOME COMPLETO"]?.value || "Cliente WhatsApp",
-                        action: "reused_within_3h",
-                        funnelId: approvalPrep.suggestion.suggestedPipelineId || "",
-                        stageId: approvalPrep.suggestion.suggestedStageId || "",
-                      }
-                    : null,
-                };
-                industrialHandoffPersisted = true;
-                allocatedOp = null;
-                localCrmResult = industrialHandoff.deal;
-                void notifySdrTeamApprovalPending(db, {
-                  tenantId,
-                  conversationId,
-                  suggestion: approvalPrep.suggestion,
-                }).catch((err: any) =>
-                  console.warn("[SdrEngine] Aviso ao notificar setor SDR após escape hatch Gemini:", err?.message),
-                );
+              const reviewClientName =
+                updatedCollectedData["NOME COMPLETO"]?.value || "Cliente WhatsApp";
+              const reviewCompanyName =
+                updatedCollectedData["EMPRESA"]?.value || "Empresa não informada";
+              let handledBySiteWhatsappRewriter = false;
+
+              if (isSiteConversationId(conversationId)) {
+                try {
+                  const { dispatchSiteTriageToWhatsApp } = await import(
+                    "../livechat/site-whatsapp-handoff"
+                  );
+                  const siteWaRes = await dispatchSiteTriageToWhatsApp(db, {
+                    tenantId,
+                    siteConversationId: conversationId,
+                    siteFlowId: flowState.id,
+                    cycle: flowState.startedAt.toISOString(),
+                    route: reviewRoute,
+                    data: updatedCollectedData,
+                    clientName: reviewClientName,
+                    companyName: reviewCompanyName,
+                    contactId: convCheck?.contactId || null,
+                    machineDecision,
+                    siteContext,
+                    businessHours: industrialBusinessHours,
+                  });
+                  if (siteWaRes.handedOff) {
+                    handledBySiteWhatsappRewriter = true;
+                    siteWhatsappHandoffMessage = siteWaRes.closingMessageForSite || null;
+                    industrialRoute = reviewRoute;
+                    stageAndFunnel = {
+                      funnelStage: reviewRoute.funnelStage,
+                      targetFunnel: reviewRoute.targetFunnel,
+                    };
+                    industrialHandoff = {
+                      status: "transferred",
+                      operator: null,
+                      deal: siteWaRes.dealId
+                        ? {
+                            dealId: siteWaRes.dealId,
+                            dealTitle: siteWaRes.dealTitle || reviewClientName,
+                            action: "created_new",
+                            funnelId: siteWaRes.pipelineId || "",
+                            stageId: siteWaRes.stageId || "",
+                          }
+                        : null,
+                    };
+                    industrialHandoffPersisted = true;
+                    allocatedOp = null;
+                    localCrmResult = industrialHandoff.deal;
+                    aiResult.messagesToSend = [
+                      siteWhatsappHandoffMessage || rewritten.messagesToSend[0],
+                    ].filter(Boolean) as string[];
+                  } else {
+                    console.warn(
+                      `[SdrEngine] Ponte Site→WhatsApp pós-escape-hatch rewriter não disparada (${conversationId}, ${siteWaRes.reason || "erro"}); mantendo awaiting_approval no site.`,
+                    );
+                  }
+                } catch (siteBridgeErr: any) {
+                  console.warn(
+                    `[SdrEngine] Aviso na ponte Site→WhatsApp pós-escape-hatch rewriter (${conversationId}):`,
+                    siteBridgeErr?.message || siteBridgeErr,
+                  );
+                }
               }
-              aiResult.messagesToSend = rewritten.messagesToSend;
+
+              if (!handledBySiteWhatsappRewriter) {
+                const { prepareIndustrialApproval, notifySdrTeamApprovalPending } = await import(
+                  "../triage/industrial-approval-store"
+                );
+                const approvalPrep = await prepareIndustrialApproval(
+                  db,
+                  {
+                    tenantId,
+                    conversationId,
+                    flowId: flowState.id,
+                    cycle: flowState.startedAt.toISOString(),
+                  },
+                  {
+                    route: reviewRoute,
+                    data: updatedCollectedData,
+                    clientName: reviewClientName,
+                    companyName: reviewCompanyName,
+                    contactId: convCheck?.contactId || null,
+                    machineDecision,
+                    siteContext,
+                  },
+                );
+                if (approvalPrep.prepared && approvalPrep.suggestion) {
+                  industrialRoute = reviewRoute;
+                  stageAndFunnel = {
+                    funnelStage: reviewRoute.funnelStage,
+                    targetFunnel: reviewRoute.targetFunnel,
+                  };
+                  industrialHandoff = {
+                    status: "awaiting_approval",
+                    operator: null,
+                    deal: approvalPrep.suggestion.dealId
+                      ? {
+                          dealId: approvalPrep.suggestion.dealId,
+                          dealTitle: reviewClientName,
+                          action: "reused_within_3h",
+                          funnelId: approvalPrep.suggestion.suggestedPipelineId || "",
+                          stageId: approvalPrep.suggestion.suggestedStageId || "",
+                        }
+                      : null,
+                  };
+                  industrialHandoffPersisted = true;
+                  allocatedOp = null;
+                  localCrmResult = industrialHandoff.deal;
+                  void notifySdrTeamApprovalPending(db, {
+                    tenantId,
+                    conversationId,
+                    suggestion: approvalPrep.suggestion,
+                  }).catch((err: any) =>
+                    console.warn("[SdrEngine] Aviso ao notificar setor SDR após escape hatch Gemini:", err?.message),
+                  );
+                }
+                aiResult.messagesToSend = rewritten.messagesToSend;
+              }
             } else if (rewritten?.messagesToSend?.length) {
               aiResult.messagesToSend = rewritten.messagesToSend;
             } else if (

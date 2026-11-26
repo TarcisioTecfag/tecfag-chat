@@ -103,6 +103,93 @@ export function extractCnpjFromText(text: string): string | null {
 }
 
 /**
+ * Extrai o primeiro CNPJ matematicamente válido encontrado em um texto extenso
+ * (como o conteúdo extraído de um Cartão CNPJ em PDF ou mediaDescription).
+ */
+export function extractValidCnpjFromDocumentText(text: string): string | null {
+  if (!text) return null;
+
+  const formattedMatches = text.match(/\b\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}\b/g) || [];
+  for (const candidate of formattedMatches) {
+    if (validateCnpj(candidate)) return candidate;
+  }
+
+  const rawDigitMatches = text.match(/\b\d{14}\b/g) || [];
+  for (const candidate of rawDigitMatches) {
+    if (validateCnpj(candidate)) {
+      return candidate.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5");
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Extrai texto de um PDF em Base64 usando `pdf-parse` (mesmo padrão seguro de knowledge-extract.ts)
+ * e retorna o primeiro CNPJ matematicamente válido encontrado. Nunca lança exceção em PDFs inválidos.
+ */
+export async function extractCnpjFromPdfBase64(base64: string): Promise<string | null> {
+  if (!base64 || typeof base64 !== "string") return null;
+  let parser: any = null;
+  try {
+    const normalizedBase64 = base64.includes(";base64,")
+      ? base64.slice(base64.indexOf(";base64,") + ";base64,".length)
+      : base64;
+    const buf = Buffer.from(normalizedBase64.trim(), "base64");
+    if (buf.length === 0 || buf.length > 5 * 1024 * 1024) return null;
+
+    const [{ pathToFileURL }, fs, path, pdfParsePkg] = await Promise.all([
+      import("node:url"),
+      import("node:fs"),
+      import("node:path"),
+      import("pdf-parse"),
+    ]);
+
+    let extractedText = "";
+    if ((pdfParsePkg as any).PDFParse) {
+      const ParserClass = (pdfParsePkg as any).PDFParse;
+      if (typeof ParserClass.setWorker === "function") {
+        const workerCandidates = [
+          path.resolve(process.cwd(), "node_modules/pdf-parse/dist/pdf-parse/esm/pdf.worker.mjs"),
+          path.resolve(process.cwd(), "node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs"),
+        ];
+        for (const candidate of workerCandidates) {
+          if (fs.existsSync(candidate)) {
+            ParserClass.setWorker(pathToFileURL(candidate).href);
+            break;
+          }
+        }
+      }
+      parser = new ParserClass({ data: buf });
+      const result = await parser.getText();
+      extractedText = result?.text || "";
+    } else if (typeof pdfParsePkg === "function") {
+      const result = await (pdfParsePkg as any)(buf);
+      extractedText = result?.text || "";
+    } else if (typeof (pdfParsePkg as any).default === "function") {
+      const result = await (pdfParsePkg as any).default(buf);
+      extractedText = result?.text || "";
+    }
+
+    const cleaned = String(extractedText || "")
+      .replace(/\0/g, "")
+      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, " ")
+      .trim();
+
+    if (!cleaned) return null;
+    return extractValidCnpjFromDocumentText(cleaned);
+  } catch {
+    return null;
+  } finally {
+    if (parser && typeof parser.destroy === "function") {
+      try {
+        await parser.destroy();
+      } catch {}
+    }
+  }
+}
+
+/**
  * Busca dados da empresa usando a API do cnpj.ws (com fallback para BrasilAPI e MinhaReceita)
  */
 export async function fetchCnpjInfo(cnpjRaw: string): Promise<CnpjData> {

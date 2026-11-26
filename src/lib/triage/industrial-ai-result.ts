@@ -130,6 +130,12 @@ const schema = z.object({
   quoteMessageId: nullableTrimmedString(250),
   mediaDescription: nullableTrimmedString(8000),
   directOperatorRequest: directOperatorRequestSchema,
+  escalateToHumanReview: z
+    .unknown()
+    .optional()
+    .transform((v) => v === true || v === "true")
+    .default(false),
+  escalationReason: nullableTrimmedString(120).optional().default(null),
   isCompleted: z
     .unknown()
     .transform((v) => v === true || v === "true")

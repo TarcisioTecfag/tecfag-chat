@@ -1,4 +1,5 @@
 import { vertexAi, type VertexCallContext } from "../vertex-ai";
+import { isPrematureIndustrialHandoffBubble } from "./industrial-handoff";
 import {
   buildIndustrialFollowUpText,
   formatFirstNameTitleCase,
@@ -263,6 +264,7 @@ ${stageGuidance}
 - Sem aspas, sem markdown (sem **negrito** ou listas), no máximo 1 emoji sutil ou nenhum.
 - PROIBIDO inventar preço/valor (R$), desconto, prazo de entrega ou modelos de máquinas que NÃO apareceram na conversa.
 - PROIBIDO prometer ligação ou retorno humano imediato.
+- PROIBIDO afirmar que a solicitação já foi registrada/encaminhada ou que um especialista entrará em contato (a triagem ainda está em coleta).
 - PROIBIDO pedir qualquer dado que já conste em DADOS JÁ COLETADOS (ex.: se EMPRESA já estiver preenchida, NUNCA peça o nome da empresa novamente; se faltar apenas o nome da pessoa, pergunte como ela se chama e nunca o nome da empresa).
 
 Responda EXCLUSIVAMENTE com JSON puro neste formato:
@@ -319,6 +321,15 @@ export function sanitizeIndustrialFollowUpMessage(
 
   if (PROMISED_IMMEDIATE_CALL_PATTERN.test(text)) {
     return { valid: false, text: null, rejectReason: "forbidden_promise_blocked" };
+  }
+
+  if (
+    isPrematureIndustrialHandoffBubble(text) ||
+    /\b(?:foi\s+(?:registrad[ao]|encaminhad[ao]|direcionad[ao]|transferid[ao])|j[aá]\s+(?:registrei|encaminhei|direcionei|transferi))\b/i.test(
+      text,
+    )
+  ) {
+    return { valid: false, text: null, rejectReason: "false_handoff_or_registration_blocked" };
   }
 
   // No estágio 1, rejeita frases clichês genéricas se o modelo ignorou a instrução de personalização

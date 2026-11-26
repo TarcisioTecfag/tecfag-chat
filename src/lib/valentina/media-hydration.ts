@@ -6,6 +6,7 @@ export type HydratableMediaType = "image" | "audio" | "document";
 export interface ParsedMediaTag {
   mediaType: HydratableMediaType;
   mediaId: string;
+  fileName?: string;
   caption: string;
 }
 
@@ -17,10 +18,12 @@ export interface HydratedMediaAttachment {
   mediaBase64: string;
 }
 
-const MEDIA_TAG_REGEX = /^\[MEDIA:(image|audio|document|sticker)\]([a-zA-Z0-9._-]+)(?:\r?\n([\s\S]*))?$/i;
+const MEDIA_TAG_REGEX =
+  /^\[MEDIA:(image|audio|document|sticker)\]([a-zA-Z0-9._-]+)(?::([^\r\n]*))?(?:\r?\n([\s\S]*))?$/i;
 
 /**
- * Extrai tipo e ID de mídia de conteúdos persistidos no formato `[MEDIA:image]med_xxx`.
+ * Extrai tipo e ID de mídia de conteúdos persistidos no formato `[MEDIA:image]med_xxx`
+ * ou `[MEDIA:document]med_xxx:arquivo.pdf`.
  */
 export function parseMediaTagFromContent(content: string | null | undefined): ParsedMediaTag | null {
   const raw = String(content || "").trim();
@@ -30,10 +33,12 @@ export function parseMediaTagFromContent(content: string | null | undefined): Pa
   const rawType = match[1].toLowerCase();
   const mediaType: HydratableMediaType =
     rawType === "sticker" ? "image" : (rawType as HydratableMediaType);
+  const fileName = (match[3] || "").trim() || undefined;
   return {
     mediaType,
     mediaId: match[2].trim(),
-    caption: (match[3] || "").trim(),
+    ...(fileName ? { fileName } : {}),
+    caption: (match[4] || "").trim(),
   };
 }
 
