@@ -40,6 +40,7 @@ export default defineConfig({
     // Incluir explicitamente os plugins do servidor (ex: WebSocket handler)
     plugins: [
       "server/plugins/graceful-shutdown.ts",
+      "server/plugins/event-loop-watchdog.ts",
       "server/plugins/websocket.ts",
       "server/plugins/orphan-cleanup.ts",
       "server/plugins/recovery.ts",

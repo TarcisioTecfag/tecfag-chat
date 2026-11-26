@@ -6,6 +6,7 @@ import {
   type ContactPhoneItem,
 } from "../crm/contact-phones";
 import { runtimeSingleton } from "../runtime-singleton";
+import { trackEventLoopOperation } from "../event-loop-watchdog";
 import { db } from "../../db";
 import {
   pendingInbounds,
@@ -102,6 +103,7 @@ export class InboundProcessor {
       })
       .onConflictDoNothing();
     let result;
+    const endInboundTrack = trackEventLoopOperation(`inbound:${inbound.provider}:${tenantId}`);
     try {
       result = await db.transaction(async (tx) => {
         await tx.execute(
@@ -130,6 +132,8 @@ export class InboundProcessor {
           ),
         );
       return { success: false, error: "Falha no processamento; evento preservado." };
+    } finally {
+      endInboundTrack();
     }
     if (result.success && !result.duplicate && result.messageId && result.conversationId) {
       try {

@@ -1703,9 +1703,59 @@ export function isClientDecliningTriage(raw: string): boolean {
   );
 }
 
+const POST_CLOSE_COURTESY_MULTIWORD_PHRASES = [
+  "tenha um bom dia",
+  "tenha um otimo dia",
+  "tenha uma boa tarde",
+  "tenha uma boa noite",
+  "pelo retorno",
+  "pela atencao",
+  "bom dia",
+  "boa tarde",
+  "boa noite",
+  "ate mais",
+  "de nada",
+];
+
+const POST_CLOSE_COURTESY_SINGLE_TOKENS = new Set([
+  "a",
+  "eh",
+  "ta",
+  "okay",
+  "certo",
+  "beleza",
+  "blz",
+  "joia",
+  "show",
+  "perfeito",
+  "combinado",
+  "entendido",
+  "entendi",
+  "tranquilo",
+  "valeu",
+  "vlw",
+  "obg",
+  "bgd",
+  "muito",
+  "obrigado",
+  "obrigada",
+  "agradeco",
+  "igualmente",
+  "otimo",
+  "otima",
+  "abraco",
+  "abracos",
+  "tchau",
+  "disponha",
+  "imagina",
+  "sim",
+  "nao",
+]);
+
 /**
  * Detecta mensagens curtas puramente de cortesia/despedida após um encerramento automático
  * (ex.: "Ok", "Obrigada", "Ah ta joia", "Tenha um bom dia"), que NÃO devem reabrir o fluxo.
+ * Implementação estritamente linear O(N) para eliminar qualquer risco de backtracking (ReDoS).
  */
 export function isPostCloseCourtesyOnlyMessage(raw: string): boolean {
   const clean = String(raw || "").trim();
@@ -1716,9 +1766,44 @@ export function isPostCloseCourtesyOnlyMessage(raw: string): boolean {
   if (text.length > 90) return false;
   if (clean.includes("?") || ACTIVE_DEMAND_CUE_PATTERN.test(text)) return false;
 
-  return /^(?:(?:ah+|a|eh|ta|t[aá]|ok+|okay|certo|beleza|blz|joia|show|perfeito|combinado|entendido|entendi|tranquilo|valeu|vlw|obg|bgd|muito|obrigad[oa]|agradeco|pelo\s+retorno|pela\s+atencao|igualmente|otimo|otima|bom\s+dia|boa\s+tarde|boa\s+noite|tenha\s+um\s+bom\s+dia|tenha\s+um\s+otimo\s+dia|tenha\s+uma\s+boa\s+tarde|tenha\s+uma\s+boa\s+noite|abraco|abracos|tchau|ate\s+mais|disponha|imagina|de\s+nada|sim|nao)[\s,!.]*)+$/.test(
-    text,
-  );
+  const words = text
+    .replace(/[\s,!.]+/g, " ")
+    .trim()
+    .split(" ")
+    .filter(Boolean);
+  if (words.length === 0) return true;
+
+  let idx = 0;
+  while (idx < words.length) {
+    let matchedPhraseLen = 0;
+    for (const phrase of POST_CLOSE_COURTESY_MULTIWORD_PHRASES) {
+      const parts = phrase.split(" ");
+      if (idx + parts.length <= words.length) {
+        let matches = true;
+        for (let k = 0; k < parts.length; k++) {
+          if (words[idx + k] !== parts[k]) {
+            matches = false;
+            break;
+          }
+        }
+        if (matches) {
+          matchedPhraseLen = parts.length;
+          break;
+        }
+      }
+    }
+    if (matchedPhraseLen > 0) {
+      idx += matchedPhraseLen;
+      continue;
+    }
+    const token = words[idx];
+    if (POST_CLOSE_COURTESY_SINGLE_TOKENS.has(token) || /^(?:ah+|ok+)$/.test(token)) {
+      idx += 1;
+      continue;
+    }
+    return false;
+  }
+  return true;
 }
 
 /**

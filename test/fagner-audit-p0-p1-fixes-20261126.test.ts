@@ -8,6 +8,7 @@ import {
 import {
   isAutomatedBotOrUraMessage,
   isClientResistingProductionQuestion,
+  isPostCloseCourtesyOnlyMessage,
   isTerseProductionFrustrationTurn,
   isValidIndustrialPersonName,
   isVagueIndustrialProductionValue,
@@ -188,5 +189,19 @@ describe("Pacote P0/P1 Auditoria Fagner 25/11–26/11/2026", () => {
       "utf8",
     );
     expect(approvalSrc).toContain('norm === "sdr" || norm === normalizeTriageText(INDUSTRIAL_REVIEW_FUNNEL)');
+  });
+
+  it("P0 — isPostCloseCourtesyOnlyMessage roda em tempo linear O(N) sem backtracking/ReDoS em entradas repetitivas", () => {
+    expect(isPostCloseCourtesyOnlyMessage("Ok")).toBe(true);
+    expect(isPostCloseCourtesyOnlyMessage("Ah, tá joia! Muito obrigado pelo retorno, tenha um ótimo dia!")).toBe(true);
+    expect(isPostCloseCourtesyOnlyMessage("👍")).toBe(true);
+    expect(isPostCloseCourtesyOnlyMessage("Ok, mas preciso de uma seladora a vácuo")).toBe(false);
+    expect(isPostCloseCourtesyOnlyMessage("Ta bom?")).toBe(false);
+
+    // Entrada adversarial que causava ReDoS exponencial O(2^N) na regex anterior com `ta|t[aá]` dentro de `(...)+$`
+    const adversarial = `${"ta ".repeat(28)}x`;
+    const startedAt = performance.now();
+    expect(isPostCloseCourtesyOnlyMessage(adversarial)).toBe(false);
+    expect(performance.now() - startedAt).toBeLessThan(20);
   });
 });

@@ -1,6 +1,10 @@
 import "./lib/error-capture";
 import { consumeLastCapturedError } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";
+import {
+  shouldTrackHttpPathForWatchdog,
+  trackEventLoopOperation,
+} from "./lib/event-loop-watchdog";
 
 type ServerEntry = {
   fetch: (request: Request, env: unknown, ctx: unknown) => Promise<Response> | Response;
@@ -74,9 +78,16 @@ export default {
         });
       }
 
-      const handler = await getServerEntry();
-      const response = await handler.fetch(request, env, ctx);
-      return await normalizeCatastrophicSsrResponse(response);
+      const endTrack = shouldTrackHttpPathForWatchdog(pathname)
+        ? trackEventLoopOperation(`${request.method} ${pathname}`)
+        : null;
+      try {
+        const handler = await getServerEntry();
+        const response = await handler.fetch(request, env, ctx);
+        return await normalizeCatastrophicSsrResponse(response);
+      } finally {
+        endTrack?.();
+      }
     } catch (error) {
       console.error(error);
       return new Response(renderErrorPage(), {

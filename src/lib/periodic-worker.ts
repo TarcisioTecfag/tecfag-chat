@@ -1,4 +1,5 @@
 import { runtimeSingleton } from "./runtime-singleton";
+import { trackEventLoopOperation } from "./event-loop-watchdog";
 
 type WorkerState = {
   running: boolean;
@@ -34,6 +35,7 @@ export function startPeriodicWorker(name: string, run: () => Promise<void>, inte
     state.running = true;
     state.lastStartedAt = new Date().toISOString();
     const runPromise = (async () => {
+      const endTrack = trackEventLoopOperation(`worker:${name}`);
       try {
         await run();
         state.lastSucceededAt = new Date().toISOString();
@@ -41,6 +43,7 @@ export function startPeriodicWorker(name: string, run: () => Promise<void>, inte
         state.lastFailedAt = new Date().toISOString();
         console.error(`[Worker:${name}] Ciclo falhou; trabalho persistido será retomado.`);
       } finally {
+        endTrack();
         state.running = false;
         activeTick = null;
       }
