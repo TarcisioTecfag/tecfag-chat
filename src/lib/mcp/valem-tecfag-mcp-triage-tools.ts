@@ -12,6 +12,7 @@ import {
   operators,
 } from "../../db/schema";
 import { getAiPersona } from "../ai-persona";
+import { isSiteConversationId } from "../livechat/site-channel-policy";
 import { projectIndustrialMonitoring } from "../triage/industrial-monitor";
 import {
   computeIndustrialTriageProgress,
@@ -1002,10 +1003,7 @@ export async function executeTriageAuditMcpTool(
           contactName: contact?.name || compactCollected["NOME COMPLETO"] || "Contato",
           contactPhone: contact?.phone || null,
           company,
-          channel:
-            contact?.mainChannel === "livechat" || contact?.mainChannel === "site"
-              ? "site"
-              : "whatsapp",
+          channel: isSiteConversationId(flow.conversationId) ? "site" : "whatsapp",
           queueState: conv?.queueState || null,
           operatorId: conv?.operatorId || null,
           operatorName: conv?.operatorId ? opNameById.get(conv.operatorId) ?? null : null,

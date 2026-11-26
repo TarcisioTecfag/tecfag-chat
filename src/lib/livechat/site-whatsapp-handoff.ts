@@ -28,6 +28,8 @@ import {
   conversations,
   lcChats,
   messages,
+  operators,
+  sectors,
 } from "../../db/schema";
 import { getAiPersona } from "../ai-persona";
 import { setAttendanceActor } from "../attendance-events";
@@ -51,7 +53,7 @@ import {
   type CollectedFields,
   type IndustrialRoute,
 } from "../triage/industrial-policy";
-import type { IndustrialDatabase } from "../triage/industrial-rodizio-store";
+import type { IndustrialDatabase, RodizioConfig } from "../triage/industrial-rodizio-store";
 import { appendIndustrialJournal } from "../triage/industrial-triage-journal-store";
 import { normalizeCanonicalPhone } from "../utils";
 import { outboundQueue } from "../whatsapp/outbound";
@@ -95,10 +97,39 @@ export interface SiteWhatsappHandoffResult {
   preservedHumanOperator?: boolean;
 }
 
+/**
+ * Decide se a posse humana existente na conversa oficial de WhatsApp deve ser preservada
+ * durante a ponte Site → WhatsApp.
+ *
+ * - Conversas em `finalizados` nunca preservam posse antiga (reabrem normalmente).
+ * - Conversas abertas com consultor/especialista que pertence a algum setor ou participa
+ *   do rodízio são preservadas (`true`) para nunca sequestrar atendimento comercial/técnico ativo.
+ * - Conversas abertas retidas em operador fora de qualquer setor e fora do rodízio
+ *   (ex.: Recepção / conta genérica herdada de carteira sem funis) NÃO devem silenciar
+ *   uma triagem comercial concluída no Site (`false`), promovendo o lead para `automacao`
+ *   + aprovação SDR normalmente.
+ */
+export function shouldPreserveExistingWhatsappHumanOwner(params: {
+  queueState: string;
+  operatorId: string | null;
+  hasNonInternalMessages?: boolean;
+  operatorHasSectorOrRodizio: boolean;
+}): boolean {
+  if (params.queueState === "finalizados") return false;
+  if (params.operatorId !== null) {
+    return params.operatorHasSectorOrRodizio;
+  }
+  if (params.queueState === "meus" && params.hasNonInternalMessages) {
+    return true;
+  }
+  return false;
+}
+
 export function summarizeSiteTriageNote(
   input: SiteWhatsappHandoffInput,
   templateName: string,
   templateActuallySent = true,
+  promotedFromNonSectorOperatorName?: string | null,
 ): string {
   const lines = [
     `Triagem concluída no Site e transferida para o WhatsApp`,
@@ -108,6 +139,11 @@ export function summarizeSiteTriageNote(
         ? templateName
         : "Não enviado (atendimento humano já ativo no WhatsApp)"
     }`,
+    ...(promotedFromNonSectorOperatorName
+      ? [
+          `Observação de roteamento: conversa anterior estava atribuída a ${promotedFromNonSectorOperatorName} (fora dos setores/rodízio) e foi promovida automaticamente para aprovação SDR.`,
+        ]
+      : []),
   ];
   const entries = Object.entries(input.data || {}).filter(
     ([k, v]) => !k.startsWith("_") && typeof v?.value === "string" && v.value.trim().length > 0,
@@ -336,26 +372,79 @@ export async function dispatchSiteTriageToWhatsApp(
 
     const now = new Date();
     if (waConv) {
-      // Proteção: se já existe atendimento humano ATIVO no WhatsApp (conversa aberta, nunca `finalizados`), NÃO sequestra!
-      // Conversas em `finalizados` preservam o último `operatorId` apenas para histórico e DEVEM reabrir
-      // normalmente em `automacao` para receber o template oficial `fagner_site_continuacao_v1`.
+      // Proteção: se já existe atendimento humano ATIVO no WhatsApp com operador pertencente
+      // a algum setor/rodízio (conversa aberta, nunca `finalizados`), NÃO sequestra!
+      // Porém, se a conversa aberta estava retida em operador fora de qualquer setor e fora do rodízio
+      // (ex.: Recepção herdada de carteira), promove normalmente para `automacao` + aprovação SDR.
+      let promotedFromNonSectorOperatorName: string | null = null;
+      let operatorHasSectorOrRodizio = false;
+      let previousOpName: string | null = null;
       if (waConv.queueState !== "finalizados" && waConv.operatorId !== null) {
-        return { conversation: waConv, hasActiveHuman: true };
+        const [tenantSectors, rodizioRows, opRows] = await Promise.all([
+          tx
+            .select({ id: sectors.id, operatorIds: sectors.operatorIds })
+            .from(sectors)
+            .where(eq(sectors.tenantId, tenantId)),
+          tx
+            .select({ config: agentConfigs.config })
+            .from(agentConfigs)
+            .where(and(eq(agentConfigs.tenantId, tenantId), eq(agentConfigs.agentType, "rodizio")))
+            .limit(1),
+          tx
+            .select({ id: operators.id, name: operators.name })
+            .from(operators)
+            .where(and(eq(operators.tenantId, tenantId), eq(operators.id, waConv.operatorId)))
+            .limit(1),
+        ]);
+        previousOpName = opRows[0]?.name || null;
+        const inAnySector = tenantSectors.some(
+          (s) => Array.isArray(s.operatorIds) && s.operatorIds.includes(waConv!.operatorId!),
+        );
+        const rodizioCfg = ((rodizioRows[0]?.config as RodizioConfig | undefined) || {}) as RodizioConfig;
+        const flowOps = Array.isArray(rodizioCfg.flowOperators) ? rodizioCfg.flowOperators : [];
+        const inRodizio = flowOps.some(
+          (op) => op && op.id === waConv!.operatorId && op.isParticipating !== false,
+        );
+        // Se o tenant ainda não cadastrou nenhum setor nem rodízio (ex.: ambiente mínimo/legado),
+        // mantém o comportamento conservador de preservar o operador.
+        const tenantHasRoutingStructure = tenantSectors.length > 0 || flowOps.length > 0;
+        operatorHasSectorOrRodizio = !tenantHasRoutingStructure || inAnySector || inRodizio;
       }
-      if (waConv.queueState === "meus") {
-        const [realMsg] = await tx
-          .select({ id: messages.id })
-          .from(messages)
-          .where(
-            and(
-              eq(messages.tenantId, tenantId),
-              eq(messages.conversationId, waConv.id),
-              eq(messages.isInternalNote, false),
-            ),
-          )
-          .limit(1);
-        if (realMsg) {
-          return { conversation: waConv, hasActiveHuman: true };
+
+      if (waConv.queueState !== "finalizados") {
+        let hasNonInternalMessages = false;
+        if (waConv.queueState === "meus" && waConv.operatorId === null) {
+          const [realMsg] = await tx
+            .select({ id: messages.id })
+            .from(messages)
+            .where(
+              and(
+                eq(messages.tenantId, tenantId),
+                eq(messages.conversationId, waConv.id),
+                eq(messages.isInternalNote, false),
+              ),
+            )
+            .limit(1);
+          hasNonInternalMessages = Boolean(realMsg);
+        }
+
+        if (
+          shouldPreserveExistingWhatsappHumanOwner({
+            queueState: waConv.queueState,
+            operatorId: waConv.operatorId,
+            hasNonInternalMessages,
+            operatorHasSectorOrRodizio,
+          })
+        ) {
+          return {
+            conversation: waConv,
+            hasActiveHuman: true,
+            promotedFromNonSectorOperatorName: null,
+          };
+        }
+
+        if (waConv.operatorId !== null && !operatorHasSectorOrRodizio) {
+          promotedFromNonSectorOperatorName = previousOpName || waConv.operatorId;
         }
       }
 
@@ -370,7 +459,11 @@ export async function dispatchSiteTriageToWhatsApp(
         })
         .where(and(eq(conversations.tenantId, tenantId), eq(conversations.id, waConv.id)))
         .returning();
-      return { conversation: updated || waConv, hasActiveHuman: false };
+      return {
+        conversation: updated || waConv,
+        hasActiveHuman: false,
+        promotedFromNonSectorOperatorName,
+      };
     }
 
     const newWaConvId = `conv-${Date.now()}-${crypto.randomUUID().slice(0, 6)}`;
@@ -395,7 +488,7 @@ export async function dispatchSiteTriageToWhatsApp(
       })
       .returning();
 
-    return { conversation: created, hasActiveHuman: false };
+    return { conversation: created, hasActiveHuman: false, promotedFromNonSectorOperatorName: null };
   });
 
   const waConversationId = waPrep.conversation.id;
@@ -521,7 +614,12 @@ export async function dispatchSiteTriageToWhatsApp(
         conversationId: waConversationId,
         senderType: "system",
         senderName: `${persona.name} (Site → WhatsApp)`,
-        content: summarizeSiteTriageNote(input, templateRow.name, !waPrep.hasActiveHuman),
+        content: summarizeSiteTriageNote(
+          input,
+          templateRow.name,
+          !waPrep.hasActiveHuman,
+          waPrep.promotedFromNonSectorOperatorName,
+        ),
         isInternalNote: true,
         provider: "internal",
         direction: "outbound",

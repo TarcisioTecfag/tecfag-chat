@@ -29,12 +29,17 @@ const INTERNAL_DEAL_TITLE_PREFIX_PATTERN =
 const CORPORATE_NAME_MARKER_PATTERN =
   /\b(?:ltda|eireli|me|epp|s\/a|s\.a\.|sa|industria|comercio|distribuidora|alimentos|embalagens|produtos|servicos|solucoes|equipamentos|maquinas|metalurgica|plasticos|quimica|farmaceutica|cosmeticos|frigorifico|laticinios|supermercado|atacadista|atacado|importacao|exportacao|engenharia|tecnologia|automacao|grupo|holding|coop|cooperativa|fazenda|agro|agropecuaria|padaria|panificadora|confeitaria|sorveteria|acaiteria|lavanderia|hotel|restaurante|clinica|hospital|laboratorio|oficina|assistencia)\b/i;
 
+const STATUS_MOTTO_COMPANY_OR_NAME_PATTERN =
+  /\b(?:deus\s+no\s+controle|fe\s+em\s+deus|jesus\s+e\s+fiel|so\s+deus|abencoad[oa]\s+por\s+deus|gratidao\s+a\s+deus|bom\s+dia|boa\s+tarde|boa\s+noite)\b/i;
+
 export function isValidKnownCompanyName(value?: string | null): boolean {
   if (typeof value !== "string") return false;
   const trimmed = value.trim();
   if (trimmed.length < 2) return false;
   // Nunca vazar prefixos internos de título de card ("FAGNER | ...", "VALENTINA | ...") como razão social.
   if (INTERNAL_DEAL_TITLE_PREFIX_PATTERN.test(trimmed)) return false;
+  // Apelidos de perfil WhatsApp com emojis (ex.: "DEUS NO CONTROLE 😎") nunca são razão social.
+  if (/\p{Extended_Pictographic}/u.test(trimmed)) return false;
   const normalized = normalizeTriageText(trimmed);
   if (!normalized) return false;
   if (
@@ -42,6 +47,9 @@ export function isValidKnownCompanyName(value?: string | null): boolean {
       normalized,
     )
   ) {
+    return false;
+  }
+  if (!CORPORATE_NAME_MARKER_PATTERN.test(normalized) && STATUS_MOTTO_COMPANY_OR_NAME_PATTERN.test(normalized)) {
     return false;
   }
   const digitsOnly = trimmed.replace(/\D/g, "");
@@ -313,11 +321,14 @@ export function buildKnownClientPromptDirective(params: {
   if (!knownClient || !isValidKnownCompanyName(knownClient.companyName)) {
     return "";
   }
-  // Evita perguntar "Sua empresa é a Valdônio/André Silva/luid, certo?" quando o cadastro
-  // salvou apenas o próprio nome pessoal do contato no campo de empresa sem marcador empresarial.
+  // Evita perguntar "Sua empresa é a Valdônio/André Silva/Marcos Rogério, certo?" quando o cadastro
+  // salvou apenas o próprio nome pessoal do contato no campo de empresa sem marcador empresarial
+  // (inclusive quando o documento salvo é apenas CPF de 11 dígitos e não um CNPJ de 14 dígitos).
+  const docDigits = String(knownClient.document || "").replace(/\D/g, "");
+  const hasCnpjDocument = docDigits.length === 14;
   if (
     confirmationStatus === "pending" &&
-    !knownClient.document &&
+    !hasCnpjDocument &&
     looksLikePersonalNameUsedAsCompany(knownClient.companyName, knownClient.contactName)
   ) {
     return "";

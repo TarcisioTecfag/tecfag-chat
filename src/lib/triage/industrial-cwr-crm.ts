@@ -178,6 +178,7 @@ export async function ensureCwrDealOnContacting(
     actorName?: string | null;
     entryChannelOverride?: string | null;
     sourceOverride?: string | null;
+    compatiblePipelineIdsForReuse?: string[] | null;
   },
 ): Promise<EnsureCwrContactingResult> {
   const runInTx = async (
@@ -235,10 +236,13 @@ export async function ensureCwrDealOnContacting(
       .filter((d) => d.pipelineId === cwr.pipelineId);
 
     if (!targetDeal) {
-      targetDeal =
-        allLinkedOpenCwrDeals[0] ||
-        linked[0]?.deal ||
-        null;
+      const compatibleIds = Array.isArray(params.compatiblePipelineIdsForReuse)
+        ? new Set(params.compatiblePipelineIdsForReuse.filter(Boolean))
+        : null;
+      const compatibleLinked = compatibleIds
+        ? linked.find((row) => row.deal.pipelineId === cwr.pipelineId || compatibleIds.has(row.deal.pipelineId))?.deal || null
+        : linked[0]?.deal || null;
+      targetDeal = allLinkedOpenCwrDeals[0] || compatibleLinked || null;
     }
 
     if (!targetDeal && contactId) {
@@ -1056,6 +1060,7 @@ export async function ensureSiteDealOnWhatsappHandoff(
       actorName: params.actorName,
       entryChannelOverride: "livechat",
       sourceOverride: "Chat Site",
+      compatiblePipelineIdsForReuse: targetPipelineId ? [targetPipelineId] : null,
     });
     if (cwrResult.dealId && siteConversationId) {
       await ensureConversationDealLinkInTx(tx, tenantId, siteConversationId, cwrResult.dealId, "auto_sdr");

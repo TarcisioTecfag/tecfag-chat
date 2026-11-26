@@ -110,6 +110,10 @@ export class InboundProcessor {
         return this.processInTransaction(inbound, tx);
       });
     } catch (error: any) {
+      console.error(
+        `[InboundProcessor] Falha na transação de entrada (tenant=${tenantId}, provider=${inbound.provider}, event=${externalEventId}, from=${inbound.fromPhone || inbound.fromUserId || "unknown"}):`,
+        error,
+      );
       await db
         .update(pendingInbounds)
         .set({
@@ -1084,7 +1088,7 @@ export class InboundProcessor {
           !contact.walletOperatorId &&
           !media &&
           getAiPersona(tenantId).triagePolicy === "industrial" &&
-          isPostCloseCourtesyOnlyMessage(rawText)
+          isPostCloseCourtesyOnlyMessage(text || "")
         ) {
           const [lastFlow] = await db
             .select({

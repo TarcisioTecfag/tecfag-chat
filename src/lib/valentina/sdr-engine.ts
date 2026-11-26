@@ -51,6 +51,8 @@ import {
   isValidIndustrialPersonName,
   isVagueIndustrialProductionValue,
   isClientDecliningTriage,
+  isClientResistingProductionQuestion,
+  isTerseProductionFrustrationTurn,
   hasClientFactualQuestionInDecline,
   isAutomatedBotOrUraMessage,
   type SystemOperatorCandidate,
@@ -2040,7 +2042,56 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         industrialRoute = applyMachineDecision(industrialRoute, machineDecision);
       }
       let stageAndFunnel = industrialRoute || resolveLegacySdrStageAndFunnel({ ...routeInput, existingFunnel: metaState.targetFunnel || "Máquinas" });
-      const industrialReadiness = industrialRoute ? assessIndustrialReadiness(industrialRoute, updatedCollectedData) : null;
+      let industrialReadiness = industrialRoute ? assessIndustrialReadiness(industrialRoute, updatedCollectedData) : null;
+
+      // Escape hatch de produtividade: quando já temos 6/7 campos (nome, empresa/CNPJ, máquina e aplicação)
+      // e falta EXCLUSIVAMENTE `production`, se o cliente resistir explicitamente ("me passa as opções e suas
+      // capacidades", "sem mais perguntas") ou enviar resposta mínima/frustrada (".") após já ter informado que
+      // não tem média/estimativa, escala imediatamente para Análise e revisão humana sem insistir em loop.
+      if (
+        industrialTriage &&
+        industrialRoute &&
+        !isClientDeclinedTurn &&
+        ["MAQUINAS", "PERSONNALITE"].includes(industrialRoute.subflow || "") &&
+        industrialReadiness &&
+        industrialReadiness.missing.length === 1 &&
+        industrialReadiness.missing[0] === "production"
+      ) {
+        const recentClientMsgs = historyMsgs
+          .filter((m) => m.senderType === "client")
+          .slice(-3)
+          .map((m) => String(m.content || ""));
+        const priorProductionUncertainty = recentClientMsgs.some(
+          (msg) =>
+            isClientResistingProductionQuestion(msg) ||
+            /\b(?:nao tenho (?:uma )?media|nao sei a media|nao tenho estimativa|sem estimativa|ainda nao sei)\b/i.test(
+              msg.normalize("NFD").replace(/[\u0300-\u036f]/g, ""),
+            ),
+        );
+        const resistedProductionNow =
+          isClientResistingProductionQuestion(combinedBatchText) ||
+          (priorProductionUncertainty && isTerseProductionFrustrationTurn(combinedBatchText));
+        if (resistedProductionNow) {
+          console.log(
+            `[SdrEngine] 🛟 Escape hatch de produtividade acionado (${conversationId}): 6/7 campos completos e cliente resistiu à estimativa → escalando para Análise e revisão humana.`,
+          );
+          if (!updatedCollectedData["VOLUME / PRODUÇÃO"]?.value) {
+            updatedCollectedData["VOLUME / PRODUÇÃO"] = {
+              value: "A definir com especialista",
+              status: "filled",
+            };
+          }
+          industrialRoute = {
+            subflow: "5A_CLIENTE",
+            funnelStage: "outros",
+            targetFunnel: INDUSTRIAL_REVIEW_FUNNEL,
+            needsReview: true,
+            reason: "specialist_review",
+          };
+          stageAndFunnel = industrialRoute;
+          industrialReadiness = assessIndustrialReadiness(industrialRoute, updatedCollectedData);
+        }
+      }
       const isIndustrialReviewRoute = Boolean(
         industrialTriage &&
         industrialRoute &&

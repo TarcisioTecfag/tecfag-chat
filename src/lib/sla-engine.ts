@@ -654,18 +654,21 @@ export class SlaEngine {
         .where(and(eq(operators.id, operatorId), eq(operators.tenantId, tenantId)))
         .limit(1);
 
-      await db.insert(operatorDailyMetrics).values({
-        id: `odm-${tenantId}-${operatorId}-${today}`,
-        tenantId,
-        operatorId,
-        operatorName: op[0]?.name ?? "Desconhecido",
-        date,
-        totalConversations: 1,
-        avgResponseTimeSeconds: responseTimeSeconds,
-        maxResponseTimeSeconds: responseTimeSeconds,
-        overdueCount: 0,
-        updatedAt: new Date(),
-      });
+      await db
+        .insert(operatorDailyMetrics)
+        .values({
+          id: `odm-${tenantId}-${operatorId}-${today}`,
+          tenantId,
+          operatorId,
+          operatorName: op[0]?.name ?? "Desconhecido",
+          date: today,
+          totalConversations: 1,
+          avgResponseTimeSeconds: responseTimeSeconds,
+          maxResponseTimeSeconds: responseTimeSeconds,
+          overdueCount: 0,
+          updatedAt: new Date(),
+        })
+        .onConflictDoNothing();
     }
   }
 }

@@ -1198,12 +1198,17 @@ export async function approveIndustrialTriage(
       const originalSectorName = pending?.suggestedSectorName ?? null;
       const originalOperatorId = pending?.suggestedOperatorId ?? null;
       const originalOperatorName = pending?.suggestedOperatorName ?? null;
-      const normOrigFunnel = originalTargetFunnel
-        ? normalizeTriageText(normalizeIndustrialFunnel(originalTargetFunnel))
-        : null;
-      const normApprovedFunnel = targetFunnel
-        ? normalizeTriageText(normalizeIndustrialFunnel(targetFunnel))
-        : null;
+      const normalizeFunnelForAccuracy = (raw: string | null): string | null => {
+        if (!raw) return null;
+        const norm = normalizeTriageText(normalizeIndustrialFunnel(raw));
+        if (!norm) return null;
+        if (norm === "sdr" || norm === normalizeTriageText(INDUSTRIAL_REVIEW_FUNNEL)) {
+          return normalizeTriageText(INDUSTRIAL_REVIEW_FUNNEL);
+        }
+        return norm;
+      };
+      const normOrigFunnel = normalizeFunnelForAccuracy(originalTargetFunnel);
+      const normApprovedFunnel = normalizeFunnelForAccuracy(targetFunnel);
       const normOrigSector = originalSectorName ? normalizeTriageText(originalSectorName) : null;
       const normApprovedSector = resolvedSectorName ? normalizeTriageText(resolvedSectorName) : null;
       const triageAccuracy = {

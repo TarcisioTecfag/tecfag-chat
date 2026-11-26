@@ -559,12 +559,18 @@ function textSubflow(raw: string): IndustrialSubflow | null {
   const mentionsMaintenanceOnlyAsRecipient =
     /\bmanutencao\b/.test(text) &&
     !hasExplicitFailureOrSupport &&
-    /(?:setor|departamento|equipe|pessoal|gerente|coordenador|responsavel|e-?mail)\s+(?:de|da)\s+manutencao|\bda\s+manutencao\b/.test(
+    (/(?:setor|departamento|equipe|pessoal|gerente|coordenador|responsavel|e-?mail)\s+(?:de|da)\s+manutencao|\bda\s+manutencao\b/.test(
       text,
-    ) &&
-    /\b(?:oferta|black\s*friday|apresentacao|catalogo|cotacao|orcamento|proposta|comprar|adquirir|seladoras?|envasadoras?|maquinas?)\b/.test(
+    ) ||
+      /\b(?:agradece(?:mos)?\s+(?:o\s+)?(?:seu\s+)?contato|assim\s+que\s+possivel\s+respond|horario\s+comercial|mensagem\s+automatica)\b/.test(
+        text,
+      )) &&
+    (/\b(?:oferta|black\s*friday|apresentacao|catalogo|cotacao|orcamento|proposta|comprar|adquirir|seladoras?|envasadoras?|maquinas?)\b/.test(
       text,
-    );
+    ) ||
+      /\b(?:agradece(?:mos)?\s+(?:o\s+)?(?:seu\s+)?contato|assim\s+que\s+possivel\s+respond|horario\s+comercial|mensagem\s+automatica)\b/.test(
+        text,
+      ));
   if (
     (hasExplicitFailureOrSupport || /\bmanutencao\b/.test(text)) &&
     !mentionsMaintenanceOnlyAsRecipient
@@ -641,12 +647,18 @@ function strictHardOverrideSubflow(
   const mentionsMaintenanceOnlyAsRecipient =
     /\bmanutencao\b/.test(text) &&
     !hasExplicitFailureOrSupport &&
-    /(?:setor|departamento|equipe|pessoal|gerente|coordenador|responsavel|e-?mail)\s+(?:de|da)\s+manutencao|\bda\s+manutencao\b/.test(
+    (/(?:setor|departamento|equipe|pessoal|gerente|coordenador|responsavel|e-?mail)\s+(?:de|da)\s+manutencao|\bda\s+manutencao\b/.test(
       text,
-    ) &&
-    /\b(?:oferta|black\s*friday|apresentacao|catalogo|cotacao|orcamento|proposta|comprar|adquirir|seladoras?|envasadoras?|maquinas?)\b/.test(
+    ) ||
+      /\b(?:agradece(?:mos)?\s+(?:o\s+)?(?:seu\s+)?contato|assim\s+que\s+possivel\s+respond|horario\s+comercial|mensagem\s+automatica)\b/.test(
+        text,
+      )) &&
+    (/\b(?:oferta|black\s*friday|apresentacao|catalogo|cotacao|orcamento|proposta|comprar|adquirir|seladoras?|envasadoras?|maquinas?)\b/.test(
       text,
-    );
+    ) ||
+      /\b(?:agradece(?:mos)?\s+(?:o\s+)?(?:seu\s+)?contato|assim\s+que\s+possivel\s+respond|horario\s+comercial|mensagem\s+automatica)\b/.test(
+        text,
+      ));
   if (
     (hasExplicitFailureOrSupport || /\bmanutencao\b/.test(text)) &&
     !mentionsMaintenanceOnlyAsRecipient &&
@@ -1530,23 +1542,71 @@ const INVALID_PERSON_NAME_EXACT = new Set([
   "empresa",
 ]);
 
+const INVALID_PERSON_NAME_MOTTO_PATTERN =
+  /\b(?:deus\s+no\s+controle|fe\s+em\s+deus|jesus\s+e\s+fiel|so\s+deus|abencoad[oa]\s+por\s+deus|gratidao\s+a\s+deus)\b/i;
+
 /**
  * Valida se um valor representa um nome humano plausível (impedindo que apelidos/status
- * de perfil do WhatsApp como "Em Reuniao", ".", e-mails ou telefones virem NOME COMPLETO).
+ * de perfil do WhatsApp como "Em Reuniao", ".", "DEUS NO CONTROLE 😎", e-mails ou telefones virem NOME COMPLETO).
  */
 export function isValidIndustrialPersonName(raw?: string | null): boolean {
   const clean = String(raw || "").trim();
   if (!clean) return false;
   if (clean.includes("@")) return false;
+  // Rejeita nomes com emojis (ex.: "DEUS NO CONTROLE 😎", "Bem Natural 💚")
+  if (/\p{Extended_Pictographic}/u.test(clean)) return false;
   const digitsOnly = clean.replace(/[\s().+-]/g, "");
   if (/^\d{6,20}$/.test(digitsOnly)) return false;
   const normalized = normalizeTriageText(clean);
   if (!normalized || normalized.length < 2) return false;
   if (INVALID_PERSON_NAME_EXACT.has(normalized)) return false;
+  if (INVALID_PERSON_NAME_MOTTO_PATTERN.test(normalized)) return false;
   // Rejeita apenas pontuação/símbolos/emojis sem ao menos 2 letras reais
   const lettersOnly = clean.replace(/[^\p{L}]/gu, "");
   if (lettersOnly.length < 2) return false;
   return true;
+}
+
+/**
+ * Detecta resistência explícita do cliente à pergunta de produtividade/volume quando os demais
+ * dados comerciais (nome, empresa/CNPJ, máquina e aplicação) já foram fornecidos — evitando
+ * loops repetitivos de cobrança de produção (ex.: "me passa as opções e suas capacidades",
+ * "sem mais perguntas", "não importa quanto produzo").
+ */
+export function isClientResistingProductionQuestion(raw: string): boolean {
+  const text = normalizeTriageText(raw);
+  if (!text || text.length > 260) return false;
+  // Se trouxe um número com unidade/cadência real de produção, não é resistência — é resposta válida!
+  if (
+    /\b\d[\d.,]*\s*(?:mil\s+)?(?:un(?:id(?:ade)?s?)?|pcs?|pecas?|pacotes?|sacos?|potes?|frascos?|garrafas?|caixas?|capsulas?|saches?|kg|quilos?|litros?|l)\s*(?:\/|\bpor\b|\bao\b|\bna\b|\bno\b)\s*(?:min(?:uto)?|h|hr|hora|dia|semana|mes|turno)\b/.test(
+      text,
+    )
+  ) {
+    return false;
+  }
+  return (
+    /\b(?:sem\s+mais\s+perguntas|chega\s+de\s+perguntas|nao\s+quero\s+responder\s+mais)\b/.test(text) ||
+    /\b(?:me\s+(?:passa|manda|envia|mostra)|passa|manda|mostra)\s+(?:as\s+|os\s+)?(?:opcoes|modelos|maquinas|equipamentos|catalogo)\s*(?:e\s+(?:as\s+|suas\s+)?capacidades|que\s+(?:eu\s+)?vejo|pra\s+eu\s+ver|para\s+eu\s+ver|primeiro)\b/.test(
+      text,
+    ) ||
+    /\b(?:nao\s+importa\s+(?:quanto|a\s+producao|o\s+volume)|prefiro\s+ver\s+as\s+opcoes|depois\s+vejo\s+(?:a\s+)?(?:producao|media)|nao\s+sei\s+(?:informar|dizer)\s+(?:a\s+)?(?:producao|produtividade|media|volume)|nao\s+tenho\s+(?:como\s+saber|essa\s+estimativa|uma\s+estimativa|estimativa\s+agora|media\s+definida))\b/.test(
+      text,
+    )
+  );
+}
+
+/**
+ * Detecta resposta mínima/frustrada enviada logo após resistência à produtividade
+ * (ex.: ".", "...", "nao sei", "nao tenho media").
+ */
+export function isTerseProductionFrustrationTurn(raw: string): boolean {
+  const clean = String(raw || "").trim();
+  if (!clean) return false;
+  const text = normalizeTriageText(clean);
+  if (!/[a-z0-9]/.test(text)) return true; // ex.: ".", "...", "?"
+  return /^(?:nao sei|sei nao|nao tenho|nao tenho media|nao tenho uma media correta|tanto faz|pula|pode seguir|sem mais perguntas|ja disse|ja falei)$/.test(
+    text,
+  );
 }
 
 /**
@@ -1560,7 +1620,7 @@ export function isVagueIndustrialProductionValue(raw?: string | null): boolean {
   // Qualquer dígito numérico (ex.: "3000/h", "50 por dia") ou declaração explícita de desconhecimento/escala já é válida
   if (/\d/.test(normalized)) return false;
   if (
-    /\b(?:nao sei|sem estimativa|nao tenho estimativa|ainda nao sei|ainda nao defini|comecando agora|iniciando|artesanal|escala industrial|pequena producao|media producao|alta producao|grande producao|pequena escala|media escala|alta escala|grande escala|baixo volume|medio volume|alto volume|grande volume)\b/.test(
+    /\b(?:nao sei|sem estimativa|nao tenho estimativa|nao tenho media|nao tenho uma media|a definir com especialista|ainda nao sei|ainda nao defini|comecando agora|iniciando|artesanal|escala industrial|pequena producao|media producao|alta producao|grande producao|pequena escala|media escala|alta escala|grande escala|baixo volume|medio volume|alto volume|grande volume)\b/.test(
       normalized,
     )
   ) {
@@ -1695,6 +1755,29 @@ export function isAutomatedBotOrUraMessage(params: {
       text,
     );
   if (hasSurveyHeader && hasSurveyScale) {
+    return true;
+  }
+
+  // Mensagens automáticas de ausência / horário comercial do WhatsApp Business
+  // (ex.: "A Betec Manutenção Técnica agradece seu contato!! Assim que possível responderei sua mensagem",
+  // "Mensagem Automática ⚠️ Agradecemos seu contato. Nosso retorno será realizado em horário comercial.")
+  const hasExplicitAwayHeader =
+    /\b(?:mensagem automatica|resposta automatica|fora do horario de atendimento|horario de atendimento)\b/.test(
+      text,
+    ) &&
+    /\b(?:agradec(?:e|emos)|horario comercial|retornaremos|retorno sera realizado|assim que possivel|em breve|compreensao)\b/.test(
+      text,
+    );
+  const hasGreetingAutoReply =
+    /\b(?:agradec(?:e|emos)\s+(?:o\s+)?(?:seu\s+)?contato)\b/.test(text) &&
+    /\b(?:assim que possivel\s+(?:respond|retorn)|em breve\s+(?:respond|retorn)|nosso retorno sera realizado|em horario comercial|responderemos\s+(?:assim que possivel|em breve)|responderei\s+(?:sua mensagem|assim que possivel|em breve))\b/.test(
+      text,
+    );
+  const hasActiveBuyingOrSupportAsk =
+    /\b(?:quero comprar|preciso de uma?|gostaria de|orcamento|cotacao|quanto custa|minha maquina|defeito|quebrou|nao liga|nao funciona|segunda via|2a via|boleto|nota fiscal|rastreio)\b/.test(
+      text,
+    );
+  if ((hasExplicitAwayHeader || hasGreetingAutoReply) && !hasActiveBuyingOrSupportAsk) {
     return true;
   }
 
