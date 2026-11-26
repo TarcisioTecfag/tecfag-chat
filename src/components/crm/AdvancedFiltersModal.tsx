@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Building2, CalendarDays, Check, ChevronDown, ChevronUp, Filter, Loader2, Search, X } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/select";
 import { SystemTooltip } from "@/components/ui/tooltip";
 import { CrmDatePicker } from "./CrmDatePicker";
+import { filterCatalogSearchOptions } from "@/lib/crm/catalog-search";
 import {
   CRM_STATUS_FILTER_MAP,
   CRM_STATUS_FILTER_OPTIONS,
@@ -373,6 +374,8 @@ function FilterSelect({
   emptyLabel = "Selecionar",
   emptyIcon: EmptyIcon,
   emptyIconColor = "text-muted-foreground",
+  searchable = false,
+  searchPlaceholder,
 }: {
   label: string;
   value?: string;
@@ -381,7 +384,186 @@ function FilterSelect({
   emptyLabel?: string;
   emptyIcon?: LucideIcon;
   emptyIconColor?: string;
+  searchable?: boolean;
+  searchPlaceholder?: string;
 }) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  const selectedOption = useMemo(
+    () => options.find((opt) => opt.value === value),
+    [options, value],
+  );
+
+  const filteredOptions = useMemo(() => {
+    if (!searchable) return options;
+    return filterCatalogSearchOptions(options, search, (opt) => opt.label);
+  }, [options, search, searchable]);
+
+  useEffect(() => {
+    if (!open) setSearch("");
+  }, [open]);
+
+  if (searchable) {
+    const displayLabel = selectedOption?.label || value || emptyLabel;
+    const hasSelection = Boolean(value);
+    const placeholderText = searchPlaceholder || `Pesquisar ${label.toLowerCase()}...`;
+
+    return (
+      <div className="space-y-1.5">
+        <Label className="text-xs font-semibold">{label}</Label>
+        <Popover open={open} onOpenChange={setOpen}>
+          <SystemTooltip content={`Filtrar por ${label.toLowerCase()}`}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                role="combobox"
+                aria-expanded={open}
+                aria-haspopup="listbox"
+                className={`flex h-9 w-full items-center justify-between gap-2 rounded-lg border px-3 text-left text-xs transition-colors cursor-pointer ${
+                  hasSelection
+                    ? "border-primary/50 bg-primary/5 text-foreground font-medium"
+                    : "border-border bg-background text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                }`}
+              >
+                <span className="min-w-0 flex-1 truncate">{displayLabel}</span>
+                {hasSelection ? (
+                  <SystemTooltip content={`Limpar filtro de ${label.toLowerCase()}`}>
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Limpar ${label}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onChange(undefined);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.stopPropagation();
+                          onChange(undefined);
+                        }
+                      }}
+                      className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </span>
+                  </SystemTooltip>
+                ) : (
+                  <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                )}
+              </button>
+            </PopoverTrigger>
+          </SystemTooltip>
+          <PopoverContent
+            align="start"
+            onOpenAutoFocus={(event) => {
+              event.preventDefault();
+              searchInputRef.current?.focus();
+            }}
+            className="min-w-[var(--radix-popover-trigger-width)] w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-border bg-card p-0 shadow-2xl"
+          >
+            <div className="border-b border-border bg-muted/20 p-2">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder={placeholderText}
+                  aria-label={placeholderText}
+                  autoComplete="off"
+                  className="h-8 w-full rounded-lg border border-border bg-background pl-8 pr-7 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+                />
+                {search && (
+                  <SystemTooltip content="Limpar pesquisa">
+                    <button
+                      type="button"
+                      aria-label="Limpar pesquisa"
+                      onClick={() => {
+                        setSearch("");
+                        searchInputRef.current?.focus();
+                      }}
+                      className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </SystemTooltip>
+                )}
+              </div>
+            </div>
+            <div role="listbox" className="max-h-60 overflow-y-auto p-1.5 space-y-0.5">
+              {!search.trim() && (
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={!value}
+                  onClick={() => {
+                    onChange(undefined);
+                    setOpen(false);
+                  }}
+                  className={`flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs transition-colors cursor-pointer ${
+                    !value
+                      ? "bg-primary/10 text-primary font-semibold"
+                      : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                  }`}
+                >
+                  <span>{emptyLabel}</span>
+                  {!value && <Check className="h-3.5 w-3.5 shrink-0 text-primary" />}
+                </button>
+              )}
+              {filteredOptions.length === 0 ? (
+                <div className="px-3 py-4 text-center text-xs text-muted-foreground">
+                  Nenhum resultado encontrado para &quot;{search.trim()}&quot;.
+                </div>
+              ) : (
+                filteredOptions.map((option) => {
+                  const isSelected = value === option.value;
+                  const OptionIcon = option.icon;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      role="option"
+                      aria-selected={isSelected}
+                      onClick={() => {
+                        onChange(option.value);
+                        setOpen(false);
+                      }}
+                      className={`flex w-full items-start justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs transition-colors cursor-pointer ${
+                        isSelected
+                          ? "bg-primary/10 text-primary font-semibold"
+                          : "text-foreground hover:bg-muted/60"
+                      }`}
+                    >
+                      {OptionIcon ? (
+                        <span className="inline-flex min-w-0 flex-1 items-center gap-2">
+                          <OptionIcon className={`h-3.5 w-3.5 shrink-0 ${option.iconColor || "text-muted-foreground"}`} />
+                          <span className="break-words leading-snug">{option.label}</span>
+                        </span>
+                      ) : (
+                        <span className="min-w-0 flex-1 break-words leading-snug">{option.label}</span>
+                      )}
+                      {isSelected && <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+            {options.length > 8 && (
+              <div className="border-t border-border/70 bg-muted/15 px-2.5 py-1.5 text-[10px] text-muted-foreground">
+                {search.trim()
+                  ? `${filteredOptions.length} de ${options.length} opções`
+                  : `${options.length} opções disponíveis`}
+              </div>
+            )}
+          </PopoverContent>
+        </Popover>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-1.5">
       <Label className="text-xs font-semibold">{label}</Label>
@@ -1027,6 +1209,8 @@ export function AdvancedFiltersModal({
           <FilterSelect
             label="Campanha"
             value={draft.campaign}
+            searchable
+            searchPlaceholder="Pesquisar campanha..."
             options={[
               { value: CRM_FILTER_ANY_VALUE, label: "Todos" },
               ...campaigns.filter((item) => item.value !== CRM_FILTER_ANY_VALUE),
@@ -1036,6 +1220,8 @@ export function AdvancedFiltersModal({
           <FilterSelect
             label="Fonte"
             value={draft.source}
+            searchable
+            searchPlaceholder="Pesquisar fonte..."
             options={[
               { value: CRM_FILTER_ANY_VALUE, label: "Todos" },
               ...sources.filter((item) => item.value !== CRM_FILTER_ANY_VALUE),
@@ -1045,6 +1231,8 @@ export function AdvancedFiltersModal({
           <FilterSelect
             label="Produto ou serviço"
             value={draft.productId}
+            searchable
+            searchPlaceholder="Pesquisar produto ou serviço..."
             options={products}
             onChange={(value) => update("productId", value)}
           />

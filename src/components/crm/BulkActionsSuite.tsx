@@ -183,11 +183,9 @@ export function BulkActionsSuite({
 
   const [campaignModalOpen, setCampaignModalOpen] = useState(false);
   const [campaignInput, setCampaignInput] = useState("");
-  const [catalogCampaigns, setCatalogCampaigns] = useState<Array<{ id: string; name: string }>>([]);
 
   const [sourceModalOpen, setSourceModalOpen] = useState(false);
   const [sourceInput, setSourceInput] = useState("");
-  const [catalogSources, setCatalogSources] = useState<Array<{ id: string; name: string }>>([]);
 
   const [productModalOpen, setProductModalOpen] = useState(false);
   const [catalogProducts, setCatalogProducts] = useState<Array<{ id: string; name: string; unitPrice?: string; category?: string | null; sku?: string | null; description?: string | null }>>([]);
@@ -618,19 +616,10 @@ export function BulkActionsSuite({
     if (ok) setRatingModalOpen(false);
   };
 
-  const openCampaignModal = async () => {
+  const openCampaignModal = () => {
     setAddOrChangeOpen(false);
     setCampaignInput("");
     setCampaignModalOpen(true);
-    try {
-      const res = await fetch("/api/crm/catalogs?kind=campaign");
-      if (res.ok) {
-        const data = await res.json();
-        setCatalogCampaigns(data.options || data.items || []);
-      }
-    } catch (e) {
-      console.warn("Falha ao carregar campanhas:", e);
-    }
   };
 
   const handleSaveCampaign = async () => {
@@ -645,19 +634,10 @@ export function BulkActionsSuite({
     if (ok) setCampaignModalOpen(false);
   };
 
-  const openSourceModal = async () => {
+  const openSourceModal = () => {
     setAddOrChangeOpen(false);
     setSourceInput("");
     setSourceModalOpen(true);
-    try {
-      const res = await fetch("/api/crm/catalogs?kind=source");
-      if (res.ok) {
-        const data = await res.json();
-        setCatalogSources(data.options || data.items || []);
-      }
-    } catch (e) {
-      console.warn("Falha ao carregar fontes:", e);
-    }
   };
 
   const handleSaveSource = async () => {
@@ -2218,20 +2198,14 @@ export function BulkActionsSuite({
           <div className="space-y-3 py-3 text-xs">
             <div className="space-y-1.5">
               <Label className="text-xs font-semibold">Campanha do Catálogo</Label>
-              <Select value={campaignInput} onValueChange={setCampaignInput}>
-                <SystemTooltip content={campaignInput || "Selecionar uma campanha cadastrada no catálogo"}>
-                  <SelectTrigger className="h-9 text-xs">
-                    <SelectValue placeholder="Selecione uma campanha..." />
-                  </SelectTrigger>
-                </SystemTooltip>
-                <SelectContent>
-                  {catalogCampaigns.map((c) => (
-                    <SelectItem key={c.id} value={c.name} className="text-xs">
-                      {c.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {campaignModalOpen && (
+                <CatalogSelect
+                  kind="campaign"
+                  value={campaignInput}
+                  onChange={setCampaignInput}
+                  placeholder="Selecione uma campanha..."
+                />
+              )}
             </div>
           </div>
 
@@ -2273,20 +2247,14 @@ export function BulkActionsSuite({
           <div className="space-y-3 py-3 text-xs">
             <div className="space-y-1.5">
               <Label className="text-xs font-semibold">Fonte do Catálogo</Label>
-              <Select value={sourceInput} onValueChange={setSourceInput}>
-                <SystemTooltip content={sourceInput || "Selecionar uma fonte cadastrada no catálogo"}>
-                  <SelectTrigger className="h-9 text-xs">
-                    <SelectValue placeholder="Selecione uma fonte..." />
-                  </SelectTrigger>
-                </SystemTooltip>
-                <SelectContent>
-                  {catalogSources.map((s) => (
-                    <SelectItem key={s.id} value={s.name} className="text-xs">
-                      {s.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {sourceModalOpen && (
+                <CatalogSelect
+                  kind="source"
+                  value={sourceInput}
+                  onChange={setSourceInput}
+                  placeholder="Selecione uma fonte..."
+                />
+              )}
             </div>
           </div>
 
