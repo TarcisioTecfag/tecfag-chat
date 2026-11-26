@@ -175,7 +175,7 @@ export const Route = createFileRoute("/api/gestao/messages")({
               contactName: contacts.name,
               contactPhone: contacts.phone,
               contactAvatar: contacts.avatar,
-              walletOperatorId: contacts.operatorId,
+              walletOperatorId: contacts.walletOperatorId,
             })
             .from(conversations)
             .leftJoin(
