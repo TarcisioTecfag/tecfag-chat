@@ -123,6 +123,8 @@ import {
 import { MarkEvidenceModal } from "@/components/crm/MarkEvidenceModal";
 import { AiAvatar } from "@/components/ui/AiAvatar";
 import { ChatMessageBubble } from "./ChatMessageBubble";
+import { MessageContextMenu } from "./MessageContextMenu";
+import type { MessageContextMenuState } from "@/lib/chat/message-context-menu";
 import { ZoomableImageModal } from "./ZoomableImageModal";
 import { AgenticThoughtTrace } from "@/components/valentina/chat-blocks/AgenticThoughtTrace";
 import { io as socketIO, type Socket } from "socket.io-client";
@@ -682,6 +684,7 @@ export function renderMessageContent(
           data-tour="message.media"
           className="relative group w-full max-w-sm sm:max-w-md rounded-2xl overflow-hidden border border-border/80 bg-black/5 hover:opacity-95 transition cursor-pointer shadow-soft"
           onClick={(e) => {
+            e.stopPropagation();
             const imgEl = e.currentTarget.querySelector("img");
             const activeSrc = imgEl?.src || blobUrl;
             if (onMediaClick) {
@@ -711,7 +714,8 @@ export function renderMessageContent(
       return wrapMediaWithCaption(
         <div
           className="relative group w-full max-w-sm sm:max-w-md rounded-2xl overflow-hidden cursor-pointer bg-black/5 flex items-center justify-center border border-border shadow-soft"
-          onClick={() => {
+          onClick={(e) => {
+            e.stopPropagation();
             if (onMediaClick) {
               onMediaClick("video", blobUrl);
             }
@@ -774,6 +778,7 @@ export function renderMessageContent(
             data-tour="message.media"
             className="relative group w-full max-w-sm sm:max-w-md rounded-2xl overflow-hidden border border-border/80 bg-black/5 hover:opacity-95 transition cursor-pointer shadow-soft"
             onClick={(e) => {
+              e.stopPropagation();
               const imgEl = e.currentTarget.querySelector("img");
               const activeSrc = imgEl?.src || mediaUrl;
               if (onMediaClick) {
@@ -802,7 +807,8 @@ export function renderMessageContent(
         return wrapMediaWithCaption(
           <div
             className="relative group w-full max-w-sm sm:max-w-md rounded-2xl overflow-hidden border border-border/80 bg-black/5 cursor-pointer flex items-center justify-center shadow-soft"
-            onClick={() => {
+            onClick={(e) => {
+              e.stopPropagation();
               if (onMediaClick) {
                 onMediaClick("video", mediaUrl);
               }
@@ -882,7 +888,8 @@ export function renderMessageContent(
     return wrapMediaWithCaption(
       <div
         className="relative group w-full max-w-sm sm:max-w-md rounded-2xl overflow-hidden border border-border/80 bg-black/5 hover:opacity-95 transition cursor-pointer shadow-soft"
-        onClick={() => {
+        onClick={(e) => {
+          e.stopPropagation();
           if (onMediaClick) {
             onMediaClick("image", catalogImgUrl);
           } else {
@@ -2280,6 +2287,20 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     setExpandedMsgId((prev) => (prev === id ? null : id));
   }, []);
 
+  const handleMessageContextMenu = useCallback((e: React.MouseEvent, id: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setMessageContextMenu({ messageId: id, x: e.clientX, y: e.clientY });
+  }, []);
+
+  const handleToggleMessageInfo = useCallback((id: string) => {
+    setExpandedMsgId((prev) => (prev === id ? null : id));
+  }, []);
+
+  const handleCloseMessageContextMenu = useCallback(() => {
+    setMessageContextMenu(null);
+  }, []);
+
   const handleScrollToQuoted = useCallback((e: React.MouseEvent, targetId: string) => {
     e.stopPropagation();
     const el = document.getElementById(`msg-dom-${targetId}`);
@@ -2498,9 +2519,14 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   }, [searchMatchIndex, matches]);
 
   const [expandedMsgId, setExpandedMsgId] = useState<string | null>(null);
+  const [messageContextMenu, setMessageContextMenu] = useState<MessageContextMenuState | null>(null);
   const [activeMedia, setActiveMedia] = useState<{ type: "image" | "video"; url: string } | null>(
     null,
   );
+
+  useEffect(() => {
+    setMessageContextMenu(null);
+  }, [activeChat?.id]);
   useTrainingSurface("chat", (step) => {
     if (!activeChat) return false;
     const id = step.id;
@@ -4803,6 +4829,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                   }
                 }}
                 onBubbleClick={handleBubbleClick}
+                onMessageContextMenu={handleMessageContextMenu}
                 onScrollToQuoted={handleScrollToQuoted}
                 onSetReactingMsgId={(id) => { if (foreignConversation) { toast.info("Abra a conversa deste número para reagir."); return; } setReactingMsgId(id); }}
                 onSetMarkingEvidenceMsg={(message) => { if (foreignConversation) { toast.info("Abra a conversa de origem para marcar a evidência."); return; } setMarkingEvidenceMsg(message); }}
@@ -6397,6 +6424,14 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
         open={Boolean(pendingTransferIntent)}
         intent={pendingTransferIntent}
         onClose={() => setPendingTransferIntent(null)}
+      />
+
+      {/* Menu de Contexto (botão direito) em mensagens e mídias */}
+      <MessageContextMenu
+        menu={messageContextMenu}
+        isExpanded={Boolean(messageContextMenu && expandedMsgId === messageContextMenu.messageId)}
+        onToggleInfo={handleToggleMessageInfo}
+        onClose={handleCloseMessageContextMenu}
       />
     </motion.section>
   );

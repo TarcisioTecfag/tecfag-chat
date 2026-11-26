@@ -76,6 +76,11 @@ import {
   extractInitialKeyFromKeyboardEvent,
 } from "@/lib/operator-initial-navigation";
 import { MessageKnowledgeSourceButton, VtexProductPreviewCard } from "@/components/chat/ChatMessageBubble";
+import { MessageContextMenu } from "@/components/chat/MessageContextMenu";
+import {
+  resolveMessageInfoAuthor,
+  type MessageContextMenuState,
+} from "@/lib/chat/message-context-menu";
 import {
   Dialog,
   DialogContent,
@@ -1514,11 +1519,33 @@ export function CrmChatWidget() {
     x: number;
     y: number;
   } | null>(null);
+  const [expandedMsgId, setExpandedMsgId] = useState<string | null>(null);
+  const [messageContextMenu, setMessageContextMenu] = useState<MessageContextMenuState | null>(null);
 
   useEffect(() => {
     const handleClose = () => setContextMenu(null);
     window.addEventListener("click", handleClose);
     return () => window.removeEventListener("click", handleClose);
+  }, []);
+
+  useEffect(() => {
+    setMessageContextMenu(null);
+    setExpandedMsgId(null);
+  }, [selectedChatId, view, open]);
+
+  const handleMessageContextMenu = useCallback((e: React.MouseEvent, id: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu(null);
+    setMessageContextMenu({ messageId: id, x: e.clientX, y: e.clientY });
+  }, []);
+
+  const handleToggleMessageInfo = useCallback((id: string) => {
+    setExpandedMsgId((prev) => (prev === id ? null : id));
+  }, []);
+
+  const handleCloseMessageContextMenu = useCallback(() => {
+    setMessageContextMenu(null);
   }, []);
 
   // Modal de Transferência
@@ -3234,6 +3261,7 @@ export function CrmChatWidget() {
                             channel: selected.channel,
                           });
                           return visibleThread.map((message: any, i: number) => {
+                            const msgId = String(message.id || `mini-msg-${i}`);
                             const isMe = message.side === "out";
                             const isSystem =
                               message.author === "Sistema" || message.senderType === "system";
@@ -3395,7 +3423,10 @@ export function CrmChatWidget() {
                                   )}
                                   <div className="flex flex-col items-end w-full group">
                                     {isFirstInSiteRun && <SiteOriginTag side="out" compact className="mb-1" />}
-                                    <div className="max-w-[85%] rounded-2xl rounded-br-xs bg-primary px-3.5 py-2.5 text-primary-foreground shadow-sm text-xs leading-relaxed select-text">
+                                    <div
+                                      onContextMenu={(e) => handleMessageContextMenu(e, msgId)}
+                                      className="max-w-[85%] rounded-2xl rounded-br-xs bg-primary px-3.5 py-2.5 text-primary-foreground shadow-sm text-xs leading-relaxed select-text"
+                                    >
                                     {resolvedQuotedContent && (
                                       <QuotedMessagePreview
                                         sender={resolvedQuotedSender}
@@ -3420,6 +3451,19 @@ export function CrmChatWidget() {
                                       )}
                                     </div>
                                   </div>
+
+                                  {expandedMsgId === msgId && (
+                                    <span className="mr-1 mt-1 block text-[10px] text-muted-foreground font-medium animate-in fade-in slide-in-from-top-1 duration-150">
+                                      {boundary?.isSiteOriginInWhatsapp ? "Via Site · " : ""}
+                                      {resolveMessageInfoAuthor({
+                                        author: message.author,
+                                        isMe: true,
+                                        operatorName: operatorProfile?.name,
+                                        chatName: selected.name,
+                                      })}{" "}
+                                      · {message.time}
+                                    </span>
+                                  )}
 
                                   {["failed", "unknown", "uncertain", "pending"].includes(
                                     effectiveStatus || "",
@@ -3501,7 +3545,10 @@ export function CrmChatWidget() {
                                       className="mb-1"
                                     />
                                   )}
-                                  <div className="min-w-0 max-w-[90%]">
+                                  <div
+                                    onContextMenu={(e) => handleMessageContextMenu(e, msgId)}
+                                    className="min-w-0 max-w-[90%]"
+                                  >
                                     <VtexProductPreviewCard
                                       preview={message.vtexProductPreview}
                                       previews={message.vtexProductPreviews}
@@ -3509,6 +3556,17 @@ export function CrmChatWidget() {
                                       compact
                                       standalone
                                     />
+                                    {expandedMsgId === msgId && (
+                                      <span className="ml-1 mt-1 block text-[10px] text-muted-foreground font-medium animate-in fade-in slide-in-from-top-1 duration-150">
+                                        {resolveMessageInfoAuthor({
+                                          author: message.author,
+                                          isMe: false,
+                                          operatorName: operatorProfile?.name,
+                                          chatName: selected.name,
+                                        })}{" "}
+                                        · {message.time}
+                                      </span>
+                                    )}
                                   </div>
                                 </div>
                               );
@@ -3541,6 +3599,7 @@ export function CrmChatWidget() {
                                   />
                                 )}
                                 <div
+                                  onContextMenu={(e) => handleMessageContextMenu(e, msgId)}
                                   className={`rounded-2xl rounded-bl-xs min-w-0 overflow-hidden break-words ${
                                     message.isWarning
                                       ? `w-full max-w-[90%] border border-border/80 border-l-4 ${
@@ -4368,6 +4427,18 @@ export function CrmChatWidget() {
                                   );
                                 })()}
                                   </div>
+                                  {expandedMsgId === msgId && (
+                                    <span className="ml-8 mt-1 block text-[10px] text-muted-foreground font-medium animate-in fade-in slide-in-from-top-1 duration-150">
+                                      {boundary?.isSiteOriginInWhatsapp ? "Via Site · " : ""}
+                                      {resolveMessageInfoAuthor({
+                                        author: message.author,
+                                        isMe: false,
+                                        operatorName: operatorProfile?.name,
+                                        chatName: selected.name,
+                                      })}{" "}
+                                      · {message.time}
+                                    </span>
+                                  )}
                                 </div>
                                 {boundary?.afterDivider && (
                                   <ChannelTransitionDivider kind={boundary.afterDivider} compact />
@@ -5089,6 +5160,15 @@ export function CrmChatWidget() {
           );
         })()}
       </AnimatePresence>
+
+      {/* Menu de Contexto (botão direito) em mensagens e mídias no Mini Chat */}
+      <MessageContextMenu
+        menu={messageContextMenu}
+        isExpanded={Boolean(messageContextMenu && expandedMsgId === messageContextMenu.messageId)}
+        onToggleInfo={handleToggleMessageInfo}
+        onClose={handleCloseMessageContextMenu}
+        insideMiniChat
+      />
 
       {/* Modal de Transferência de Atendimento */}
       <Dialog

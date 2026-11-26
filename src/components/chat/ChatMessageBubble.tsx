@@ -68,6 +68,7 @@ import {
   isEmojiOnly,
   QuotedMessagePreview,
 } from "./ChatPanel";
+import { resolveMessageInfoAuthor } from "@/lib/chat/message-context-menu";
 
 const VTEX_HTML_ENTITIES: Record<string, string> = {
   "&nbsp;": " ",
@@ -823,6 +824,7 @@ export interface ChatMessageBubbleProps {
   onReconcile?: (id: string, action: "resend" | "confirm_sent", uncertain: boolean) => void;
   onOpenSourceConversation?: (conversationId: string) => void;
   onBubbleClick: (e: React.MouseEvent, id: string) => void;
+  onMessageContextMenu?: (e: React.MouseEvent, id: string) => void;
   onScrollToQuoted: (e: React.MouseEvent, targetId: string) => void;
   onSetReactingMsgId: (id: string | null) => void;
   onSetMarkingEvidenceMsg: (msg: {
@@ -875,6 +877,7 @@ function ChatMessageBubbleComponent({
   onReconcile,
   onOpenSourceConversation,
   onBubbleClick,
+  onMessageContextMenu,
   onScrollToQuoted,
   onSetReactingMsgId,
   onSetMarkingEvidenceMsg,
@@ -890,6 +893,12 @@ function ChatMessageBubbleComponent({
   const navigate = useNavigate();
   const [dealSearchQuery, setDealSearchQuery] = React.useState("");
   const safeText = typeof m.text === "string" ? m.text : "";
+  const displayAuthor = resolveMessageInfoAuthor({
+    author: m.author,
+    isMe,
+    operatorName,
+    chatName: activeChat.name,
+  });
   const unsupportedInfo =
     !isMe && !m.isInternalNote && !m.isWarning && !isSystem && activeChat.id !== "valentina"
       ? analyzeMetaUnsupportedMessage(safeText, m.metaDetails)
@@ -1115,7 +1124,10 @@ function ChatMessageBubbleComponent({
             </SystemTooltip>
 
             {isSticker ? (
-              <div className="leading-relaxed">
+              <div
+                onContextMenu={(e) => onMessageContextMenu?.(e, m.id)}
+                className="leading-relaxed"
+              >
                 {displayQuotedContent && (
                   <QuotedMessagePreview
                     sender={displayQuotedSender}
@@ -1137,7 +1149,10 @@ function ChatMessageBubbleComponent({
                 )}
               </div>
             ) : isAudioOrDoc ? (
-              <div className="flex flex-col items-end gap-1.5">
+              <div
+                onContextMenu={(e) => onMessageContextMenu?.(e, m.id)}
+                className="flex flex-col items-end gap-1.5"
+              >
                 {displayQuotedContent && (
                   <QuotedMessagePreview
                     sender={displayQuotedSender}
@@ -1159,7 +1174,7 @@ function ChatMessageBubbleComponent({
                 )}
               </div>
             ) : isMedia && !hasCaption && !displayQuotedContent ? (
-              <div>
+              <div onContextMenu={(e) => onMessageContextMenu?.(e, m.id)}>
                 {renderMessageContent(
                   safeText,
                   onMediaClick,
@@ -1172,10 +1187,17 @@ function ChatMessageBubbleComponent({
                 )}
               </div>
             ) : isEmojiOnly(safeText) && !displayQuotedContent ? (
-              <div className="text-4xl leading-none select-none py-1">{safeText}</div>
+              <div
+                onClick={(e) => onBubbleClick(e, m.id)}
+                onContextMenu={(e) => onMessageContextMenu?.(e, m.id)}
+                className="text-4xl leading-none select-none py-1 cursor-pointer"
+              >
+                {safeText}
+              </div>
             ) : (
               <div
                 onClick={(e) => onBubbleClick(e, m.id)}
+                onContextMenu={(e) => onMessageContextMenu?.(e, m.id)}
                 className={`${outR} px-4 py-2.5 text-sm leading-relaxed shadow-soft bg-primary text-primary-foreground text-left cursor-pointer transition-all duration-300 ${
                   isMatch ? "scale-[1.01] shadow-lg" : ""
                 }`}
@@ -1277,7 +1299,7 @@ function ChatMessageBubbleComponent({
                 {isExpanded && (
                   <span>
                     {isSiteOriginInWhatsapp ? "Via Site · " : ""}
-                    {m.author} · {m.time}
+                    {displayAuthor} · {m.time}
                   </span>
                 )}
                 {showTicks && (
@@ -1342,7 +1364,10 @@ function ChatMessageBubbleComponent({
           {isSiteOriginInWhatsapp && isFirst && <SiteOriginTag side="in" className="mb-1" />}
           <div className="flex items-center gap-2 relative min-w-0 max-w-full">
             {isSticker ? (
-              <div className="leading-relaxed">
+              <div
+                onContextMenu={(e) => onMessageContextMenu?.(e, m.id)}
+                className="leading-relaxed"
+              >
                 {displayQuotedContent && (
                   <QuotedMessagePreview
                     sender={displayQuotedSender}
@@ -1364,7 +1389,10 @@ function ChatMessageBubbleComponent({
                 )}
               </div>
             ) : isAudioOrDoc && !m.isWarning ? (
-              <div className="flex flex-col items-start gap-1.5 min-w-0 max-w-full">
+              <div
+                onContextMenu={(e) => onMessageContextMenu?.(e, m.id)}
+                className="flex flex-col items-start gap-1.5 min-w-0 max-w-full"
+              >
                 {displayQuotedContent && (
                   <QuotedMessagePreview
                     sender={displayQuotedSender}
@@ -1386,7 +1414,10 @@ function ChatMessageBubbleComponent({
                 )}
               </div>
             ) : isMedia && !hasCaption && !displayQuotedContent && !m.isWarning ? (
-              <div className="min-w-0 max-w-full">
+              <div
+                onContextMenu={(e) => onMessageContextMenu?.(e, m.id)}
+                className="min-w-0 max-w-full"
+              >
                 {renderMessageContent(
                   safeText,
                   onMediaClick,
@@ -1399,9 +1430,18 @@ function ChatMessageBubbleComponent({
                 )}
               </div>
             ) : isEmojiOnly(safeText) && !displayQuotedContent && !m.isWarning ? (
-              <div className="text-4xl leading-none select-none py-1">{safeText}</div>
+              <div
+                onClick={(e) => onBubbleClick(e, m.id)}
+                onContextMenu={(e) => onMessageContextMenu?.(e, m.id)}
+                className="text-4xl leading-none select-none py-1 cursor-pointer"
+              >
+                {safeText}
+              </div>
             ) : m.vtexProductPreview && !isMedia && !m.isWarning && isBoilerplateVtexIntroText(safeText) ? (
-              <div className="min-w-0 max-w-full flex flex-col items-start gap-1.5">
+              <div
+                onContextMenu={(e) => onMessageContextMenu?.(e, m.id)}
+                className="min-w-0 max-w-full flex flex-col items-start gap-1.5"
+              >
                 {activeChat.id === "valentina" && m.thoughtTrace && (
                   <AgenticThoughtTrace
                     trace={m.thoughtTrace}
@@ -1418,6 +1458,7 @@ function ChatMessageBubbleComponent({
             ) : (
               <div
                 onClick={(e) => onBubbleClick(e, m.id)}
+                onContextMenu={(e) => onMessageContextMenu?.(e, m.id)}
                 className={`${inR} min-w-0 max-w-full overflow-hidden break-words ${
                   m.isWarning
                     ? `bg-card border-border border-l-4 ${
@@ -2219,7 +2260,7 @@ function ChatMessageBubbleComponent({
           {isExpanded && (
             <span className="ml-1 mt-1 block text-[10px] text-muted-foreground font-medium animate-in fade-in slide-in-from-top-1 duration-150">
               {isSiteOriginInWhatsapp ? "Via Site · " : ""}
-              {m.author} · {m.time}
+              {displayAuthor} · {m.time}
             </span>
           )}
         </div>
@@ -2280,6 +2321,7 @@ export const ChatMessageBubble = memo(
     if (prev.displayQuotedContent !== next.displayQuotedContent) return false;
     if (prev.activeChat.id !== next.activeChat.id) return false;
     if (Boolean(prev.onUseSuggestedReply) !== Boolean(next.onUseSuggestedReply)) return false;
+    if (prev.onMessageContextMenu !== next.onMessageContextMenu) return false;
 
     return true; // Pula re-renderização com segurança!
   }
