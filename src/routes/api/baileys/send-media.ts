@@ -192,7 +192,15 @@ export const Route = createFileRoute("/api/baileys/send-media")({
             }).onConflictDoNothing();
 
             await db.update(conversations)
-              .set({ lastMessageText: displayContent, lastMessageTime: new Date() })
+              .set({
+                lastMessageText: displayContent,
+                lastMessageTime: new Date(),
+                supervisorAttentionAt: null,
+                supervisorAttentionOperatorId: null,
+                supervisorAttentionMessage: null,
+                supervisorAttentionBy: null,
+                supervisorAttentionMessageId: null,
+              })
               .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)));
 
             // Persistir a mídia permanentemente no banco de dados (Base64)

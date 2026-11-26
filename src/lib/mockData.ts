@@ -170,6 +170,14 @@ export type KnowledgeSourceItem = {
   verified: boolean;
 };
 
+export type SupervisorAttentionState = {
+  at: string;
+  operatorId?: string | null;
+  message?: string | null;
+  by?: string | null;
+  messageId?: string | null;
+};
+
 export type Conversation = {
   whatsappConnectionId?: string | null;
   id: string;
@@ -207,6 +215,7 @@ export type Conversation = {
   sectorName?: string | null;
   responsibleName?: string;
   version?: number;
+  supervisorAttention?: SupervisorAttentionState | null;
 };
 
 /**

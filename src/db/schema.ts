@@ -623,6 +623,14 @@ export const conversations = pgTable("conversations", {
 
   lastMessageText: text("last_message_text"),
   lastMessageTime: timestamp("last_message_time").defaultNow().notNull(),
+
+  // Flag de atenção da Supervisão ("ATENÇÃO!" no preview + 1º lugar na lista; expira ao operador responder ao cliente)
+  supervisorAttentionAt: timestamp("supervisor_attention_at"),
+  supervisorAttentionOperatorId: text("supervisor_attention_operator_id"),
+  supervisorAttentionMessage: text("supervisor_attention_message"),
+  supervisorAttentionBy: text("supervisor_attention_by"),
+  supervisorAttentionMessageId: text("supervisor_attention_message_id"),
+
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({
   tenantContactUniqIdx: uniqueIndex("idx_conversations_tenant_contact_uniq").on(table.tenantId, table.contactId).where(sql`whatsapp_connection_id IS NULL AND id NOT LIKE 'conv-lc-%'`),

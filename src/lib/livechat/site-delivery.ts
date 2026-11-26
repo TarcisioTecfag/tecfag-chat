@@ -315,6 +315,7 @@ export async function sendSiteOperatorText(params: {
     conversationId,
     messageId: message.id,
     status,
+    clearSupervisorAttention: true,
   }); } catch {
     console.error("[SiteDelivery] Histórico preservado; notificação do painel indisponível.");
   }

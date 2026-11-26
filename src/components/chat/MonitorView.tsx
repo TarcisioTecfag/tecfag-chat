@@ -1082,7 +1082,12 @@ function AlertsTab({
   );
 
   const handleSendAlertWhisper = useCallback(
-    async (convId: string, contentText: string, targetOperatorId?: string | null) => {
+    async (
+      convId: string,
+      contentText: string,
+      targetOperatorId?: string | null,
+      alertReason?: string | null,
+    ) => {
       const trimmed = contentText.trim();
       if (!trimmed || sendingWhisperConvId) return;
       setSendingWhisperConvId(convId);
@@ -1094,6 +1099,8 @@ function AlertsTab({
             conversationId: convId,
             content: trimmed,
             targetOperatorId: targetOperatorId || undefined,
+            source: "monitor_alerts",
+            alertReason: alertReason || undefined,
           }),
         });
         const data = await res.json().catch(() => ({}));
@@ -2262,7 +2269,19 @@ function AlertsTab({
 
                         {/* Pílulas de 1 clique */}
                         <div className="flex flex-wrap items-center gap-1.5">
-                          {SUPERVISOR_ALERT_PRESETS.map((preset) => (
+                          {SUPERVISOR_ALERT_PRESETS.map((preset) => {
+                            const computedAlertReason = isConflict
+                              ? "Risco de conflito detectado"
+                              : isDeliveryFailed
+                                ? "Falha no envio de mensagem"
+                                : isMetaExpiring
+                                  ? "Janela 24h Meta expirando"
+                                  : isOverdueTask
+                                    ? "Tarefa atrasada vinculada"
+                                    : alert.waitingSeconds > 0
+                                      ? `Cliente aguardando há ${Math.max(1, Math.round(alert.waitingSeconds / 60))} min`
+                                      : "Alerta do Monitoramento";
+                            return (
                             <button
                               key={preset}
                               type="button"
@@ -2277,7 +2296,8 @@ function AlertsTab({
                                 void handleSendAlertWhisper(
                                   alert.conversationId,
                                   preset,
-                                  selectedWhisperOpId || effectiveOperatorId
+                                  selectedWhisperOpId || effectiveOperatorId,
+                                  computedAlertReason
                                 );
                               }}
                               className="inline-flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-1.5 rounded-xl bg-card hover:bg-primary hover:text-primary-foreground text-foreground border border-border transition cursor-pointer disabled:opacity-50"
@@ -2285,7 +2305,8 @@ function AlertsTab({
                               <Zap className="h-3 w-3 shrink-0 text-primary" />
                               <span>{preset}</span>
                             </button>
-                          ))}
+                            );
+                          })}
                         </div>
 
                         {/* Campo livre de sussurro */}
@@ -2298,10 +2319,22 @@ function AlertsTab({
                               );
                               return;
                             }
+                            const computedAlertReason = isConflict
+                              ? "Risco de conflito detectado"
+                              : isDeliveryFailed
+                                ? "Falha no envio de mensagem"
+                                : isMetaExpiring
+                                  ? "Janela 24h Meta expirando"
+                                  : isOverdueTask
+                                    ? "Tarefa atrasada vinculada"
+                                    : alert.waitingSeconds > 0
+                                      ? `Cliente aguardando há ${Math.max(1, Math.round(alert.waitingSeconds / 60))} min`
+                                      : "Alerta do Monitoramento";
                             void handleSendAlertWhisper(
                               alert.conversationId,
                               whisperDraft,
-                              selectedWhisperOpId || effectiveOperatorId
+                              selectedWhisperOpId || effectiveOperatorId,
+                              computedAlertReason
                             );
                           }}
                           className="flex items-center gap-2"

@@ -364,8 +364,20 @@ export const Route = createFileRoute("/api/chats")({
               messageId: msgId, content: msgContent, type: senderType === "system" ? "system_event" : "note",
             });
 
+            const shouldClearSupervisorAttention =
+              !isInternalNote && (senderType || "agent") === "agent";
+
             await tx.update(conversations).set({
               ...(isInternalNote || senderType === "system" ? {} : { lastMessageTime: now }),
+              ...(shouldClearSupervisorAttention
+                ? {
+                    supervisorAttentionAt: null,
+                    supervisorAttentionOperatorId: null,
+                    supervisorAttentionMessage: null,
+                    supervisorAttentionBy: null,
+                    supervisorAttentionMessageId: null,
+                  }
+                : {}),
               updatedAt: now,
               ...(isCurrentOwner ? { unreadCount: 0 } : {}),
             }).where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, session.tenantId)));
@@ -431,6 +443,9 @@ export const Route = createFileRoute("/api/chats")({
                 queue: conv.queueState,
                 operatorId: conv.operatorId,
                 walletOperatorId: contactRow?.walletOperatorId ?? null,
+                ...(!isInternalNote && (senderType || "agent") === "agent"
+                  ? { clearSupervisorAttention: true }
+                  : {}),
               },
             });
           } catch (sseErr) {
@@ -591,6 +606,8 @@ export const Route = createFileRoute("/api/chats")({
           if (beforeCursor) {
             const beforeDate = new Date(beforeCursor);
             if (!isNaN(beforeDate.getTime())) {
+              // Conversas com tag ATENÇÃO! sempre aparecem no topo da página 1
+              conditions.push(isNull(conversations.supervisorAttentionAt));
               const olderInGroup = beforeId
                 ? or(lt(conversations.lastMessageTime, beforeDate), and(
                     eq(conversations.lastMessageTime, beforeDate), lt(conversations.id, beforeId),
@@ -607,7 +624,19 @@ export const Route = createFileRoute("/api/chats")({
           }
 
           // 2. Buscar conversas com contacts e sectors via INNER JOIN eficiente
-          // Prioriza sempre as conversas ativas (não finalizadas) na ordenação inicial
+          // Prioriza sempre conversas ativas com tag ATENÇÃO! no 1º lugar (página 1), depois ativas e finalizadas
+          const orderClauses = beforeCursor
+            ? [
+                sql`CASE WHEN ${conversations.queueState} != 'finalizados' THEN 0 ELSE 1 END`,
+                desc(conversations.lastMessageTime),
+                desc(conversations.id),
+              ]
+            : [
+                sql`CASE WHEN ${conversations.queueState} != 'finalizados' AND ${conversations.supervisorAttentionAt} IS NOT NULL THEN 0 WHEN ${conversations.queueState} != 'finalizados' THEN 1 ELSE 2 END`,
+                sql`${conversations.supervisorAttentionAt} DESC NULLS LAST`,
+                desc(conversations.lastMessageTime),
+                desc(conversations.id),
+              ];
           const rowsQuery = db
             .select({
               conversation: conversations,
@@ -618,11 +647,7 @@ export const Route = createFileRoute("/api/chats")({
             .innerJoin(contacts, and(eq(conversations.contactId, contacts.id), eq(contacts.tenantId, session.tenantId)))
             .leftJoin(sectors, and(eq(conversations.sectorId, sectors.id), eq(sectors.tenantId, session.tenantId)))
             .where(and(...conditions))
-            .orderBy(
-              sql`CASE WHEN ${conversations.queueState} != 'finalizados' THEN 0 ELSE 1 END`,
-              desc(conversations.lastMessageTime),
-              desc(conversations.id)
-            )
+            .orderBy(...orderClauses)
             .limit(requestedConversationId ? 1 : limit + 1);
           const [allOperators, fetchedRows] = await Promise.all([
             db.select({ id: operators.id, name: operators.name }).from(operators)
@@ -857,6 +882,19 @@ export const Route = createFileRoute("/api/chats")({
                 ? row.conversation.unreadCount
                 : 0,
               version: row.conversation.version || 1, // Concorrência otimista (Entrega C)
+              supervisorAttention:
+                row.conversation.queueState !== "finalizados" && row.conversation.supervisorAttentionAt
+                  ? {
+                      at:
+                        row.conversation.supervisorAttentionAt instanceof Date
+                          ? row.conversation.supervisorAttentionAt.toISOString()
+                          : String(row.conversation.supervisorAttentionAt),
+                      operatorId: row.conversation.supervisorAttentionOperatorId || null,
+                      message: row.conversation.supervisorAttentionMessage || null,
+                      by: row.conversation.supervisorAttentionBy || null,
+                      messageId: row.conversation.supervisorAttentionMessageId || null,
+                    }
+                  : null,
               lastMessageTime: effectivePreviewDate.toLocaleTimeString("pt-BR", {
                 hour: "2-digit",
                 minute: "2-digit",

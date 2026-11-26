@@ -236,7 +236,15 @@ export const Route = createFileRoute("/api/chats/update-queue")({
             updatedAt: new Date(),
           };
 
-          if (queueState !== "finalizados") updateData.operatorId = targetOpId;
+          if (queueState !== "finalizados") {
+            updateData.operatorId = targetOpId;
+          } else {
+            updateData.supervisorAttentionAt = null;
+            updateData.supervisorAttentionOperatorId = null;
+            updateData.supervisorAttentionMessage = null;
+            updateData.supervisorAttentionBy = null;
+            updateData.supervisorAttentionMessageId = null;
+          }
           if (sectorId !== undefined) {
             updateData.sectorId = sectorId || null;
           }

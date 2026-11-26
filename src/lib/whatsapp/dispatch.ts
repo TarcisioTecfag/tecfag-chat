@@ -189,9 +189,23 @@ export async function dispatchStored(
           await replayPendingMetaStatuses(tenantId, result.externalId);
           resetMetaTypingThrottle(tenantId, conv.id);
         }
+        const shouldClearSupervisorAttention =
+          msg.senderType === "agent" && !msg.isInternalNote;
         await db
           .update(conversations)
-          .set({ lastMessageTime: msg.sentAt || new Date(), updatedAt: new Date() })
+          .set({
+            lastMessageTime: msg.sentAt || new Date(),
+            updatedAt: new Date(),
+            ...(shouldClearSupervisorAttention
+              ? {
+                  supervisorAttentionAt: null,
+                  supervisorAttentionOperatorId: null,
+                  supervisorAttentionMessage: null,
+                  supervisorAttentionBy: null,
+                  supervisorAttentionMessageId: null,
+                }
+              : {}),
+          })
           .where(and(eq(conversations.tenantId, tenantId), eq(conversations.id, conv.id)));
         try {
           SessionManager.getInstance().notifyPublic(tenantId, {
@@ -218,6 +232,7 @@ export async function dispatchStored(
               queue: conv.queueState,
               operatorId: conv.operatorId,
               walletOperatorId: contact.walletOperatorId,
+              ...(shouldClearSupervisorAttention ? { clearSupervisorAttention: true } : {}),
             },
           } as any);
         } catch {}

@@ -1,9 +1,25 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../db";
-import { contacts, conversations, messages, operators } from "../../../db/schema";
-import { eq, and, asc, sql } from "drizzle-orm";
+import {
+  agentFlowStates,
+  contacts,
+  conversations,
+  crmAccounts,
+  crmConversationDeals,
+  crmDealContacts,
+  crmDealProducts,
+  crmDeals,
+  crmPipelines,
+  crmStages,
+  messages,
+  operators,
+  sectors,
+} from "../../../db/schema";
+import { eq, and, asc, desc, sql } from "drizzle-orm";
 import { requireSession } from "../../../lib/auth-session";
 import { requireConversationAccess } from "../../../lib/access-control/conversation-access";
+import { resolveLeadPopupFields } from "../../../lib/valentina/operator-notifications";
+import { isSiteConversationId } from "../../../lib/livechat/site-channel-policy";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -140,6 +156,8 @@ export const Route = createFileRoute("/api/gestao/messages")({
             conversationId?: string;
             content?: string;
             targetOperatorId?: string | null;
+            source?: string | null;
+            alertReason?: string | null;
           };
 
           const conversationId = String(body.conversationId || "").trim();
@@ -147,6 +165,8 @@ export const Route = createFileRoute("/api/gestao/messages")({
           const requestedTargetOpId = body.targetOperatorId
             ? String(body.targetOperatorId).trim()
             : null;
+          const requestSource = body.source ? String(body.source).trim().slice(0, 64) : null;
+          const alertReason = body.alertReason ? String(body.alertReason).trim().slice(0, 240) : null;
 
           if (!conversationId || !rawContent) {
             return new Response(
@@ -168,6 +188,9 @@ export const Route = createFileRoute("/api/gestao/messages")({
           const [conv] = await db
             .select({
               id: conversations.id,
+              contactId: conversations.contactId,
+              convContactPhone: conversations.contactPhone,
+              whatsappConnectionId: conversations.whatsappConnectionId,
               operatorId: conversations.operatorId,
               queueState: conversations.queueState,
               sectorId: conversations.sectorId,
@@ -175,6 +198,9 @@ export const Route = createFileRoute("/api/gestao/messages")({
               contactName: contacts.name,
               contactPhone: contacts.phone,
               contactAvatar: contacts.avatar,
+              contactAccountId: contacts.accountId,
+              contactCnpjDetails: contacts.cnpjDetails,
+              contactMainChannel: contacts.mainChannel,
               walletOperatorId: contacts.walletOperatorId,
             })
             .from(conversations)
@@ -245,8 +271,28 @@ export const Route = createFileRoute("/api/gestao/messages")({
           const msgId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
           const senderLabel = `${session.operator.name} (Supervisão)`;
 
+          const shouldEmitAttentionPopup = Boolean(
+            effectiveOperatorId &&
+              (effectiveOperatorId !== session.operator.id ||
+                requestedTargetOpId === session.operator.id ||
+                requestSource === "monitor_alerts")
+          );
+
+          const supervisorAttention = effectiveOperatorId
+            ? {
+                at: now.toISOString(),
+                operatorId: effectiveOperatorId,
+                message: rawContent.slice(0, 600),
+                by: session.operator.name,
+                messageId: msgId,
+              }
+            : null;
+
           const whisperMetaDetails = {
             supervisorWhisper: true,
+            hasSupervisorAttentionPopup: shouldEmitAttentionPopup,
+            source: requestSource || "monitor",
+            ...(alertReason ? { alertReason } : {}),
             targetOperatorId: effectiveOperatorId,
             targetOperatorName: effectiveOperatorName,
             attendanceActor: {
@@ -322,6 +368,15 @@ export const Route = createFileRoute("/api/gestao/messages")({
                     version: sql`COALESCE(${conversations.version}, 1) + 1`,
                   }
                 : {}),
+              ...(effectiveOperatorId
+                ? {
+                    supervisorAttentionAt: now,
+                    supervisorAttentionOperatorId: effectiveOperatorId,
+                    supervisorAttentionMessage: rawContent.slice(0, 600),
+                    supervisorAttentionBy: session.operator.name,
+                    supervisorAttentionMessageId: msgId,
+                  }
+                : {}),
               lastMessageTime: now,
               unreadCount: sql`COALESCE(${conversations.unreadCount}, 0) + 1`,
               updatedAt: now,
@@ -333,7 +388,230 @@ export const Route = createFileRoute("/api/gestao/messages")({
               )
             );
 
-          // Notificar via SSE para aparecer instantaneamente (com alerta sonoro + toast) na tela do consultor
+          // Enriquecer contexto do cliente (empresa, máquina/produto, negociação, setor e última mensagem) para o pop-up
+          let popupClientName = conv.contactName || "Cliente";
+          let popupCompany: string | null = null;
+          let popupMachine: string | null = null;
+          let popupDealId: string | null = null;
+          let popupDealTitle: string | null = null;
+          let popupDealPipelineName: string | null = null;
+          let popupDealStageName: string | null = null;
+          let popupSectorName: string | null = null;
+          let popupLastClientMessage: string | null = null;
+
+          const effectiveClientPhone = conv.convContactPhone || conv.contactPhone || null;
+          const effectiveChannel = isSiteConversationId(conv.id)
+            ? "livechat"
+            : conv.whatsappConnectionId
+              ? "whatsapp"
+              : conv.contactMainChannel === "livechat"
+                ? "whatsapp"
+                : conv.contactMainChannel || "whatsapp";
+
+          if (shouldEmitAttentionPopup) {
+            try {
+              const [sectorRow, contactAccountRow, flowRow, lastClientMsgRow, convDealLink] =
+                await Promise.all([
+                  conv.sectorId
+                    ? db
+                        .select({ name: sectors.name })
+                        .from(sectors)
+                        .where(and(eq(sectors.id, conv.sectorId), eq(sectors.tenantId, tenantId)))
+                        .limit(1)
+                        .then((r) => r[0] || null)
+                        .catch(() => null)
+                    : Promise.resolve(null),
+                  conv.contactAccountId
+                    ? db
+                        .select({ name: crmAccounts.name, tradeName: crmAccounts.tradeName })
+                        .from(crmAccounts)
+                        .where(
+                          and(
+                            eq(crmAccounts.id, conv.contactAccountId),
+                            eq(crmAccounts.tenantId, tenantId)
+                          )
+                        )
+                        .limit(1)
+                        .then((r) => r[0] || null)
+                        .catch(() => null)
+                    : Promise.resolve(null),
+                  db
+                    .select({
+                      collectedData: agentFlowStates.collectedData,
+                      metadata: agentFlowStates.metadata,
+                    })
+                    .from(agentFlowStates)
+                    .where(
+                      and(
+                        eq(agentFlowStates.tenantId, tenantId),
+                        eq(agentFlowStates.conversationId, conversationId)
+                      )
+                    )
+                    .orderBy(desc(agentFlowStates.lastInteractionAt))
+                    .limit(1)
+                    .then((r) => r[0] || null)
+                    .catch(() => null),
+                  db
+                    .select({ content: messages.content })
+                    .from(messages)
+                    .where(
+                      and(
+                        eq(messages.tenantId, tenantId),
+                        eq(messages.conversationId, conversationId),
+                        eq(messages.senderType, "client"),
+                        eq(messages.isInternalNote, false)
+                      )
+                    )
+                    .orderBy(desc(messages.sentAt))
+                    .limit(1)
+                    .then((r) => r[0] || null)
+                    .catch(() => null),
+                  db
+                    .select({
+                      dealId: crmDeals.id,
+                      dealTitle: crmDeals.title,
+                      dealAccountId: crmDeals.accountId,
+                      pipelineName: crmPipelines.name,
+                      stageName: crmStages.name,
+                      status: crmDeals.status,
+                    })
+                    .from(crmConversationDeals)
+                    .innerJoin(
+                      crmDeals,
+                      and(
+                        eq(crmDeals.id, crmConversationDeals.dealId),
+                        eq(crmDeals.tenantId, tenantId)
+                      )
+                    )
+                    .leftJoin(
+                      crmPipelines,
+                      and(eq(crmPipelines.id, crmDeals.pipelineId), eq(crmPipelines.tenantId, tenantId))
+                    )
+                    .leftJoin(
+                      crmStages,
+                      and(eq(crmStages.id, crmDeals.stageId), eq(crmStages.tenantId, tenantId))
+                    )
+                    .where(
+                      and(
+                        eq(crmConversationDeals.tenantId, tenantId),
+                        eq(crmConversationDeals.conversationId, conversationId),
+                        eq(crmConversationDeals.isActive, true)
+                      )
+                    )
+                    .orderBy(desc(crmDeals.updatedAt))
+                    .limit(1)
+                    .then((r) => r[0] || null)
+                    .catch(() => null),
+                ]);
+
+              popupSectorName = sectorRow?.name || null;
+              popupLastClientMessage = lastClientMsgRow?.content?.trim()?.slice(0, 260) || null;
+
+              let activeDeal = convDealLink;
+              if (!activeDeal && conv.contactId) {
+                activeDeal = await db
+                  .select({
+                    dealId: crmDeals.id,
+                    dealTitle: crmDeals.title,
+                    dealAccountId: crmDeals.accountId,
+                    pipelineName: crmPipelines.name,
+                    stageName: crmStages.name,
+                    status: crmDeals.status,
+                  })
+                  .from(crmDealContacts)
+                  .innerJoin(
+                    crmDeals,
+                    and(eq(crmDeals.id, crmDealContacts.dealId), eq(crmDeals.tenantId, tenantId))
+                  )
+                  .leftJoin(
+                    crmPipelines,
+                    and(eq(crmPipelines.id, crmDeals.pipelineId), eq(crmPipelines.tenantId, tenantId))
+                  )
+                  .leftJoin(
+                    crmStages,
+                    and(eq(crmStages.id, crmDeals.stageId), eq(crmStages.tenantId, tenantId))
+                  )
+                  .where(
+                    and(
+                      eq(crmDealContacts.tenantId, tenantId),
+                      eq(crmDealContacts.contactId, conv.contactId)
+                    )
+                  )
+                  .orderBy(
+                    sql`CASE WHEN ${crmDeals.status} = 'open' THEN 0 ELSE 1 END`,
+                    desc(crmDeals.updatedAt)
+                  )
+                  .limit(1)
+                  .then((r) => r[0] || null)
+                  .catch(() => null);
+              }
+
+              let dealAccountRow: { name: string; tradeName: string | null } | null = null;
+              let dealProductNames: string[] = [];
+              if (activeDeal) {
+                popupDealId = activeDeal.dealId;
+                popupDealTitle = activeDeal.dealTitle;
+                popupDealPipelineName = activeDeal.pipelineName || null;
+                popupDealStageName = activeDeal.stageName || null;
+
+                const [accRow, prodRows] = await Promise.all([
+                  activeDeal.dealAccountId
+                    ? db
+                        .select({ name: crmAccounts.name, tradeName: crmAccounts.tradeName })
+                        .from(crmAccounts)
+                        .where(
+                          and(
+                            eq(crmAccounts.id, activeDeal.dealAccountId),
+                            eq(crmAccounts.tenantId, tenantId)
+                          )
+                        )
+                        .limit(1)
+                        .then((r) => r[0] || null)
+                        .catch(() => null)
+                    : Promise.resolve(null),
+                  db
+                    .select({ name: crmDealProducts.name })
+                    .from(crmDealProducts)
+                    .where(
+                      and(
+                        eq(crmDealProducts.tenantId, tenantId),
+                        eq(crmDealProducts.dealId, activeDeal.dealId)
+                      )
+                    )
+                    .limit(5)
+                    .catch(() => []),
+                ]);
+                dealAccountRow = accRow;
+                dealProductNames = prodRows.map((p) => p.name).filter(Boolean);
+              }
+
+              const flowMeta = (flowRow?.metadata as Record<string, any> | null) || null;
+              const resolved = resolveLeadPopupFields({
+                contactName: conv.contactName,
+                accountTradeName: contactAccountRow?.tradeName ?? null,
+                accountName: contactAccountRow?.name ?? null,
+                dealAccountTradeName: dealAccountRow?.tradeName ?? null,
+                dealAccountName: dealAccountRow?.name ?? null,
+                cnpjDetails: (conv.contactCnpjDetails as Record<string, any> | null) ?? null,
+                collectedData: (flowRow?.collectedData as Record<string, any> | null) ?? null,
+                machineDecision: (flowMeta?.machineDecision as { machineId?: string | null } | null) ?? null,
+                dealProductNames,
+                dealTitle: popupDealTitle,
+                targetFunnel: (flowMeta?.targetFunnel as string | null) ?? popupDealPipelineName,
+              });
+
+              popupClientName = resolved.clientName;
+              popupCompany = resolved.company;
+              popupMachine = resolved.machine;
+            } catch (enrichErr: any) {
+              console.warn(
+                "[gestao/messages POST] Falha não-crítica ao enriquecer contexto do cliente:",
+                enrichErr?.message
+              );
+            }
+          }
+
+          // Notificar via SSE para aparecer instantaneamente (com alerta sonoro + pop-up + tag ATENÇÃO!) na tela do consultor
           try {
             const { SessionManager } = await import("../../../lib/baileys/session-manager");
             if (didAssignOperator && effectiveOperatorId) {
@@ -345,6 +623,7 @@ export const Route = createFileRoute("/api/gestao/messages")({
                 sectorId: conv.sectorId,
                 responsibleName: effectiveOperatorName || undefined,
                 version: (conv.version || 1) + 1,
+                supervisorAttention,
               });
             }
             if (systemAssignMessage) {
@@ -368,12 +647,45 @@ export const Route = createFileRoute("/api/gestao/messages")({
                 operatorId: effectiveOperatorId,
                 walletOperatorId: conv.walletOperatorId ?? null,
                 queue: effectiveQueueState,
-                phone: conv.contactPhone ?? undefined,
+                phone: effectiveClientPhone ?? undefined,
                 avatar: conv.contactAvatar ?? undefined,
                 contactName: conv.contactName ?? "Cliente",
                 metaDetails: whisperMetaDetails,
+                supervisorAttention,
               },
             });
+            if (shouldEmitAttentionPopup && effectiveOperatorId) {
+              SessionManager.getInstance().notifyPublic(tenantId, {
+                type: "supervisor_attention_alert",
+                tenantId,
+                operatorId: effectiveOperatorId,
+                alert: {
+                  id: msgId,
+                  tenantId,
+                  operatorId: effectiveOperatorId,
+                  conversationId,
+                  supervisorName: session.operator.name,
+                  supervisorRole: session.operator.role,
+                  warningText: rawContent,
+                  source: requestSource || "monitor",
+                  alertReason,
+                  didAssignOperator,
+                  clientName: popupClientName,
+                  clientPhone: effectiveClientPhone,
+                  clientAvatar: conv.contactAvatar ?? null,
+                  company: popupCompany,
+                  machine: popupMachine,
+                  dealId: popupDealId,
+                  dealTitle: popupDealTitle,
+                  dealPipelineName: popupDealPipelineName,
+                  dealStageName: popupDealStageName,
+                  channel: effectiveChannel,
+                  sectorName: popupSectorName,
+                  lastClientMessage: popupLastClientMessage,
+                  receivedAt: now.toISOString(),
+                },
+              });
+            }
           } catch (sseErr: any) {
             console.warn("[gestao/messages POST] Falha não-crítica ao emitir SSE:", sseErr?.message);
           }
@@ -385,6 +697,8 @@ export const Route = createFileRoute("/api/gestao/messages")({
               assignedOperatorName: effectiveOperatorName,
               assignedQueueState: effectiveQueueState,
               didAssignOperator,
+              supervisorAttention,
+              popupDispatched: shouldEmitAttentionPopup,
               message: {
                 id: msgId,
                 conversationId,

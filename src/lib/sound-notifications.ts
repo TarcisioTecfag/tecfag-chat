@@ -7,6 +7,8 @@ const SOUND_DEDUPE_STORAGE_KEY = "valem_sound_notification_last_ts";
 const SOUND_DEDUPE_WINDOW_MS = 1200;
 const NEW_LEAD_SOUND_DEDUPE_STORAGE_KEY = "valem_new_lead_sound_last_ts";
 const NEW_LEAD_SOUND_DEDUPE_WINDOW_MS = 1800;
+const SUPERVISOR_ATTENTION_SOUND_DEDUPE_STORAGE_KEY = "valem_supervisor_attention_sound_last_ts";
+const SUPERVISOR_ATTENTION_SOUND_DEDUPE_WINDOW_MS = 1800;
 
 /**
  * Garante que múltiplas guias abertas simultaneamente não toquem o mesmo alerta sonoro em coro.
@@ -42,6 +44,23 @@ export function tryAcquireNewLeadSoundSlot(
   );
 }
 
+/**
+ * Slot independente para alerta de Cobrança / Orientação da Supervisão, garantindo
+ * que um ping de mensagem comum ou de lead novo não silencie o aviso do gestor.
+ */
+export function tryAcquireSupervisorAttentionSoundSlot(
+  nowMs: number = Date.now(),
+  storage: Pick<Storage, "getItem" | "setItem"> | null =
+    typeof window !== "undefined" ? window.localStorage : null,
+): boolean {
+  return tryAcquireSoundSlotWithKey(
+    SUPERVISOR_ATTENTION_SOUND_DEDUPE_STORAGE_KEY,
+    SUPERVISOR_ATTENTION_SOUND_DEDUPE_WINDOW_MS,
+    nowMs,
+    storage,
+  );
+}
+
 function tryAcquireSoundSlotWithKey(
   storageKey: string,
   windowMs: number,
@@ -66,6 +85,7 @@ class SoundNotificationService {
   private ctx: AudioContext | null = null;
   private hasInteracted = false;
   private pendingLeadAlertOnUnlock = false;
+  private pendingSupervisorAlertOnUnlock = false;
 
   constructor() {
     if (typeof window !== "undefined") {
@@ -75,6 +95,10 @@ class SoundNotificationService {
         if (this.pendingLeadAlertOnUnlock) {
           this.pendingLeadAlertOnUnlock = false;
           this.playNewLeadAlertSound({ bypassCrossTab: true });
+        }
+        if (this.pendingSupervisorAlertOnUnlock) {
+          this.pendingSupervisorAlertOnUnlock = false;
+          this.playSupervisorAttentionAlertSound({ bypassCrossTab: true });
         }
         window.removeEventListener("pointerdown", unlockAudio);
         window.removeEventListener("keydown", unlockAudio);
@@ -234,9 +258,99 @@ class SoundNotificationService {
       console.warn("[SoundService] Erro ao reproduzir som de alerta de lead novo:", err);
     }
   }
+
+  /**
+   * Toca alerta sonoro executivo de atenção/urgência quando a Supervisão cobra ou orienta
+   * um consultor específico. Duplo pulso nítido (A5 -> C#6 -> E6 | A5 -> C#6) com
+   * timbre distinto do ping comum e do alerta de Lead Novo.
+   */
+  playSupervisorAttentionAlertSound(options?: { bypassCrossTab?: boolean }) {
+    try {
+      if (!options?.bypassCrossTab && !tryAcquireSupervisorAttentionSoundSlot()) return;
+      const ctx = this.initContext();
+      if (!ctx) return;
+
+      if (ctx.state === "suspended" && !this.hasInteracted) {
+        this.pendingSupervisorAlertOnUnlock = true;
+      }
+
+      const scheduleAlert = () => {
+        const now = ctx.currentTime + 0.01;
+        const notes: Array<{
+          freq: number;
+          time: number;
+          duration: number;
+          gain: number;
+          overtoneGain: number;
+        }> = [
+          // 1º toque de atenção (direto e incisivo)
+          { freq: 880.0, time: 0.0, duration: 0.16, gain: 0.3, overtoneGain: 0.1 },      // A5
+          { freq: 1108.73, time: 0.14, duration: 0.22, gain: 0.34, overtoneGain: 0.11 }, // C#6
+          // 2º toque de reforço (urgência clara)
+          { freq: 880.0, time: 0.44, duration: 0.16, gain: 0.32, overtoneGain: 0.11 },   // A5
+          { freq: 1108.73, time: 0.58, duration: 0.2, gain: 0.34, overtoneGain: 0.12 },  // C#6
+          { freq: 1318.51, time: 0.72, duration: 0.34, gain: 0.36, overtoneGain: 0.12 }, // E6
+        ];
+
+        for (const note of notes) {
+          const osc = ctx.createOscillator();
+          const overtone = ctx.createOscillator();
+          const gainNode = ctx.createGain();
+          const overtoneGainNode = ctx.createGain();
+
+          osc.type = "sine";
+          osc.frequency.setValueAtTime(note.freq, now + note.time);
+
+          overtone.type = "triangle";
+          overtone.frequency.setValueAtTime(note.freq * 1.5, now + note.time);
+
+          gainNode.gain.setValueAtTime(0.001, now + note.time);
+          gainNode.gain.exponentialRampToValueAtTime(note.gain, now + note.time + 0.012);
+          gainNode.gain.exponentialRampToValueAtTime(0.0001, now + note.time + note.duration);
+
+          overtoneGainNode.gain.setValueAtTime(0.001, now + note.time);
+          overtoneGainNode.gain.exponentialRampToValueAtTime(
+            note.overtoneGain,
+            now + note.time + 0.01,
+          );
+          overtoneGainNode.gain.exponentialRampToValueAtTime(
+            0.0001,
+            now + note.time + note.duration * 0.65,
+          );
+
+          osc.connect(gainNode);
+          gainNode.connect(ctx.destination);
+          overtone.connect(overtoneGainNode);
+          overtoneGainNode.connect(ctx.destination);
+
+          osc.start(now + note.time);
+          osc.stop(now + note.time + note.duration + 0.05);
+          overtone.start(now + note.time);
+          overtone.stop(now + note.time + note.duration + 0.05);
+        }
+      };
+
+      if (ctx.state === "suspended") {
+        ctx
+          .resume()
+          .then(() => {
+            this.pendingSupervisorAlertOnUnlock = false;
+            scheduleAlert();
+          })
+          .catch(() => {});
+      } else {
+        this.pendingSupervisorAlertOnUnlock = false;
+        scheduleAlert();
+      }
+    } catch (err) {
+      console.warn("[SoundService] Erro ao reproduzir som de atenção da supervisão:", err);
+    }
+  }
 }
 
 export const soundNotificationService = new SoundNotificationService();
 export const playNotificationSound = () => soundNotificationService.playNotificationSound();
 export const playNewLeadAlertSound = (options?: { bypassCrossTab?: boolean }) =>
   soundNotificationService.playNewLeadAlertSound(options);
+export const playSupervisorAttentionAlertSound = (options?: { bypassCrossTab?: boolean }) =>
+  soundNotificationService.playSupervisorAttentionAlertSound(options);

@@ -3,8 +3,12 @@ import { useTrainingSurface } from "@/hooks/useTrainingSurface";
 import { useChat } from "@/hooks/useChatState";
 import { useTabNavigation } from "@/hooks/useTabNavigation";
 import { getAiPersona } from "@/lib/ai-persona";
-import { Search, MessageSquare, Phone, Instagram, Send, Star, User, Pin, BookOpen, Bot, LogOut, FileText, Camera, Video, Mic, Smile, HelpCircle, Smartphone, Check, ChevronDown, X, Loader2 } from "lucide-react";
-import { Channel, QueueType, getConversationSortTimestamp } from "@/lib/mockData";
+import { Search, MessageSquare, Phone, Instagram, Send, Star, User, Pin, BookOpen, Bot, LogOut, FileText, Camera, Video, Mic, Smile, HelpCircle, Smartphone, Check, ChevronDown, X, Loader2, AlertTriangle } from "lucide-react";
+import { Channel, QueueType } from "@/lib/mockData";
+import {
+  compareConversationsForList,
+  hasActiveSupervisorAttention,
+} from "@/lib/supervisor-attention-queue";
 import { motion, AnimatePresence } from "framer-motion";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -405,11 +409,7 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
     }
 
     return true;
-  }).sort((a, b) =>
-    Number(!!(b as any).pinned) - Number(!!(a as any).pinned) ||
-    Number(a.queue === "finalizados") - Number(b.queue === "finalizados") ||
-    (getConversationSortTimestamp(b) - getConversationSortTimestamp(a))
-  );
+  }).sort((a, b) => compareConversationsForList(a as any, b as any, currentOperatorId));
   },
     [conversations, activeQueue, currentOperatorId, channelFilter, baileysConnectionFilter, searchQuery, readPrincipal, tenant]);
 
@@ -949,6 +949,16 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
           ) : filteredConvs.length > 0 ? (
             filteredConvs.map((c) => {
                 const isSelected = c.id === selectedChatId;
+                const hasSupervisorAttention = hasActiveSupervisorAttention(c, currentOperatorId);
+                const supervisorAttentionTooltip = hasSupervisorAttention
+                  ? `Cobrança de ${c.supervisorAttention?.by || "Supervisão"}${
+                      c.supervisorAttention?.message
+                        ? `: "${c.supervisorAttention.message.slice(0, 140)}${
+                            c.supervisorAttention.message.length > 140 ? "..." : ""
+                          }"`
+                        : ""
+                    } · Expira ao enviar a 1ª mensagem ao cliente`
+                  : "";
                 const lastMsg = getConversationPreviewMessage(c.messages);
                 const lastRealMsg = getConversationLastRealMessage(c.messages);
                 const isLastFromOperator = classifyConversationMessageSender(lastRealMsg) === "operator";
@@ -977,7 +987,13 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
                         markAsRead(c.id);
                       }}
                       className={`flex w-full items-center gap-2 rounded-2xl p-2 text-left transition-colors duration-150 ${
-                        isSelected ? "bg-muted" : "hover:bg-muted/50"
+                        hasSupervisorAttention
+                          ? isSelected
+                            ? "bg-amber-500/[0.15] border border-amber-500/60 dark:bg-amber-400/[0.16] dark:border-amber-400/55"
+                            : "bg-amber-500/[0.07] hover:bg-amber-500/[0.13] border border-amber-500/40 dark:bg-amber-400/[0.08] dark:hover:bg-amber-400/[0.14] dark:border-amber-400/35"
+                          : isSelected
+                            ? "bg-muted"
+                            : "hover:bg-muted/50"
                       }`}
                     >
                       {/* Avatar with Channel Badge Overlay */}
@@ -1087,13 +1103,21 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
                         </div>
 
                         {/* Render tags & Baileys chip badge below preview */}
-                        {(c.whatsappConnectionId || (c.tags && c.tags.length > 0) || c.sectorName) && (() => {
+                        {(hasSupervisorAttention || c.whatsappConnectionId || (c.tags && c.tags.length > 0) || c.sectorName) && (() => {
                           const chipInfo = c.whatsappConnectionId
                             ? baileysConnectionsById.get(c.whatsappConnectionId)
                             : undefined;
                           const chipBadgeLabel = chipInfo?.name?.trim() || "Chip";
                           return (
                             <div className="flex flex-wrap gap-1 mt-1.5 items-center">
+                              {hasSupervisorAttention && (
+                                <SystemTooltip content={supervisorAttentionTooltip}>
+                                  <span className="inline-flex items-center gap-1 rounded-md bg-amber-500 text-neutral-950 dark:bg-amber-400 dark:text-neutral-950 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider shadow-2xs ring-1 ring-amber-600/30">
+                                    <AlertTriangle className="h-2.5 w-2.5 shrink-0 stroke-[2.75]" />
+                                    <span>ATENÇÃO!</span>
+                                  </span>
+                                </SystemTooltip>
+                              )}
                               {c.whatsappConnectionId && (
                                 <SystemTooltip
                                   content={`Chip Baileys: ${chipInfo?.name || "WhatsApp conectado"}${chipInfo?.phone ? ` (${chipInfo.phone})` : ""}`}

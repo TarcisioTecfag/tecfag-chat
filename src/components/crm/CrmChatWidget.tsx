@@ -5,6 +5,7 @@ import { useLocation, useNavigate } from "@tanstack/react-router";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   AlertCircle,
+  AlertTriangle,
   Archive,
   ArrowLeft,
   ArrowRight,
@@ -140,7 +141,11 @@ import {
   ChatTransferDealActionModal,
   type PendingChatTransferIntent,
 } from "@/components/chat/ChatTransferDealActionModal";
-import { getConversationSortTimestamp, type Conversation, type Message } from "@/lib/mockData";
+import { type Conversation, type Message } from "@/lib/mockData";
+import {
+  compareConversationsForList,
+  hasActiveSupervisorAttention,
+} from "@/lib/supervisor-attention-queue";
 import {
   classifyConversationMessageSender,
   getConversationLastRealMessage,
@@ -1989,11 +1994,7 @@ export function CrmChatWidget() {
 
   const query = search.trim().toLocaleLowerCase("pt-BR");
   const filtered = [...assigned]
-    .sort((a, b) => {
-      const aPinned = (a as any).pinned ? 1 : 0;
-      const bPinned = (b as any).pinned ? 1 : 0;
-      return bPinned - aPinned || getConversationSortTimestamp(b) - getConversationSortTimestamp(a);
-    })
+    .sort((a, b) => compareConversationsForList(a as any, b as any, currentOperatorId))
     .filter(
       (conversation) =>
         !query ||
@@ -4964,6 +4965,19 @@ export function CrmChatWidget() {
                             classifyConversationMessageSender(lastReal) === "operator";
                           const previewPrefix = getConversationPreviewPrefix(last);
                           const isLastInternal = last?.isInternalNote;
+                          const hasSupervisorAttention = hasActiveSupervisorAttention(
+                            conversation,
+                            currentOperatorId,
+                          );
+                          const attentionTooltip = hasSupervisorAttention
+                            ? `Cobrança de ${conversation.supervisorAttention?.by || "Supervisão"}${
+                                conversation.supervisorAttention?.message
+                                  ? `: "${conversation.supervisorAttention.message.slice(0, 120)}${
+                                      conversation.supervisorAttention.message.length > 120 ? "..." : ""
+                                    }"`
+                                  : ""
+                              } · Expira ao enviar a 1ª mensagem ao cliente`
+                            : "";
 
                           return (
                             <button
@@ -4977,7 +4991,11 @@ export function CrmChatWidget() {
                                 const y = Math.min(e.clientY, window.innerHeight - 200);
                                 setContextMenu({ chatId: conversation.id, x, y });
                               }}
-                              className="group relative flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition hover:bg-muted/70 active:scale-[0.99] cursor-pointer"
+                              className={`group relative flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition active:scale-[0.99] cursor-pointer ${
+                                hasSupervisorAttention
+                                  ? "bg-amber-500/[0.08] hover:bg-amber-500/[0.14] border border-amber-500/45 dark:bg-amber-400/[0.09] dark:border-amber-400/40"
+                                  : "hover:bg-muted/70"
+                              }`}
                             >
                               <div className="relative shrink-0">
                                 <CustomerAvatar
@@ -5004,9 +5022,19 @@ export function CrmChatWidget() {
 
                               <div className="min-w-0 flex-1">
                                 <div className="flex items-center justify-between gap-1">
-                                  <span className="truncate text-xs font-bold text-foreground group-hover:text-primary transition-colors">
-                                    {conversation.name}
-                                  </span>
+                                  <div className="flex items-center gap-1.5 min-w-0">
+                                    <span className="truncate text-xs font-bold text-foreground group-hover:text-primary transition-colors">
+                                      {conversation.name}
+                                    </span>
+                                    {hasSupervisorAttention && (
+                                      <SystemTooltip content={attentionTooltip}>
+                                        <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-amber-500 text-neutral-950 dark:bg-amber-400 dark:text-neutral-950 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wider">
+                                          <AlertTriangle className="h-2.5 w-2.5 shrink-0 stroke-[2.75]" />
+                                          <span>ATENÇÃO!</span>
+                                        </span>
+                                      </SystemTooltip>
+                                    )}
+                                  </div>
                                   <span className="shrink-0 text-[10px] text-muted-foreground font-medium">
                                     {getConversationPreviewTime(conversation, last)}
                                   </span>

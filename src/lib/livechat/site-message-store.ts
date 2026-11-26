@@ -151,6 +151,11 @@ export async function persistSiteOperatorMessage(
           lastMessageTime: now,
           updatedAt: now,
           unreadCount: 0,
+          supervisorAttentionAt: null,
+          supervisorAttentionOperatorId: null,
+          supervisorAttentionMessage: null,
+          supervisorAttentionBy: null,
+          supervisorAttentionMessageId: null,
         })
         .where(and(eq(conversations.tenantId, tenantId), eq(conversations.id, conversationId)));
     return { message: canonical!, widgetMessage: widget, visitorId };

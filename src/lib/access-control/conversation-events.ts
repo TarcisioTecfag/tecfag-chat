@@ -75,6 +75,14 @@ export async function filterConversationEvent(session: AuthSessionContext, event
     if (!isOwn && !isMonitorSupervisor) return null;
     return event;
   }
+  if (event.type === "supervisor_attention_alert") {
+    if (event.operatorId !== session.operator.id) return null;
+    if (permissions?.views?.chat !== true) return null;
+    const conversationId = event.alert?.conversationId;
+    if (typeof conversationId !== "string" || !conversationId) return null;
+    if (await requireConversationAccess(session, conversationId)) return null;
+    return event;
+  }
   if (event.type === "valentina_thought_progress") {
     if (event.operatorId !== session.operator.id) return null;
     return event;

@@ -25,7 +25,11 @@ import {
   type AgenticThoughtTraceData,
 } from "@/lib/valentina/agentic-thought-trace";
 import { buildOperatorCopilotWelcome } from "@/lib/valentina/sector-copilot-config";
-import { playNotificationSound, playNewLeadAlertSound } from "@/lib/sound-notifications";
+import {
+  playNotificationSound,
+  playNewLeadAlertSound,
+  playSupervisorAttentionAlertSound,
+} from "@/lib/sound-notifications";
 import {
   enqueueIncomingLeadAlert,
   extractIncomingLeadAlertFromNotification,
@@ -37,6 +41,18 @@ import {
   shouldRecoverUnreadLeadAlert,
   type IncomingLeadAlert,
 } from "@/lib/lead-alert-queue";
+import {
+  enqueueSupervisorAttentionAlert,
+  extractRecoverableSupervisorAlertsFromConversations,
+  extractSupervisorAttentionAlertFromEvent,
+  markSupervisorAlertDismissed,
+  normalizeSupervisorAttentionState,
+  parseResolvedSupervisorAlertBroadcast,
+  readDismissedSupervisorAlertIds,
+  removeSupervisorAttentionAlert,
+  RESOLVED_SUPERVISOR_ALERT_BROADCAST_KEY,
+  type IncomingSupervisorAttentionAlert,
+} from "@/lib/supervisor-attention-queue";
 import {
   renderFormattedNotificationText,
   cleanPlainNotificationText,
@@ -336,6 +352,9 @@ type ChatContextType = {
   incomingLeadAlerts: IncomingLeadAlert[];
   dismissIncomingLeadAlert: (alertId: string, conversationId?: string | null) => void;
   openIncomingLeadAlert: (alert: IncomingLeadAlert) => Promise<void>;
+  incomingSupervisorAlerts: IncomingSupervisorAttentionAlert[];
+  dismissIncomingSupervisorAlert: (alertId: string, conversationId?: string | null) => void;
+  openIncomingSupervisorAlert: (alert: IncomingSupervisorAttentionAlert) => Promise<void>;
   disconnectBaileys: () => void;
   connectBaileys: (forceNew?: boolean) => void;
 
@@ -716,6 +735,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isValentinaTyping, setIsValentinaTyping] = useState(false);
   const [valentinaThoughtTrace, setValentinaThoughtTrace] = useState<AgenticThoughtTraceData | null>(null);
   const [incomingLeadAlerts, setIncomingLeadAlerts] = useState<IncomingLeadAlert[]>([]);
+  const [incomingSupervisorAlerts, setIncomingSupervisorAlerts] = useState<
+    IncomingSupervisorAttentionAlert[]
+  >([]);
+  const supervisorAlertRecoveryKeyRef = useRef<string>("");
   // Ref para controle de cancelamento e debounce natural de 8s da resposta do Fagner/Valentina
   // Cada nova mensagem reseta o timer de 8s e acumula os envios antes de iniciar a animação e o fetch
   const valentinaPendingRef = useRef<{ controller: AbortController; generation: number } | null>(null);
@@ -777,30 +800,51 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     currentOperatorIdRef.current = currentOperatorId;
   }, [currentOperatorId]);
 
-  // Isolamento estrito: ao trocar tenant ou operador, zera fila de pop-ups de lead pendentes
+  // Isolamento estrito: ao trocar tenant ou operador, zera filas de pop-ups pendentes
   useEffect(() => {
     setIncomingLeadAlerts([]);
+    setIncomingSupervisorAlerts([]);
+    supervisorAlertRecoveryKeyRef.current = "";
   }, [tenant, currentOperatorId]);
 
-  // Sincroniza fechamento de pop-up de lead novo entre múltiplas abas abertas do mesmo vendedor
+  // Sincroniza fechamento de pop-ups (lead novo e atenção da supervisão) entre múltiplas abas abertas
   useEffect(() => {
     if (typeof window === "undefined") return;
     const handleStorage = (event: StorageEvent) => {
-      if (event.key !== RESOLVED_LEAD_ALERT_BROADCAST_KEY || !event.newValue) return;
-      const parsed = parseResolvedLeadAlertBroadcast(event.newValue);
-      if (!parsed) return;
-      if (
-        parsed.tenantId !== tenantRef.current ||
-        parsed.operatorId !== currentOperatorIdRef.current
-      ) {
+      if (!event.newValue) return;
+      if (event.key === RESOLVED_LEAD_ALERT_BROADCAST_KEY) {
+        const parsed = parseResolvedLeadAlertBroadcast(event.newValue);
+        if (!parsed) return;
+        if (
+          parsed.tenantId !== tenantRef.current ||
+          parsed.operatorId !== currentOperatorIdRef.current
+        ) {
+          return;
+        }
+        setIncomingLeadAlerts((prev) =>
+          removeIncomingLeadAlert(prev, {
+            id: parsed.alertId,
+            conversationId: parsed.conversationId,
+          }),
+        );
         return;
       }
-      setIncomingLeadAlerts((prev) =>
-        removeIncomingLeadAlert(prev, {
-          id: parsed.alertId,
-          conversationId: parsed.conversationId,
-        }),
-      );
+      if (event.key === RESOLVED_SUPERVISOR_ALERT_BROADCAST_KEY) {
+        const parsed = parseResolvedSupervisorAlertBroadcast(event.newValue);
+        if (!parsed) return;
+        if (
+          parsed.tenantId !== tenantRef.current ||
+          parsed.operatorId !== currentOperatorIdRef.current
+        ) {
+          return;
+        }
+        setIncomingSupervisorAlerts((prev) =>
+          removeSupervisorAttentionAlert(prev, {
+            id: parsed.alertId,
+            conversationId: parsed.conversationId,
+          }),
+        );
+      }
     };
     window.addEventListener("storage", handleStorage);
     return () => window.removeEventListener("storage", handleStorage);
@@ -3972,6 +4016,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               ...c,
               lastMessageTime: finalLastTime,
               lastMessageAtISO: finalLastIso,
+              ...(isInternalNote ? {} : { supervisorAttention: null }),
               messages: extraMessages.length > 0 ? [...updatedMessages, ...extraMessages] : updatedMessages,
             };
           }
@@ -3981,7 +4026,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             : c.messages;
           return {
             ...c,
-            ...(isInternalNote ? {} : { lastMessageTime: finalLastTime, lastMessageAtISO: finalLastIso }),
+            ...(isInternalNote
+              ? {}
+              : { lastMessageTime: finalLastTime, lastMessageAtISO: finalLastIso, supervisorAttention: null }),
             messages: [
               ...existingMessages,
               ...messagesToAdd.filter(
@@ -3998,6 +4045,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return c;
       }),
     );
+    if (!isInternalNote) {
+      setIncomingSupervisorAlerts((prev) =>
+        removeSupervisorAttentionAlert(prev, { conversationId: targetChatId }),
+      );
+    }
     return true;
   };
 
@@ -5191,14 +5243,16 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           );
           const whisperSenderOperatorId =
             message.metaDetails?.attendanceActor?.operatorId || null;
-          const whisperTargetOperatorId =
-            message.metaDetails?.targetOperatorId || operatorId || walletOperatorId || null;
+          const explicitWhisperTargetOperatorId =
+            message.metaDetails?.targetOperatorId || null;
           const isSentByMe = Boolean(
             currentOperatorId && whisperSenderOperatorId === currentOperatorId
           );
           const isWhisperTargetedToMe = Boolean(
             currentOperatorId &&
-              (whisperTargetOperatorId === currentOperatorId || isAssignedToMe || isInMyWallet)
+              (explicitWhisperTargetOperatorId
+                ? explicitWhisperTargetOperatorId === currentOperatorId
+                : isAssignedToMe || isInMyWallet)
           );
 
           // Notificar o operador se o atendimento está com ele ou se é cliente da sua carteira
@@ -5208,12 +5262,16 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const isPairedWithInternalWhisper = Boolean(
             message.metaDetails?.pairedWithInternalWhisper,
           );
+          const hasSupervisorAttentionPopup = Boolean(
+            message.metaDetails?.hasSupervisorAttentionPopup,
+          );
 
           if (
             isSupervisorWhisper &&
             isWhisperTargetedToMe &&
             !isSentByMe &&
-            !isPairedWithInternalWhisper
+            !isPairedWithInternalWhisper &&
+            !hasSupervisorAttentionPopup
           ) {
             playNotificationSound();
 
@@ -5579,6 +5637,13 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                         .join("") || c.initials
                     : c.initials;
 
+                  const incomingSupervisorAttention = normalizeSupervisorAttentionState(
+                    message.supervisorAttention,
+                  );
+                  const shouldClearAttentionFromMsg =
+                    Boolean(message.clearSupervisorAttention) ||
+                    (!incomingMsg.isInternalNote && incomingMsg.senderType === "agent");
+
                   return {
                   ...c,
                   name: nextName,
@@ -5593,6 +5658,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                   queue: message.queue || c.queue,
                   operatorId: message.operatorId !== undefined ? message.operatorId : c.operatorId,
                   walletOperatorId: message.walletOperatorId !== undefined ? message.walletOperatorId : c.walletOperatorId,
+                  supervisorAttention: shouldClearAttentionFromMsg
+                    ? null
+                    : incomingSupervisorAttention ?? c.supervisorAttention,
                 };
                 }
                 return c;
@@ -5650,12 +5718,22 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               lastMessageTime: timeStr,
               lastMessageAtISO: sentAtIso,
               lastClientMessageAtISO: isClientMsg ? sentAtIso : undefined,
+              supervisorAttention: normalizeSupervisorAttentionState(message.supervisorAttention),
               messages: [incomingMsg],
               pinned: isPinned,
             } as any;
               return [newConv, ...prev];
             }
           });
+
+          if (
+            Boolean(message.clearSupervisorAttention) ||
+            (!message.isInternalNote && message.senderType === "agent")
+          ) {
+            setIncomingSupervisorAlerts((prev) =>
+              removeSupervisorAttentionAlert(prev, { conversationId: message.conversationId }),
+            );
+          }
 
           if (!existingConv && message.conversationId) {
             void refreshAssignedChatRef.current(message.conversationId).catch((error) =>
@@ -5692,7 +5770,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } else if (data.type === "message_status" && data.messageId && data.status) {
           // Guarda mesmo se a mensagem ainda não estiver na tela: o webhook "delivered" pode
           // chegar antes da resposta do POST /send que adiciona o balão.
-          const { conversationId, messageId, status, error } = data;
+          const { conversationId, messageId, status, error, clearSupervisorAttention } = data;
           setMessageStatusOverrides((prev) => ({ ...prev, [messageId]: { status, error: error || null } }));
           setConversations((prev) =>
             prev.map((c) =>
@@ -5700,12 +5778,18 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 ? c
                 : {
                     ...c,
+                    ...(clearSupervisorAttention ? { supervisorAttention: null } : {}),
                     messages: c.messages.map((m) =>
                       m.id === messageId ? { ...m, status, errorMessage: error || null } : m,
                     ),
                   },
             ),
           );
+          if (clearSupervisorAttention && conversationId) {
+            setIncomingSupervisorAlerts((prev) =>
+              removeSupervisorAttentionAlert(prev, { conversationId }),
+            );
+          }
         } else if (data.type === "message_transcription" && data.messageId && data.mediaInterpretation) {
           const { conversationId, messageId, mediaInterpretation } = data;
           setConversations((prev) =>
@@ -5747,6 +5831,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             sectorId: newSectorId,
             responsibleName,
             version,
+            supervisorAttention: eventSupervisorAttention,
           } = data;
 
           if (queueState === "meus" && newOperatorId === currentOperatorIdRef.current) {
@@ -5773,6 +5858,12 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             typeof eventContactName === "string" && eventContactName.trim()
               ? eventContactName.trim()
               : "";
+          const normalizedQueueAttention =
+            queueState === "finalizados"
+              ? null
+              : eventSupervisorAttention !== undefined
+                ? normalizeSupervisorAttentionState(eventSupervisorAttention)
+                : undefined;
 
           setConversations((prev) =>
             prev.map((c) => {
@@ -5799,6 +5890,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                   responsibleName:
                     responsibleName !== undefined ? responsibleName : c.responsibleName,
                   version: version !== undefined ? version : c.version ? c.version + 1 : 1,
+                  ...(normalizedQueueAttention !== undefined
+                    ? { supervisorAttention: normalizedQueueAttention }
+                    : {}),
                 };
               }
               if (
@@ -5813,8 +5907,87 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }),
           );
 
+          if (queueState === "finalizados" && conversationId) {
+            setIncomingSupervisorAlerts((prev) =>
+              removeSupervisorAttentionAlert(prev, { conversationId }),
+            );
+          }
+
           // Quem estava lendo a conversa continua vendo o histórico. O composer
           // muda para somente leitura quando o operador responsável muda.
+        } else if (data.type === "supervisor_attention_alert" && data.alert) {
+          const activeTenantId = tenantRef.current || "";
+          const activeOperatorId = currentOperatorIdRef.current || "";
+          if (!activeTenantId || !activeOperatorId) return;
+          const supervisorAlert = extractSupervisorAttentionAlertFromEvent(data, {
+            tenantId: activeTenantId,
+            operatorId: activeOperatorId,
+          });
+          if (!supervisorAlert) return;
+
+          const dismissedIds = readDismissedSupervisorAlertIds(activeTenantId, activeOperatorId);
+          if (!dismissedIds.has(supervisorAlert.id)) {
+            playSupervisorAttentionAlertSound();
+            setIncomingSupervisorAlerts((prev) =>
+              enqueueSupervisorAttentionAlert(prev, supervisorAlert, dismissedIds),
+            );
+          }
+
+          setConversations((prev) =>
+            prev.map((c) =>
+              c.id === supervisorAlert.conversationId
+                ? {
+                    ...c,
+                    supervisorAttention: {
+                      at: supervisorAlert.receivedAt,
+                      operatorId: supervisorAlert.operatorId,
+                      message: supervisorAlert.warningText,
+                      by: supervisorAlert.supervisorName,
+                      messageId: supervisorAlert.id,
+                    },
+                  }
+                : c,
+            ),
+          );
+          void refreshAssignedChatRef.current(supervisorAlert.conversationId).catch(() => {});
+
+          if (
+            typeof window !== "undefined" &&
+            "Notification" in window &&
+            Notification.permission === "granted" &&
+            document.hidden
+          ) {
+            try {
+              const isTecfag = activeTenantId === "tecfag";
+              const n = new Notification(
+                `ATENÇÃO · ${supervisorAlert.supervisorName} (${supervisorAlert.clientName})`,
+                {
+                  body: cleanPlainNotificationText(supervisorAlert.warningText, { maxLength: 180 }),
+                  icon: isTecfag ? "/logo_tecfag.png" : "/logo_valem.jpg",
+                  tag: `supervisor-attention-${supervisorAlert.conversationId}`,
+                  requireInteraction: true,
+                },
+              );
+              n.onclick = () => {
+                window.focus();
+                markSupervisorAlertDismissed(activeTenantId, activeOperatorId, supervisorAlert.id, {
+                  conversationId: supervisorAlert.conversationId,
+                });
+                setIncomingSupervisorAlerts((prev) =>
+                  removeSupervisorAttentionAlert(prev, {
+                    id: supervisorAlert.id,
+                    conversationId: supervisorAlert.conversationId,
+                  }),
+                );
+                setActiveQueue("meus");
+                setSearchQuery("");
+                setSelectedChatId(supervisorAlert.conversationId);
+                setActiveView("chat");
+                markAsRead(supervisorAlert.conversationId);
+                n.close();
+              };
+            } catch {}
+          }
         } else if (data.type === "operator_ai_notification" && (data.message || data.notification)) {
           if (!data.operatorId || data.operatorId !== currentOperatorIdRef.current) return;
 
@@ -6764,6 +6937,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setAvailableTenants([]);
       setCurrentOperatorId("");
       setIncomingLeadAlerts([]);
+      setIncomingSupervisorAlerts([]);
+      supervisorAlertRecoveryKeyRef.current = "";
       setSelectedChatId(null);
       setActiveQueue("meus");
       setBaileysConnectionFilter(null);
@@ -6824,6 +6999,77 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     },
     [dismissIncomingLeadAlert],
   );
+
+  const dismissIncomingSupervisorAlert = useCallback(
+    (alertId: string, conversationId?: string | null) => {
+      const activeTenantId = tenantRef.current;
+      const activeOperatorId = currentOperatorIdRef.current;
+      if (activeTenantId && activeOperatorId) {
+        markSupervisorAlertDismissed(activeTenantId, activeOperatorId, alertId, {
+          conversationId: conversationId || null,
+        });
+      }
+      setIncomingSupervisorAlerts((prev) =>
+        removeSupervisorAttentionAlert(prev, { id: alertId, conversationId: conversationId || null }),
+      );
+    },
+    [],
+  );
+
+  const openIncomingSupervisorAlert = useCallback(
+    async (alert: IncomingSupervisorAttentionAlert) => {
+      dismissIncomingSupervisorAlert(alert.id, alert.conversationId);
+      const existingConv = conversationsRef.current.find((c) => c.id === alert.conversationId);
+      if (existingConv && existingConv.queue && existingConv.queue !== "finalizados") {
+        setActiveQueue(existingConv.queue);
+      } else {
+        setActiveQueue("meus");
+      }
+      setSearchQuery("");
+      if (!existingConv) {
+        await refreshAssignedChatRef.current(alert.conversationId).catch((error) =>
+          console.warn("Falha ao carregar atendimento da cobrança da supervisão:", error),
+        );
+      } else {
+        void refreshAssignedChatRef.current(alert.conversationId).catch(() => {});
+      }
+      setSelectedChatId(alert.conversationId);
+      setActiveView("chat");
+      markAsRead(alert.conversationId);
+    },
+    [dismissIncomingSupervisorAlert],
+  );
+
+  // Recupera cobranças recentes (<= 10 min) ainda pendentes de resposta ao recarregar a página
+  useEffect(() => {
+    if (!isAuthenticated || !chatListReady || !tenant || !currentOperatorId) return;
+    const recoveryKey = `${tenant}:${currentOperatorId}`;
+    if (supervisorAlertRecoveryKeyRef.current === recoveryKey) return;
+    if (conversations.length === 0) return;
+
+    supervisorAlertRecoveryKeyRef.current = recoveryKey;
+    const dismissedIds = readDismissedSupervisorAlertIds(tenant, currentOperatorId);
+    const recovered = extractRecoverableSupervisorAlertsFromConversations(conversations, {
+      tenantId: tenant,
+      operatorId: currentOperatorId,
+      dismissedIds,
+    });
+    if (recovered.length > 0) {
+      let addedAny = false;
+      setIncomingSupervisorAlerts((prev) => {
+        let next = prev;
+        for (const alert of recovered) {
+          const updated = enqueueSupervisorAttentionAlert(next, alert, dismissedIds);
+          if (updated.length > next.length) addedAny = true;
+          next = updated;
+        }
+        return next;
+      });
+      if (addedAny) {
+        playSupervisorAttentionAlertSound();
+      }
+    }
+  }, [isAuthenticated, chatListReady, tenant, currentOperatorId, conversations]);
 
   return (
     <ChatContext.Provider
@@ -6942,6 +7188,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         incomingLeadAlerts,
         dismissIncomingLeadAlert,
         openIncomingLeadAlert,
+        incomingSupervisorAlerts,
+        dismissIncomingSupervisorAlert,
+        openIncomingSupervisorAlert,
         disconnectBaileys,
         connectBaileys,
 
