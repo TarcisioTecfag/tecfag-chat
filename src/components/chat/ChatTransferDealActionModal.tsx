@@ -62,7 +62,7 @@ export interface PendingChatTransferIntent {
   conversationId: string;
   contactName?: string | null;
   sectorName: string | null;
-  targetOperatorId: string | null;
+  targetOperatorId: string;
   targetLabel: string;
   dealSelection?: { dealId: string; expectedVersion: number };
   currentDeal: CurrentDealSummary;

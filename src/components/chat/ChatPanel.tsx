@@ -1732,10 +1732,14 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
       conversationId: string;
       contactName?: string | null;
       sectorName: string | null;
-      targetOperatorId: string | null;
+      targetOperatorId: string;
       targetLabel: string;
       dealSelection?: { dealId: string; expectedVersion: number };
     }): Promise<boolean> => {
+      if (!params.targetOperatorId) {
+        toast.error("Selecione um operador responsável para transferir o atendimento.");
+        return false;
+      }
       let resolvedContext =
         activeChat?.id === params.conversationId ? dealContext.data : undefined;
       if (!resolvedContext && tenant && currentOperatorId) {
@@ -1965,19 +1969,20 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     handleCycleTransferDropdownInitial,
   ]);
 
+  const [selectedModalSectorId, setSelectedModalSectorId] = useState<string | null>(null);
+
+  const selectedModalSector = useMemo(
+    () => (selectedModalSectorId ? sectors.find((s) => s.id === selectedModalSectorId) || null : null),
+    [sectors, selectedModalSectorId],
+  );
+
   const sortedModalOperators = useMemo(() => {
     const term = transferModalSearch.trim().toLowerCase();
-    return sortedTransferDirectOps.filter(
-      (op) => !term || op.name.toLowerCase().includes(term),
-    );
-  }, [sortedTransferDirectOps, transferModalSearch]);
-
-  const sortedModalSectors = useMemo(() => {
-    const term = transferModalSearch.trim().toLowerCase();
-    return sortedTransferSectors.filter(
-      (sec) => !term || sec.name.toLowerCase().includes(term),
-    );
-  }, [sortedTransferSectors, transferModalSearch]);
+    const baseOps = selectedModalSector
+      ? sortedTransferDirectOps.filter((op) => selectedModalSector.operatorIds.includes(op.id))
+      : sortedTransferDirectOps;
+    return baseOps.filter((op) => !term || op.name.toLowerCase().includes(term));
+  }, [sortedTransferDirectOps, selectedModalSector, transferModalSearch]);
 
   const modalInitials = useMemo(
     () => getAvailableInitials(sortedModalOperators),
@@ -2011,7 +2016,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
       try {
         const ok = await initiateChatTransfer({
           conversationId: activeChat.id,
-          sectorName: null,
+          sectorName: selectedModalSector?.name ?? null,
           targetOperatorId: op.id,
           targetLabel: op.name,
           dealSelection: transferDealSelection,
@@ -2019,6 +2024,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
         if (ok) {
           setShowTransferModal(false);
           setTransferModalSearch("");
+          setSelectedModalSectorId(null);
           setHighlightedModalOpId(null);
           setModalInitialMeta(null);
         }
@@ -2026,7 +2032,13 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
         setTransferModalSubmitting(false);
       }
     },
-    [transferModalSubmitting, activeChat, initiateChatTransfer, transferDealSelection],
+    [
+      transferModalSubmitting,
+      activeChat,
+      initiateChatTransfer,
+      selectedModalSector,
+      transferDealSelection,
+    ],
   );
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [attachments, setAttachments] = useState<File[]>(initialTransientState?.attachments ?? []);
@@ -4036,34 +4048,6 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                                     />
                                   )}
                                 </div>
-
-                                {/* Option to transfer to any agent in sector (general queue) */}
-                                {!directTransfer && (
-                                  <button
-                                    type="button"
-                                    data-transfer-nav-action="true"
-                                    onClick={() => {
-                                      closeTransferDropdown();
-                                      void initiateChatTransfer({
-                                        conversationId: activeChat.id,
-                                        sectorName: selectedSector?.name || "Sem Nome",
-                                        targetOperatorId: null,
-                                        targetLabel: `Fila do setor ${selectedSector?.name || "Geral"}`,
-                                      });
-                                    }}
-                                    className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 mb-1 text-left text-xs font-semibold text-foreground hover:bg-muted transition border-b border-line border-dashed cursor-pointer"
-                                  >
-                                    <div className="h-6 w-6 rounded-full bg-primary/10 text-primary grid place-items-center text-[10px] font-black uppercase shrink-0">
-                                      F
-                                    </div>
-                                    <div className="flex flex-col">
-                                      <span>Fila Geral do Setor</span>
-                                      <span className="text-[9px] text-muted-foreground font-normal">
-                                        Qualquer atendente
-                                      </span>
-                                    </div>
-                                  </button>
-                                )}
 
                                 {sectorOps.length === 0 ? (
                                   <div className="px-3 py-2 text-xs text-muted-foreground italic">
@@ -6217,6 +6201,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
           setShowTransferModal(isOpen);
           if (!isOpen) {
             setTransferModalSearch("");
+            setSelectedModalSectorId(null);
             setHighlightedModalOpId(null);
             setModalInitialMeta(null);
           }
@@ -6263,7 +6248,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               Transferir Atendimento
             </DialogTitle>
             <DialogDescription className="text-xs text-muted-foreground">
-              Selecione o operador ou setor para transferir a conversa com{" "}
+              Selecione o operador responsável para transferir a conversa com{" "}
               <strong className="text-foreground">{activeChat?.name}</strong>.
             </DialogDescription>
           </DialogHeader>
@@ -6279,10 +6264,51 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                   setHighlightedModalOpId(null);
                   setModalInitialMeta(null);
                 }}
-                placeholder="Buscar por operador ou setor..."
+                placeholder="Buscar operador por nome..."
                 className="h-8.5 w-full rounded-lg border border-border bg-background pl-8 pr-3 text-xs outline-none focus:border-primary/60 focus:ring-1 focus:ring-primary/20"
               />
             </div>
+
+            {sortedTransferSectors.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedModalSectorId(null);
+                    setHighlightedModalOpId(null);
+                    setModalInitialMeta(null);
+                  }}
+                  className={`rounded-full px-2.5 py-1 text-[10px] font-bold transition cursor-pointer ${
+                    selectedModalSectorId === null
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted text-muted-foreground hover:bg-muted/80"
+                  }`}
+                >
+                  Todos os setores
+                </button>
+                {sortedTransferSectors.map((sec) => {
+                  const active = selectedModalSectorId === sec.id;
+                  return (
+                    <button
+                      type="button"
+                      key={sec.id}
+                      onClick={() => {
+                        setSelectedModalSectorId(active ? null : sec.id);
+                        setHighlightedModalOpId(null);
+                        setModalInitialMeta(null);
+                      }}
+                      className={`rounded-full px-2.5 py-1 text-[10px] font-bold transition cursor-pointer ${
+                        active
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted text-muted-foreground hover:bg-muted/80"
+                      }`}
+                    >
+                      {sec.name}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
 
             {sortedModalOperators.length > 0 && (
               <OperatorInitialQuickBar
@@ -6306,7 +6332,9 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               {/* Seção Operadores */}
               <div>
                 <div className="px-1 py-1 text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider mb-1">
-                  Operadores (A–Z)
+                  {selectedModalSector
+                    ? `Operadores em ${selectedModalSector.name} (A–Z)`
+                    : "Operadores (A–Z)"}
                 </div>
                 <div className="space-y-1">
                   {sortedModalOperators.map((op) => {
@@ -6359,67 +6387,6 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                   )}
                 </div>
               </div>
-
-              {/* Seção Setores */}
-              {sectors.length > 0 && (
-                <div className="pt-2 border-t border-border/60">
-                  <div className="px-1 py-1 text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider mb-1">
-                    Setores (Fila Geral · A–Z)
-                  </div>
-                  <div className="space-y-1">
-                    {sortedModalSectors.map((sec) => (
-                      <button
-                        key={sec.id}
-                        type="button"
-                        onClick={async () => {
-                          if (transferModalSubmitting || !activeChat) return;
-                          setTransferModalSubmitting(true);
-                          try {
-                            const ok = await initiateChatTransfer({
-                              conversationId: activeChat.id,
-                              sectorName: sec.name,
-                              targetOperatorId: null,
-                              targetLabel: `Fila do setor ${sec.name}`,
-                              dealSelection: transferDealSelection,
-                            });
-                            if (ok) {
-                              setShowTransferModal(false);
-                              setTransferModalSearch("");
-                              setHighlightedModalOpId(null);
-                              setModalInitialMeta(null);
-                            }
-                          } finally {
-                            setTransferModalSubmitting(false);
-                          }
-                        }}
-                        disabled={transferModalSubmitting}
-                        className="flex w-full items-center justify-between rounded-lg p-2 text-left hover:bg-muted/80 transition cursor-pointer disabled:opacity-50"
-                      >
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <div className="h-7 w-7 rounded-full bg-primary/10 text-primary grid place-items-center text-xs font-bold shrink-0">
-                            {sec.name.charAt(0).toUpperCase()}
-                          </div>
-                          <div className="min-w-0">
-                            <div className="truncate text-xs font-semibold text-foreground">
-                              {sec.name}
-                            </div>
-                            <div className="truncate text-[10px] text-muted-foreground">
-                              {operators.filter((op) => sec.operatorIds.includes(op.id)).length} atendente(s)
-                            </div>
-                          </div>
-                        </div>
-                        <span className="text-[10px] font-bold text-primary flex items-center gap-1">
-                          {transferModalSubmitting ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          ) : (
-                            <>Fila geral &rarr;</>
-                          )}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
           </div>
         </DialogContent>

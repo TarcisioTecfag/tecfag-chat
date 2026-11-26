@@ -258,7 +258,7 @@ type ChatContextType = {
   transferChat: (
     id: string,
     sectorName: string | null,
-    targetOperatorId?: string | null,
+    targetOperatorId: string,
     dealSelection?: { dealId: string; expectedVersion: number },
   ) => Promise<boolean>;
   finishChat: (id: string) => void;
@@ -4070,13 +4070,17 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const transferChat = async (
     id: string,
     sectorName: string | null,
-    targetOperatorId?: string | null,
+    targetOperatorId: string,
     dealSelection?: { dealId: string; expectedVersion: number },
   ): Promise<boolean> => {
     const previousState = conversationsRef.current.find((c) => c.id === id);
     const targetOp = targetOperatorId ? operators.find((op) => op.id === targetOperatorId) : null;
-    if (!previousState || (targetOperatorId && !targetOp)) {
-      toast.error("Atendimento ou operador de destino não encontrado.");
+    if (!previousState) {
+      toast.error("Atendimento não encontrado.");
+      return false;
+    }
+    if (!targetOperatorId || !targetOp) {
+      toast.error("Selecione um operador responsável para transferir o atendimento.");
       return false;
     }
     const canTransfer = sessionRole === "admin" || sessionPermissions?.chat.canTransferChat === true;
@@ -4085,12 +4089,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       toast.error("Sem permissão para transferir este atendimento.");
       return false;
     }
-    const targetQueueState = targetOp ? "meus" : "fila";
+    const targetQueueState = "meus" as const;
     const targetSector = sectorName ? sectors.find((sector) => sector.name === sectorName) : null;
     const sectorId = sectorName ? (targetSector?.id ?? null) : undefined;
-    const textLog = targetOp
-      ? `Atendimento transferido diretamente para ${targetOp.name} por ${operatorProfile.name}.`
-      : `Atendimento transferido para a fila do setor ${sectorName || "geral"} por ${operatorProfile.name}.`;
+    const textLog = `Atendimento transferido diretamente para ${targetOp.name} por ${operatorProfile.name}.`;
     try {
       const dealContext = cachedDealContext(tenant!, currentOperatorId!, id) || await fetchDealContext(tenant!, currentOperatorId!, id);
       const res = await fetch(`${BACKEND_URL}/api/chats/update-queue`, {
@@ -4100,7 +4102,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         body: JSON.stringify({
           conversationId: id,
           queueState: targetQueueState,
-          operatorId: targetOperatorId || null,
+          operatorId: targetOp.id,
           ...(sectorId !== undefined ? { sectorId } : {}),
           systemMessageText: textLog,
           isTransfer: true,
@@ -4167,25 +4169,17 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setActiveQueue("todos");
       setSelectedChatId(redirected ? (updated.whatsappConnectionId && targetOp?.id !== currentOperatorId ? id : targetConvId) : id);
       void refreshConversations(redirected ? targetConvId : id).catch((error) => console.warn("Atendimento transferido; falha ao recarregar o histórico:", error));
-      if (targetOp) {
-        const channelSuffix = updated.targetConnectionName
-          ? ` (WhatsApp dedicado: ${updated.targetConnectionName})`
-          : redirected
-            ? " (WhatsApp Oficial)"
-            : "";
-        if (updated.targetConnectionDisconnected) {
-          toast.warning(
-            `Atendimento transferido para ${targetOp.name}${channelSuffix}. Atenção: o WhatsApp dedicado do destino está desconectado no momento.`,
-          );
-        } else {
-          toast.success(`Atendimento transferido para ${targetOp.name}${channelSuffix}.`);
-        }
-      } else {
-        toast.success(
-          redirected
-            ? "Atendimento enviado para a fila no WhatsApp Oficial."
-            : "Atendimento enviado para a fila.",
+      const channelSuffix = updated.targetConnectionName
+        ? ` (WhatsApp dedicado: ${updated.targetConnectionName})`
+        : redirected
+          ? " (WhatsApp Oficial)"
+          : "";
+      if (updated.targetConnectionDisconnected) {
+        toast.warning(
+          `Atendimento transferido para ${targetOp.name}${channelSuffix}. Atenção: o WhatsApp dedicado do destino está desconectado no momento.`,
         );
+      } else {
+        toast.success(`Atendimento transferido para ${targetOp.name}${channelSuffix}.`);
       }
       window.dispatchEvent(new Event("conversation-deal-context-changed"));
       return true;

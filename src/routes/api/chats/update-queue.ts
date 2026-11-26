@@ -136,6 +136,21 @@ export const Route = createFileRoute("/api/chats/update-queue")({
             return forbidden();
           }
 
+          if (queueState === "fila") {
+            const isExplicitTransfer = body.isTransfer === true;
+            const isAdmin = session.operator.role === "admin";
+            if (isExplicitTransfer || !isAdmin) {
+              return Response.json(
+                {
+                  error:
+                    "Selecione um operador responsável para transferir o atendimento. Não é permitido transferir para uma fila sem operador.",
+                  code: "OPERATOR_REQUIRED_FOR_TRANSFER",
+                },
+                { status: 400 },
+              );
+            }
+          }
+
           if (queueState === "meus") {
             const [target] = await db.select({ id: operators.id }).from(operators).where(and(
               eq(operators.id, operatorId), eq(operators.tenantId, session.tenantId)

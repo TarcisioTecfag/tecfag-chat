@@ -69,6 +69,7 @@ export const MobileActionsModal: React.FC<MobileActionsModalProps> = ({
   const persona = getAiPersona(tenant || "valem");
 
   const [showTransferSelect, setShowTransferSelect] = useState(false);
+  const [selectedSectorFilterId, setSelectedSectorFilterId] = useState<string | null>(null);
   const [transferDealSelection, setTransferDealSelection] = useState<
     { dealId: string; expectedVersion: number } | undefined
   >(undefined);
@@ -82,15 +83,19 @@ export const MobileActionsModal: React.FC<MobileActionsModalProps> = ({
 
   useEffect(() => {
     setTransferDealSelection(undefined);
+    if (!showTransferSelect) {
+      setSelectedSectorFilterId(null);
+    }
   }, [showTransferSelect, activeChat?.id]);
 
   const initiateMobileTransfer = useCallback(
-    async (targetOpId: string | null, sectorName: string | null = null) => {
+    async (targetOpId: string, sectorName: string | null = null) => {
       if (!activeChat) return;
       const targetOp = targetOpId ? operators.find((op) => op.id === targetOpId) : null;
-      const targetLabel = targetOp
-        ? targetOp.name
-        : `Fila do setor ${sectorName || "Geral"}`;
+      if (!targetOpId || !targetOp) {
+        return;
+      }
+      const targetLabel = targetOp.name;
 
       let resolvedContext =
         tenant && currentOperatorId
@@ -158,10 +163,17 @@ export const MobileActionsModal: React.FC<MobileActionsModalProps> = ({
   );
 
   const sortedSectors = useMemo(() => sortAlphabeticallyByName(sectors), [sectors]);
-  const sortedOperators = useMemo(
-    () => sortAlphabeticallyByName(operators.filter((op) => op.id !== currentOperatorId)),
-    [operators, currentOperatorId],
+  const selectedSectorFilter = useMemo(
+    () => (selectedSectorFilterId ? sectors.find((s) => s.id === selectedSectorFilterId) || null : null),
+    [sectors, selectedSectorFilterId],
   );
+  const sortedOperators = useMemo(() => {
+    const baseOps = operators.filter((op) => op.id !== currentOperatorId);
+    const filtered = selectedSectorFilter
+      ? baseOps.filter((op) => selectedSectorFilter.operatorIds.includes(op.id))
+      : baseOps;
+    return sortAlphabeticallyByName(filtered);
+  }, [operators, currentOperatorId, selectedSectorFilter]);
   const availableInitials = useMemo(
     () => getAvailableInitials(sortedOperators),
     [sortedOperators],
@@ -277,7 +289,7 @@ export const MobileActionsModal: React.FC<MobileActionsModalProps> = ({
     onClose();
   };
 
-  const handleTransfer = async (targetOpId: string | null, sectorName: string | null = null) => {
+  const handleTransfer = async (targetOpId: string, sectorName: string | null = null) => {
     await initiateMobileTransfer(targetOpId, sectorName);
   };
 
@@ -440,11 +452,13 @@ export const MobileActionsModal: React.FC<MobileActionsModalProps> = ({
               <div className="flex flex-col gap-2.5 py-1">
                 <div className="flex items-center justify-between border-b border-border pb-2">
                   <span className="text-xs font-bold text-foreground">
-                    Selecione o Destino:
+                    Selecione o Operador Responsável:
                   </span>
                   <button
+                    type="button"
                     onClick={() => {
                       setShowTransferSelect(false);
+                      setSelectedSectorFilterId(null);
                       setHighlightedOpId(null);
                       setInitialMeta(null);
                     }}
@@ -459,6 +473,47 @@ export const MobileActionsModal: React.FC<MobileActionsModalProps> = ({
                     conversationId={activeChat.id}
                     onChange={setTransferDealSelection}
                   />
+                )}
+
+                {sortedSectors.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedSectorFilterId(null);
+                        setHighlightedOpId(null);
+                        setInitialMeta(null);
+                      }}
+                      className={`rounded-full px-2.5 py-1 text-[10px] font-bold transition cursor-pointer ${
+                        selectedSectorFilterId === null
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted text-muted-foreground hover:bg-muted/80"
+                      }`}
+                    >
+                      Todos os setores
+                    </button>
+                    {sortedSectors.map((sec) => {
+                      const active = selectedSectorFilterId === sec.id;
+                      return (
+                        <button
+                          type="button"
+                          key={sec.id}
+                          onClick={() => {
+                            setSelectedSectorFilterId(active ? null : sec.id);
+                            setHighlightedOpId(null);
+                            setInitialMeta(null);
+                          }}
+                          className={`rounded-full px-2.5 py-1 text-[10px] font-bold transition cursor-pointer ${
+                            active
+                              ? "bg-primary text-primary-foreground"
+                              : "bg-muted text-muted-foreground hover:bg-muted/80"
+                          }`}
+                        >
+                          {sec.name}
+                        </button>
+                      );
+                    })}
+                  </div>
                 )}
 
                 {sortedOperators.length > 0 && (
@@ -480,68 +535,48 @@ export const MobileActionsModal: React.FC<MobileActionsModalProps> = ({
                   ref={transferListRef}
                   className="max-h-60 overflow-y-auto flex flex-col gap-1.5 pr-1"
                 >
-                  {sortedSectors.length > 0 && (
-                    <>
-                      <div className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground px-1 pt-0.5">
-                        Setores (Fila Geral · A–Z)
-                      </div>
-                      {sortedSectors.map((sec) => (
+                  <div className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground px-1 pt-0.5">
+                    {selectedSectorFilter
+                      ? `Operadores em ${selectedSectorFilter.name} (A–Z)`
+                      : "Operadores (A–Z)"}
+                  </div>
+                  {sortedOperators.length === 0 ? (
+                    <div className="py-3 text-center text-xs text-muted-foreground italic">
+                      Nenhum operador disponível neste setor
+                    </div>
+                  ) : (
+                    sortedOperators.map((op) => {
+                      const isHighlighted = op.id === highlightedOpId;
+                      return (
                         <motion.button
                           whileTap={{ scale: 0.97 }}
-                          key={sec.id}
-                          onClick={() => handleTransfer(null, sec.name)}
-                          className="flex items-center justify-between p-2.5 rounded-xl bg-muted/60 hover:bg-primary-soft text-left transition cursor-pointer"
+                          key={op.id}
+                          data-transfer-op-id={op.id}
+                          onClick={() => handleTransfer(op.id, selectedSectorFilter?.name ?? null)}
+                          className={`flex items-center justify-between p-2.5 rounded-xl text-left transition cursor-pointer ${
+                            isHighlighted
+                              ? "bg-primary/15 ring-1 ring-primary/40 shadow-2xs"
+                              : "bg-muted/60 hover:bg-primary-soft"
+                          }`}
                         >
-                          <div className="flex flex-col">
+                          <div className="flex items-center gap-2.5">
+                            <OperatorAvatarWithInitial
+                              name={op.name}
+                              avatar={op.avatar}
+                              sizeClassName="w-7 h-7 text-[11px]"
+                              highlighted={isHighlighted}
+                            />
                             <span className="text-xs font-bold text-foreground">
-                              {sec.name}
-                            </span>
-                            <span className="text-[10px] text-muted-foreground">
-                              {operators.filter((op) => sec.operatorIds.includes(op.id)).length} atendente(s)
+                              {op.name}
                             </span>
                           </div>
                           <span className="text-[10px] font-bold text-primary">
-                            Fila do Setor
+                            {isHighlighted ? "Transferir ↵" : "Transferir"}
                           </span>
                         </motion.button>
-                      ))}
-                    </>
+                      );
+                    })
                   )}
-
-                  <div className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground px-1 pt-1">
-                    Operadores Diretos (A–Z)
-                  </div>
-                  {sortedOperators.map((op) => {
-                    const isHighlighted = op.id === highlightedOpId;
-                    return (
-                      <motion.button
-                        whileTap={{ scale: 0.97 }}
-                        key={op.id}
-                        data-transfer-op-id={op.id}
-                        onClick={() => handleTransfer(op.id, null)}
-                        className={`flex items-center justify-between p-2.5 rounded-xl text-left transition cursor-pointer ${
-                          isHighlighted
-                            ? "bg-primary/15 ring-1 ring-primary/40 shadow-2xs"
-                            : "bg-muted/60 hover:bg-primary-soft"
-                        }`}
-                      >
-                        <div className="flex items-center gap-2.5">
-                          <OperatorAvatarWithInitial
-                            name={op.name}
-                            avatar={op.avatar}
-                            sizeClassName="w-7 h-7 text-[11px]"
-                            highlighted={isHighlighted}
-                          />
-                          <span className="text-xs font-bold text-foreground">
-                            {op.name}
-                          </span>
-                        </div>
-                        <span className="text-[10px] font-bold text-primary">
-                          {isHighlighted ? "Transferir ↵" : "Transferir"}
-                        </span>
-                      </motion.button>
-                    );
-                  })}
                 </div>
               </div>
             )}
