@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { SystemTooltip } from "@/components/ui/tooltip";
+import { SimpleSelect } from "@/components/ui/select";
 
 interface ApprovedMetaTemplateOption {
   id: string;
@@ -31,6 +32,7 @@ interface SiteChannelState {
   siteAllowedOrigins: string[];
   siteWhatsappNumber?: string;
   siteWhatsappTemplateId?: string;
+  siteWhatsappMidTriageTemplateId?: string;
   approvedTemplates?: ApprovedMetaTemplateOption[];
 }
 
@@ -40,6 +42,7 @@ export function SiteChannelCard({ personaName, backendUrl }: { personaName: stri
   const [originsText, setOriginsText] = useState("");
   const [whatsappNumber, setWhatsappNumber] = useState("");
   const [whatsappTemplateId, setWhatsappTemplateId] = useState("");
+  const [whatsappMidTriageTemplateId, setWhatsappMidTriageTemplateId] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -59,6 +62,7 @@ export function SiteChannelCard({ personaName, backendUrl }: { personaName: stri
         setOriginsText((data.siteAllowedOrigins || []).join("\n"));
         setWhatsappNumber(data.siteWhatsappNumber || "");
         setWhatsappTemplateId(data.siteWhatsappTemplateId || "");
+        setWhatsappMidTriageTemplateId(data.siteWhatsappMidTriageTemplateId || "");
       } catch {
         if (!cancelled) setLoadError("Erro de comunicação com o servidor.");
       }
@@ -83,6 +87,7 @@ export function SiteChannelCard({ personaName, backendUrl }: { personaName: stri
           siteAllowedOrigins,
           siteWhatsappNumber: whatsappNumber,
           siteWhatsappTemplateId: whatsappTemplateId,
+          siteWhatsappMidTriageTemplateId: whatsappMidTriageTemplateId,
         }),
       });
       const data = await res.json();
@@ -94,6 +99,7 @@ export function SiteChannelCard({ personaName, backendUrl }: { personaName: stri
       setOriginsText((data.siteAllowedOrigins || []).join("\n"));
       setWhatsappNumber(data.siteWhatsappNumber || "");
       setWhatsappTemplateId(data.siteWhatsappTemplateId || "");
+      setWhatsappMidTriageTemplateId(data.siteWhatsappMidTriageTemplateId || "");
       toast.success(enabled ? `Canal do site ativado para o ${personaName}.` : "Canal do site desativado.");
     } catch {
       toast.error("Erro de comunicação com o servidor.");
@@ -344,21 +350,26 @@ export function SiteChannelCard({ personaName, backendUrl }: { personaName: stri
             <p className="text-[11px] text-muted-foreground leading-relaxed">
               Enquanto o visitante conversa no site, <strong>nenhum card é criado no CRM</strong> (evitando poluição no FUNIL CWR). Assim que o {personaName} concluir a triagem, ele dispara automaticamente este template aprovado na Meta para o WhatsApp do cliente, cria o card no funil correspondente (CWR p/ comercial ou funil do setor p/ Pós-Venda/Suporte/Financeiro) e coloca o atendimento no WhatsApp para Aprovação SDR herdando 100% das informações.
             </p>
-            <select
-              value={whatsappTemplateId}
-              onChange={(e) => setWhatsappTemplateId(e.target.value)}
-              className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
-            >
-              <option value="">Nenhum template selecionado (mantém triagem apenas no site)</option>
-              {(state.approvedTemplates || []).map((tpl) => {
-                const value = tpl.metaTemplateId || tpl.name;
-                return (
-                  <option key={tpl.id} value={value}>
-                    {tpl.name} ({tpl.category} · {tpl.language})
-                  </option>
-                );
-              })}
-            </select>
+            <SystemTooltip content="Escolha qual template Meta aprovado será enviado automaticamente no WhatsApp ao concluir a triagem do Site.">
+              <div>
+                <SimpleSelect
+                  value={whatsappTemplateId}
+                  onValueChange={setWhatsappTemplateId}
+                  placeholder="Nenhum template selecionado (mantém triagem apenas no site)"
+                  triggerClassName="bg-background"
+                  options={[
+                    {
+                      value: "",
+                      label: "Nenhum template selecionado (mantém triagem apenas no site)",
+                    },
+                    ...(state.approvedTemplates || []).map((tpl) => ({
+                      value: tpl.metaTemplateId || tpl.name,
+                      label: `${tpl.name} (${tpl.category} · ${tpl.language})`,
+                    })),
+                  ]}
+                />
+              </div>
+            </SystemTooltip>
             {(() => {
               const selectedTpl = (state.approvedTemplates || []).find(
                 (t) => t.metaTemplateId === whatsappTemplateId || t.name === whatsappTemplateId || t.id === whatsappTemplateId,
@@ -370,6 +381,65 @@ export function SiteChannelCard({ personaName, backendUrl }: { personaName: stri
                     Prévia do template ({selectedTpl.name})
                   </span>
                   {selectedTpl.bodyText}
+                </div>
+              );
+            })()}
+          </div>
+
+          {/* Template Meta de Continuação no Meio da Triagem (Site -> WhatsApp) */}
+          <div className="rounded-xl border border-border bg-muted/15 p-4 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <label className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+                <MessageSquare className="h-3.5 w-3.5 text-primary" />
+                Template WhatsApp de Continuação de Triagem (Migração no Meio do Chat)
+              </label>
+              <span
+                className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold border ${
+                  whatsappMidTriageTemplateId
+                    ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/25"
+                    : "bg-muted text-muted-foreground border-border"
+                }`}
+              >
+                {whatsappMidTriageTemplateId ? "Template Dedicado" : "Fallback Automático"}
+              </span>
+            </div>
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              Usado quando o visitante pede no meio da triagem do site para continuar pelo WhatsApp/telefone e confirma o envio, mas a janela de 24h da Meta está fechada. Se a janela 24h já estiver aberta, o {personaName} envia mensagem livre do Gemini já perguntando o próximo campo faltante. Se deixado em branco, usa automaticamente <code className="rounded bg-muted px-1 py-0.5 text-[10px]">fagner_site_continuacao_triagem_v1</code> (quando aprovado) ou o template pós-triagem acima.
+            </p>
+            <SystemTooltip content="Template oficial Meta usado para chamar o cliente no WhatsApp durante a migração no meio da triagem (janela 24h fechada).">
+              <div>
+                <SimpleSelect
+                  value={whatsappMidTriageTemplateId}
+                  onValueChange={setWhatsappMidTriageTemplateId}
+                  placeholder="Automático (fagner_site_continuacao_triagem_v1 → fallback pós-triagem)"
+                  triggerClassName="bg-background"
+                  options={[
+                    {
+                      value: "",
+                      label: "Automático (fagner_site_continuacao_triagem_v1 → fallback pós-triagem)",
+                    },
+                    ...(state.approvedTemplates || []).map((tpl) => ({
+                      value: tpl.metaTemplateId || tpl.name,
+                      label: `${tpl.name} (${tpl.category} · ${tpl.language})`,
+                    })),
+                  ]}
+                />
+              </div>
+            </SystemTooltip>
+            {(() => {
+              const selectedMidTpl = (state.approvedTemplates || []).find(
+                (t) =>
+                  t.metaTemplateId === whatsappMidTriageTemplateId ||
+                  t.name === whatsappMidTriageTemplateId ||
+                  t.id === whatsappMidTriageTemplateId,
+              );
+              if (!selectedMidTpl) return null;
+              return (
+                <div className="rounded-lg border border-border/70 bg-background/80 px-3 py-2 text-[11px] text-muted-foreground whitespace-pre-wrap leading-relaxed">
+                  <span className="block text-[10px] font-semibold uppercase tracking-wide text-foreground/80 mb-1">
+                    Prévia do template ({selectedMidTpl.name})
+                  </span>
+                  {selectedMidTpl.bodyText}
                 </div>
               );
             })()}

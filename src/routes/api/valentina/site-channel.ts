@@ -43,6 +43,7 @@ const bodySchema = z
     siteAllowedOrigins: z.array(z.string().max(300)).max(20),
     siteWhatsappNumber: z.string().max(30).optional(),
     siteWhatsappTemplateId: z.string().max(160).optional(),
+    siteWhatsappMidTriageTemplateId: z.string().max(160).optional(),
   })
   .strict();
 
@@ -85,6 +86,7 @@ export const Route = createFileRoute("/api/valentina/site-channel")({
           siteAllowedOrigins: settings.allowedOrigins,
           siteWhatsappNumber: settings.whatsappNumber,
           siteWhatsappTemplateId: settings.whatsappTemplateId,
+          siteWhatsappMidTriageTemplateId: settings.whatsappMidTriageTemplateId,
           approvedTemplates,
         });
       },
@@ -107,9 +109,9 @@ export const Route = createFileRoute("/api/valentina/site-channel")({
         if (rawNumber && !whatsappNumber)
           return json({ error: "Informe o WhatsApp com DDI e DDD, ex.: 5514999999999." }, 400);
 
-        const rawTemplateId = (body.siteWhatsappTemplateId || "").trim();
-        let resolvedTemplateId = "";
-        if (rawTemplateId) {
+        const resolveApprovedTemplateRef = async (rawRef: string) => {
+          const clean = rawRef.trim();
+          if (!clean) return "";
           const [tpl] = await db
             .select({
               id: metaMessageTemplates.id,
@@ -122,20 +124,33 @@ export const Route = createFileRoute("/api/valentina/site-channel")({
                 eq(metaMessageTemplates.tenantId, tenantId),
                 eq(metaMessageTemplates.status, "APPROVED"),
                 or(
-                  eq(metaMessageTemplates.id, rawTemplateId),
-                  eq(metaMessageTemplates.metaTemplateId, rawTemplateId),
-                  eq(metaMessageTemplates.name, rawTemplateId),
+                  eq(metaMessageTemplates.id, clean),
+                  eq(metaMessageTemplates.metaTemplateId, clean),
+                  eq(metaMessageTemplates.name, clean),
                 ),
               ),
             )
             .limit(1);
-          if (!tpl) {
-            return json(
-              { error: "Selecione um template oficial Meta com status APPROVED." },
-              400,
-            );
-          }
-          resolvedTemplateId = tpl.metaTemplateId || tpl.name;
+          if (!tpl) return null;
+          return tpl.metaTemplateId || tpl.name;
+        };
+
+        const resolvedTemplateId = await resolveApprovedTemplateRef(body.siteWhatsappTemplateId || "");
+        if (resolvedTemplateId === null) {
+          return json(
+            { error: "Selecione um template oficial Meta pós-triagem com status APPROVED." },
+            400,
+          );
+        }
+
+        const resolvedMidTemplateId = await resolveApprovedTemplateRef(
+          body.siteWhatsappMidTriageTemplateId || "",
+        );
+        if (resolvedMidTemplateId === null) {
+          return json(
+            { error: "Selecione um template oficial Meta de continuação de triagem com status APPROVED." },
+            400,
+          );
         }
 
         const row = await readSdrConfig(tenantId);
@@ -147,6 +162,7 @@ export const Route = createFileRoute("/api/valentina/site-channel")({
           siteAllowedOrigins: origins,
           siteWhatsappNumber: whatsappNumber,
           siteWhatsappTemplateId: resolvedTemplateId,
+          siteWhatsappMidTriageTemplateId: resolvedMidTemplateId,
         };
         await db
           .update(agentConfigs)
@@ -157,6 +173,7 @@ export const Route = createFileRoute("/api/valentina/site-channel")({
           siteAllowedOrigins: origins,
           siteWhatsappNumber: whatsappNumber,
           siteWhatsappTemplateId: resolvedTemplateId,
+          siteWhatsappMidTriageTemplateId: resolvedMidTemplateId,
           sdrEnabled: row.enabled === 1,
         });
       },

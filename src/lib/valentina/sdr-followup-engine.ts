@@ -144,17 +144,35 @@ export class SdrFollowupEngine {
           );
 
         // Trava cross-channel Site × WhatsApp: se o mesmo contato já está em triagem/aprovação/atendimento
-        // ativo no WhatsApp oficial, encerra o ciclo paralelo do Site sem disparar follow-up nem criar card duplicado.
+        // ativo no WhatsApp oficial (24h), espelha as mensagens do site no WhatsApp e encerra o ciclo
+        // paralelo do Site sem disparar follow-up nem criar card duplicado (exceto se o cliente
+        // explicitamente recusou ir ao WhatsApp durante triagem IA e optou por continuar no site).
         if (isSiteConversationId(flow.conversationId) && conv?.contactId) {
           try {
+            const metaFlowCheck = (flow.metadata as Record<string, any>) || {};
             const crossChannel = await findActiveWhatsappSessionForSiteContact(db, {
               tenantId,
               contactId: conv.contactId,
               siteConversationId: flow.conversationId,
               now,
             });
-            if (crossChannel.suppressed) {
-              const metaFlow = (flow.metadata as Record<string, any>) || {};
+            const stayOnSiteAllowed =
+              metaFlowCheck.crossChannelContinueOnSite === true &&
+              crossChannel.reason === "whatsapp_triage_in_progress";
+            if (crossChannel.suppressed && !stayOnSiteAllowed) {
+              if (crossChannel.whatsappConversationId) {
+                const { mirrorSiteMessagesToWhatsapp } = await import(
+                  "../livechat/site-whatsapp-mirror"
+                );
+                await mirrorSiteMessagesToWhatsapp(db, {
+                  tenantId,
+                  siteConversationId: flow.conversationId,
+                  waConversationId: crossChannel.whatsappConversationId,
+                  bumpUnreadForHuman: false,
+                  closeLivechatRecord: true,
+                  notifyRealtime: true,
+                }).catch(() => {});
+              }
               await db
                 .update(agentFlowStates)
                 .set({
@@ -163,7 +181,7 @@ export class SdrFollowupEngine {
                   completedAt: now,
                   lastInteractionAt: now,
                   metadata: {
-                    ...metaFlow,
+                    ...metaFlowCheck,
                     followUpStage: 0,
                     handoffStatus: "continued_to_whatsapp",
                     whatsappConversationId: crossChannel.whatsappConversationId,
@@ -184,6 +202,7 @@ export class SdrFollowupEngine {
                   .update(conversations)
                   .set({
                     queueState: "finalizados",
+                    unreadCount: 0,
                     updatedAt: now,
                     version: sql`${conversations.version} + 1`,
                   })
@@ -196,7 +215,7 @@ export class SdrFollowupEngine {
                   );
               }
               console.log(
-                `[SdrFollowupEngine] 🛑 Follow-up do site ${flow.conversationId} cancelado (atendimento ativo no WhatsApp ${crossChannel.whatsappConversationId}: ${crossChannel.reason}).`,
+                `[SdrFollowupEngine] 🛑 Follow-up do site ${flow.conversationId} cancelado e histórico espelhado (atendimento ativo no WhatsApp ${crossChannel.whatsappConversationId}: ${crossChannel.reason}).`,
               );
               continue;
             }
@@ -452,6 +471,26 @@ export class SdrFollowupEngine {
         const cycleIso = flow.startedAt ? flow.startedAt.toISOString() : "cycle-0";
 
         if (decision.action === "send_followup" && (decision.nextStage === 1 || decision.nextStage === 2)) {
+          const isSiteConvEarly =
+            flow.conversationId.startsWith("conv-lc-") || flow.conversationId.startsWith("site-");
+          // Proteção estrita da janela Meta 24h: nunca dispara follow-up de texto livre fora da janela
+          // (especialmente importante quando a triagem foi migrada do Site via Template Meta e o cliente ainda não respondeu).
+          if (!isSiteConvEarly) {
+            try {
+              const { resolveConfiguredWhatsappProvider } = await import("./sdr-channel-sender");
+              const { getMetaServiceWindow } = await import("../whatsapp/meta-policy");
+              const configuredProv = await resolveConfiguredWhatsappProvider(tenantId);
+              if (configuredProv === "meta") {
+                const win = await getMetaServiceWindow(tenantId, flow.conversationId, now);
+                if (!win.open) {
+                  console.log(
+                    `[SdrFollowupEngine] ⏸️ Follow-up Estágio ${decision.nextStage} ignorado para ${flow.conversationId}: janela Meta 24h fechada (aguardando resposta do cliente no WhatsApp).`,
+                  );
+                  continue;
+                }
+              }
+            } catch {}
+          }
           const prevStage = Number(meta.followUpStage ?? 0);
           const lastCycleMsg = cycleMsgs[cycleMsgs.length - 1];
           const lastCycleMsgMs = lastCycleMsg

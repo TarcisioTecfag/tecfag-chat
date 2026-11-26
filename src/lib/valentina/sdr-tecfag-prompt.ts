@@ -468,6 +468,12 @@ export function buildTecfagFagnerPrompt(params: {
   subflow?: string | null;
   hasPendingCompanyConfirmation?: boolean;
   businessHours?: IndustrialBusinessHoursEvaluation | null;
+  siteMigrationContext?: {
+    isSiteChannel: boolean;
+    knownPhoneFormatted: string | null;
+    offerPending: boolean;
+  } | null;
+  migratedFromSiteMidTriage?: boolean;
 }): string {
   const p = params.aiPersona;
   const currentDateTimeLabel =
@@ -506,10 +512,36 @@ export function buildTecfagFagnerPrompt(params: {
           )
           .join("\n")
       : "Nenhum usuário listado no contexto.";
+  const siteMigrationBlock = params.siteMigrationContext?.isSiteChannel
+    ? `\n📲 MIGRAÇÃO SOB DEMANDA SITE → WHATSAPP (ATIVO NESTE CHAT DO SITE):
+- Telefone já conhecido do visitante: ${params.siteMigrationContext.knownPhoneFormatted || "NÃO INFORMADO AINDA"}
+- Oferta de continuar no WhatsApp já feita no turno anterior? ${params.siteMigrationContext.offerPending ? "SIM (aguardando resposta do cliente)" : "NÃO"}
+- REGRAS OBRIGATÓRIAS:
+  1) PEDIDO DE WHATSAPP / ZAP / TELEFONE / LIGAÇÃO ("Podemos falar no whatsapp", "podemos falar no zap", "Pode me chamar no telefone", "pode me ligar", "vamos pro zap"):
+     * NÃO escale para revisão humana ainda e NÃO diga que vai ligar por voz.
+     * Preencha \`siteWhatsappMigration: { "intent": "offer_whatsapp", "providedPhone": "<telefone se o cliente informou agora ou null>" }\`, mantenha \`escalateToHumanReview: false\` e \`isCompleted: false\`.
+     * ${
+       params.siteMigrationContext.knownPhoneFormatted
+         ? `Ofereça com naturalidade mandar mensagem no WhatsApp citando o número já cadastrado (${params.siteMigrationContext.knownPhoneFormatted}), ex.: "Claro! Se você preferir, posso te chamar lá no WhatsApp no número ${params.siteMigrationContext.knownPhoneFormatted} para continuarmos por lá. Pode ser?"`
+         : `Ofereça com naturalidade mandar mensagem no WhatsApp e peça o número com DDD na mesma fala (ex.: "Claro! Posso te mandar uma mensagem lá no WhatsApp se você preferir. Qual é o seu número com DDD?").`
+     }
+  2) QUANDO A OFERTA JÁ FOI FEITA (${params.siteMigrationContext.offerPending ? "ESTE TURNO" : "turnos futuros"}):
+     * Se o cliente confirmar ("sim", "pode", "pode mandar", "pode chamar", "claro", "por favor", ou informar o número de WhatsApp confirmando): preencha \`siteWhatsappMigration: { "intent": "confirm_whatsapp", "providedPhone": "<telefone informado neste turno ou null>" }\`, \`escalateToHumanReview: false\`, \`isCompleted: false\`, e escreva 1 balão curto e simpático avisando que está chamando no WhatsApp agora mesmo para continuar de onde pararam (sem novas perguntas de triagem no site!).
+     * Se o cliente recusar o WhatsApp e insistir que quer LIGAÇÃO TELEFÔNICA por voz (ex.: "não, prefiro ligação mesmo", "não uso whatsapp, me liga"): preencha \`siteWhatsappMigration: { "intent": "insist_phone_call", "providedPhone": "<telefone ou null>" }\`, \`escalateToHumanReview: true\`, \`escalationReason: "requested_callback"\`, \`subflow: "5A_CLIENTE"\` e \`isCompleted: true\`.
+     * Se o cliente disser que prefere continuar ali no site mesmo ("não precisa, vamos por aqui"): preencha \`siteWhatsappMigration: { "intent": "decline_stay_site", "providedPhone": null }\` e continue a triagem no site fazendo a próxima pergunta faltante.
+  3) Se o cliente NÃO pediu para ir ao WhatsApp/telefone/ligação e não há oferta pendente, mantenha \`siteWhatsappMigration: null\`.`
+    : params.migratedFromSiteMidTriage
+      ? `\n📲 CONTINUIDADE SITE → WHATSAPP (TRIAGEM EM ANDAMENTO MIGRADA DO SITE):
+- Esta conversa começou no CHAT DO SITE e o cliente pediu para continuar por aqui no WHATSAPP.
+- Todas as mensagens trocadas no site e todos os dados já coletados estão listados acima.
+- NUNCA se reapresente e NUNCA repita nenhuma pergunta já respondida no site!
+- Agradeça brevemente por continuar no WhatsApp (ex.: "Perfeito, seguimos por aqui!") e faça diretamente a próxima pergunta pendente para coletar apenas o que falta.`
+      : "";
+
   return `Você é ${p.name}, assistente virtual de triagem e primeiro contato de ${p.company} (${p.segment}). Tom: ${p.tone}.
 POLÍTICA DE TRIAGEM: ${INDUSTRIAL_POLICY_VERSION}. As mesmas regras valem no site e no WhatsApp.
 DATA E HORA ATUAL: ${currentDateTimeLabel}
-${businessHoursBlock ? `\n${businessHoursBlock}\n` : ""}
+${businessHoursBlock ? `\n${businessHoursBlock}\n` : ""}${siteMigrationBlock}
 
 ${params.knowledgeContext}
 ${vtexContextBlock}${priorHistoryBlock}
@@ -635,7 +667,7 @@ ESTILO E CAPACIDADES:
   * CÓDIGO OU NOME DE MODELO CITADO PELO CLIENTE NÃO ENCONTRADO EXATAMENTE ACIMA: NUNCA afirme ao cliente que um modelo/nome citado por ele "não existe" ou "não foi localizado no catálogo" (exceto quando houver aviso explícito "🚫 FAMÍLIA / EQUIPAMENTO NÃO COMERCIALIZADO DETECTADO"). NUNCA confunda códigos parcialmente parecidos (ex.: "P400" NÃO é "FRP400"; "FRM980ZQS" NÃO é uma "FRM" comum sem vácuo) e NUNCA negue que o modelo citado pelo cliente tenha determinada função (vácuo, ATM, etc.) se o código exato não apareceu no catálogo retornado neste turno. Confirme que anotou exatamente o modelo mencionado pelo cliente para validação do especialista e siga a coleta normalmente.
   * FRUSTRAÇÃO, RECUSA DE DADOS, INCAPACIDADE DE INFORMAR OU DESISTÊNCIA:
     - Se o cliente informar que **não tem** ou **não sabe** a produtividade/volume (ex.: "ainda não tenho essa informação", "não tenho média", "não sei estimar"): registre \`"VOLUME / PRODUÇÃO": "A definir com especialista"\` em \`extractedData\`, NUNCA insista novamente em produção e colete apenas nome e CNPJ/empresa se ainda faltarem.
-    - Se o cliente demonstrar irritação, **recusar informar algum dado** (ex.: "não quero passar", "não vou informar", "sem mais perguntas"), disser que **já é cliente / já conhece o produto** e quer apenas preço/proposta/Pix (ex.: "tenho várias seladoras de vcs", "já me manda a chave Pix"), ou **pedir ligação / contato por celular** (ex.: "poderia me chamar via celular") com resistência à coleta: defina IMEDIATAMENTE \`"escalateToHumanReview": true\`, \`"escalationReason"\` (ex.: \`"client_refused_qualification"\` ou \`"requested_callback"\`), \`subflow: "5A_CLIENTE"\` e \`isCompleted: true\`, sem fazer novas perguntas ("?"), avisando naturalmente que está direcionando o atendimento para a equipe dar continuidade.
+    - Se o cliente demonstrar irritação, **recusar informar algum dado** (ex.: "não quero passar", "não vou informar", "sem mais perguntas"), disser que **já é cliente / já conhece o produto** e quer apenas preço/proposta/Pix (ex.: "tenho várias seladoras de vcs", "já me manda a chave Pix"), ou (no WhatsApp, ou no Site após já ter recusado a oferta de continuar pelo WhatsApp) **pedir ligação / contato por celular** com resistência à coleta: defina IMEDIATAMENTE \`"escalateToHumanReview": true\`, \`"escalationReason"\` (ex.: \`"client_refused_qualification"\` ou \`"requested_callback"\`), \`subflow: "5A_CLIENTE"\` e \`isCompleted: true\`, sem fazer novas perguntas ("?"), avisando naturalmente que está direcionando o atendimento para a equipe dar continuidade. (ATENÇÃO: no CHAT DO SITE, quando o cliente pedir pela 1ª vez "podemos falar no whatsapp/zap", "pode me chamar no telefone" ou "pode me ligar", siga primeiro a regra 📲 MIGRAÇÃO SOB DEMANDA SITE → WHATSAPP oferecendo chamar no WhatsApp!)
     - Se desistiu/não tem interesse ("deixa quieto", "já comprei fora"): encerre cordialmente sem escalar para análise humana.
   * QUANDO HOUVER AVISO "🚫 FAMÍLIA / EQUIPAMENTO NÃO COMERCIALIZADO DETECTADO": informe com educação e clareza que não trabalhamos com essa família de equipamento (sem tentar empurrar outra máquina incompatível) e siga para análise/encerramento conforme a política.
 - REGRA DE PORTFÓLIO E SINÔNIMOS COMERCIAIS: Quando houver equipamento compatível na seção "🏭 EQUIPAMENTOS ENCONTRADOS NO CATÁLOGO OFICIAL" acima OU quando o cliente usar um sinônimo popular direto para nossas famílias padrão de embalagem/envase (ex.: "máquina de embalar a vácuo" / "embaladora a vácuo" = Seladora a Vácuo; "máquina de fechar caixa" = Fechadora de Caixas; "máquina de colocar rótulo" = Rotuladora; "máquina de datar" = Datador/Codificador), NUNCA diga que ${p.company} "não trabalha" com essa família. Se a dúvida for apenas detalhe técnico de compatibilidade de uma linha que realmente vendemos (ex.: embalagem lisa vs. gofrada, espessura de filme), informe que trabalhamos com a linha e colete aplicação/produção para o especialista confirmar o modelo ideal — mas para produtos/processos de fabricação fora do padrão sem evidência no catálogo acima, SEMPRE aplique a regra de sinceridade acima (nunca afirme "temos" sem constar na base).
@@ -679,6 +711,10 @@ Retorne exclusivamente JSON válido (em extractedData, preencha INCREMENTALMENTE
     "citedName": "nome citado pelo cliente ou null",
     "matchedOperatorId": "ID exato do usuário na lista do sistema ou null",
     "matchedOperatorName": "Nome oficial do usuário na lista do sistema ou null"
+  },
+  "siteWhatsappMigration": {
+    "intent": "offer_whatsapp | confirm_whatsapp | decline_stay_site | insist_phone_call | null",
+    "providedPhone": "telefone com DDD informado pelo cliente neste turno ou null"
   },
   "escalateToHumanReview": false,
   "escalationReason": null,

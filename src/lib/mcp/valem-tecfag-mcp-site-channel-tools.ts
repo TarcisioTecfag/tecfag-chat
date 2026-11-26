@@ -56,6 +56,11 @@ export const MCP_SITE_CHANNEL_TOOLS: McpToolDefinition[] = [
           description:
             "ID, metaTemplateId ou nome exato de um template Meta APPROVED para disparo automático pós-triagem no site (passe '' para desativar o disparo automático).",
         },
+        siteWhatsappMidTriageTemplateId: {
+          type: "string",
+          description:
+            "ID, metaTemplateId ou nome exato de um template Meta APPROVED para migração Site → WhatsApp no MEIO da triagem quando a janela Meta 24h estiver fechada (passe '' para usar o fallback padrão).",
+        },
       },
     },
   },
@@ -119,9 +124,14 @@ export async function executeSiteChannelMcpTool(
   if (name === "get_site_channel_config") {
     const config = ((row?.config as Record<string, unknown>) || {}) as Record<string, unknown>;
     const settings = parseSiteChannelSettings(true, config);
-    const activeTemplate = settings.whatsappTemplateId
-      ? await resolveApprovedTemplateInTenant(tenantId, settings.whatsappTemplateId)
-      : null;
+    const [activeTemplate, activeMidTriageTemplate] = await Promise.all([
+      settings.whatsappTemplateId
+        ? resolveApprovedTemplateInTenant(tenantId, settings.whatsappTemplateId)
+        : Promise.resolve(null),
+      settings.whatsappMidTriageTemplateId
+        ? resolveApprovedTemplateInTenant(tenantId, settings.whatsappMidTriageTemplateId)
+        : Promise.resolve(null),
+    ]);
     return {
       tenantId,
       sdrConfigured: Boolean(row),
@@ -130,7 +140,9 @@ export async function executeSiteChannelMcpTool(
       siteAllowedOrigins: settings.allowedOrigins,
       siteWhatsappNumber: settings.whatsappNumber,
       siteWhatsappTemplateId: settings.whatsappTemplateId,
+      siteWhatsappMidTriageTemplateId: settings.whatsappMidTriageTemplateId,
       activeTemplate,
+      activeMidTriageTemplate,
     };
   }
 
@@ -199,12 +211,35 @@ export async function executeSiteChannelMcpTool(
       }
     }
 
+    let nextMidTemplateId = prevSettings.whatsappMidTriageTemplateId;
+    let resolvedMidTemplate = nextMidTemplateId
+      ? await resolveApprovedTemplateInTenant(tenantId, nextMidTemplateId)
+      : null;
+
+    if (typeof args.siteWhatsappMidTriageTemplateId === "string") {
+      const rawMid = args.siteWhatsappMidTriageTemplateId.trim();
+      if (!rawMid) {
+        nextMidTemplateId = "";
+        resolvedMidTemplate = null;
+      } else {
+        const foundMid = await resolveApprovedTemplateInTenant(tenantId, rawMid);
+        if (!foundMid) {
+          throw new Error(
+            `Template Meta de continuação '${rawMid}' não encontrado ou não está com status APPROVED no tenant '${tenantId}'.`,
+          );
+        }
+        nextMidTemplateId = foundMid.metaTemplateId || foundMid.name;
+        resolvedMidTemplate = foundMid;
+      }
+    }
+
     const nextConfig: Record<string, unknown> = {
       ...prevConfig,
       siteChannelEnabled: nextEnabled,
       siteAllowedOrigins: nextOrigins,
       siteWhatsappNumber: nextWhatsappNumber,
       siteWhatsappTemplateId: nextTemplateId,
+      siteWhatsappMidTriageTemplateId: nextMidTemplateId,
     };
 
     await db
@@ -220,7 +255,9 @@ export async function executeSiteChannelMcpTool(
       siteAllowedOrigins: nextOrigins,
       siteWhatsappNumber: nextWhatsappNumber,
       siteWhatsappTemplateId: nextTemplateId,
+      siteWhatsappMidTriageTemplateId: nextMidTemplateId,
       activeTemplate: resolvedTemplate,
+      activeMidTriageTemplate: resolvedMidTemplate,
     };
   }
 

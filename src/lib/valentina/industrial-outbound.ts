@@ -388,6 +388,45 @@ async function dispatchSiteBot(message: typeof messages.$inferSelect) {
     messageId: message.id,
     status: "accepted",
   });
+  // Espelhamento em tempo real da resposta do Fagner no Site para a conversa ativa do WhatsApp (24h).
+  // Pula mensagens de despedida pós-encerramento (queueState === "finalizados" / outcome === "transferred"),
+  // pois a ponte Site → WhatsApp (pós-triagem ou mid-triage) já espelha essa despedida na ordem cronológica exata.
+  try {
+    const deliveryMeta = (saved.canonical.metaDetails as Record<string, any> | null)
+      ?.industrialDelivery;
+    const contactIdFromMeta = deliveryMeta?.contactId;
+    const isAlreadyClosedBridgeReply =
+      deliveryMeta?.queueState === "finalizados" || deliveryMeta?.outcome === "transferred";
+    if (!isAlreadyClosedBridgeReply && typeof contactIdFromMeta === "string" && contactIdFromMeta) {
+      const { findActiveWhatsappSessionForSiteContact } = await import(
+        "../livechat/site-cross-channel-guard"
+      );
+      const activeWa = await findActiveWhatsappSessionForSiteContact(db, {
+        tenantId: message.tenantId,
+        contactId: contactIdFromMeta,
+        siteConversationId: message.conversationId,
+        siteLatestClientMessageAt: saved.canonical.sentAt,
+        now: new Date(),
+      });
+      if (activeWa.suppressed && activeWa.whatsappConversationId) {
+        const { mirrorSiteMessagesToWhatsapp } = await import("../livechat/site-whatsapp-mirror");
+        await mirrorSiteMessagesToWhatsapp(db, {
+          tenantId: message.tenantId,
+          siteConversationId: message.conversationId,
+          waConversationId: activeWa.whatsappConversationId,
+          sourceMessages: [saved.canonical],
+          bumpUnreadForHuman: false,
+          closeLivechatRecord: false,
+          notifyRealtime: true,
+        });
+      }
+    }
+  } catch (mirrorErr: any) {
+    console.warn(
+      `[IndustrialOutbound] Aviso ao espelhar resposta do site para WhatsApp (${message.conversationId}):`,
+      mirrorErr?.message || mirrorErr,
+    );
+  }
   return storedResult(saved.canonical);
 }
 

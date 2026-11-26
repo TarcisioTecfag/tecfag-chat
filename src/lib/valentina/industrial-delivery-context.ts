@@ -89,7 +89,9 @@ export async function readIndustrialDeliveryContext(
       !operatorId &&
       flow?.outcome === "transferred" &&
       flowMeta?.handoffStatus === "continued_to_whatsapp" &&
-      flowMeta?.siteWhatsappTemplateSent === true &&
+      (flowMeta?.siteWhatsappTemplateSent === true ||
+        flowMeta?.migratedMidTriage === true ||
+        flowMeta?.crossChannelAcceptedWhatsapp === true) &&
       typeof flowMeta?.whatsappConversationId === "string" &&
       flowMeta.whatsappConversationId.length > 0;
     if (!isSiteWhatsappClosing) {

@@ -11,18 +11,19 @@
  *   do MESMO `contactId` dentro do MESMO `tenantId`.
  */
 import { and, desc, eq, isNull, ne, notLike } from "drizzle-orm";
-import { agentFlowStates, conversations } from "../../db/schema";
+import { agentFlowStates, conversations, operators } from "../../db/schema";
 import type { IndustrialDatabase } from "../triage/industrial-rodizio-store";
 import { isSiteConversationId } from "./site-channel-policy";
 
-export const SITE_CROSS_CHANNEL_WA_FLOW_WINDOW_MS = 4 * 60 * 60 * 1000; // 4h para triagem WA em andamento
+export const SITE_CROSS_CHANNEL_WA_FLOW_WINDOW_MS = 24 * 60 * 60 * 1000; // 24h para triagem WA em andamento
 export const SITE_CROSS_CHANNEL_WA_APPROVAL_WINDOW_MS = 24 * 60 * 60 * 1000; // 24h para aprovação SDR pendente no WA
-export const SITE_CROSS_CHANNEL_WA_HUMAN_WINDOW_MS = 2 * 60 * 60 * 1000; // 2h para conversa ativa com humano no WA
+export const SITE_CROSS_CHANNEL_WA_HUMAN_WINDOW_MS = 24 * 60 * 60 * 1000; // 24h para conversa ativa com humano no WA
 
 export interface WhatsappPeerCandidate {
   conversationId: string;
   queueState: string | null;
   operatorId: string | null;
+  operatorName?: string | null;
   lastMessageTime: Date | string | null;
   flow?: {
     id: string;
@@ -30,6 +31,7 @@ export interface WhatsappPeerCandidate {
     completedAt: Date | string | null;
     lastInteractionAt: Date | string | null;
     currentStep?: string | null;
+    collectedData?: Record<string, { value?: string; status?: string }> | null;
     metadata?: Record<string, unknown> | null;
   } | null;
 }
@@ -37,12 +39,15 @@ export interface WhatsappPeerCandidate {
 export interface SiteCrossChannelDecision {
   suppressed: boolean;
   reason:
-    | "none"
-    | "whatsapp_awaiting_approval"
-    | "whatsapp_triage_in_progress"
-    | "whatsapp_human_active";
+    "none" | "whatsapp_awaiting_approval" | "whatsapp_triage_in_progress" | "whatsapp_human_active";
   whatsappConversationId: string | null;
   whatsappLastActivityAt: string | null;
+  whatsappQueueState?: string | null;
+  whatsappOperatorId?: string | null;
+  whatsappOperatorName?: string | null;
+  whatsappFlowId?: string | null;
+  whatsappFlowCollectedData?: Record<string, { value?: string; status?: string }> | null;
+  whatsappFlowSubflow?: string | null;
   /**
    * true quando a atividade no WhatsApp é mais recente do que a última mensagem do site
    * (ou se trata de ciclo de follow-up): encerra a sessão do site silenciosamente sem
@@ -92,6 +97,19 @@ export function evaluateSiteCrossChannelSuppression(params: {
     const activityMs = Math.max(flowLastMs ?? 0, convLastMs ?? 0) || null;
     const activityIso = activityMs ? new Date(activityMs).toISOString() : null;
 
+    const peerDetails = {
+      whatsappQueueState: peer.queueState,
+      whatsappOperatorId: peer.operatorId,
+      whatsappOperatorName: peer.operatorName ?? null,
+      whatsappFlowId: flow?.id ?? null,
+      whatsappFlowCollectedData:
+        flow?.collectedData && typeof flow.collectedData === "object" ? flow.collectedData : null,
+      whatsappFlowSubflow:
+        typeof flowMeta.subflow === "string" && flowMeta.subflow.trim()
+          ? flowMeta.subflow.trim()
+          : null,
+    };
+
     // 1. WhatsApp já concluiu a triagem e está em `awaiting_approval` (Human-in-the-Loop)
     const isWaAwaitingApproval =
       flow &&
@@ -108,11 +126,12 @@ export function evaluateSiteCrossChannelSuppression(params: {
         reason: "whatsapp_awaiting_approval",
         whatsappConversationId: peer.conversationId,
         whatsappLastActivityAt: activityIso,
+        ...peerDetails,
         silentClose: siteClientMs === null || activityMs >= siteClientMs,
       };
     }
 
-    // 2. WhatsApp está em triagem ativa do Fagner nas últimas 4h
+    // 2. WhatsApp está em triagem ativa do Fagner nas últimas 24h
     const isWaInProgressTriage =
       peer.queueState === "automacao" &&
       !peer.operatorId &&
@@ -130,11 +149,12 @@ export function evaluateSiteCrossChannelSuppression(params: {
         reason: "whatsapp_triage_in_progress",
         whatsappConversationId: peer.conversationId,
         whatsappLastActivityAt: activityIso,
+        ...peerDetails,
         silentClose: siteClientMs === null || activityMs >= siteClientMs,
       };
     }
 
-    // 3. WhatsApp já está em atendimento humano ativo (`meus` + `operatorId`) nas últimas 2h
+    // 3. WhatsApp já está em atendimento humano ativo (`meus` + `operatorId`) nas últimas 24h
     if (
       peer.queueState === "meus" &&
       Boolean(peer.operatorId) &&
@@ -146,6 +166,7 @@ export function evaluateSiteCrossChannelSuppression(params: {
         reason: "whatsapp_human_active",
         whatsappConversationId: peer.conversationId,
         whatsappLastActivityAt: activityIso,
+        ...peerDetails,
         silentClose: siteClientMs === null || activityMs >= siteClientMs,
       };
     }
@@ -204,30 +225,43 @@ export async function findActiveWhatsappSessionForSiteContact(
 
   const peers: WhatsappPeerCandidate[] = [];
   for (const waConv of waConvs) {
-    const [latestFlow] = await database
-      .select({
-        id: agentFlowStates.id,
-        outcome: agentFlowStates.outcome,
-        completedAt: agentFlowStates.completedAt,
-        lastInteractionAt: agentFlowStates.lastInteractionAt,
-        currentStep: agentFlowStates.currentStep,
-        metadata: agentFlowStates.metadata,
-      })
-      .from(agentFlowStates)
-      .where(
-        and(
-          eq(agentFlowStates.tenantId, params.tenantId),
-          eq(agentFlowStates.conversationId, waConv.id),
-          eq(agentFlowStates.agentType, "sdr"),
-        ),
-      )
-      .orderBy(desc(agentFlowStates.startedAt), desc(agentFlowStates.id))
-      .limit(1);
+    const [[latestFlow], opRows] = await Promise.all([
+      database
+        .select({
+          id: agentFlowStates.id,
+          outcome: agentFlowStates.outcome,
+          completedAt: agentFlowStates.completedAt,
+          lastInteractionAt: agentFlowStates.lastInteractionAt,
+          currentStep: agentFlowStates.currentStep,
+          collectedData: agentFlowStates.collectedData,
+          metadata: agentFlowStates.metadata,
+        })
+        .from(agentFlowStates)
+        .where(
+          and(
+            eq(agentFlowStates.tenantId, params.tenantId),
+            eq(agentFlowStates.conversationId, waConv.id),
+            eq(agentFlowStates.agentType, "sdr"),
+          ),
+        )
+        .orderBy(desc(agentFlowStates.startedAt), desc(agentFlowStates.id))
+        .limit(1),
+      waConv.operatorId
+        ? database
+            .select({ name: operators.name })
+            .from(operators)
+            .where(
+              and(eq(operators.tenantId, params.tenantId), eq(operators.id, waConv.operatorId)),
+            )
+            .limit(1)
+        : Promise.resolve([]),
+    ]);
 
     peers.push({
       conversationId: waConv.id,
       queueState: waConv.queueState,
       operatorId: waConv.operatorId,
+      operatorName: opRows[0]?.name || null,
       lastMessageTime: waConv.lastMessageTime,
       flow: latestFlow
         ? {
@@ -236,6 +270,9 @@ export async function findActiveWhatsappSessionForSiteContact(
             completedAt: latestFlow.completedAt,
             lastInteractionAt: latestFlow.lastInteractionAt,
             currentStep: latestFlow.currentStep,
+            collectedData:
+              (latestFlow.collectedData as Record<string, { value?: string; status?: string }>) ||
+              null,
             metadata: (latestFlow.metadata as Record<string, unknown>) || null,
           }
         : null,

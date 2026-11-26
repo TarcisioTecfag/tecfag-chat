@@ -144,10 +144,20 @@ import {
 import { getAiPersona, isSdrTenant } from "../ai-persona";
 import {
   buildSiteCatalogMediaUrl,
+  formatBrPhoneForDisplay,
   isSiteConversationId,
   visitorIdFromSiteConversation,
 } from "../livechat/site-channel-policy";
 import { findActiveWhatsappSessionForSiteContact } from "../livechat/site-cross-channel-guard";
+import { evaluateSiteCrossChannelTurnWithGemini } from "../livechat/site-cross-channel-dialog";
+import {
+  executeMidTriageSiteToWhatsApp,
+  extractSitePhoneCandidate,
+  isExplicitPhoneCallInsistence,
+  isExplicitWhatsappMigrationConfirmation,
+  isSiteChannelMigrationOrCallRequest,
+} from "../livechat/site-mid-triage-whatsapp";
+import { mirrorSiteMessagesToWhatsapp } from "../livechat/site-whatsapp-mirror";
 import { pushSiteTyping } from "../livechat/site-delivery";
 import { triggerOutboundCallInternal } from "../voice/outbound-call-service";
 import { generateDynamicPttAudio } from "../voice/elevenlabs-dynamic-tts";
@@ -163,6 +173,10 @@ export interface SdrAiResult {
   targetFunnel?: string | null;
   subflow?: string | null;
   directOperatorRequest?: DirectOperatorAiDecision | null;
+  siteWhatsappMigration?: {
+    intent: "offer_whatsapp" | "confirm_whatsapp" | "decline_stay_site" | "insist_phone_call" | null;
+    providedPhone: string | null;
+  } | null;
   escalateToHumanReview?: boolean;
   escalationReason?: string | null;
   messagesToSend: string[];
@@ -413,6 +427,7 @@ export class SdrEngine {
       const incomingBatchText = batchItems.map((i) => i.text).join(" ");
       const incomingBatchHasMedia = batchItems.some((i) => i.mediaType !== "text");
       let shouldReopenCompletedIndustrialFlow = false;
+      let inheritedCrossChannelWaData: Record<string, any> | null = null;
       if (industrialTriage) {
         const latestOutbound = await fetchLatestPublicOutboundMessage(db, tenantId, conversationId);
         const guard = evaluateIndustrialSdrOwnershipGuard({
@@ -493,10 +508,16 @@ export class SdrEngine {
         }
         shouldReopenCompletedIndustrialFlow = Boolean(guard.reopenCompletedFlow);
 
-        // 🛑 TRAVA CROSS-CHANNEL SITE × WHATSAPP:
+        // 🛑 TRAVA CROSS-CHANNEL SITE × WHATSAPP (24H) — HISTÓRICO UNIFICADO + CONVERSA NATURAL GEMINI:
         // Se este visitante do Site (`conv-lc-*`) já possui triagem ativa, aprovação SDR pendente
-        // ou atendimento humano recente no canal oficial de WhatsApp para o mesmo `contactId`,
-        // encerra a sessão paralela do Site para nunca rodar dois Fagners simultaneamente.
+        // ou atendimento humano nas últimas 24h no canal oficial de WhatsApp para o mesmo `contactId`:
+        // 1) Sempre espelha em tempo real as mensagens do Site dentro da conversa do WhatsApp (`lcx-*` + selo `Via Site`).
+        // 2) Conversa naturalmente via Gemini (sem frase fixa scriptada) lendo o contexto recente do WhatsApp.
+        // 3) Se o cliente aceitar ir ao WhatsApp -> fecha o Site mantendo tudo unificado no WhatsApp.
+        // 4) Se o cliente recusar ir ao WhatsApp:
+        //    - se no WhatsApp estiver na triagem IA (`automacao`), herda os dados já coletados e continua a triagem no Site;
+        //    - se no WhatsApp estiver com consultor humano (`meus`) ou `awaiting_approval`, acolhe o recado sem negociar
+        //      por cima do consultor, espelha tudo e registra nota interna + alerta no WhatsApp do consultor.
         if (isSiteConversationId(conversationId) && convCheck?.contactId) {
           try {
             const latestBatchTs = batchItems.reduce<Date | null>((maxDt, item) => {
@@ -511,65 +532,377 @@ export class SdrEngine {
               siteLatestClientMessageAt: latestBatchTs,
               now: new Date(),
             });
-            if (crossChannel.suppressed) {
+            if (crossChannel.suppressed && crossChannel.whatsappConversationId) {
               const suppressNow = new Date();
-              if (
-                !crossChannel.silentClose &&
-                !flowMetaCheck.crossChannelWhatsappNoticeSent &&
-                !convCheck.operatorId &&
-                !signal?.aborted
-              ) {
-                try {
-                  await sendSdrChannelText({
+              const waConvId = crossChannel.whatsappConversationId;
+
+              // Espelha imediatamente todas as mensagens pendentes do Site na conversa do WhatsApp
+              await mirrorSiteMessagesToWhatsapp(db, {
+                tenantId,
+                siteConversationId: conversationId,
+                waConversationId: waConvId,
+                bumpUnreadForHuman: crossChannel.reason === "whatsapp_human_active",
+                closeLivechatRecord: false,
+                notifyRealtime: true,
+              }).catch(() => {});
+
+              // Se o cliente JÁ recusou ir ao WhatsApp anteriormente e o Zap está apenas na triagem IA,
+              // permite seguir a triagem normalmente no Site herdando os dados coletados do WhatsApp.
+              const alreadyChoseStayOnSite =
+                flowMetaCheck.crossChannelContinueOnSite === true &&
+                crossChannel.reason === "whatsapp_triage_in_progress";
+
+              if (alreadyChoseStayOnSite) {
+                inheritedCrossChannelWaData = crossChannel.whatsappFlowCollectedData || null;
+              } else {
+                // Verifica se o WhatsApp teve atividade significativamente mais recente (>30s) do que
+                // o lote do Site (ex.: cliente já migrou para o Zap enquanto o debounce do Site disparava).
+                const waActivityMs = crossChannel.whatsappLastActivityAt
+                  ? Date.parse(crossChannel.whatsappLastActivityAt)
+                  : NaN;
+                const siteBatchMs = latestBatchTs ? latestBatchTs.getTime() : NaN;
+                const isStaleSiteBatchAfterWaReply =
+                  Number.isFinite(waActivityMs) &&
+                  Number.isFinite(siteBatchMs) &&
+                  waActivityMs - siteBatchMs > 30_000;
+
+                if (isStaleSiteBatchAfterWaReply) {
+                  await mirrorSiteMessagesToWhatsapp(db, {
                     tenantId,
-                    conversationId,
-                    phone: contactPhone,
-                    text: "Já estamos dando continuidade ao seu atendimento pelo WhatsApp! Pode seguir por lá com a nossa equipe para não duplicar informações.",
-                    idempotencyMessageId: `msg-site-xch-${(flowState?.id || conversationId).slice(0, 32)}`,
-                    expectedOperatorId: null,
-                  });
-                } catch {}
-              }
-              if (flowState && flowState.outcome === "in_progress" && !flowState.completedAt) {
-                await db
-                  .update(agentFlowStates)
-                  .set({
-                    currentStep: "Em Atendimento no WhatsApp",
-                    outcome: "transferred",
-                    completedAt: suppressNow,
-                    lastInteractionAt: suppressNow,
-                    metadata: {
-                      ...flowMetaCheck,
-                      followUpStage: 0,
-                      handoffStatus: "continued_to_whatsapp",
-                      whatsappConversationId: crossChannel.whatsappConversationId,
-                      crossChannelSuppressedReason: crossChannel.reason,
-                      crossChannelSuppressedAt: suppressNow.toISOString(),
-                      crossChannelWhatsappNoticeSent: true,
-                    },
-                  })
-                  .where(and(eq(agentFlowStates.tenantId, tenantId), eq(agentFlowStates.id, flowState.id)));
-              }
-              if (!convCheck.operatorId && convCheck.queueState !== "finalizados") {
-                await db
-                  .update(conversations)
-                  .set({
-                    queueState: "finalizados",
-                    updatedAt: suppressNow,
-                    version: sql`${conversations.version} + 1`,
-                  })
-                  .where(
-                    and(
-                      eq(conversations.tenantId, tenantId),
-                      eq(conversations.id, conversationId),
-                      isNull(conversations.operatorId),
-                    ),
+                    siteConversationId: conversationId,
+                    waConversationId: waConvId,
+                    bumpUnreadForHuman: false,
+                    closeLivechatRecord: true,
+                    notifyRealtime: true,
+                  }).catch(() => {});
+                  if (flowState && flowState.outcome === "in_progress" && !flowState.completedAt) {
+                    await db
+                      .update(agentFlowStates)
+                      .set({
+                        currentStep: "Em Atendimento no WhatsApp",
+                        outcome: "transferred",
+                        completedAt: suppressNow,
+                        lastInteractionAt: suppressNow,
+                        metadata: {
+                          ...flowMetaCheck,
+                          followUpStage: 0,
+                          handoffStatus: "continued_to_whatsapp",
+                          whatsappConversationId: waConvId,
+                          crossChannelSuppressedReason: crossChannel.reason,
+                          crossChannelSuppressedAt: suppressNow.toISOString(),
+                        },
+                      })
+                      .where(and(eq(agentFlowStates.tenantId, tenantId), eq(agentFlowStates.id, flowState.id)));
+                  }
+                  if (!convCheck.operatorId && convCheck.queueState !== "finalizados") {
+                    await db
+                      .update(conversations)
+                      .set({
+                        queueState: "finalizados",
+                        unreadCount: 0,
+                        updatedAt: suppressNow,
+                        version: sql`${conversations.version} + 1`,
+                      })
+                      .where(
+                        and(
+                          eq(conversations.tenantId, tenantId),
+                          eq(conversations.id, conversationId),
+                          isNull(conversations.operatorId),
+                        ),
+                      );
+                  }
+                  console.log(
+                    `[SdrEngine] 🛑 TRAVA CROSS-CHANNEL SILENCIOSA (lote site anterior à atividade recente no WA): ${conversationId} → ${waConvId}.`,
                   );
+                  return false;
+                }
+
+                // Garante flowState aberto no Site para entrega durável e rastreabilidade do diálogo cross-channel
+                if (!flowState) {
+                  const newFlowId = `fs-sdr-${tenantId}-${conversationId}`;
+                  const initialStartTs = batchItems[0]?.receivedAt
+                    ? new Date(new Date(batchItems[0].receivedAt).getTime() - 5000)
+                    : new Date(Date.now() - 60000);
+                  await db
+                    .insert(agentFlowStates)
+                    .values({
+                      id: newFlowId,
+                      tenantId,
+                      conversationId,
+                      agentType: "sdr",
+                      currentStep: "Em Qualificação",
+                      collectedData: crossChannel.whatsappFlowCollectedData || {},
+                      metadata: {
+                        attendanceActorName: aiPersona.name,
+                        stepNumber: 1,
+                        totalSteps: 7,
+                        followUpStage: 0,
+                        funnelStage: "triagem",
+                        targetFunnel: null,
+                        greetingDone: true,
+                        crossChannelWhatsappConversationId: waConvId,
+                        crossChannelReason: crossChannel.reason,
+                      },
+                      startedAt: initialStartTs,
+                      lastInteractionAt: suppressNow,
+                      outcome: "in_progress",
+                    })
+                    .onConflictDoNothing();
+                  flowState = await db.query.agentFlowStates.findFirst({
+                    where: (t, { eq: dEq, and: dAnd }) =>
+                      dAnd(dEq(t.id, newFlowId), dEq(t.tenantId, tenantId)),
+                  });
+                }
+
+                const [waRecentMsgs, siteRecentMsgs, contactInfoRows] = await Promise.all([
+                  db
+                    .select({
+                      senderType: messages.senderType,
+                      senderName: messages.senderName,
+                      content: messages.content,
+                      sentAt: messages.sentAt,
+                      provider: messages.provider,
+                    })
+                    .from(messages)
+                    .where(
+                      and(
+                        eq(messages.tenantId, tenantId),
+                        eq(messages.conversationId, waConvId),
+                        eq(messages.isInternalNote, false),
+                        ne(messages.provider, "livechat"),
+                      ),
+                    )
+                    .orderBy(desc(messages.sentAt), desc(messages.id))
+                    .limit(15),
+                  db
+                    .select({
+                      senderType: messages.senderType,
+                      senderName: messages.senderName,
+                      content: messages.content,
+                      sentAt: messages.sentAt,
+                    })
+                    .from(messages)
+                    .where(
+                      and(
+                        eq(messages.tenantId, tenantId),
+                        eq(messages.conversationId, conversationId),
+                        eq(messages.isInternalNote, false),
+                      ),
+                    )
+                    .orderBy(desc(messages.sentAt), desc(messages.id))
+                    .limit(12),
+                  db
+                    .select({ name: contacts.name, phone: contacts.phone })
+                    .from(contacts)
+                    .where(and(eq(contacts.tenantId, tenantId), eq(contacts.id, convCheck.contactId)))
+                    .limit(1),
+                ]);
+
+                const waHistoryExcerpt = [...waRecentMsgs]
+                  .reverse()
+                  .map(
+                    (m) =>
+                      `[${m.senderType === "client" ? "Cliente" : m.senderName || "Equipe"}]: ${String(m.content || "").slice(0, 240)}`,
+                  )
+                  .join("\n");
+                const siteHistoryExcerpt = [...siteRecentMsgs]
+                  .reverse()
+                  .map(
+                    (m) =>
+                      `[${m.senderType === "client" ? "Cliente" : aiPersona.name}]: ${String(m.content || "").slice(0, 240)}`,
+                  )
+                  .join("\n");
+                const latestClientMessage = batchItems
+                  .map((i) => String(i.text || "").trim())
+                  .filter(Boolean)
+                  .join("\n");
+
+                const currentFlowMeta = (flowState?.metadata as Record<string, any>) || flowMetaCheck;
+                const dialogRes = await evaluateSiteCrossChannelTurnWithGemini({
+                  tenantId,
+                  siteConversationId: conversationId,
+                  whatsappConversationId: waConvId,
+                  aiPersona,
+                  crossChannelReason: crossChannel.reason as
+                    | "whatsapp_human_active"
+                    | "whatsapp_triage_in_progress"
+                    | "whatsapp_awaiting_approval",
+                  consultantName: crossChannel.whatsappOperatorName || null,
+                  clientName: contactInfoRows[0]?.name || null,
+                  contactPhone: contactInfoRows[0]?.phone || contactPhone,
+                  whatsappHistoryExcerpt: waHistoryExcerpt,
+                  siteHistoryExcerpt,
+                  latestClientMessage,
+                  alreadyAskedChannelChoice: Boolean(currentFlowMeta.crossChannelAskedChoice),
+                  signal,
+                });
+
+                if (signal?.aborted) return false;
+
+                // Subcaso A: cliente recusou ir ao Zap e o Zap está apenas na triagem IA -> continua a triagem no Site!
+                if (
+                  dialogRes.decision === "decline_stay_on_site" &&
+                  crossChannel.reason === "whatsapp_triage_in_progress"
+                ) {
+                  inheritedCrossChannelWaData = crossChannel.whatsappFlowCollectedData || null;
+                  if (flowState) {
+                    const mergedSiteData = {
+                      ...(inheritedCrossChannelWaData || {}),
+                      ...((flowState.collectedData as Record<string, any>) || {}),
+                    };
+                    const [updatedStayFlow] = await db
+                      .update(agentFlowStates)
+                      .set({
+                        collectedData: mergedSiteData,
+                        lastInteractionAt: suppressNow,
+                        metadata: {
+                          ...currentFlowMeta,
+                          crossChannelAskedChoice: true,
+                          crossChannelContinueOnSite: true,
+                          crossChannelWhatsappConversationId: waConvId,
+                          crossChannelReason: crossChannel.reason,
+                        },
+                      })
+                      .where(and(eq(agentFlowStates.tenantId, tenantId), eq(agentFlowStates.id, flowState.id)))
+                      .returning();
+                    if (updatedStayFlow) flowState = updatedStayFlow;
+                  }
+                  console.log(
+                    `[SdrEngine] 💬 Cross-channel Site×WhatsApp: cliente preferiu continuar no Site durante triagem IA (${conversationId} herdando dados de ${waConvId}).`,
+                  );
+                } else {
+                  const batchTriggerIdsXch = batchItems
+                    .map((item) => item.messageId)
+                    .filter((id): id is string => Boolean(id));
+                  const xchTurnKey = batchTriggerIdsXch.at(-1) || String(suppressNow.getTime());
+
+                  // Envia resposta natural do Gemini no Site (enquanto a conversa ainda está em automação)
+                  if (!convCheck.operatorId && !signal?.aborted) {
+                    for (let idx = 0; idx < dialogRes.messagesToSend.length; idx++) {
+                      const bubble = dialogRes.messagesToSend[idx];
+                      await sendSdrChannelText({
+                        tenantId,
+                        conversationId,
+                        phone: contactPhone,
+                        text: bubble,
+                        idempotencyMessageId: `msg-site-xch-${(flowState?.id || conversationId).slice(0, 20)}-${xchTurnKey.slice(-12)}-${idx}`,
+                        expectedOperatorId: null,
+                        deliveryContext: flowState
+                          ? {
+                              flowId: flowState.id,
+                              cycle: flowState.startedAt.toISOString(),
+                              ...(batchTriggerIdsXch.length > 0 ? { triggerIds: batchTriggerIdsXch } : {}),
+                            }
+                          : undefined,
+                      }).catch(() => {});
+                    }
+                  }
+
+                  const shouldAddConsultantNote =
+                    (crossChannel.reason === "whatsapp_human_active" ||
+                      crossChannel.reason === "whatsapp_awaiting_approval") &&
+                    (dialogRes.decision === "decline_stay_on_site" ||
+                      dialogRes.decision === "note_for_consultant" ||
+                      Boolean(dialogRes.consultantSummaryNote));
+
+                  const noteText = shouldAddConsultantNote
+                    ? `Recado do cliente enviado pelo Chat do Site${crossChannel.whatsappOperatorName ? ` (para ${crossChannel.whatsappOperatorName})` : ""}:\n${dialogRes.consultantSummaryNote || latestClientMessage}`
+                    : null;
+
+                  // Espelha respostas + nota interna no WhatsApp (unificação completa do histórico)
+                  await mirrorSiteMessagesToWhatsapp(db, {
+                    tenantId,
+                    siteConversationId: conversationId,
+                    waConversationId: waConvId,
+                    internalNote: noteText
+                      ? {
+                          idempotencyKey: `xch-note:${conversationId}:${xchTurnKey}`,
+                          senderName: `${aiPersona.name} (Site → WhatsApp)`,
+                          content: noteText,
+                        }
+                      : null,
+                    bumpUnreadForHuman:
+                      crossChannel.reason === "whatsapp_human_active" && shouldAddConsultantNote,
+                    closeLivechatRecord: dialogRes.decision === "accept_whatsapp",
+                    notifyRealtime: true,
+                  }).catch(() => {});
+
+                  if (dialogRes.decision === "accept_whatsapp") {
+                    if (flowState && flowState.outcome === "in_progress" && !flowState.completedAt) {
+                      await db
+                        .update(agentFlowStates)
+                        .set({
+                          currentStep: "Em Atendimento no WhatsApp",
+                          outcome: "transferred",
+                          completedAt: suppressNow,
+                          lastInteractionAt: suppressNow,
+                          metadata: {
+                            ...currentFlowMeta,
+                            followUpStage: 0,
+                            handoffStatus: "continued_to_whatsapp",
+                            whatsappConversationId: waConvId,
+                            crossChannelAskedChoice: true,
+                            crossChannelAcceptedWhatsapp: true,
+                            crossChannelSuppressedReason: crossChannel.reason,
+                            crossChannelSuppressedAt: suppressNow.toISOString(),
+                          },
+                        })
+                        .where(and(eq(agentFlowStates.tenantId, tenantId), eq(agentFlowStates.id, flowState.id)));
+                    }
+                    if (!convCheck.operatorId && convCheck.queueState !== "finalizados") {
+                      const [closedConv] = await db
+                        .update(conversations)
+                        .set({
+                          queueState: "finalizados",
+                          unreadCount: 0,
+                          updatedAt: suppressNow,
+                          version: sql`${conversations.version} + 1`,
+                        })
+                        .where(
+                          and(
+                            eq(conversations.tenantId, tenantId),
+                            eq(conversations.id, conversationId),
+                            isNull(conversations.operatorId),
+                          ),
+                        )
+                        .returning();
+                      if (closedConv) {
+                        SessionManager.getInstance().notifyPublic(tenantId, {
+                          type: "queue_update",
+                          conversationId,
+                          queueState: "finalizados",
+                          operatorId: null,
+                          unreadCount: 0,
+                          version: closedConv.version,
+                        });
+                      }
+                    }
+                    console.log(
+                      `[SdrEngine] ✅ Cross-channel Site×WhatsApp: cliente aceitou continuar no WhatsApp (${conversationId} encerrada e espelhada em ${waConvId}).`,
+                    );
+                  } else {
+                    if (flowState && flowState.outcome === "in_progress" && !flowState.completedAt) {
+                      await db
+                        .update(agentFlowStates)
+                        .set({
+                          lastInteractionAt: suppressNow,
+                          metadata: {
+                            ...currentFlowMeta,
+                            crossChannelAskedChoice: true,
+                            crossChannelLastDecision: dialogRes.decision,
+                            crossChannelWhatsappConversationId: waConvId,
+                            crossChannelReason: crossChannel.reason,
+                          },
+                        })
+                        .where(and(eq(agentFlowStates.tenantId, tenantId), eq(agentFlowStates.id, flowState.id)));
+                    }
+                    console.log(
+                      `[SdrEngine] 💬 Cross-channel Site×WhatsApp (${crossChannel.reason} · decision=${dialogRes.decision} · source=${dialogRes.source}): conversa natural enviada no site e espelhada em ${waConvId}.`,
+                    );
+                  }
+                  return true;
+                }
               }
-              console.log(
-                `[SdrEngine] 🛑 TRAVA CROSS-CHANNEL SITE×WHATSAPP (${crossChannel.reason}): Sessão do site ${conversationId} encerrada em favor do WhatsApp ${crossChannel.whatsappConversationId}.`,
-              );
-              return false;
             }
           } catch (crossErr: any) {
             console.warn(
@@ -874,7 +1207,10 @@ export class SdrEngine {
         .join("\n");
 
       // 5. Montar Prompt Estruturado para o Gemini 2.5 Pro
-      const existingCollectedData = (flowState?.collectedData as Record<string, any>) || {};
+      const existingCollectedData: Record<string, any> = {
+        ...(inheritedCrossChannelWaData || {}),
+        ...((flowState?.collectedData as Record<string, any>) || {}),
+      };
 
       const brtHourStr = new Intl.DateTimeFormat("pt-BR", {
         timeZone: "America/Sao_Paulo",
@@ -1615,6 +1951,13 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
       // 6. Consultar o Gemini 2.5 Pro via Vertex AI (100% Gemini — sem respostas prontas hardcoded)
 
+      const isSiteChannelTurn = industrialTriage && isSiteConversationId(conversationId);
+      const knownSitePhoneRaw = isSiteChannelTurn
+        ? existingCollectedData["TELEFONE"]?.value || contactPhone || null
+        : null;
+      const siteMigrationOfferPendingBeforeTurn =
+        isSiteChannelTurn && metaState.siteWhatsappMigrationOfferPending === true;
+
       const promptText =
         industrialTriage
           ? buildTecfagFagnerPrompt({
@@ -1637,6 +1980,15 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
               subflow: metaState.subflow || null,
               hasPendingCompanyConfirmation,
               businessHours: industrialBusinessHours,
+              siteMigrationContext: isSiteChannelTurn
+                ? {
+                    isSiteChannel: true,
+                    knownPhoneFormatted: formatBrPhoneForDisplay(knownSitePhoneRaw),
+                    offerPending: siteMigrationOfferPendingBeforeTurn,
+                  }
+                : null,
+              migratedFromSiteMidTriage:
+                !isSiteChannelTurn && metaState.migratedFromSiteMidTriage === true,
             })
           : valemPromptText;
 
@@ -2245,24 +2597,83 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       let industrialReadiness = industrialRoute ? assessIndustrialReadiness(industrialRoute, updatedCollectedData) : null;
       const clientRescheduledNow = industrialTriage ? isClientReschedulingTurn(combinedBatchText) : false;
 
+      // 📲 Resolução determinística + Gemini da migração sob demanda Site → WhatsApp no meio da triagem:
+      // - No Site, se o cliente pedir WhatsApp/zap/telefone/ligação: Fagner oferece mandar msg no WhatsApp primeiro.
+      // - Se o cliente confirmar ("sim", "pode mandar", ou informar o telefone após oferta): executa migração mid-triage!
+      // - Se recusar WhatsApp insistindo em ligação telefônica: escala p/ revisão humana SDR (`5A_CLIENTE`).
+      let siteMigrationAction:
+        | "offer_whatsapp"
+        | "confirm_whatsapp"
+        | "decline_stay_site"
+        | "insist_phone_call"
+        | null = null;
+      let siteMigrationProvidedPhone: string | null = null;
+      if (industrialTriage && isSiteChannelTurn && !isClientDeclinedTurn) {
+        const rawProvided =
+          aiResult.siteWhatsappMigration?.providedPhone ||
+          extractSitePhoneCandidate(combinedBatchText);
+        if (rawProvided) {
+          const cleanProvided = extractSitePhoneCandidate(rawProvided) || rawProvided;
+          if (cleanProvided) {
+            siteMigrationProvidedPhone = cleanProvided;
+            if (!updatedCollectedData["TELEFONE"]?.value) {
+              updatedCollectedData["TELEFONE"] = { value: cleanProvided, status: "filled" };
+            }
+          }
+        }
+        const aiMigIntent = aiResult.siteWhatsappMigration?.intent || null;
+        if (siteMigrationOfferPendingBeforeTurn) {
+          if (aiMigIntent === "insist_phone_call" || isExplicitPhoneCallInsistence(combinedBatchText)) {
+            siteMigrationAction = "insist_phone_call";
+          } else if (
+            aiMigIntent === "confirm_whatsapp" ||
+            isExplicitWhatsappMigrationConfirmation(combinedBatchText) ||
+            (!knownSitePhoneRaw && Boolean(siteMigrationProvidedPhone))
+          ) {
+            siteMigrationAction = "confirm_whatsapp";
+          } else if (aiMigIntent === "decline_stay_site") {
+            siteMigrationAction = "decline_stay_site";
+          } else if (aiMigIntent === "offer_whatsapp") {
+            siteMigrationAction = "offer_whatsapp";
+          }
+        } else {
+          if (aiMigIntent === "insist_phone_call" || isExplicitPhoneCallInsistence(combinedBatchText)) {
+            siteMigrationAction = "insist_phone_call";
+          } else if (
+            aiMigIntent === "offer_whatsapp" ||
+            isSiteChannelMigrationOrCallRequest(combinedBatchText)
+          ) {
+            siteMigrationAction = "offer_whatsapp";
+          }
+        }
+      }
+      const isSiteWhatsappMigrationFlowTurn =
+        siteMigrationAction === "offer_whatsapp" || siteMigrationAction === "confirm_whatsapp";
+
       // Escalonamento garantido para Análise e revisão humana (fim do loop/purgatório):
       // Aciona sempre que o cliente recusa/não consegue informar dados, é recorrente pedindo preço/proposta/Pix,
-      // pede ligação/contato por celular, Gemini sinaliza `escalateToHumanReview`, ou o bot tenta encerrar um
-      // lead comercial substancial sem pergunta quando o dado faltante já foi pedido (ou é apenas produção/documento).
+      // pede ligação/contato por celular (no WhatsApp, ou no Site após insistir em ligação recusando WhatsApp),
+      // Gemini sinaliza `escalateToHumanReview`, ou o bot tenta encerrar um lead comercial substancial sem pergunta.
       if (
         industrialTriage &&
         industrialRoute &&
         !isClientDeclinedTurn &&
         !clientRescheduledNow &&
+        !isSiteWhatsappMigrationFlowTurn &&
         !isIndustrialInformativeSubflow(industrialRoute.subflow) &&
         industrialRoute.reason !== "direct_operator_requested"
       ) {
-        const llmRequestedEscalation = aiResult.escalateToHumanReview === true;
+        const llmRequestedEscalation =
+          aiResult.escalateToHumanReview === true || siteMigrationAction === "insist_phone_call";
         const clientRefusedOrRequestedCallback =
           isClientRefusingAdditionalQualification(combinedBatchText) ||
           (Boolean(industrialReadiness && !industrialReadiness.ready) &&
             hasPartialCollectedData(updatedCollectedData) &&
-            allCycleClientMessages.some((m) => isClientRefusingAdditionalQualification(m)));
+            allCycleClientMessages.some(
+              (m) =>
+                isClientRefusingAdditionalQualification(m) &&
+                (!isSiteChannelTurn || !isSiteChannelMigrationOrCallRequest(m)),
+            ));
         const terseProductionFrustration = Boolean(
           ["MAQUINAS", "PERSONNALITE"].includes(industrialRoute.subflow || "") &&
             industrialReadiness &&
@@ -2385,6 +2796,32 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       let isCordialBotClosingTurn = false;
       if (isClientDeclinedTurn) {
         isCompleted = true;
+      } else if (
+        industrialTriage &&
+        isSiteChannelTurn &&
+        siteMigrationAction === "offer_whatsapp"
+      ) {
+        // Oferta de continuar no WhatsApp nunca conclui a triagem neste turno: aguarda resposta do cliente.
+        isCompleted = false;
+        if (!aiResult.messagesToSend.some((m) => /whats|zap/i.test(m) && m.includes("?"))) {
+          const displayPhone = formatBrPhoneForDisplay(
+            siteMigrationProvidedPhone || knownSitePhoneRaw,
+          );
+          aiResult.messagesToSend = [
+            displayPhone
+              ? `Claro! Se você preferir, posso te mandar uma mensagem lá no WhatsApp no número ${displayPhone} para continuarmos de onde paramos. Pode ser?`
+              : "Claro! Posso te mandar uma mensagem lá no WhatsApp para continuarmos por lá se você preferir. Qual é o seu número com DDD?",
+          ];
+        }
+      } else if (
+        industrialTriage &&
+        isSiteChannelTurn &&
+        siteMigrationAction === "confirm_whatsapp" &&
+        !industrialReadiness?.ready
+      ) {
+        // Migração no meio da triagem (dados ainda incompletos): vai para executeMidTriageSiteToWhatsApp,
+        // nunca para encerramento cordial nem para awaiting_approval prematuro!
+        isCompleted = false;
       } else if (industrialRoute) {
         const hasPendingQuestion = hasPendingTriageQuestion(aiResult.messagesToSend);
         const isInformativeResolution = industrialReadiness?.action === "inform";
@@ -2765,6 +3202,79 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         } catch (rErr: any) {
           console.error("[SdrEngine] ❌ Erro ao alocar no rodízio ou acionar CRM:", rErr?.message || rErr);
         }
+      } else if (
+        industrialTriage &&
+        isSiteChannelTurn &&
+        siteMigrationAction === "confirm_whatsapp" &&
+        !wasAlreadyCompleted &&
+        !signal?.aborted &&
+        flowState
+      ) {
+        // 📲 MIGRAÇÃO SOB DEMANDA SITE → WHATSAPP NO MEIO DA TRIAGEM:
+        // Cliente confirmou que deseja continuar no WhatsApp antes do fim da coleta!
+        // Para a triagem no Site, espelha o histórico, cria card CWR (CONTATANDO),
+        // envia texto livre (janela 24h aberta) ou template dedicado (janela 24h fechada),
+        // e continua a triagem no WhatsApp exatamente de onde parou.
+        try {
+          const midClientName = updatedCollectedData["NOME COMPLETO"]?.value || "Visitante do Site";
+          const midCompany = updatedCollectedData["EMPRESA"]?.value || "Empresa não informada";
+          const midRes = await executeMidTriageSiteToWhatsApp(db, {
+            tenantId,
+            siteConversationId: conversationId,
+            siteFlowId: flowState.id,
+            cycle: flowState.startedAt.toISOString(),
+            route: industrialRoute,
+            data: updatedCollectedData,
+            missingFields: industrialReadiness?.missing || [],
+            clientName: midClientName,
+            companyName: midCompany,
+            contactId: convCheck?.contactId || null,
+            providedPhone: siteMigrationProvidedPhone,
+            siteContext,
+            vtexLookup: storeTurn?.evidence ?? metaState.vtexLookup,
+            signal,
+          });
+          if (midRes.migrated) {
+            siteWhatsappHandoffMessage = midRes.closingMessageForSite || null;
+            industrialHandoff = {
+              status: "transferred",
+              operator: null,
+              deal: midRes.dealId
+                ? {
+                    dealId: midRes.dealId,
+                    dealTitle: midRes.dealTitle || midClientName,
+                    action: "created_new",
+                    funnelId: "",
+                    stageId: "",
+                  }
+                : null,
+            };
+            industrialHandoffPersisted = true;
+            allocatedOp = null;
+            localCrmResult = industrialHandoff.deal;
+            console.log(
+              `[SdrEngine] ✅ Migração mid-triage Site → WhatsApp concluída (${conversationId} → ${midRes.whatsappConversationId}, modo=${midRes.deliveryMode}, deal=${midRes.dealId || "n/a"}).`,
+            );
+          } else if (midRes.reason === "missing_phone") {
+            siteMigrationAction = "offer_whatsapp";
+            if (!aiResult.messagesToSend.some((m) => /\b(?:ddd|n[uú]mero|telefone|whats)/i.test(m) && m.includes("?"))) {
+              aiResult.messagesToSend = [
+                "Perfeito! Para eu te chamar lá no WhatsApp e continuarmos de onde paramos, qual é o seu número com DDD?",
+              ];
+            }
+          } else {
+            console.warn(
+              `[SdrEngine] ⚠️ Migração mid-triage Site → WhatsApp não concluída (${conversationId}, motivo=${midRes.reason || "erro"}); mantendo coleta no site.`,
+            );
+            siteMigrationAction = "decline_stay_site";
+          }
+        } catch (midErr: any) {
+          console.warn(
+            `[SdrEngine] ⚠️ Erro na migração mid-triage Site → WhatsApp (${conversationId}):`,
+            midErr?.message || midErr,
+          );
+          siteMigrationAction = "decline_stay_site";
+        }
       } else {
         console.log(`[SdrEngine] ℹ️ Conclusão da triagem não disparada neste turno. (isCompleted=${isCompleted}, wasAlreadyCompleted=${wasAlreadyCompleted}, aborted=${Boolean(signal?.aborted)})`);
       }
@@ -2843,6 +3353,12 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
             : null;
         if (siteWhatsappHandoffMessage) {
           aiResult.messagesToSend = [siteWhatsappHandoffMessage];
+        } else if (
+          isSiteChannelTurn &&
+          siteMigrationAction === "offer_whatsapp" &&
+          aiResult.messagesToSend.some((m) => m.includes("?"))
+        ) {
+          // Preserva a oferta natural do Gemini para ir ao WhatsApp sem sobrescrever com pergunta de CNPJ/volume
         } else {
           const evaluated = evaluateIndustrialClientMessages({
             result: industrialHandoff,
@@ -3158,6 +3674,18 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
               }
             : {}),
           ...(partialLeadRescuedAt ? { partialLeadRescuedAt } : {}),
+          ...(isSiteChannelTurn
+            ? {
+                siteWhatsappMigrationOfferPending:
+                  siteMigrationAction === "offer_whatsapp"
+                    ? true
+                    : siteMigrationAction === "decline_stay_site" ||
+                        siteMigrationAction === "insist_phone_call" ||
+                        siteMigrationAction === "confirm_whatsapp"
+                      ? false
+                      : metaState.siteWhatsappMigrationOfferPending === true,
+              }
+            : {}),
           ...(allocatedOp?.id ? { allocatedOperatorId: allocatedOp.id } : {}),
           ...(allocatedOp?.name ? { allocatedOperatorName: allocatedOp.name } : {}),
         };

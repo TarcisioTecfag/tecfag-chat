@@ -113,6 +113,37 @@ function normalizeMessagesToSend(raw: unknown): string[] {
     .slice(0, 8);
 }
 
+const siteMigrationIntentSet = new Set([
+  "offer_whatsapp",
+  "confirm_whatsapp",
+  "decline_stay_site",
+  "insist_phone_call",
+]);
+
+const siteWhatsappMigrationSchema = z
+  .unknown()
+  .optional()
+  .transform((raw) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+    const obj = raw as Record<string, unknown>;
+    const rawIntent = typeof obj.intent === "string" ? obj.intent.trim() : "";
+    const intent = siteMigrationIntentSet.has(rawIntent)
+      ? (rawIntent as
+          | "offer_whatsapp"
+          | "confirm_whatsapp"
+          | "decline_stay_site"
+          | "insist_phone_call")
+      : null;
+    const rawPhone = typeof obj.providedPhone === "string" ? obj.providedPhone.trim() : "";
+    const providedPhone =
+      rawPhone && rawPhone.toLowerCase() !== "null" ? rawPhone.slice(0, 40) : null;
+    if (!intent && !providedPhone) return null;
+    return {
+      intent,
+      providedPhone,
+    };
+  });
+
 const schema = z.object({
   subflow: z.unknown().transform(normalizeSubflow),
   extractedData: z.unknown().transform(normalizeExtractedData),
@@ -130,6 +161,7 @@ const schema = z.object({
   quoteMessageId: nullableTrimmedString(250),
   mediaDescription: nullableTrimmedString(8000),
   directOperatorRequest: directOperatorRequestSchema,
+  siteWhatsappMigration: siteWhatsappMigrationSchema,
   escalateToHumanReview: z
     .unknown()
     .optional()

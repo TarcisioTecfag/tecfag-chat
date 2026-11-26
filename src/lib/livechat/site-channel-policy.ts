@@ -42,6 +42,8 @@ export interface SiteChannelSettings {
   whatsappNumber: string;
   /** ID ou nome do template oficial Meta aprovado para o Fagner chamar o cliente no WhatsApp pós-triagem no site. */
   whatsappTemplateId: string;
+  /** ID ou nome do template oficial Meta aprovado para migração Site → WhatsApp no MEIO da triagem (janela 24h fechada). */
+  whatsappMidTriageTemplateId: string;
 }
 
 function normalizeOrigin(raw: string): string | null {
@@ -65,6 +67,10 @@ export function parseSiteChannelSettings(
   const raw = config || {};
   const origins = Array.isArray(raw.siteAllowedOrigins) ? raw.siteAllowedOrigins : [];
   const rawTemplate = typeof raw.siteWhatsappTemplateId === "string" ? raw.siteWhatsappTemplateId.trim() : "";
+  const rawMidTemplate =
+    typeof raw.siteWhatsappMidTriageTemplateId === "string"
+      ? raw.siteWhatsappMidTriageTemplateId.trim()
+      : "";
   return {
     enabled: sdrEnabled && raw.siteChannelEnabled === true,
     allowedOrigins: Array.from(
@@ -72,7 +78,24 @@ export function parseSiteChannelSettings(
     ),
     whatsappNumber: normalizeWhatsappNumber(raw.siteWhatsappNumber),
     whatsappTemplateId: rawTemplate.slice(0, 160),
+    whatsappMidTriageTemplateId: rawMidTemplate.slice(0, 160),
   };
+}
+
+/** Formata telefone BR para exibição amigável nas mensagens do Fagner (ex.: "(14) 99836-4338"). */
+export function formatBrPhoneForDisplay(raw: string | null | undefined): string | null {
+  const digits = String(raw || "").replace(/\D/g, "");
+  if (!digits) return null;
+  const local = digits.startsWith("55") && (digits.length === 12 || digits.length === 13)
+    ? digits.slice(2)
+    : digits;
+  if (local.length === 11) {
+    return `(${local.slice(0, 2)}) ${local.slice(2, 7)}-${local.slice(7)}`;
+  }
+  if (local.length === 10) {
+    return `(${local.slice(0, 2)}) ${local.slice(2, 6)}-${local.slice(6)}`;
+  }
+  return digits.length >= 10 ? `+${digits}` : null;
 }
 
 /**

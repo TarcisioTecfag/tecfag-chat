@@ -544,6 +544,39 @@ export async function handleIndustrialSiteMessage(tenantId: string, visitor: LcV
     message: { ...inserted, queue: current?.queueState, operatorId: current?.operatorId || null },
   });
 
+  // Espelhamento em tempo real Site → WhatsApp: se o contato já tiver conversa oficial
+  // de WhatsApp ativa nas últimas 24h, unifica esta mensagem imediatamente no histórico do WhatsApp
+  // (com selo `Via Site` e divisórias de canal, sem abrir janela Meta 24h).
+  if (current?.contactId) {
+    try {
+      const { findActiveWhatsappSessionForSiteContact } = await import("./site-cross-channel-guard");
+      const activeWa = await findActiveWhatsappSessionForSiteContact(db, {
+        tenantId,
+        contactId: current.contactId,
+        siteConversationId: conv.id,
+        siteLatestClientMessageAt: now,
+        now,
+      });
+      if (activeWa.suppressed && activeWa.whatsappConversationId) {
+        const { mirrorSiteMessagesToWhatsapp } = await import("./site-whatsapp-mirror");
+        await mirrorSiteMessagesToWhatsapp(db, {
+          tenantId,
+          siteConversationId: conv.id,
+          waConversationId: activeWa.whatsappConversationId,
+          sourceMessages: [inserted],
+          bumpUnreadForHuman: activeWa.reason === "whatsapp_human_active",
+          closeLivechatRecord: false,
+          notifyRealtime: true,
+        });
+      }
+    } catch (mirrorErr: any) {
+      console.warn(
+        `[SiteIndustrialAdapter] Aviso ao espelhar mensagem do site para WhatsApp (${conv.id}):`,
+        mirrorErr?.message || mirrorErr,
+      );
+    }
+  }
+
   // Mesma trava do WhatsApp: com responsável humano o SDR não responde.
   if (current && !current.operatorId && current.queueState === "automacao") {
     let resolvedPhone = visitor.phone || "";
