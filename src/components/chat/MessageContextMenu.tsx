@@ -1,16 +1,20 @@
 import React, { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { Info } from "lucide-react";
+import { Download, Info } from "lucide-react";
 import {
   clampContextMenuPosition,
+  type DownloadableMediaDescriptor,
   type MessageContextMenuState,
 } from "@/lib/chat/message-context-menu";
 
 interface MessageContextMenuProps {
   menu: MessageContextMenuState | null;
   isExpanded: boolean;
+  showInfoOption?: boolean;
+  downloadMedia?: DownloadableMediaDescriptor | null;
   onToggleInfo: (messageId: string) => void;
+  onDownloadMedia?: (media: DownloadableMediaDescriptor) => void;
   onClose: () => void;
   /** Mantém compatibilidade com detectores de foco do Mini Chat Flutuante */
   insideMiniChat?: boolean;
@@ -24,7 +28,10 @@ interface MessageContextMenuProps {
 export function MessageContextMenu({
   menu,
   isExpanded,
+  showInfoOption = true,
+  downloadMedia = null,
   onToggleInfo,
+  onDownloadMedia,
   onClose,
   insideMiniChat = false,
 }: MessageContextMenuProps) {
@@ -75,15 +82,20 @@ export function MessageContextMenu({
 
   if (typeof document === "undefined") return null;
 
+  const canDownload = Boolean(downloadMedia && onDownloadMedia);
+  const itemCount = (showInfoOption ? 1 : 0) + (canDownload ? 1 : 0);
+  const estimatedMenuHeight = Math.max(48, itemCount * 36 + 12);
+
   const viewportW = typeof window !== "undefined" ? window.innerWidth : 1280;
   const viewportH = typeof window !== "undefined" ? window.innerHeight : 720;
-  const pos = menu
-    ? clampContextMenuPosition(menu.x, menu.y, viewportW, viewportH, 196, 48, 8)
-    : null;
+  const pos =
+    menu && itemCount > 0
+      ? clampContextMenuPosition(menu.x, menu.y, viewportW, viewportH, 196, estimatedMenuHeight, 8)
+      : null;
 
   return createPortal(
     <AnimatePresence>
-      {menu && pos && (
+      {menu && pos && itemCount > 0 && (
         <motion.div
           ref={menuRef}
           role="menu"
@@ -102,18 +114,34 @@ export function MessageContextMenu({
             e.stopPropagation();
           }}
         >
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              onToggleInfo(menu.messageId);
-              onClose();
-            }}
-            className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
-          >
-            <Info className="h-3.5 w-3.5 text-primary shrink-0" />
-            <span>{isExpanded ? "Ocultar informações" : "Informações"}</span>
-          </button>
+          {showInfoOption && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                onToggleInfo(menu.messageId);
+                onClose();
+              }}
+              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
+            >
+              <Info className="h-3.5 w-3.5 text-primary shrink-0" />
+              <span>{isExpanded ? "Ocultar informações" : "Informações"}</span>
+            </button>
+          )}
+          {canDownload && downloadMedia && onDownloadMedia && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                onDownloadMedia(downloadMedia);
+                onClose();
+              }}
+              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
+            >
+              <Download className="h-3.5 w-3.5 text-primary shrink-0" />
+              <span>Baixar</span>
+            </button>
+          )}
         </motion.div>
       )}
     </AnimatePresence>,

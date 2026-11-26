@@ -130,7 +130,12 @@ import { MarkEvidenceModal } from "@/components/crm/MarkEvidenceModal";
 import { AiAvatar } from "@/components/ui/AiAvatar";
 import { ChatMessageBubble } from "./ChatMessageBubble";
 import { MessageContextMenu } from "./MessageContextMenu";
-import type { MessageContextMenuState } from "@/lib/chat/message-context-menu";
+import {
+  downloadChatMedia,
+  extractDownloadableMediaFromMessage,
+  type DownloadableMediaDescriptor,
+  type MessageContextMenuState,
+} from "@/lib/chat/message-context-menu";
 import { ZoomableImageModal } from "./ZoomableImageModal";
 import { AgenticThoughtTrace } from "@/components/valentina/chat-blocks/AgenticThoughtTrace";
 import { io as socketIO, type Socket } from "socket.io-client";
@@ -2308,6 +2313,13 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     setMessageContextMenu(null);
   }, []);
 
+  const handleDownloadContextMedia = useCallback(async (media: DownloadableMediaDescriptor) => {
+    const result = await downloadChatMedia(media);
+    if (!result.ok) {
+      toast.error(result.error || "Não foi possível baixar a mídia.");
+    }
+  }, []);
+
   const handleScrollToQuoted = useCallback((e: React.MouseEvent, targetId: string) => {
     e.stopPropagation();
     const el = document.getElementById(`msg-dom-${targetId}`);
@@ -2534,6 +2546,14 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   useEffect(() => {
     setMessageContextMenu(null);
   }, [activeChat?.id]);
+
+  const contextMenuMessage = messageContextMenu
+    ? (messageMap.get(messageContextMenu.messageId) ?? null)
+    : null;
+  const contextMenuDownloadMedia = useMemo(
+    () => extractDownloadableMediaFromMessage(contextMenuMessage?.text, BACKEND_URL),
+    [contextMenuMessage?.text],
+  );
   useTrainingSurface("chat", (step) => {
     if (!activeChat) return false;
     const id = step.id;
@@ -6486,7 +6506,10 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
       <MessageContextMenu
         menu={messageContextMenu}
         isExpanded={Boolean(messageContextMenu && expandedMsgId === messageContextMenu.messageId)}
+        showInfoOption={!contextMenuMessage?.isInternalNote}
+        downloadMedia={contextMenuDownloadMedia}
         onToggleInfo={handleToggleMessageInfo}
+        onDownloadMedia={(media) => void handleDownloadContextMedia(media)}
         onClose={handleCloseMessageContextMenu}
       />
     </motion.section>

@@ -78,7 +78,10 @@ import {
 import { MessageKnowledgeSourceButton, VtexProductPreviewCard } from "@/components/chat/ChatMessageBubble";
 import { MessageContextMenu } from "@/components/chat/MessageContextMenu";
 import {
+  downloadChatMedia,
+  extractDownloadableMediaFromMessage,
   resolveMessageInfoAuthor,
+  type DownloadableMediaDescriptor,
   type MessageContextMenuState,
 } from "@/lib/chat/message-context-menu";
 import {
@@ -1520,7 +1523,12 @@ export function CrmChatWidget() {
     y: number;
   } | null>(null);
   const [expandedMsgId, setExpandedMsgId] = useState<string | null>(null);
-  const [messageContextMenu, setMessageContextMenu] = useState<MessageContextMenuState | null>(null);
+  const [messageContextMenu, setMessageContextMenu] = useState<
+    (MessageContextMenuState & {
+      downloadMedia: DownloadableMediaDescriptor | null;
+      showInfoOption: boolean;
+    }) | null
+  >(null);
 
   useEffect(() => {
     const handleClose = () => setContextMenu(null);
@@ -1533,12 +1541,28 @@ export function CrmChatWidget() {
     setExpandedMsgId(null);
   }, [selectedChatId, view, open]);
 
-  const handleMessageContextMenu = useCallback((e: React.MouseEvent, id: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setContextMenu(null);
-    setMessageContextMenu({ messageId: id, x: e.clientX, y: e.clientY });
-  }, []);
+  const handleMessageContextMenu = useCallback(
+    (
+      e: React.MouseEvent,
+      id: string,
+      message?: { text?: string | null; isInternalNote?: boolean },
+    ) => {
+      const downloadMedia = extractDownloadableMediaFromMessage(message?.text, BACKEND_URL);
+      const showInfoOption = !message?.isInternalNote;
+      if (!showInfoOption && !downloadMedia) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setContextMenu(null);
+      setMessageContextMenu({
+        messageId: id,
+        x: e.clientX,
+        y: e.clientY,
+        downloadMedia,
+        showInfoOption,
+      });
+    },
+    [],
+  );
 
   const handleToggleMessageInfo = useCallback((id: string) => {
     setExpandedMsgId((prev) => (prev === id ? null : id));
@@ -1546,6 +1570,13 @@ export function CrmChatWidget() {
 
   const handleCloseMessageContextMenu = useCallback(() => {
     setMessageContextMenu(null);
+  }, []);
+
+  const handleDownloadContextMedia = useCallback(async (media: DownloadableMediaDescriptor) => {
+    const result = await downloadChatMedia(media);
+    if (!result.ok) {
+      toast.error(result.error || "Não foi possível baixar a mídia.");
+    }
   }, []);
 
   // Modal de Transferência
@@ -3343,7 +3374,10 @@ export function CrmChatWidget() {
                                       </span>
                                       <span>{message.time}</span>
                                     </div>
-                                    <div className="leading-relaxed font-medium">
+                                    <div
+                                      onContextMenu={(e) => handleMessageContextMenu(e, msgId, message)}
+                                      className="leading-relaxed font-medium"
+                                    >
                                       <MiniMediaRenderer
                                         text={message.text}
                                         isMe={false}
@@ -3424,7 +3458,7 @@ export function CrmChatWidget() {
                                   <div className="flex flex-col items-end w-full group">
                                     {isFirstInSiteRun && <SiteOriginTag side="out" compact className="mb-1" />}
                                     <div
-                                      onContextMenu={(e) => handleMessageContextMenu(e, msgId)}
+                                      onContextMenu={(e) => handleMessageContextMenu(e, msgId, message)}
                                       className="max-w-[85%] rounded-2xl rounded-br-xs bg-primary px-3.5 py-2.5 text-primary-foreground shadow-sm text-xs leading-relaxed select-text"
                                     >
                                     {resolvedQuotedContent && (
@@ -3546,7 +3580,7 @@ export function CrmChatWidget() {
                                     />
                                   )}
                                   <div
-                                    onContextMenu={(e) => handleMessageContextMenu(e, msgId)}
+                                    onContextMenu={(e) => handleMessageContextMenu(e, msgId, message)}
                                     className="min-w-0 max-w-[90%]"
                                   >
                                     <VtexProductPreviewCard
@@ -3599,7 +3633,7 @@ export function CrmChatWidget() {
                                   />
                                 )}
                                 <div
-                                  onContextMenu={(e) => handleMessageContextMenu(e, msgId)}
+                                  onContextMenu={(e) => handleMessageContextMenu(e, msgId, message)}
                                   className={`rounded-2xl rounded-bl-xs min-w-0 overflow-hidden break-words ${
                                     message.isWarning
                                       ? `w-full max-w-[90%] border border-border/80 border-l-4 ${
@@ -5165,7 +5199,10 @@ export function CrmChatWidget() {
       <MessageContextMenu
         menu={messageContextMenu}
         isExpanded={Boolean(messageContextMenu && expandedMsgId === messageContextMenu.messageId)}
+        showInfoOption={messageContextMenu?.showInfoOption ?? true}
+        downloadMedia={messageContextMenu?.downloadMedia ?? null}
         onToggleInfo={handleToggleMessageInfo}
+        onDownloadMedia={(media) => void handleDownloadContextMedia(media)}
         onClose={handleCloseMessageContextMenu}
         insideMiniChat
       />

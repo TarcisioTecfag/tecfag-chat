@@ -962,7 +962,10 @@ function ChatMessageBubbleComponent({
                 </span>
               </div>
               {isMedia ? (
-                <div className="mt-1.5 text-xs leading-relaxed font-semibold text-foreground">
+                <div
+                  onContextMenu={(e) => onMessageContextMenu?.(e, m.id)}
+                  className="mt-1.5 text-xs leading-relaxed font-semibold text-foreground"
+                >
                   {renderMessageContent(
                     safeText,
                     onMediaClick,
@@ -1001,7 +1004,10 @@ function ChatMessageBubbleComponent({
               Anotação Interna — {m.author} às {m.time}
             </div>
             {isMedia ? (
-              <div className="mt-1.5 text-xs leading-relaxed font-medium text-amber-950 dark:text-amber-200">
+              <div
+                onContextMenu={(e) => onMessageContextMenu?.(e, m.id)}
+                className="mt-1.5 text-xs leading-relaxed font-medium text-amber-950 dark:text-amber-200"
+              >
                 {renderMessageContent(
                   safeText,
                   onMediaClick,
