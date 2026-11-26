@@ -83,6 +83,57 @@ export function extractSitePageProduct(
   return null;
 }
 
+const GENERIC_VTEX_DEMONSTRATIVES = new Set([
+  "o", "a", "os", "as",
+  "esse", "essa", "esses", "essas",
+  "desse", "dessa", "desses", "dessas",
+  "nesse", "nessa", "nesses", "nessas",
+  "este", "esta", "estes", "estas",
+  "deste", "desta", "destes", "destas",
+  "neste", "nesta", "nestes", "nestas",
+  "aquele", "aquela", "aqueles", "aquelas",
+]);
+
+const GENERIC_VTEX_NOUNS = new Set([
+  "produto", "produtos",
+  "modelo", "modelos",
+  "item", "items", "itens",
+  "maquina", "maquinas",
+  "equipamento", "equipamentos",
+  "seladora", "seladoras",
+  "envasadora", "envasadoras",
+  "dosadora", "dosadoras",
+]);
+
+const GENERIC_VTEX_QUALIFIERS = new Set([
+  "acima", "abaixo", "anterior", "anteriores",
+  "citado", "citada", "citados", "citadas",
+  "mencionado", "mencionada", "mencionados", "mencionadas",
+  "informado", "informada", "informados", "informadas",
+  "enviado", "enviada", "enviados", "enviadas",
+  "descrito", "descrita", "descritos", "descritas",
+  "pedido", "pedida", "pedidos", "pedidas",
+  "solicitado", "solicitada", "solicitados", "solicitadas",
+  "aqui", "dela", "dele", "deles", "delas",
+]);
+
+/** Verifica em tempo estritamente linear O(N) se a referência nomeada é apenas genérica/demonstrativa. */
+function isGenericNamedVtexReference(normalizedNamed: string): boolean {
+  const tokens = normalizedNamed.trim().split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return true;
+  let idx = 0;
+  while (idx < tokens.length && GENERIC_VTEX_DEMONSTRATIVES.has(tokens[idx])) {
+    idx++;
+  }
+  if (idx < tokens.length && GENERIC_VTEX_NOUNS.has(tokens[idx])) {
+    idx++;
+  }
+  while (idx < tokens.length && GENERIC_VTEX_QUALIFIERS.has(tokens[idx])) {
+    idx++;
+  }
+  return idx === tokens.length;
+}
+
 const PURE_BRAZILIAN_DOCUMENT_PATTERN =
   /^\s*(?:(?:meu\s+|numero\s+d[eo]\s+)?(?:cpf|cnpj)\s*[:#-]?\s*)?(?:\d{11}|\d{14}|\d{3}\.\d{3}\.\d{3}-\d{2}|\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})\s*[.!]?\s*$/i;
 
@@ -134,12 +185,7 @@ export function deriveVtexQuery(
   const generic =
     !normalizedNamed ||
     isCommercialPaymentTerm ||
-    /^(?:(?:d?ess[ea]s?|d?est[ea]s?|aquel[ea]s?|o|a|os|as|n?ess[ea]s?|n?est[ea]s?)\s+)*(?:produto|modelo|item|m[aá]quina|equipamento|seladora|envasadora|dosadora)?s?(?:\s*(?:acima|abaixo|anterior(?:es)?|citad[oa]s?|mencionad[oa]s?|informad[oa]s?|enviad[oa]s?|descrit[oa]s?|pedid[oa]s?|solicitad[oa]s?|aqui|dela|dele|deles|delas))*$/i.test(
-      normalizedNamed,
-    ) ||
-    /^(?:acima|abaixo|anterior(?:es)?|citad[oa]s?|mencionad[oa]s?|informad[oa]s?|enviad[oa]s?|descrit[oa]s?|pedid[oa]s?|solicitad[oa]s?|aqui|dela|dele|deles|delas)$/i.test(
-      normalizedNamed,
-    );
+    isGenericNamedVtexReference(normalizedNamed);
   const hasNamedProduct = Boolean(named && !generic && named.length >= 3 && named.length <= 120);
   const changingProduct = /\b(?:outro|outra|diferente|mudar|trocar de modelo)\b/.test(normalized);
   const hasTechnicalSpecTerm =

@@ -738,7 +738,7 @@ function scoreCatalogAgainstSource(
   const explicitSku = explicitSkuMatch ? explicitSkuMatch[1] : null;
 
   const modelRegexMatches =
-    normSource.match(/\b[a-z]{1,6}[-_\s]?\d{1,5}(?:[-_\s]?[a-z0-9]{1,5})*\b/g) || [];
+    normSource.match(/\b[a-z]{1,6}[-_\s]?\d{1,5}[a-z0-9]{0,6}(?:[-_][a-z0-9]{1,6}|\s[a-z0-9]{1,3}){0,3}\b/g) || [];
   const compactModels = Array.from(
     new Set(
       modelRegexMatches

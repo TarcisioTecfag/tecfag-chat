@@ -186,12 +186,10 @@ export function isCasualConversationQuery(text: string): boolean {
     return false;
   }
 
-  // Padrões diretos de saudação, cortesia, confirmação e conversa social
-  if (
-    /^(?:(?:oi+|ola+|opa+|ei+|e\s+ai|eai|fala|salve|alo|hey|bom\s+dia|boa\s+tarde|boa\s+noite|tudo\s+bem|tudo\s+bom|tudo\s+certo|tudo\s+joia|tudo\s+tranquilo|tudo\s+otimo|como\s+vai|como\s+voce\s+esta|como\s+vc\s+esta|como\s+vc\s+ta|como\s+esta|beleza|blz|ok|okay|show|fechou|entendi|entendido|combinado|perfeito|certo|certinho|ta\s+bom|ta\s+otimo|ta\s+certo|maravilha|boa|top|obrigad[oa]|muito\s+obrigad[oa]|valeu|vlw|agradecid[oa]|ate\s+mais|ate\s+logo|tchau|imagina|de\s+nada|por\s+nada|disponha|ta\s+ai|voce\s+ta\s+ai|vc\s+ta\s+ai|pode\s+me\s+ajudar|me\s+ajuda|era\s+so\s+isso|so\s+isso|por\s+enquanto\s+e\s+so|nada\s+nao|tudo\s+em\s+paz|bem\s+tambem|tudo\s+bem\s+por\s+aqui|comigo\s+tudo\s+bem|e\s+com\s+voce|e\s+com\s+vc|e\s+voce|e\s+vc|fagner|valentina|amigo|parceiro|colega|chefe|ai|mesmo|entao|agora|por\s+enquanto|hoje)\s*)+$/.test(
-      clean
-    )
-  ) {
+  // Padrões diretos de saudação, cortesia, confirmação e conversa social (linear O(N), separador obrigatório)
+  const casualPhrase =
+    "(?:oi+|ola+|opa+|ei+|e\\s+ai|eai|fala|salve|alo|hey|bom\\s+dia|boa\\s+tarde|boa\\s+noite|tudo\\s+bem|tudo\\s+bom|tudo\\s+certo|tudo\\s+joia|tudo\\s+tranquilo|tudo\\s+otimo|como\\s+vai|como\\s+voce\\s+esta|como\\s+vc\\s+esta|como\\s+vc\\s+ta|como\\s+esta|beleza|blz|ok|okay|show|fechou|entendi|entendido|combinado|perfeito|certo|certinho|ta\\s+bom|ta\\s+otimo|ta\\s+certo|maravilha|boa|top|obrigad[oa]|muito\\s+obrigad[oa]|valeu|vlw|agradecid[oa]|ate\\s+mais|ate\\s+logo|tchau|imagina|de\\s+nada|por\\s+nada|disponha|ta\\s+ai|voce\\s+ta\\s+ai|vc\\s+ta\\s+ai|pode\\s+me\\s+ajudar|me\\s+ajuda|era\\s+so\\s+isso|so\\s+isso|por\\s+enquanto\\s+e\\s+so|nada\\s+nao|tudo\\s+em\\s+paz|bem\\s+tambem|tudo\\s+bem\\s+por\\s+aqui|comigo\\s+tudo\\s+bem|e\\s+com\\s+voce|e\\s+com\\s+vc|e\\s+voce|e\\s+vc|fagner|valentina|amigo|parceiro|colega|chefe|ai|mesmo|entao|agora|por\\s+enquanto|hoje)";
+  if (new RegExp(`^${casualPhrase}(?:\\s+${casualPhrase})*$`).test(clean)) {
     return true;
   }
 

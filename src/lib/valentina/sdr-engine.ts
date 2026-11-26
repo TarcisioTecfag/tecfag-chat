@@ -1,4 +1,5 @@
 import { runtimeSingleton } from "../runtime-singleton";
+import { trackEventLoopOperation } from "../event-loop-watchdog";
 import type { IndustrialDeliveryContext } from "./industrial-delivery-context";
 import type { IndustrialBotItem } from "./industrial-outbound";
 
@@ -319,6 +320,7 @@ export class SdrEngine {
     batchItems: QueuedMessageItem[],
     signal?: AbortSignal
   ): Promise<boolean> {
+    const endSdrTrack = trackEventLoopOperation(`sdr:${tenantId}:${conversationId}`);
     try {
       if (!batchItems || batchItems.length === 0) return false;
 
@@ -1095,18 +1097,24 @@ INSTRUÇÕES OBRIGATÓRIAS:
           })
         : null;
 
-      const knowledgeContext = await getKnowledgeBaseContext(
-        tenantId,
-        knowledgeQueryText,
-        industrialMachineSuggestionGate
-          ? {
-              suppressIndustrialModelListing: industrialMachineSuggestionGate.suppressModelListing,
-              onlyExplicitMatchedModels: industrialMachineSuggestionGate.onlyExplicitMatchedModels,
-              allowIndustrialPhotoSending:
-                isExplicitClientPhotoReqEarly && !industrialMachineSuggestionGate.suppressModelListing,
-            }
-          : undefined,
-      );
+      const endKbTrack = trackEventLoopOperation(`sdr:kb:${tenantId}:${conversationId}`);
+      let knowledgeContext: string;
+      try {
+        knowledgeContext = await getKnowledgeBaseContext(
+          tenantId,
+          knowledgeQueryText,
+          industrialMachineSuggestionGate
+            ? {
+                suppressIndustrialModelListing: industrialMachineSuggestionGate.suppressModelListing,
+                onlyExplicitMatchedModels: industrialMachineSuggestionGate.onlyExplicitMatchedModels,
+                allowIndustrialPhotoSending:
+                  isExplicitClientPhotoReqEarly && !industrialMachineSuggestionGate.suppressModelListing,
+              }
+            : undefined,
+        );
+      } finally {
+        endKbTrack();
+      }
 
       const valemPromptText = `Você é ${aiPersona.name}, ${aiPersona.gender === "female" ? "a" : "o"} consultora(or) comercial pré-vendas (SDR) humana(o) ${companyPrep} ${aiPersona.company} (${aiPersona.segment}).
 ${knowledgeContext}
@@ -3561,6 +3569,8 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       }
       console.error("[SdrEngine] Erro no fluxo SDR:", e);
       return false;
+    } finally {
+      endSdrTrack();
     }
   }
 

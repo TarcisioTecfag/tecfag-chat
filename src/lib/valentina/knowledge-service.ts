@@ -453,6 +453,22 @@ function normalizeSearchText(str: string): string {
     .trim();
 }
 
+// Regex estritamente linear O(N) — separadores obrigatórios e disjuntos de [a-z0-9],
+// repetições limitadas para eliminar catastrophic backtracking (ReDoS) em URLs/tokens longos.
+const LINEAR_ALNUM_MODEL_RE =
+  /\b[a-z]{1,6}[-_\s]?\d{1,5}[a-z0-9]{0,6}(?:[-_][a-z0-9]{1,6}|\s[a-z0-9]{1,3}){0,3}\b/g;
+const LINEAR_ALNUM_MODEL_WITH_SLASH_RE =
+  /\b[a-z]{1,6}[-_\s/]?\d{1,5}[a-z0-9]{0,6}(?:[-_/][a-z0-9]{1,6}|\s[a-z0-9]{1,3}){0,3}\b/g;
+
+export function extractAlphanumericModelCandidates(
+  normalizedText: string,
+  options?: { allowSlash?: boolean },
+): string[] {
+  if (!normalizedText) return [];
+  const rx = options?.allowSlash ? LINEAR_ALNUM_MODEL_WITH_SLASH_RE : LINEAR_ALNUM_MODEL_RE;
+  return normalizedText.match(rx) || [];
+}
+
 const RAG_STOPWORDS = new Set([
   "o", "a", "os", "as", "um", "uma", "uns", "umas", "de", "da", "do", "das", "dos",
   "em", "na", "no", "nas", "nos", "para", "pra", "pro", "por", "com", "sem", "sob",
@@ -721,7 +737,7 @@ export function searchIndustrialCatalogEntries(
   const normOriginalQuery = normalizeSearchText(queryHint);
   const compactQuery = normQuery.replace(/[^a-z0-9]/g, "");
   const compactOriginalQuery = normOriginalQuery.replace(/[^a-z0-9]/g, "");
-  const hyphenatedQueryCodes = normQuery.match(/[a-z]{1,6}[-_\s]?\d{1,5}(?:[-_\s]?[a-z0-9]{1,5})*/g) || [];
+  const hyphenatedQueryCodes = extractAlphanumericModelCandidates(normQuery);
   const compactQueryCodes = Array.from(
     new Set(
       hyphenatedQueryCodes
@@ -1167,8 +1183,7 @@ export async function getKnowledgeBaseContext(
         const compactQuery = normQuery.replace(/[^a-z0-9]/g, "");
 
         // Detecta códigos alfanuméricos na pergunta (ex: "apf300-2b", "apf 300", "bsf-5640lg", "dz400")
-        const queryModelMatches =
-          normQuery.match(/\b[a-z]{1,6}[-_\s]?\d{1,5}(?:[-_\s]?[a-z0-9]{1,5})*\b/g) || [];
+        const queryModelMatches = extractAlphanumericModelCandidates(normQuery);
         const compactQueryModels = queryModelMatches
           .map((m) => m.replace(/[^a-z0-9]/g, ""))
           .filter((m) => m.length >= 3);
@@ -1488,7 +1503,7 @@ function ensureCodeModelMapsInitialized(): {
     }
     if (!modelCandidate && item.description) {
       const descMatch = item.description.match(
-        /\b(?:Envasadora|Seladora|Dosadora|Empacotadora|Datador|Fechadora|Encapsuladora|Rosqueadora|Rotuladora|Esteira|Moinho|Misturador|[Aa]limentador|T[uú]nel(?:\s+de\s+Encolhimento)?)\s+(?:[Dd]e\s+[Pp][oó]s\s+|[Pp]ort[aá]til\s+|[Cc]ont[ií]nua\s+|[Ss]emiautom[aá]tica\s+|[Aa]utom[aá]tica\s+|em\s+L\s+[Aa]utom[aá]tica\s+)?([A-Z]{2,6}[-_\s/]?\d{1,5}(?:[-_\s/.]?[A-Z0-9]{1,5})*)\b/
+        /\b(?:Envasadora|Seladora|Dosadora|Empacotadora|Datador|Fechadora|Encapsuladora|Rosqueadora|Rotuladora|Esteira|Moinho|Misturador|[Aa]limentador|T[uú]nel(?:\s+de\s+Encolhimento)?)\s+(?:[Dd]e\s+[Pp][oó]s\s+|[Pp]ort[aá]til\s+|[Cc]ont[ií]nua\s+|[Ss]emiautom[aá]tica\s+|[Aa]utom[aá]tica\s+|em\s+L\s+[Aa]utom[aá]tica\s+)?([A-Z]{2,6}[-_\s/]?\d{1,5}[A-Z0-9]{0,6}(?:[-_/.][A-Z0-9]{1,6}|\s[A-Z0-9]{1,3}){0,3})\b/
       );
       if (descMatch && descMatch[1]) {
         modelCandidate = descMatch[1].trim();
@@ -1678,7 +1693,7 @@ export function extractPhotoModelMetadata(fileName: string): {
     }
 
     const tailCode = displayName.match(
-      /\b([A-Z]{1,7}(?:[-_\s]?\d{1,5})(?:[-_\s]?[A-Z0-9]{1,5})*)$/
+      /\b([A-Z]{1,7}[-_\s]?\d{1,5}[A-Z0-9]{0,6}(?:[-_][A-Z0-9]{1,6}|\s[A-Z0-9]{1,3}){0,3})$/
     );
     if (
       tailCode &&
@@ -2581,10 +2596,8 @@ export async function resolveKnowledgeSourcesForMessage(
   const compactCombined = normCombined.replace(/[^a-z0-9]/g, "");
 
   const nonModelTokenRegex = /^(?:r\d+|\d+h|\d+min|\d+d|\d+m|\d+s|360o?|24h|48h|72h)$/i;
-  const replyModelMatches =
-    normReply.match(/\b[a-z]{1,6}[-_\s/]?\d{1,5}(?:[-_\s/]?[a-z0-9]{1,5})*\b/g) || [];
-  const userModelMatches =
-    normUser.match(/\b[a-z]{1,6}[-_\s/]?\d{1,5}(?:[-_\s/]?[a-z0-9]{1,5})*\b/g) || [];
+  const replyModelMatches = extractAlphanumericModelCandidates(normReply, { allowSlash: true });
+  const userModelMatches = extractAlphanumericModelCandidates(normUser, { allowSlash: true });
 
   const compactReplyModels = Array.from(
     new Set(

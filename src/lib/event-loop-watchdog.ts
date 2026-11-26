@@ -248,8 +248,17 @@ const timer = setInterval(() => {
     try {
       process.kill(parentPid, "SIGKILL");
     } catch {
-      process.exit(1);
+      try {
+        process.kill(parentPid, "SIGTERM");
+      } catch {
+        process.exit(1);
+      }
     }
+    setTimeout(() => {
+      try {
+        process.kill(parentPid, "SIGTERM");
+      } catch {}
+    }, 1500).unref();
   }
 }, pollIntervalMs);
 `;
@@ -344,8 +353,13 @@ export function startEventLoopWatchdog(options: EventLoopWatchdogOptions = {}): 
         workerInstance = worker;
         workerActive = true;
         logger.log(
-          `[EventLoopWatchdog] 🛡️ Monitor ativo (warn>=${warnLagMs}ms, stall>=${stallAlertMs}ms, autoKill=${autoKillMs > 0 ? `${autoKillMs}ms` : "desativado"}, grace=${gracePeriodMs}ms).`,
+          `[EventLoopWatchdog] 🛡️ Monitor ativo (pid=${process.pid}, warn>=${warnLagMs}ms, stall>=${stallAlertMs}ms, autoKill=${autoKillMs > 0 ? `${autoKillMs}ms` : "desativado"}, grace=${gracePeriodMs}ms).`,
         );
+        if (process.platform === "linux" && process.pid === 1) {
+          logger.warn(
+            "[EventLoopWatchdog] ⚠️ Processo rodando como PID 1 no Linux (kernel ignora SIGKILL em PID 1); inicie o servidor sem 'exec' para habilitar auto-recuperação por SIGKILL.",
+          );
+        }
       } catch (err) {
         workerActive = false;
         logger.warn(

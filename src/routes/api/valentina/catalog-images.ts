@@ -83,7 +83,7 @@ export function extractSkuOrModel(fileName: string): { displayName: string; sku:
       return { displayName, sku: seriesMatch[1].trim() };
     }
     const tailCode = displayName.match(
-      /\b([A-Z]{1,7}(?:[-_\s]?\d{1,5})(?:[-_\s]?[A-Z0-9]{1,5})*)$/
+      /\b([A-Z]{1,7}[-_\s]?\d{1,5}[A-Z0-9]{0,6}(?:[-_][A-Z0-9]{1,6}|\s[A-Z0-9]{1,3}){0,3})$/
     );
     if (tailCode && !/^(?:INOX\s*304|\d+\s*(?:ML|CM|M|L|KG|W|BICOS|CABECAS))$/i.test(tailCode[1].trim())) {
       return { displayName, sku: tailCode[1].trim() };
