@@ -94,6 +94,7 @@ import {
   isFilled,
   listCustomFields,
   missingStageFields,
+  stripUnchangedNonActiveCustomFields,
   validateFieldValues,
   type CustomFieldDefinition,
   type CustomFieldValues,
@@ -1992,8 +1993,21 @@ export class CrmService {
     let companyFieldDefs: CustomFieldDefinition[] = [];
     if (data.customFields !== undefined) {
       companyFieldDefs = await listCustomFields(tenantId, "company");
-      const patch = validateFieldValues(companyFieldDefs, data.customFields);
-      updates.customFields = { ...(current.customFields as Record<string, unknown>), ...patch };
+      const currentAccountCf =
+        current.customFields &&
+        typeof current.customFields === "object" &&
+        !Array.isArray(current.customFields)
+          ? (current.customFields as Record<string, unknown>)
+          : {};
+      const sanitizedCustomFields = stripUnchangedNonActiveCustomFields(
+        companyFieldDefs,
+        data.customFields,
+        currentAccountCf,
+      );
+      const patch = validateFieldValues(companyFieldDefs, sanitizedCustomFields);
+      if (Object.keys(patch).length > 0) {
+        updates.customFields = { ...currentAccountCf, ...patch };
+      }
     }
     if (data.notes !== undefined) updates.notes = data.notes?.trim() || null;
 
@@ -5646,15 +5660,23 @@ export class CrmService {
           : (current.customFields as CustomFieldValues) || {};
 
       if (updates.customFields !== undefined) {
-        const patch = validateFieldValues(dealFields, updates.customFields, { pipelineId: targetPipelineId });
-        setPayload.customFields = { ...currentCf, ...patch };
-        await assertDealCustomFieldsUnique(
-          tenantId,
+        const sanitizedCustomFields = stripUnchangedNonActiveCustomFields(
           dealFields,
-          setPayload.customFields as CustomFieldValues,
-          dealId,
-          tx,
+          updates.customFields,
+          currentCf,
+          { pipelineId: targetPipelineId },
         );
+        const patch = validateFieldValues(dealFields, sanitizedCustomFields, { pipelineId: targetPipelineId });
+        if (Object.keys(patch).length > 0) {
+          setPayload.customFields = { ...currentCf, ...patch };
+          await assertDealCustomFieldsUnique(
+            tenantId,
+            dealFields,
+            setPayload.customFields as CustomFieldValues,
+            dealId,
+            tx,
+          );
+        }
       }
 
       // Validação de operador se alterado
@@ -8595,8 +8617,22 @@ export class CrmService {
       const [current] = await db.select({ customFields: crmProducts.customFields }).from(crmProducts)
         .where(and(eq(crmProducts.id, productId), eq(crmProducts.tenantId, tenantId))).limit(1);
       if (!current) throw new CrmNotFoundError("Produto não encontrado.");
-      const patch = validateFieldValues(await listCustomFields(tenantId, "product"), data.customFields);
-      updates.customFields = { ...current.customFields, ...patch };
+      const productFieldDefs = await listCustomFields(tenantId, "product");
+      const currentProductCf =
+        current.customFields &&
+        typeof current.customFields === "object" &&
+        !Array.isArray(current.customFields)
+          ? (current.customFields as Record<string, unknown>)
+          : {};
+      const sanitizedCustomFields = stripUnchangedNonActiveCustomFields(
+        productFieldDefs,
+        data.customFields,
+        currentProductCf,
+      );
+      const patch = validateFieldValues(productFieldDefs, sanitizedCustomFields);
+      if (Object.keys(patch).length > 0) {
+        updates.customFields = { ...currentProductCf, ...patch };
+      }
     }
 
     const [updated] = await db

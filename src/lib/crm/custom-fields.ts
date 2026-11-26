@@ -362,6 +362,80 @@ export function isFieldRequiredForStage(
   return stageContext.orderIndex >= cutoffStage.orderIndex;
 }
 
+function deepEqualJsonValue(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true;
+  if (typeof a !== typeof b || a === null || b === null) return false;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    return a.every((item, idx) => deepEqualJsonValue(item, b[idx]));
+  }
+  if (typeof a === "object" && typeof b === "object") {
+    const keysA = Object.keys(a as Record<string, unknown>);
+    const keysB = Object.keys(b as Record<string, unknown>);
+    if (keysA.length !== keysB.length) return false;
+    return keysA.every(
+      (k) =>
+        Object.prototype.hasOwnProperty.call(b, k) &&
+        deepEqualJsonValue(
+          (a as Record<string, unknown>)[k],
+          (b as Record<string, unknown>)[k],
+        ),
+    );
+  }
+  return false;
+}
+
+/**
+ * Remove de um payload de atualização (`PATCH`) chaves que não pertencem às definições
+ * ativas aplicáveis (ex.: metadados internos gravados pelo sistema como `company`,
+ * `secondaryEmails`, `siteVisitorId`, `siteContinuity`, `legacyFagnerSite` ou campos
+ * personalizados inativados) **somente quando** já existiam no registro atual com o
+ * mesmo valor. Chaves novas ou alteradas continuam no objeto para serem rejeitadas por
+ * `validateFieldValues`. As chaves preservadas permanecem intactas no merge com o registro.
+ */
+export function stripUnchangedNonActiveCustomFields(
+  definitions: CustomFieldDefinition[],
+  incoming: unknown,
+  existingValues: unknown,
+  options: { pipelineId?: string | null } = {},
+): unknown {
+  if (!incoming || typeof incoming !== "object" || Array.isArray(incoming)) {
+    return incoming;
+  }
+  let existing: Record<string, unknown> = {};
+  if (typeof existingValues === "string") {
+    try {
+      const parsed = JSON.parse(existingValues);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        existing = parsed as Record<string, unknown>;
+      }
+    } catch {
+      existing = {};
+    }
+  } else if (existingValues && typeof existingValues === "object" && !Array.isArray(existingValues)) {
+    existing = existingValues as Record<string, unknown>;
+  }
+
+  const activeIds = new Set(
+    definitions
+      .filter((field) => fieldAppliesToPipeline(field, options.pipelineId))
+      .map((field) => field.id),
+  );
+
+  const sanitized: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(incoming as Record<string, unknown>)) {
+    if (
+      !activeIds.has(key) &&
+      Object.prototype.hasOwnProperty.call(existing, key) &&
+      deepEqualJsonValue(value, existing[key])
+    ) {
+      continue;
+    }
+    sanitized[key] = value;
+  }
+  return sanitized;
+}
+
 export function validateFieldValues(
   definitions: CustomFieldDefinition[],
   input: unknown,

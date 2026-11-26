@@ -36,7 +36,7 @@ import { toast } from "sonner";
 import { maskPhone } from "@/lib/utils";
 import { PhoneCountryInput } from "@/components/ui/phone-country-input";
 import { CatalogSelect } from "./CatalogSelect";
-import { CustomFieldsEditor } from "./CustomFieldsEditor";
+import { CustomFieldsEditor, changedCustomFieldValues } from "./CustomFieldsEditor";
 import { SystemTooltip } from "@/components/ui/tooltip";
 import {
   formatAccountDocumentInput,
@@ -127,6 +127,7 @@ export function DealLinkAccountDrawer({
   const [editCity, setEditCity] = useState("");
   const [editState, setEditState] = useState("");
   const [editCustomFields, setEditCustomFields] = useState<Record<string, unknown>>({});
+  const [originalEditCustomFields, setOriginalEditCustomFields] = useState<Record<string, unknown>>({});
   const [savingEdit, setSavingEdit] = useState(false);
 
   // Estado de criação de nova empresa
@@ -200,7 +201,9 @@ export function DealLinkAccountDrawer({
     setEditWebsite(acc.website || "");
     setEditCity(acc.address?.city || "");
     setEditState(acc.address?.state || "");
-    setEditCustomFields((acc.customFields as Record<string, unknown>) || {});
+    const initialCf = (acc.customFields as Record<string, unknown>) || {};
+    setEditCustomFields(initialCf);
+    setOriginalEditCustomFields(initialCf);
   };
 
   useEffect(() => {
@@ -347,6 +350,7 @@ export function DealLinkAccountDrawer({
 
     setSavingEdit(true);
     try {
+      const changedCf = changedCustomFieldValues(originalEditCustomFields, editCustomFields);
       const res = await fetch(`/api/crm/accounts/${encodeURIComponent(currentAccount.id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -364,7 +368,7 @@ export function DealLinkAccountDrawer({
             city: editCity.trim() || undefined,
             state: editState.trim().toUpperCase() || undefined,
           },
-          customFields: editCustomFields,
+          ...(Object.keys(changedCf).length > 0 ? { customFields: changedCf } : {}),
         }),
       });
 

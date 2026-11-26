@@ -10,6 +10,7 @@ import { recordAttendanceEvent } from "../../../lib/attendance-events";
 import {
   diffCustomFieldValues,
   listCustomFields,
+  stripUnchangedNonActiveCustomFields,
   validateFieldValues,
   type CustomFieldDefinition,
 } from "../../../lib/crm/custom-fields";
@@ -212,8 +213,15 @@ export const Route = createFileRoute("/api/contacts/$contactId")({
           let contactFieldDefs: CustomFieldDefinition[] = [];
           if (body.customFields !== undefined) {
             contactFieldDefs = await listCustomFields(session.tenantId, "contact");
-            const patch = validateFieldValues(contactFieldDefs, body.customFields);
-            updates.customFields = { ...prevCustomFieldsObj, ...patch };
+            const sanitizedCustomFields = stripUnchangedNonActiveCustomFields(
+              contactFieldDefs,
+              body.customFields,
+              prevCustomFieldsObj,
+            );
+            const patch = validateFieldValues(contactFieldDefs, sanitizedCustomFields);
+            if (Object.keys(patch).length > 0) {
+              updates.customFields = { ...prevCustomFieldsObj, ...patch };
+            }
           }
           if (Array.isArray(body.emails)) {
             const baseCf = (updates.customFields as Record<string, unknown>) || prevCustomFieldsObj;

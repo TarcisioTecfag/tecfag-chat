@@ -42,7 +42,7 @@ import {
 import { toast } from "sonner";
 import { maskPhone } from "@/lib/utils";
 import { PhoneCountryInput } from "@/components/ui/phone-country-input";
-import { CustomFieldsEditor } from "./CustomFieldsEditor";
+import { CustomFieldsEditor, changedCustomFieldValues } from "./CustomFieldsEditor";
 import { SystemTooltip } from "@/components/ui/tooltip";
 import {
   ContactPhonesEditor,
@@ -177,6 +177,7 @@ export function DealAddContactDrawer({
   const [editRole, setEditRole] = useState("buyer");
   const [editIsPrimary, setEditIsPrimary] = useState(false);
   const [editCustomFields, setEditCustomFields] = useState<Record<string, unknown>>({});
+  const [originalEditCustomFields, setOriginalEditCustomFields] = useState<Record<string, unknown>>({});
   const [savingEdit, setSavingEdit] = useState(false);
   const [unlinkingContactId, setUnlinkingContactId] = useState<string | null>(null);
 
@@ -207,7 +208,9 @@ export function DealAddContactDrawer({
     setEditCnpj(item.contact?.cnpj || "");
     setEditRole((item.role || "buyer").toLowerCase());
     setEditIsPrimary(Boolean(item.isPrimary));
-    setEditCustomFields((item.contact?.customFields as Record<string, unknown>) || {});
+    const initialCf = (item.contact?.customFields as Record<string, unknown>) || {};
+    setEditCustomFields(initialCf);
+    setOriginalEditCustomFields(initialCf);
 
     setLoadingEditDetails(true);
     try {
@@ -225,7 +228,9 @@ export function DealAddContactDrawer({
         setEditEmail(data.email || "");
         setEditCpf(data.cpf || "");
         setEditCnpj(data.cnpj || "");
-        setEditCustomFields((data.customFields as Record<string, unknown>) || {});
+        const fetchedCf = (data.customFields as Record<string, unknown>) || {};
+        setEditCustomFields(fetchedCf);
+        setOriginalEditCustomFields(fetchedCf);
       }
     } catch {
       // Usa dados locais já presentes no item
@@ -317,20 +322,26 @@ export function DealAddContactDrawer({
       const primaryPhoneValue =
         (validPhones.find((p) => p.isPrimary) || validPhones[0])?.phone || editPhone.trim() || null;
 
-      // 1. Atualiza dados cadastrais do contato
+      // 1. Atualiza dados cadastrais do contato (envia customFields apenas se houve alteração)
+      const changedCf = changedCustomFieldValues(originalEditCustomFields, editCustomFields);
+      const patchPayload: Record<string, unknown> = {
+        name: editName.trim(),
+        phone: primaryPhoneValue,
+        phones: validPhones,
+        whatsappUsername: editWhatsappUsername.trim() || null,
+        email: editEmail.trim() || null,
+        cpf: editCpf.trim() || null,
+        cnpj: editCnpj.trim() || null,
+        dealId,
+      };
+      if (Object.keys(changedCf).length > 0) {
+        patchPayload.customFields = changedCf;
+      }
+
       const patchRes = await fetch(`/api/contacts/${encodeURIComponent(editingContactId)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: editName.trim(),
-          phone: primaryPhoneValue,
-          phones: validPhones,
-          whatsappUsername: editWhatsappUsername.trim() || null,
-          email: editEmail.trim() || null,
-          cpf: editCpf.trim() || null,
-          cnpj: editCnpj.trim() || null,
-          customFields: editCustomFields,
-        }),
+        body: JSON.stringify(patchPayload),
       });
 
       if (!patchRes.ok) {
