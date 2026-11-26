@@ -51,12 +51,12 @@ export function SiteOriginTag({
     >
       <SystemTooltip content="Esta mensagem aconteceu durante a triagem no chat online do Site">
         <span
-          className={`inline-flex items-center gap-1 rounded-full border border-sky-500/35 bg-sky-500/12 text-sky-700 dark:text-sky-300 font-bold tracking-wide shadow-2xs ${
-            compact ? "px-1.5 py-0.5 text-[9px]" : "px-2 py-0.5 text-[10px]"
+          className={`inline-flex items-center gap-1 px-0.5 text-muted-foreground/85 font-semibold tracking-wide ${
+            compact ? "text-[9.5px]" : "text-[10.5px]"
           }`}
         >
           <SiteChannelIcon className={compact ? "h-2.5 w-2.5 shrink-0" : "h-3 w-3 shrink-0"} />
-          <span>Triagem no Site</span>
+          <span>Via Site</span>
         </span>
       </SystemTooltip>
     </div>
@@ -81,10 +81,10 @@ export function ChannelTransitionDivider({
         role="separator"
         aria-label="Triagem realizada no Site"
       >
-        <div className="h-px flex-1 bg-gradient-to-r from-transparent via-sky-500/35 to-sky-500/50" />
+        <div className="h-px flex-1 bg-gradient-to-r from-transparent via-border/70 to-border" />
         <SystemTooltip content="As mensagens abaixo foram trocadas no chat online do Site antes da continuidade no WhatsApp">
           <div
-            className={`inline-flex items-center gap-1.5 rounded-full border border-sky-500/40 bg-sky-500/12 text-sky-700 dark:text-sky-300 font-extrabold uppercase tracking-wider shadow-2xs shrink-0 ${
+            className={`inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/80 dark:bg-muted/60 text-muted-foreground font-bold uppercase tracking-wider shadow-2xs shrink-0 ${
               compact ? "px-2.5 py-0.5 text-[9px]" : "px-3.5 py-1 text-[10px]"
             }`}
           >
@@ -92,7 +92,7 @@ export function ChannelTransitionDivider({
             <span>Triagem feita no Site</span>
           </div>
         </SystemTooltip>
-        <div className="h-px flex-1 bg-gradient-to-l from-transparent via-sky-500/35 to-sky-500/50" />
+        <div className="h-px flex-1 bg-gradient-to-l from-transparent via-border/70 to-border" />
       </div>
     );
   }
@@ -104,18 +104,20 @@ export function ChannelTransitionDivider({
         role="separator"
         aria-label="Início do atendimento no WhatsApp"
       >
-        <div className="h-px flex-1 bg-gradient-to-r from-transparent via-emerald-500/40 to-emerald-500/60" />
+        <div className="h-px flex-1 bg-gradient-to-r from-transparent via-border/80 to-border" />
         <SystemTooltip content="A partir deste ponto as mensagens acontecem diretamente no WhatsApp">
           <div
-            className={`inline-flex items-center gap-1.5 rounded-full border border-emerald-500/45 bg-emerald-500/14 text-emerald-700 dark:text-emerald-300 font-extrabold uppercase tracking-wider shadow-2xs shrink-0 ${
+            className={`inline-flex items-center gap-1.5 rounded-full border border-border bg-card text-foreground/90 font-bold uppercase tracking-wider shadow-2xs shrink-0 ${
               compact ? "px-2.5 py-0.5 text-[9px]" : "px-3.5 py-1 text-[10px]"
             }`}
           >
-            <WhatsappChannelIcon className={compact ? "h-3 w-3 shrink-0" : "h-3.5 w-3.5 shrink-0"} />
+            <WhatsappChannelIcon
+              className={`${compact ? "h-3 w-3" : "h-3.5 w-3.5"} shrink-0 text-muted-foreground`}
+            />
             <span>Início do atendimento no WhatsApp</span>
           </div>
         </SystemTooltip>
-        <div className="h-px flex-1 bg-gradient-to-l from-transparent via-emerald-500/40 to-emerald-500/60" />
+        <div className="h-px flex-1 bg-gradient-to-l from-transparent via-border/80 to-border" />
       </div>
     );
   }
@@ -126,25 +128,27 @@ export function ChannelTransitionDivider({
       role="separator"
       aria-label="Fim da triagem no Site — continuação no WhatsApp"
     >
-      <div className="h-px flex-1 bg-gradient-to-r from-transparent via-sky-500/35 to-emerald-500/45" />
+      <div className="h-px flex-1 bg-gradient-to-r from-transparent via-border/75 to-border" />
       <SystemTooltip content="A triagem no Site foi encerrada acima. As próximas mensagens enviadas ou recebidas aqui já acontecem pelo WhatsApp.">
         <div
-          className={`inline-flex flex-wrap items-center justify-center gap-1.5 rounded-full border border-emerald-500/40 bg-emerald-500/10 text-foreground font-bold tracking-wide shadow-2xs ${
+          className={`inline-flex flex-wrap items-center justify-center gap-1.5 rounded-full border border-border bg-card text-foreground/90 font-semibold tracking-wide shadow-2xs ${
             compact ? "px-2.5 py-0.5 text-[9px]" : "px-3.5 py-1 text-[10px]"
           }`}
         >
-          <span className="inline-flex items-center gap-1 text-sky-700 dark:text-sky-300 uppercase font-extrabold">
+          <span className="inline-flex items-center gap-1 text-muted-foreground uppercase font-bold">
             <SiteChannelIcon className={compact ? "h-2.5 w-2.5 shrink-0" : "h-3 w-3 shrink-0"} />
             <span>Fim da triagem no Site</span>
           </span>
-          <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0" />
-          <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-300 uppercase font-extrabold">
-            <WhatsappChannelIcon className={compact ? "h-2.5 w-2.5 shrink-0" : "h-3 w-3 shrink-0"} />
+          <ArrowRight className="h-3 w-3 text-muted-foreground/70 shrink-0" />
+          <span className="inline-flex items-center gap-1 text-foreground/95 uppercase font-bold">
+            <WhatsappChannelIcon
+              className={`${compact ? "h-2.5 w-2.5" : "h-3 w-3"} shrink-0 text-muted-foreground`}
+            />
             <span>Atendimento no WhatsApp</span>
           </span>
         </div>
       </SystemTooltip>
-      <div className="h-px flex-1 bg-gradient-to-l from-transparent via-emerald-500/35 to-emerald-500/50" />
+      <div className="h-px flex-1 bg-gradient-to-l from-transparent via-border/75 to-border" />
     </div>
   );
 }

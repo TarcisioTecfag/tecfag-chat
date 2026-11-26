@@ -3557,7 +3557,7 @@ export function CrmChatWidget() {
                                             : "border-l-primary"
                                         } bg-card text-foreground text-[11px]`
                                       : boundary?.isSiteOriginInWhatsapp
-                                      ? "max-w-[85%] border border-border/80 border-l-2 border-l-sky-500/75 bg-sky-500/[0.04] dark:bg-sky-500/[0.07] text-foreground text-xs"
+                                      ? "max-w-[85%] border border-border/80 border-l-2 border-l-muted-foreground/55 bg-card text-foreground text-xs"
                                       : "max-w-[85%] border border-border/80 bg-card text-foreground text-xs"
                                   } px-3.5 py-2.5 shadow-xs leading-relaxed select-text`}
                                 >

@@ -1434,7 +1434,7 @@ function ChatMessageBubbleComponent({
                           : "border-l-primary"
                       } text-foreground text-[11px]`
                     : isSiteOriginInWhatsapp
-                    ? "bg-sky-500/[0.04] dark:bg-sky-500/[0.07] border-border border-l-2 border-l-sky-500/75 text-foreground text-sm"
+                    ? "bg-card border-border border-l-2 border-l-muted-foreground/55 text-foreground text-sm"
                     : "bg-card border-border text-foreground text-sm"
                 } border px-4 py-2.5 leading-relaxed shadow-soft text-left cursor-pointer transition-all duration-300 ${
                   isMatch ? "scale-[1.01] shadow-lg" : ""

@@ -239,6 +239,7 @@ describe("Melhorias UX Ponte Site → WhatsApp (Relatório, Divisória e Despedi
     );
     expect(indicatorSrc).toContain("SystemTooltip");
     expect(indicatorSrc).not.toMatch(/\btitle=/);
+    expect(indicatorSrc).not.toMatch(/\b(?:sky|emerald)-/);
 
     const annotationBubbleSrc = readFileSync(
       path.join(root, "src/components/chat/SystemAnnotationBubble.tsx"),
@@ -246,5 +247,6 @@ describe("Melhorias UX Ponte Site → WhatsApp (Relatório, Divisória e Despedi
     );
     expect(annotationBubbleSrc).toContain("SystemTooltip");
     expect(annotationBubbleSrc).not.toMatch(/\btitle=/);
+    expect(annotationBubbleSrc).not.toMatch(/\b(?:sky|emerald)-/);
   });
 });

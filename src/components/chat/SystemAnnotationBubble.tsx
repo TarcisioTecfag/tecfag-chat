@@ -72,7 +72,7 @@ export function SystemAnnotationBubble({
                     setExpanded(true);
                   }}
                   aria-label={`Expandir resumo da triagem do site`}
-                  className="group/sys inline-flex h-6 items-center justify-center gap-1.5 rounded-full bg-sky-500/12 hover:bg-sky-500/20 border border-sky-500/35 hover:border-sky-500/55 px-2.5 text-sky-700 dark:text-sky-300 transition-all duration-150 cursor-pointer shadow-2xs"
+                  className="group/sys inline-flex h-6 items-center justify-center gap-1.5 rounded-full bg-muted/75 hover:bg-muted border border-border hover:border-muted-foreground/45 px-2.5 text-muted-foreground hover:text-foreground transition-all duration-150 cursor-pointer shadow-2xs"
                 >
                   <SiteChannelIcon className="h-3 w-3 shrink-0 transition-transform duration-150 group-hover/sys:scale-110" />
                   <span className="text-[10px] font-extrabold uppercase tracking-wider leading-none">
@@ -139,7 +139,7 @@ export function SystemAnnotationBubble({
                     aria-label="Clique para ocultar"
                     className={`inline-flex items-center gap-2 rounded-full px-3.5 py-1 text-[10px] font-semibold uppercase border shadow-2xs transition cursor-pointer max-w-[92%] ${
                       isSiteHandoffItem
-                        ? "bg-sky-500/12 hover:bg-sky-500/20 text-sky-700 dark:text-sky-300 border-sky-500/35"
+                        ? "bg-muted hover:bg-muted/85 text-foreground/90 border-border"
                         : "bg-muted hover:bg-muted/85 text-muted-foreground border-border"
                     }`}
                   >
@@ -168,7 +168,7 @@ export function SystemAnnotationBubble({
                   }}
                   className={`w-full max-w-xl rounded-2xl border px-4 py-3 text-left shadow-2xs cursor-pointer transition select-text ${
                     isSiteHandoffItem
-                      ? "bg-muted/95 border-sky-500/35 hover:border-sky-500/55"
+                      ? "bg-card border-border hover:border-muted-foreground/45"
                       : "bg-muted border-border hover:border-border/90"
                   }`}
                 >
@@ -176,7 +176,7 @@ export function SystemAnnotationBubble({
                   <div className="flex items-center justify-between gap-3 pb-2 mb-2.5 border-b border-border/70">
                     <div className="flex items-center gap-1.5 min-w-0">
                       {isSiteHandoffItem ? (
-                        <span className="inline-flex h-5 w-5 items-center justify-center rounded-md bg-sky-500/15 text-sky-600 dark:text-sky-400 border border-sky-500/30 shrink-0">
+                        <span className="inline-flex h-5 w-5 items-center justify-center rounded-md bg-muted text-muted-foreground border border-border shrink-0">
                           <SiteChannelIcon className="h-3 w-3" />
                         </span>
                       ) : (
