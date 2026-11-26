@@ -1047,3 +1047,53 @@ export function evaluateIndustrialTurnRecovery(
     nextAttemptAtIso,
   };
 }
+
+/**
+ * Decide se uma conversa cujo recovery atingiu o teto de tentativas (`max_attempts_reached`)
+ * deve ser escalada automaticamente para `5A_CLIENTE` (`Análise e revisão humana`) sem
+ * duplicar escalação para a mesma mensagem ou quando já aguarda aprovação SDR.
+ */
+export function shouldEscalateExhaustedIndustrialTurnRecovery(
+  decision: IndustrialTurnRecoveryEvalDecision,
+  metadata?: Record<string, unknown> | null,
+): boolean {
+  if (decision.reason !== "max_attempts_reached" || !decision.lastClientMessageId) {
+    return false;
+  }
+  const meta = (metadata || {}) as Record<string, unknown>;
+  if (
+    meta.handoffStatus === "awaiting_approval" ||
+    Boolean(meta.pendingApproval) ||
+    Boolean(meta.handoffRequest) ||
+    Boolean(meta.handoffReceipt)
+  ) {
+    return false;
+  }
+  if (meta.turnRecoveryEscalatedMessageId === decision.lastClientMessageId) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Hard guard pré-IA para a janela de atendimento de 24h da Meta Cloud API.
+ * Bloqueia apenas canais WhatsApp Meta em tenants industriais (`triagePolicy === "industrial"`),
+ * preservando `valem`/Valentina, Site (`conv-lc-*`) e Baileys.
+ */
+export function evaluateIndustrialMetaWindowGuard(params: {
+  isIndustrial: boolean;
+  isSiteConversation: boolean;
+  activeProvider: "meta" | "baileys" | null;
+  metaWindowOpen: boolean;
+  metaWindowExpiresAt?: string | null;
+}): { blocked: boolean; reason: "meta_24h_window_closed" | null } {
+  if (
+    params.isIndustrial &&
+    !params.isSiteConversation &&
+    params.activeProvider === "meta" &&
+    !params.metaWindowOpen
+  ) {
+    return { blocked: true, reason: "meta_24h_window_closed" };
+  }
+  return { blocked: false, reason: null };
+}

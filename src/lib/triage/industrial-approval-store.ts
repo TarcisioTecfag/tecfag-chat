@@ -577,9 +577,10 @@ export async function prepareIndustrialApproval(
     });
 
     const now = new Date();
-    const currentMeta = (flow.metadata as Record<string, unknown>) || {};
+    const { handoffRequest: _dropHandoffRequest, ...cleanMeta } =
+      (flow.metadata as Record<string, unknown>) || {};
     const nextMeta: Record<string, unknown> = {
-      ...currentMeta,
+      ...cleanMeta,
       triagePolicyVersion: INDUSTRIAL_POLICY_VERSION,
       subflow: input.route.subflow,
       funnelStage: input.route.funnelStage,
@@ -589,7 +590,6 @@ export async function prepareIndustrialApproval(
       missingFields: [],
       readyForHandoff: true,
       handoffStatus: "awaiting_approval",
-      handoffRequest: null,
       pendingApproval: suggestion,
       ...(input.machineDecision ? { machineDecision: input.machineDecision } : {}),
       ...(suggestion.dealId ? { localCrmDealId: suggestion.dealId } : {}),

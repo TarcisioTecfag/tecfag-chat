@@ -141,28 +141,68 @@ export function buildIndustrialPostCloseReopenPatch(input: {
     reopenReason: "client_new_demand_after_close",
   });
 
+  const nextMetadata: Record<string, unknown> = {
+    ...prevMeta,
+    previousTriages: prevTriages.slice(-10),
+    funnelStage: "triagem",
+    targetFunnel: null,
+    subflow: null,
+    needsReview: false,
+    routeReason: null,
+    missingFields: [],
+    handoffStatus: "collecting",
+    readyForHandoff: false,
+    machineDecision: null,
+    followUpStage: 0,
+    greetingDone: true,
+    assumePriorGreeting: true,
+    reopenedFromCompletedAt: now.toISOString(),
+  };
+
+  // Nunca gravar null literal em JSONB para handoffRequest/pendingApproval (em PostgreSQL 'null'::jsonb IS NULL é FALSE).
+  delete nextMetadata.handoffRequest;
+  delete nextMetadata.handoffReceipt;
+  delete nextMetadata.handoffOutbox;
+  delete nextMetadata.pendingApproval;
+  delete nextMetadata.turnRecoveryMessageId;
+  delete nextMetadata.turnRecoveryAttempts;
+  delete nextMetadata.turnRecoveryNextAttemptAt;
+  delete nextMetadata.turnRecoveryEscalatedMessageId;
+  delete nextMetadata.turnRecoveryEscalatedAt;
+  delete nextMetadata.turnRecoveryEscalationReason;
+  delete nextMetadata.metaWindowBlockedAt;
+  delete nextMetadata.metaWindowBlockedMessageId;
+
   return {
     collectedData: preservedData,
-    metadata: {
-      ...prevMeta,
-      previousTriages: prevTriages.slice(-10),
-      funnelStage: "triagem",
-      targetFunnel: null,
-      subflow: null,
-      needsReview: false,
-      routeReason: null,
-      missingFields: [],
-      handoffStatus: "collecting",
-      readyForHandoff: false,
-      machineDecision: null,
-      pendingApproval: null,
-      handoffRequest: null,
-      followUpStage: 0,
-      greetingDone: true,
-      assumePriorGreeting: true,
-      reopenedFromCompletedAt: now.toISOString(),
-    },
+    metadata: nextMetadata,
   };
+}
+
+/**
+ * Calcula `startedAt` seguro ao reabrir um fluxo industrial encerrado:
+ * considera o `sentAt` real persistido no banco (que a Meta trunca para segundos inteiros)
+ * sem invadir o ciclo encerrado anterior quando possível.
+ */
+export function computeIndustrialReopenStartedAt(params: {
+  batchEarliestMs: number;
+  dbEarliestSentAtMs?: number | null;
+  previousCompletedAt?: Date | string | null;
+}): Date {
+  const earliestMs =
+    typeof params.dbEarliestSentAtMs === "number" && Number.isFinite(params.dbEarliestSentAtMs)
+      ? Math.min(params.batchEarliestMs, params.dbEarliestSentAtMs)
+      : params.batchEarliestMs;
+  const prevCompletedMs = toMillis(params.previousCompletedAt);
+
+  if (prevCompletedMs !== null) {
+    if (earliestMs <= prevCompletedMs) {
+      return new Date(earliestMs);
+    }
+    return new Date(Math.max(prevCompletedMs + 1, earliestMs - 5000));
+  }
+
+  return new Date(earliestMs - 5000);
 }
 
 const DEFAULT_EXTERNAL_AGENT_WINDOW_MS = 24 * 60 * 60 * 1000;

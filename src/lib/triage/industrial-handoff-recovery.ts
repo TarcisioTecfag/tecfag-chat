@@ -43,9 +43,9 @@ export async function recoverIndustrialHandoffs(params: {
           eq(agentFlowStates.tenantId, tenant.id),
           eq(agentFlowStates.agentType, "sdr"),
           eq(agentFlowStates.outcome, "in_progress"),
-          sql`${agentFlowStates.metadata}->'handoffRequest' IS NOT NULL`,
-          sql`${agentFlowStates.metadata}->'handoffReceipt' IS NULL`,
-          sql`${agentFlowStates.metadata}->'approvedBy' IS NOT NULL`,
+          sql`jsonb_typeof(${agentFlowStates.metadata}->'handoffRequest') = 'object'`,
+          sql`(${agentFlowStates.metadata}->'handoffReceipt' IS NULL OR ${agentFlowStates.metadata}->'handoffReceipt' = 'null'::jsonb)`,
+          sql`(${agentFlowStates.metadata}->'approvedBy' IS NOT NULL AND ${agentFlowStates.metadata}->'approvedBy' <> 'null'::jsonb)`,
           notExists(
             params.database
               .select({ id: newer.id })
@@ -141,8 +141,8 @@ export async function recoverIndustrialPostCommitOutbox(params: {
         and(
           eq(agentFlowStates.tenantId, tenant.id),
           eq(agentFlowStates.agentType, "sdr"),
-          sql`${agentFlowStates.metadata}->'handoffReceipt' IS NOT NULL`,
-          sql`${agentFlowStates.metadata}->'handoffOutbox' IS NOT NULL`,
+          sql`jsonb_typeof(${agentFlowStates.metadata}->'handoffReceipt') = 'object'`,
+          sql`jsonb_typeof(${agentFlowStates.metadata}->'handoffOutbox') = 'object'`,
           sql`(case when ${agentFlowStates.metadata}->'handoffOutbox'->>'attempts' ~ '^[0-9]{1,6}$' then (${agentFlowStates.metadata}->'handoffOutbox'->>'attempts')::int else 0 end) < 6`,
           sql`coalesce(${agentFlowStates.metadata}->'handoffOutbox'->>'nextAttemptAt', '') <= ${nowIso}`,
           sql`(

@@ -136,7 +136,7 @@ export async function readLatestSdrFlows(
           eq(latestInformative.outcome, "completed"),
           sql`${latestInformative.metadata}->>'informativeAutoClosed' = 'true'`,
           sql`COALESCE((${latestInformative.metadata}->>'sdrHidden')::boolean, false) = false`,
-          sql`${latestInformative.metadata}->'dismissedBy' IS NULL`,
+          sql`(${latestInformative.metadata}->'dismissedBy' IS NULL OR ${latestInformative.metadata}->'dismissedBy' = 'null'::jsonb)`,
         ),
       )
       .orderBy(desc(latestInformative.lastInteractionAt), desc(latestInformative.id))

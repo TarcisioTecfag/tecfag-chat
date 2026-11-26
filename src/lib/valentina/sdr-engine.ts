@@ -106,6 +106,7 @@ import {
   isIndustrialOwnerStillValidForSend,
   isOwnSdrOutboundSender,
   buildIndustrialPostCloseReopenPatch,
+  computeIndustrialReopenStartedAt,
 } from "../triage/industrial-ownership-guard";
 import {
   evaluateIndustrialOpeningPlan,
@@ -121,7 +122,10 @@ import {
   isBotClosingOrInformativeMessage,
   isClientReschedulingTurn,
   hasPartialCollectedData,
+  evaluateIndustrialMetaWindowGuard,
 } from "../triage/industrial-silence-policy";
+import { escalateIndustrialFlowToHumanReview } from "../triage/industrial-recovery-escalation";
+import { getMetaServiceWindow } from "../whatsapp/meta-policy";
 import { runIndustrialDecisor, lookupIndustrialBlockedFamily } from "../triage/industrial-decisor-runtime";
 import { applyMachineDecision, parseIndustrialCapital, type MachineDecision } from "../triage/industrial-decisor";
 import {
@@ -130,6 +134,7 @@ import {
 } from "../triage/industrial-final-classifier";
 import { collectedValue } from "../triage/industrial-policy";
 import {
+  resolveConfiguredWhatsappProvider,
   resolveTenantActiveProvider,
   sendBotPresence,
   sendBotCatalogImage,
@@ -394,6 +399,7 @@ export class SdrEngine {
         where: (t, { eq: dEq, and: dAnd }) =>
           dAnd(dEq(t.tenantId, tenantId), dEq(t.conversationId, conversationId),
             ...(industrialTriage ? [dEq(t.agentType, "sdr")] : [])),
+        ...(industrialTriage ? { orderBy: (t, { desc: dDesc }) => [dDesc(t.startedAt), dDesc(t.id)] } : {}),
       });
 
       // 🛑 TRAVA DE OPERADOR / POSSE DA CONVERSA: Se a conversa possui um operador humano alocado,
@@ -628,6 +634,33 @@ export class SdrEngine {
           const ts = item.receivedAt ? new Date(item.receivedAt).getTime() : reopenNow.getTime();
           return Number.isFinite(ts) && ts < minMs ? ts : minMs;
         }, reopenNow.getTime());
+        const batchIds = batchItems
+          .map((item) => item.messageId)
+          .filter((id): id is string => Boolean(id));
+        let dbEarliestSentAtMs: number | null = null;
+        if (batchIds.length > 0) {
+          const batchMsgRows = await db
+            .select({ sentAt: messages.sentAt })
+            .from(messages)
+            .where(
+              and(
+                eq(messages.tenantId, tenantId),
+                eq(messages.conversationId, conversationId),
+                inArray(messages.id, batchIds),
+              ),
+            );
+          for (const r of batchMsgRows) {
+            const ts = r.sentAt instanceof Date ? r.sentAt.getTime() : Date.parse(String(r.sentAt));
+            if (Number.isFinite(ts) && (dbEarliestSentAtMs === null || ts < dbEarliestSentAtMs)) {
+              dbEarliestSentAtMs = ts;
+            }
+          }
+        }
+        const reopenStartedAt = computeIndustrialReopenStartedAt({
+          batchEarliestMs,
+          dbEarliestSentAtMs,
+          previousCompletedAt: flowState.completedAt,
+        });
         const reopenPatch = buildIndustrialPostCloseReopenPatch({
           collectedData: (flowState.collectedData as Record<string, { value?: string; status?: string }>) || {},
           metadata: (flowState.metadata as Record<string, unknown>) || {},
@@ -642,7 +675,7 @@ export class SdrEngine {
             outcome: "in_progress",
             completedAt: null,
             currentStep: "Em Qualificação",
-            startedAt: new Date(batchEarliestMs - 1000),
+            startedAt: reopenStartedAt,
             collectedData: reopenPatch.collectedData,
             metadata: reopenPatch.metadata,
             lastInteractionAt: reopenNow,
@@ -682,6 +715,38 @@ export class SdrEngine {
           .returning();
         if (reactivatedRows[0]) {
           flowState = reactivatedRows[0];
+        }
+      }
+
+      // 2b. HARD GUARD PRÉ-IA — JANELA DE 24H DA META (P0 #3, exclusivo industrial WhatsApp Meta)
+      if (industrialTriage && !isSiteConversationId(conversationId)) {
+        const configuredProvider = await resolveConfiguredWhatsappProvider(tenantId);
+        if (configuredProvider === "meta") {
+          const metaWindow = await getMetaServiceWindow(tenantId, conversationId);
+          const windowGuard = evaluateIndustrialMetaWindowGuard({
+            isIndustrial: true,
+            isSiteConversation: false,
+            activeProvider: configuredProvider,
+            metaWindowOpen: metaWindow.open,
+            metaWindowExpiresAt: metaWindow.expiresAt,
+          });
+          if (windowGuard.blocked) {
+            const latestTriggerMsgId =
+              [...batchItems].reverse().find((item) => Boolean(item.messageId))?.messageId || null;
+            console.warn(
+              `[SdrEngine][${tenantId}] 🛑 Hard Guard Janela Meta 24h encerrada para ${conversationId} (exp=${metaWindow.expiresAt || "n/a"}). Bloqueando Vertex AI/balões e escalando para Análise e revisão humana.`,
+            );
+            await escalateIndustrialFlowToHumanReview(db, {
+              tenantId,
+              conversationId,
+              triggerMessageId: latestTriggerMsgId,
+              reason: "meta_24h_window_closed",
+              detail: metaWindow.expiresAt
+                ? `Janela expirou em ${metaWindow.expiresAt}`
+                : "Sem mensagem inbound recente na Meta",
+            });
+            return false;
+          }
         }
       }
 
@@ -3132,7 +3197,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
               .where(and(eq(agentFlowStates.id, flowState.id), eq(agentFlowStates.tenantId, tenantId),
                 ...(industrialTriage ? [eq(agentFlowStates.outcome, "in_progress"), isNull(agentFlowStates.completedAt),
                   sql`date_trunc('milliseconds', ${agentFlowStates.lastInteractionAt}) = ${flowState.lastInteractionAt.toISOString()}::timestamp`,
-                  sql`${agentFlowStates.metadata}->'handoffRequest' IS NULL`] : [])))
+                  sql`(${agentFlowStates.metadata}->'handoffRequest' IS NULL OR ${agentFlowStates.metadata}->'handoffRequest' = 'null'::jsonb)`] : [])))
               .returning();
             if (industrialTriage && flowState && persisted[0]) {
               await appendIndustrialJournal(executor as Parameters<Parameters<typeof db.transaction>[0]>[0], flowState, persisted[0], "collection", batchItems.map(item => item.messageId || "").join(":"));
@@ -3140,7 +3205,12 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
             return persisted;
           };
           const persisted = await db.transaction(persistCollection);
-          if (industrialTriage && persisted.length === 0) return false;
+          if (industrialTriage && persisted.length === 0) {
+            console.warn(
+              `[SdrEngine][${tenantId}] ⚠️ persistCollection não atualizou agentFlowStates (${flowState.id}) na conversa ${conversationId} — abortando envio para preservar consistência.`,
+            );
+            return false;
+          }
         }
 
         // Sincronizar o Contato no DB local (Nome, CNPJ, CPF, Receita Federal) e notificar a interface
@@ -3375,9 +3445,22 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       }
 
       const dynamicAudioFinal = dynamicAudio;
-      const deliveryTurnContext: IndustrialDeliveryContext | undefined = flowState ? {
-        flowId: flowState.id, cycle: flowState.startedAt.toISOString(), triggerIds: batchItems.map((item) => item.messageId).filter((id): id is string => Boolean(id)),
-      } : undefined;
+      const batchTriggerIds = batchItems
+        .map((item) => item.messageId)
+        .filter((id): id is string => Boolean(id));
+      const isTerminalIndustrialTurn =
+        industrialTriage &&
+        industrialHandoffPersisted &&
+        ["awaiting_approval", "transferred", "resolved"].includes(industrialHandoff.status);
+      const deliveryTurnContext: IndustrialDeliveryContext | undefined = flowState
+        ? {
+            flowId: flowState.id,
+            cycle: flowState.startedAt.toISOString(),
+            ...(!isTerminalIndustrialTurn && batchTriggerIds.length > 0
+              ? { triggerIds: batchTriggerIds }
+              : {}),
+          }
+        : undefined;
       const industrialImageItems: IndustrialBotItem[] = [];
       let industrialGreetingMessages: string[] = [];
 

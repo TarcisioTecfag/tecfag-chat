@@ -91,7 +91,9 @@ async function prepareBatch(input: BotBatch) {
       (input.context &&
         (context.flow.id !== input.context.flowId ||
           context.flow.startedAt.toISOString() !== input.context.cycle ||
-          (input.context.triggerIds && !input.context.triggerIds.includes(context.trigger.id)) ||
+          (input.context.triggerIds &&
+            input.context.triggerIds.length > 0 &&
+            !input.context.triggerIds.includes(context.trigger.id)) ||
           (input.context.triggerId && input.context.triggerId !== context.trigger.id)))
     )
       return [];

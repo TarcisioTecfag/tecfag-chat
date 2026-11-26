@@ -4,10 +4,16 @@ import { agentConfigs, agentFlowStates, conversations, messages, contacts, tenan
 import { eq, and, gte, desc, isNull, ne, sql, or, inArray } from "drizzle-orm";
 import { SdrEngine } from "./sdr-engine";
 import { SdrDebouncer, type QueuedMessageItem } from "./sdr-debouncer";
+import { resolveConfiguredWhatsappProvider } from "./sdr-channel-sender";
 import { isSiteConversationId } from "../livechat/site-channel-policy";
+import { findActiveWhatsappSessionForSiteContact } from "../livechat/site-cross-channel-guard";
+import { getMetaServiceWindow } from "../whatsapp/meta-policy";
+import { escalateIndustrialFlowToHumanReview } from "../triage/industrial-recovery-escalation";
 import {
+  evaluateIndustrialMetaWindowGuard,
   evaluateIndustrialTurnRecovery,
   selectRecentCycleMessages,
+  shouldEscalateExhaustedIndustrialTurnRecovery,
 } from "../triage/industrial-silence-policy";
 
 // Janela de recuperacao: so reativa conversas interrompidas nas ultimas 24 horas.
@@ -45,6 +51,8 @@ export async function recoverIndustrialInterruptedTurns(nowOverride?: Date): Pro
         );
       }
 
+      const activeProvider = await resolveConfiguredWhatsappProvider(tenantId);
+
       const candidateConvs = await db
         .select({
           id: conversations.id,
@@ -75,6 +83,7 @@ export async function recoverIndustrialInterruptedTurns(nowOverride?: Date): Pro
                 dEq(t.conversationId, conv.id),
                 dEq(t.agentType, "sdr"),
               ),
+            orderBy: (t, { desc: dDesc }) => [dDesc(t.startedAt), dDesc(t.id)],
           });
 
           const rawRecentMsgs = await db
@@ -100,14 +109,96 @@ export async function recoverIndustrialInterruptedTurns(nowOverride?: Date): Pro
             .limit(20);
 
           const latestClient = rawRecentMsgs.find((row) => row.senderType === "client");
+
+          if (isSiteConversationId(conv.id) && conv.contactId) {
+            const crossChannel = await findActiveWhatsappSessionForSiteContact(db, {
+              tenantId,
+              contactId: conv.contactId,
+              siteConversationId: conv.id,
+              siteLatestClientMessageAt: latestClient?.sentAt || conv.lastMessageTime || null,
+              now,
+            });
+            if (crossChannel.suppressed) {
+              const flowMeta = (flow?.metadata as Record<string, unknown>) || {};
+              if (flow && flow.outcome === "in_progress" && !flow.completedAt) {
+                await db
+                  .update(agentFlowStates)
+                  .set({
+                    currentStep: "Em Atendimento no WhatsApp",
+                    outcome: "transferred",
+                    completedAt: now,
+                    lastInteractionAt: now,
+                    metadata: {
+                      ...flowMeta,
+                      followUpStage: 0,
+                      handoffStatus: "continued_to_whatsapp",
+                      whatsappConversationId: crossChannel.whatsappConversationId,
+                      crossChannelSuppressedReason: crossChannel.reason,
+                      crossChannelSuppressedAt: now.toISOString(),
+                      crossChannelWhatsappNoticeSent: true,
+                    },
+                  })
+                  .where(and(eq(agentFlowStates.tenantId, tenantId), eq(agentFlowStates.id, flow.id)));
+              }
+              await db
+                .update(conversations)
+                .set({
+                  queueState: "finalizados",
+                  updatedAt: now,
+                  version: sql`${conversations.version} + 1`,
+                })
+                .where(
+                  and(
+                    eq(conversations.tenantId, tenantId),
+                    eq(conversations.id, conv.id),
+                    isNull(conversations.operatorId),
+                  ),
+                );
+              console.log(
+                `[SdrRecovery][${tenantId}] 🧹 Conversa órfã do site ${conv.id} finalizada silenciosamente (${crossChannel.reason} → ${crossChannel.whatsappConversationId}).`,
+              );
+              continue;
+            }
+          }
+
           if (latestClient && flow) {
-            const [pendingDelivery] = await db.select({ id: messages.id }).from(messages).where(and(
-              eq(messages.tenantId, tenantId), eq(messages.conversationId, conv.id), eq(messages.senderType, "bot"),
-              inArray(messages.status, ["pending", "sending", "unknown", "failed"]),
-              sql`${messages.metaDetails}->'industrialDelivery'->>'triggerId' = ${latestClient.id}`,
-              sql`${messages.metaDetails}->'industrialDelivery'->>'cycle' = ${flow.startedAt.toISOString()}`,
-            )).limit(1);
-            if (pendingDelivery) continue;
+            const pendingOrFailedDeliveries = await db
+              .select({
+                id: messages.id,
+                status: messages.status,
+                errorMessage: messages.errorMessage,
+              })
+              .from(messages)
+              .where(
+                and(
+                  eq(messages.tenantId, tenantId),
+                  eq(messages.conversationId, conv.id),
+                  eq(messages.senderType, "bot"),
+                  inArray(messages.status, ["pending", "sending", "unknown", "failed"]),
+                  sql`${messages.metaDetails}->'industrialDelivery'->>'triggerId' = ${latestClient.id}`,
+                  sql`${messages.metaDetails}->'industrialDelivery'->>'cycle' = ${flow.startedAt.toISOString()}`,
+                ),
+              )
+              .limit(10);
+
+            if (pendingOrFailedDeliveries.some((row) => row.status === "pending" || row.status === "sending")) {
+              continue;
+            }
+
+            const failedOrUnknown = pendingOrFailedDeliveries.find(
+              (row) => row.status === "failed" || row.status === "unknown",
+            );
+            if (failedOrUnknown && flow.outcome === "in_progress" && !flow.completedAt) {
+              await escalateIndustrialFlowToHumanReview(db, {
+                tenantId,
+                conversationId: conv.id,
+                triggerMessageId: latestClient.id,
+                reason: "delivery_failed_or_unknown",
+                detail: failedOrUnknown.errorMessage || failedOrUnknown.status,
+                now,
+              });
+              continue;
+            }
           }
           const cycleMsgs = selectRecentCycleMessages(rawRecentMsgs, flow?.startedAt || null, 20);
 
@@ -132,7 +223,47 @@ export async function recoverIndustrialInterruptedTurns(nowOverride?: Date): Pro
           });
 
           if (!decision.shouldRecover || !decision.lastClientMessageId) {
+            if (
+              flow &&
+              shouldEscalateExhaustedIndustrialTurnRecovery(
+                decision,
+                (flow.metadata as Record<string, unknown>) || null,
+              )
+            ) {
+              await escalateIndustrialFlowToHumanReview(db, {
+                tenantId,
+                conversationId: conv.id,
+                triggerMessageId: decision.lastClientMessageId,
+                reason: "max_attempts_reached",
+                detail: `Tentativas esgotadas (${decision.nextAttemptNumber})`,
+                now,
+              });
+            }
             continue;
+          }
+
+          if (!isSiteConversationId(conv.id) && activeProvider === "meta") {
+            const metaWindow = await getMetaServiceWindow(tenantId, conv.id, now);
+            const windowGuard = evaluateIndustrialMetaWindowGuard({
+              isIndustrial: true,
+              isSiteConversation: false,
+              activeProvider,
+              metaWindowOpen: metaWindow.open,
+              metaWindowExpiresAt: metaWindow.expiresAt,
+            });
+            if (windowGuard.blocked) {
+              await escalateIndustrialFlowToHumanReview(db, {
+                tenantId,
+                conversationId: conv.id,
+                triggerMessageId: decision.lastClientMessageId,
+                reason: "meta_24h_window_closed",
+                detail: metaWindow.expiresAt
+                  ? `Janela expirou em ${metaWindow.expiresAt}`
+                  : "Sem mensagem inbound recente na Meta",
+                now,
+              });
+              continue;
+            }
           }
 
           // Claim atômico da tentativa de recovery para evitar disparo concorrente
