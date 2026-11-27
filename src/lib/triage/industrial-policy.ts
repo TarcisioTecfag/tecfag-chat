@@ -1819,6 +1819,20 @@ export function isClientDecliningTriage(raw: string): boolean {
     return true;
   }
 
+  // Cliente informa que já comprou a máquina/equipamento procurado (inclusive em transcrição de áudio)
+  // sem pedir peça, manutenção, foto ou outro equipamento na mesma mensagem.
+  const hasAlreadyBoughtTargetMachine =
+    /\b(?:(?:eu\s+|nos\s+)?ja\s+(?:comprei|compramos|adquiri|adquirimos|comprou)\s+(?:a\s+|o\s+)?(?:maquina|equipamento)(?:\s+que\s+(?:eu\s+)?(?:estava|estavamos|estava)\s+(?:procurando|buscando|precisando|cotando))?)\b/.test(
+      text,
+    );
+  const hasFollowOnNeedWithMachine =
+    /\b(?:peca|pecas|borracha|vedacao|pistao|resistencia|teflon|correia|defeito|quebrou|nao\s+funciona|nao\s+liga|nao\s+recebi|ainda\s+nao\s+recebi|rastreio|manda\s+(?:a\s+)?foto|envia\s+(?:a\s+)?foto|aproveitando|mas\s+(?:quero|preciso|gostaria)|agora\s+(?:quero|preciso)|outra\s+maquina|mais\s+uma)\b/.test(
+      text,
+    );
+  if (hasAlreadyBoughtTargetMachine && !hasActiveBuyingAsk && !hasFollowOnNeedWithMachine) {
+    return true;
+  }
+
   if (text.length > 180) return false;
   if (hasNewDemand) return false;
 
@@ -1830,7 +1844,7 @@ export function isClientDecliningTriage(raw: string): boolean {
     /^(?:no\s+momento\s+nao|agora\s+nao(?:\s+mais)?|por\s+enquanto\s+nao|no\s+momento\s+nao\s+(?:preciso|quero|tenho|possuo\s+nenhuma\s+solicitacao(?:\s+em\s+andamento)?)|agora\s+nao\s+(?:preciso|quero))(?:\s*,?\s*(?:muito\s+)?(?:obrigad[oa]|agradeco|valeu|obg))?[!.]*$/.test(
       text,
     ) ||
-    /\b(?:ja resolvi|ja comprei em outro|ja fui atendid[oa]|ja estou sendo atendid[oa]|ja estamos sendo atendid[oa]s|nao precisa mais|por enquanto nao(?:,\s*(?:obrigad[oa]|agradeco))?)\b/.test(
+    /\b(?:ja\s+resolvi(?:do)?|ja\s+resolvemos(?:\s+ja)?|ja\s+foi\s+resolvido|ja\s+comprei\s+em\s+outro|ja\s+fui\s+atendid[oa]|ja\s+estou\s+sendo\s+atendid[oa]|ja\s+estamos\s+sendo\s+atendid[oa]s|nao\s+precisa\s+mais|por\s+enquanto\s+nao(?:,\s*(?:obrigad[oa]|agradeco))?)\b/.test(
       text,
     ) ||
     /^(?:(?:muito\s+)?(?:obrigad[oa]|agradeco|valeu|oi|ola|bom dia|boa tarde|boa noite)[\s,!]*)?(?:mas\s+)?(?:eu\s+)?ja\s+(?:comprei|compramos|adquiri|adquirimos)\b/.test(
@@ -1979,26 +1993,46 @@ export function isAutomatedBotOrUraMessage(params: {
     return true;
   }
 
-  // Mensagens automáticas de ausência / horário comercial do WhatsApp Business
-  // (ex.: "A Betec Manutenção Técnica agradece seu contato!! Assim que possível responderei sua mensagem",
-  // "Mensagem Automática ⚠️ Agradecemos seu contato. Nosso retorno será realizado em horário comercial.")
+  // Mensagens automáticas de ausência / saudação / loja / mudança de número do WhatsApp Business
+  // (ex.: "<Empresa> agradece seu contato. Como podemos ajudar?",
+  // "Agradecemos sua mensagem. Não estamos disponíveis no momento...",
+  // "Seja bem-vindo(a) à X! Recebemos sua mensagem e, em breve, um de nossos atendentes...",
+  // "A X agora terá atendimento pelo WhatsApp da marca irmã... chame no número...")
   const hasExplicitAwayHeader =
-    /\b(?:mensagem automatica|resposta automatica|fora do horario de atendimento|horario de atendimento)\b/.test(
+    /\b(?:mensagem automatica|resposta automatica|fora do horario de atendimento|horario de atendimento|nao estamos disponive(?:l|is)|no momento nao (?:estamos disponive(?:l|is)|podemos responder))\b/.test(
       text,
     ) &&
-    /\b(?:agradec(?:e|emos)|horario comercial|retornaremos|retorno sera realizado|assim que possivel|em breve|compreensao)\b/.test(
+    /\b(?:agradec(?:e|emos)|horario comercial|retornaremos|retorno sera realizado|entraremos em contato|assim que possivel|em breve|compreensao|deixe seu pedido|como podemos)\b/.test(
       text,
     );
   const hasGreetingAutoReply =
-    /\b(?:agradec(?:e|emos)\s+(?:o\s+)?(?:seu\s+)?contato)\b/.test(text) &&
-    /\b(?:assim que possivel\s+(?:respond|retorn)|em breve\s+(?:respond|retorn)|nosso retorno sera realizado|em horario comercial|responderemos\s+(?:assim que possivel|em breve)|responderei\s+(?:sua mensagem|assim que possivel|em breve))\b/.test(
+    /\b(?:agradec(?:e|emos)\s+(?:o\s+|a\s+)?(?:seu\s+contato|sua\s+mensagem))\b/.test(text) &&
+    /\b(?:como podemos\s+(?:lhe\s+|te\s+)?ajudar|assim que possivel\s+(?:respond|retorn)|em breve\s+(?:respond|retorn)|entraremos em contato\s+(?:assim que possivel|em breve)|nosso retorno sera realizado|em horario comercial|responderemos\s+(?:assim que possivel|em breve)|responderei\s+(?:sua mensagem|assim que possivel|em breve)|lista de espera|nao estamos disponive(?:l|is))\b/.test(
+      text,
+    );
+  const hasWelcomeAutoReply =
+    /\bseja(?:m)?\s+bem[\s-]*vind[oa]s?(?:\s*\([ao]\))?\b/.test(text) &&
+    /\b(?:recebemos sua mensagem|um de nossos atendentes|como podemos\s+(?:lhe\s+|te\s+)?ajudar|faca seu pedido|cardapio|carrinho virtual|instadelivery|goomer|ifood|trabalhamos com|melhor atender voce|e um prazer ter voce por aqui|e um prazer atende)\b/.test(
+      text,
+    );
+  const hasNumberChangeAutoReply =
+    /\b(?:agora tera atendimento pelo whatsapp|novo numero de atendimento|este numero nao recebe mais mensagens)\b/.test(
+      text,
+    ) &&
+    /\b(?:chame no numero|entre em contato pelo numero|para receber atendimento|atendimento pelo whatsapp)\b/.test(
       text,
     );
   const hasActiveBuyingOrSupportAsk =
     /\b(?:quero comprar|preciso de uma?|gostaria de|orcamento|cotacao|quanto custa|minha maquina|defeito|quebrou|nao liga|nao funciona|segunda via|2a via|boleto|nota fiscal|rastreio)\b/.test(
       text,
     );
-  if ((hasExplicitAwayHeader || hasGreetingAutoReply) && !hasActiveBuyingOrSupportAsk) {
+  if (
+    (hasExplicitAwayHeader ||
+      hasGreetingAutoReply ||
+      hasWelcomeAutoReply ||
+      hasNumberChangeAutoReply) &&
+    !hasActiveBuyingOrSupportAsk
+  ) {
     return true;
   }
 

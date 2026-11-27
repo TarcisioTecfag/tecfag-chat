@@ -192,6 +192,26 @@ describe("bot industrial: intencao antes de qualquer despacho", () => {
     await delivery.recoverIndustrialBotOutbounds();
     assert.equal((await list()).length, 2); assert.equal(providerCalls.length, 2);
   });
+  it("recovery concorrente durante beforeSend nao rouba fragmento ativo nem gera erro sending", async () => {
+    let callsDuringBeforeSend = 0;
+    const result = await delivery.sendIndustrialBotBatch(
+      batch({
+        items: [{ text: "Balao 1" }, { text: "Balao 2" }, { text: "Balao 3" }],
+        beforeSend: async () => {
+          callsDuringBeforeSend++;
+          // Simula o cron de 30s disparando exatamente durante o delay de digitacao
+          await delivery.recoverIndustrialBotOutbounds();
+        },
+      }),
+    );
+    assert.equal(result.sent, true);
+    assert.equal(callsDuringBeforeSend, 3);
+    assert.deepEqual(
+      providerCalls.map(({ payload }) => payload.text),
+      ["Balao 1", "Balao 2", "Balao 3"],
+    );
+    assert.ok((await list()).every((row) => row.status === "accepted"));
+  });
   it("imagem WhatsApp persiste bytes e envelope antes da chamada externa", async () => {
     assert.equal((await delivery.sendIndustrialBotBatch(batch({ items: [{ text: "Catalogo", image: { buffer: Buffer.from("image-test"), mimeType: "image/png", fileName: "foto.png" } }] }))).sent, true);
     assert.equal(providerCalls[0].payload.mediaType, "image"); assert.match(providerCalls[0].payload.mediaUrl, /messageId=bot-durable-/);

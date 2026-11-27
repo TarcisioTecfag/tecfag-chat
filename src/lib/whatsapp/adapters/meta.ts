@@ -101,7 +101,12 @@ export class MetaAdapter implements WhatsAppAdapter {
     });
     const metadata = await metadataResponse.json().catch(() => ({}));
     if (!metadataResponse.ok || typeof metadata.url !== "string" || !metadata.url.startsWith("https://")) {
-      throw new Error(metadata?.error?.message || "Meta não retornou URL segura para mídia recebida");
+      const metaErrMsg = metadata?.error?.message || "Meta não retornou URL segura para mídia recebida";
+      throw new Error(
+        metadataResponse.ok
+          ? metaErrMsg
+          : `Meta retornou HTTP ${metadataResponse.status} ao consultar mídia: ${metaErrMsg}`,
+      );
     }
 
     const mediaResponse = await fetch(metadata.url, {

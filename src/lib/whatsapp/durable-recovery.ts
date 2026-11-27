@@ -8,6 +8,11 @@ import { inboundProcessor } from "./inbound";
 import { metaAdapter } from "./adapters/meta";
 import { applyMetaStatus } from "./meta-status";
 import { describeNonMediaMetaMessage, isMetaMediaType } from "./meta-message-text";
+import {
+  buildMetaMediaDownloadFailureNotice,
+  classifyMetaMediaDownloadError,
+  MAX_META_MEDIA_RECOVERY_ATTEMPTS,
+} from "./meta-media-error";
 import type { WhatsAppProviderType } from "./types";
 
 export interface RecoveryStats {
@@ -181,17 +186,67 @@ export class WhatsAppRecoveryService {
               timestamp: raw.timestamp ? new Date(Number(raw.timestamp) * 1000) : event.createdAt,
             });
             if (result.success) stats.recoveredInbounds++;
-          } catch {
-            await db
-              .update(pendingInbounds)
-              .set({
-                nextRetryAt: new Date(
-                  Date.now() + Math.min(60_000 * 2 ** Math.min(event.attempts, 5), 30 * 60_000),
-                ),
-                attempts: sql`${pendingInbounds.attempts}+1`,
-                errorMessage: "Dependência indisponível; nova tentativa programada.",
-              })
-              .where(identity);
+          } catch (err: any) {
+            const raw: any = event.payload || {};
+            const isMetaMediaEvent = event.provider === "meta" && isMetaMediaType(raw.type);
+            const classified = classifyMetaMediaDownloadError(err);
+            const nextAttemptNumber = (event.attempts ?? 0) + 1;
+
+            if (
+              isMetaMediaEvent &&
+              (classified.permanent || nextAttemptNumber >= MAX_META_MEDIA_RECOVERY_ATTEMPTS)
+            ) {
+              const source = raw[raw.type] || {};
+              const noticeText = buildMetaMediaDownloadFailureNotice({
+                mediaType: raw.type,
+                category: classified.category,
+                caption: source?.caption,
+                fileName: source?.filename,
+              });
+              try {
+                await inboundProcessor.process({
+                  tenantId,
+                  provider: "meta",
+                  externalEventId: event.externalEventId || event.id,
+                  fromPhone: raw.fromPhone || raw.from || "",
+                  fromUserId: raw.fromUserId || raw.from_user_id,
+                  senderName: raw.senderName,
+                  whatsappUsername: raw.whatsappUsername,
+                  text: noticeText,
+                  quotedExternalId: raw.context?.id,
+                  rawPayload: raw,
+                  timestamp: raw.timestamp ? new Date(Number(raw.timestamp) * 1000) : event.createdAt,
+                });
+              } catch (noticeErr: any) {
+                console.warn(
+                  `[Recovery] Aviso ao entregar fallback textual de mídia Meta (${event.id}):`,
+                  noticeErr?.message || noticeErr,
+                );
+              }
+              await db
+                .update(pendingInbounds)
+                .set({
+                  status: "failed",
+                  nextRetryAt: null,
+                  attempts: sql`${pendingInbounds.attempts}+1`,
+                  errorMessage: classified.safeReason,
+                })
+                .where(identity);
+              stats.exhaustedInbounds++;
+            } else {
+              await db
+                .update(pendingInbounds)
+                .set({
+                  nextRetryAt: new Date(
+                    Date.now() + Math.min(60_000 * 2 ** Math.min(event.attempts, 5), 30 * 60_000),
+                  ),
+                  attempts: sql`${pendingInbounds.attempts}+1`,
+                  errorMessage: isMetaMediaEvent
+                    ? classified.safeReason
+                    : "Dependência indisponível; nova tentativa programada.",
+                })
+                .where(identity);
+            }
           }
         }
       }

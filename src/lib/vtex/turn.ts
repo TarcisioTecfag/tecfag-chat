@@ -501,17 +501,88 @@ export function blockedVtexAnswer(channel: VtexChannel, intent: "price" | "shipp
     ? "A consulta de especificações não está liberada neste canal. A equipe responsável pode conferir."
     : `Neste ${channel === "whatsapp" ? "WhatsApp" : "canal"}, a equipe responsável confirma ${intent === "price" ? "os valores" : "o frete e o prazo"}. Posso continuar com as informações técnicas e o encaminhamento.`;
 }
-/** Valores comerciais só podem vir de um balão composto pelo servidor com consulta atual. */
-export function guardVtexMessages(messages: string[], allowed: readonly string[] = []) {
-  const hardCommercial =
-    /R\$|\breais\b|\b(?:custa|custam)\b|\b(?:pre[cç]o|valor)\b.{0,40}\d|\b(?:desconto\s+de\s+\d|\d+\s*%\s*(?:de\s+)?desconto|\bdesconto\b.{0,20}\d+\s*%)|\bfrete\s+gr[aá]tis|\b(?:entrega|chega|prazo)\b.{0,30}(?:\d+\s*(?:dias?|horas?|h\b|bd\b)|amanh[aã]|hoje|semana)/i;
+function extractNormalizedCurrencyAmounts(text: string): string[] {
+  const found: string[] = [];
+  const moneyRe = /(?:R\$\s*(\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)|(\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)\s*reais\b)/gi;
+  let m: RegExpExecArray | null;
+  while ((m = moneyRe.exec(text)) !== null) {
+    const raw = (m[1] || m[2] || "").trim();
+    if (!raw) continue;
+    const normalized = raw.includes(",")
+      ? raw.replace(/\./g, "").replace(",", ".")
+      : raw;
+    const num = Number(normalized);
+    if (Number.isFinite(num) && num > 0) {
+      found.push(String(Math.round(num * 100)));
+    }
+  }
+  return found;
+}
+
+function extractNormalizedDiscountPcts(text: string): string[] {
+  const found: string[] = [];
+  const pctRe = /\b(?:desconto\s+de\s+(\d+(?:[.,]\d+)?)\s*%|(\d+(?:[.,]\d+)?)\s*%\s*(?:de\s+)?desconto|\bdesconto\b.{0,20}(\d+(?:[.,]\d+)?)\s*%)/gi;
+  let m: RegExpExecArray | null;
+  while ((m = pctRe.exec(text)) !== null) {
+    const raw = (m[1] || m[2] || m[3] || "").replace(",", ".");
+    const num = Number(raw);
+    if (Number.isFinite(num) && num > 0) found.push(String(num));
+  }
+  return found;
+}
+
+function stripNonPriceNumberTokens(text: string): string {
+  // Remove códigos alfanuméricos de modelo (ex.: HZK160, A3, PCS400A, MT50, XQD-19E) e datas
+  // de calendário (ex.: 30 de novembro, 30/11) para evitar falso positivo em "valor da HZK160"
+  // ou "preço da Black Friday até 30 de novembro".
+  return text
+    .replace(/\b[a-z]{1,6}[-]?\d{1,5}(?:[/-]?[a-z0-9]{1,5})*\b/gi, " ")
+    .replace(
+      /\b\d{1,2}\s+de\s+(?:janeiro|fevereiro|mar[cç]o|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b/gi,
+      " ",
+    )
+    .replace(/\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b/g, " ");
+}
+
+/** Valores comerciais só podem vir de um balão composto pelo servidor com consulta atual ou de oferta já enviada no histórico oficial da conversa. */
+export function guardVtexMessages(
+  messages: string[],
+  allowed: readonly string[] = [],
+  options?: { trustedCommercialHistory?: readonly string[] },
+) {
+  const shippingOrLeadTime =
+    /\bfrete\s+gr[aá]tis|\b(?:entrega|chega|prazo)\b.{0,30}(?:\d+\s*(?:dias?|horas?|h\b|bd\b)|amanh[aã]|hoje|semana)/i;
+  const currencyOrCostClaim =
+    /R\$|\breais\b|\b(?:custa|custam)\b|\b(?:desconto\s+de\s+\d|\d+\s*%\s*(?:de\s+)?desconto|\bdesconto\b.{0,20}\d+\s*%)/i;
+  const priceNumberAfterLabel = /\b(?:pre[cç]o|valor)\b.{0,40}(?:^|[^\w-])\d/i;
   const stockClaim =
     /\b(?:temos|tem|h[aá]|est[aá]|produto)\b.{0,25}\b(?:estoque|dispon[ií]vel|pronta entrega)\b/i;
   const nonStockAvailability =
     /\b(?:n[aã]o\s+(?:tenho|temos|est[aá]|h[aá]|possuo|possu[ií]mos)\b.{0,35}\b(?:dispon[ií]vel|estoque|pronta entrega)|(?:foto|fotos|v[ií]deo|v[ií]deos|imagem|imagens|cat[aá]logo|manual|material|atendente|especialista|consultor|equipe)\b.{0,25}\bdispon[ií]vel|(?:equipe|especialista|consultor|setor)\b.{0,35}\b(?:confirma|verifica|confere|informa|passa|valida)\b.{0,35}\b(?:estoque|dispon[ií]vel|disponibilidade|pronta entrega|desconto|condi[cç][oõ]es))/i;
 
+  const trustedText = (options?.trustedCommercialHistory || []).join("\n");
+  const trustedAmounts = new Set(extractNormalizedCurrencyAmounts(trustedText));
+  const trustedPcts = new Set(extractNormalizedDiscountPcts(trustedText));
+  const hasTrustedOffer = trustedAmounts.size > 0 || trustedPcts.size > 0;
+
+  const isGroundedInTrustedHistory = (message: string): boolean => {
+    if (!hasTrustedOffer) return false;
+    if (shippingOrLeadTime.test(message)) return false;
+    const msgAmounts = extractNormalizedCurrencyAmounts(message);
+    const msgPcts = extractNormalizedDiscountPcts(message);
+    if (msgAmounts.length === 0 && msgPcts.length === 0) return false;
+    return (
+      msgAmounts.every((amt) => trustedAmounts.has(amt)) &&
+      msgPcts.every((pct) => trustedPcts.has(pct))
+    );
+  };
+
   const isUnauthorizedCommercial = (message: string) => {
-    if (hardCommercial.test(message)) return true;
+    if (shippingOrLeadTime.test(message)) return true;
+    const cleanedForPriceLabel = stripNonPriceNumberTokens(message);
+    const hasCurrencyOrDiscount =
+      currencyOrCostClaim.test(message) || priceNumberAfterLabel.test(cleanedForPriceLabel);
+    if (hasCurrencyOrDiscount && !isGroundedInTrustedHistory(message)) return true;
     if (stockClaim.test(message) && !nonStockAvailability.test(message)) return true;
     return false;
   };

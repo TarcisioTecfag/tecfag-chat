@@ -46,6 +46,8 @@ type BotBatch = {
 };
 const hash = (parts: unknown[]) => createHash("sha256").update(JSON.stringify(parts)).digest("hex");
 const confirmed = (status: string) => ["sent", "accepted", "delivered", "read"].includes(status);
+/** Janela exclusiva para o despacho ativo concluir os delays humanizados (beforeSend) antes do cron de recovery. */
+export const ACTIVE_BATCH_RECOVERY_GRACE_MS = 45_000;
 function notify(
   tenantId: string,
   event: Parameters<ReturnType<typeof SessionManager.getInstance>["notifyPublic"]>[1],
@@ -184,7 +186,7 @@ async function prepareBatch(input: BotBatch) {
         status: "pending",
         idempotencyKey: id,
         retryCount: 0,
-        nextRetryAt: now,
+        nextRetryAt: new Date(now.getTime() + ACTIVE_BATCH_RECOVERY_GRACE_MS),
         quotedMessageId: item.quotedMessageId || null,
         quotedMessageSender: quote?.senderName || null,
         quotedMessageContent: quote?.content || null,
@@ -485,7 +487,11 @@ async function dispatchSiteBot(message: typeof messages.$inferSelect) {
   return storedResult(saved.canonical);
 }
 
-export async function dispatchIndustrialMessage(tenantId: string, id: string) {
+export async function dispatchIndustrialMessage(
+  tenantId: string,
+  id: string,
+  options?: { ignoreInitialGrace?: boolean },
+) {
   const [message] = await db
     .select()
     .from(messages)
@@ -493,10 +499,10 @@ export async function dispatchIndustrialMessage(tenantId: string, id: string) {
     .limit(1);
   if (!message || message.senderType !== "bot" || !message.metaDetails.industrialDelivery)
     return null;
-  if (
-    message.status !== "pending" ||
-    (message.nextRetryAt && message.nextRetryAt.getTime() > Date.now())
-  )
+  const deferBlocked =
+    Boolean(message.nextRetryAt && message.nextRetryAt.getTime() > Date.now()) &&
+    !(options?.ignoreInitialGrace === true && (message.retryCount ?? 0) === 0);
+  if (message.status !== "pending" || deferBlocked)
     return storedResult(message);
   return message.provider === "livechat" ? dispatchSiteBot(message) : dispatchStored(tenantId, id);
 }
@@ -509,46 +515,82 @@ export async function sendIndustrialBotBatch(input: BotBatch) {
     items: input.items.filter((item) => item.text.trim() || item.image),
   });
   if (!rows.length) return { sent: false, reason: "context_changed" };
-  for (const row of rows) {
-    notify(input.tenantId, {
-      type: "message",
-      message: {
-        ...row,
-        queue: String(
-          (row.metaDetails as any)?.industrialDelivery?.queueState ||
-            (input.expectedOperatorId ? "meus" : "automacao"),
-        ),
-        operatorId: input.expectedOperatorId || null,
-      },
-    });
-    if (confirmed(row.status)) continue;
-    if (row.status === "pending") await input.beforeSend?.(String(row.metaDetails.text || ""));
-    if (input.signal?.aborted) {
-      await db
-        .update(messages)
-        .set({
-          status: "failed",
-          errorMessage: "Resposta interrompida; contexto requer nova avaliação.",
-          nextRetryAt: null,
-          updatedAt: new Date(),
-        })
-        .where(
-          and(
-            eq(messages.tenantId, input.tenantId),
-            inArray(
-              messages.id,
-              rows.map((item) => item.id),
-            ),
-            eq(messages.status, "pending"),
+  let releaseInitialGraceOnExit = true;
+  try {
+    for (const row of rows) {
+      notify(input.tenantId, {
+        type: "message",
+        message: {
+          ...row,
+          queue: String(
+            (row.metaDetails as any)?.industrialDelivery?.queueState ||
+              (input.expectedOperatorId ? "meus" : "automacao"),
           ),
-        );
-      return { sent: false, reason: "interrupted", messageId: rows[0].id };
+          operatorId: input.expectedOperatorId || null,
+        },
+      });
+      if (confirmed(row.status)) continue;
+      if (row.status === "pending") await input.beforeSend?.(String(row.metaDetails.text || ""));
+      if (input.signal?.aborted) {
+        await db
+          .update(messages)
+          .set({
+            status: "failed",
+            errorMessage: "Resposta interrompida; contexto requer nova avaliação.",
+            nextRetryAt: null,
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(messages.tenantId, input.tenantId),
+              inArray(
+                messages.id,
+                rows.map((item) => item.id),
+              ),
+              eq(messages.status, "pending"),
+            ),
+          );
+        releaseInitialGraceOnExit = false;
+        return { sent: false, reason: "interrupted", messageId: rows[0].id };
+      }
+      const result = await dispatchIndustrialMessage(input.tenantId, row.id, {
+        ignoreInitialGrace: true,
+      });
+      if (!result || !confirmed(result.status)) {
+        // Se foi adiado (pending) ou outro worker detém o envio ativo (sending), preserva a janela de grace.
+        if (result?.status === "pending" || result?.status === "sending") {
+          releaseInitialGraceOnExit = false;
+        }
+        return { sent: false, reason: result?.status || "pending", messageId: rows[0].id };
+      }
     }
-    const result = await dispatchIndustrialMessage(input.tenantId, row.id);
-    if (!result || !confirmed(result.status))
-      return { sent: false, reason: result?.status || "pending", messageId: rows[0].id };
+    releaseInitialGraceOnExit = false;
+    return { sent: true, messageId: rows[0].id };
+  } finally {
+    if (releaseInitialGraceOnExit) {
+      // Se o despacho ativo falhou/ficou unknown ou lançou exceção (ex.: crash em beforeSend),
+      // libera imediatamente a janela de grace nos fragmentos ainda `pending` de 1ª tentativa
+      // para o worker de recovery cancelar a continuação (em caso de unknown/failed) ou retomar.
+      try {
+        await db
+          .update(messages)
+          .set({ nextRetryAt: new Date() })
+          .where(
+            and(
+              eq(messages.tenantId, input.tenantId),
+              inArray(
+                messages.id,
+                rows.map((item) => item.id),
+              ),
+              eq(messages.status, "pending"),
+              eq(messages.retryCount, 0),
+            ),
+          );
+      } catch {
+        // Melhor esforço: mesmo sem liberar agora, o grace de ACTIVE_BATCH_RECOVERY_GRACE_MS expira sozinho.
+      }
+    }
   }
-  return { sent: true, messageId: rows[0].id };
 }
 
 /** Site and WhatsApp share stable bot IDs; unknown results never enter automatic retry. */

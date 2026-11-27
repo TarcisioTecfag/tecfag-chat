@@ -3811,7 +3811,17 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       }
 
       // ── Salvar interpretação de mídia na mensagem do cliente (memória visual futura) ──
-      if (industrialTriage) aiResult.messagesToSend = guardVtexMessages(aiResult.messagesToSend, useVtexDirectReply ? storeTurn?.messages || [] : []);
+      if (industrialTriage) {
+        const trustedCommercialHistory = historyMsgs
+          .filter((m: any) => (m.senderType === "bot" || m.senderType === "agent") && !m.isInternalNote)
+          .slice(-12)
+          .map((m: any) => String(m.content || ""));
+        aiResult.messagesToSend = guardVtexMessages(
+          aiResult.messagesToSend,
+          useVtexDirectReply ? storeTurn?.messages || [] : [],
+          { trustedCommercialHistory },
+        );
+      }
       // Se o Gemini retornou uma mediaDescription, salvamos na mensagem do cliente que
       // continha a mídia para que em turnos futuros a Valentina saiba o que foi visto/ouvido
       // sem precisar reenviar o binário da imagem/áudio/PDF.

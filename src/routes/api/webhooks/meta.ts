@@ -12,6 +12,10 @@ import {
 } from "../../../lib/whatsapp/meta-status";
 import { resolveMetaSenderIdentity } from "../../../lib/whatsapp/meta-identity";
 import { describeNonMediaMetaMessage, isIgnorableMetaMessage, isMetaMediaType } from "../../../lib/whatsapp/meta-message-text";
+import {
+  buildMetaMediaDownloadFailureNotice,
+  classifyMetaMediaDownloadError,
+} from "../../../lib/whatsapp/meta-media-error";
 import { applyMetaReaction } from "../../../lib/whatsapp/meta-reactions";
 
 export const Route = createFileRoute("/api/webhooks/meta")({
@@ -546,34 +550,75 @@ export const Route = createFileRoute("/api/webhooks/meta")({
                       unprocessableErrors.push(`Mídia sem ID na mensagem ${messageId}`);
                       continue;
                     }
-                    let downloaded: Awaited<ReturnType<typeof metaAdapter.downloadInboundMedia>>;
+                    let downloaded: Awaited<ReturnType<typeof metaAdapter.downloadInboundMedia>> | null = null;
                     try {
                       downloaded = await metaAdapter.downloadInboundMedia(tenantId, changePid, mediaObj.id);
                     } catch (mediaErr: any) {
-                      // A mensagem bruta fica durável para o worker tentar o download novamente.
+                      const classified = classifyMetaMediaDownloadError(mediaErr);
                       const externalEventId = `meta:${tenantId}:${messageId}`;
-                      await db.insert(pendingInbounds).values({
-                        id: `inb_media_${crypto.createHash("sha256").update(externalEventId).digest("hex").slice(0, 24)}`,
-                        tenantId,
-                        provider: "meta",
-                        externalEventId,
-                        payload: recoverablePayload,
-                        status: "pending",
-                        attempts: 0,
-                        errorMessage: mediaErr?.message || "Falha no download da mídia Meta",
-                        createdAt: new Date(),
-                      }).onConflictDoNothing();
-                      unprocessableItemsCount++;
-                      unprocessableErrors.push(`Download de mídia falhou para ${messageId}`);
-                      continue;
+                      console.error(
+                        `[Meta Webhook] Falha no download de mídia (tenant=${tenantId}, type=${msg.type}, wamid=${messageId}, mediaId=${mediaObj.id}, category=${classified.category}, permanent=${classified.permanent}): ${classified.safeReason}`,
+                      );
+
+                      if (classified.permanent) {
+                        // Erro permanente (ex.: > 20 MB ou mídia expirada/404/410):
+                        // registra em pending_inbounds como 'failed' para auditoria, entrega aviso
+                        // visível ao operador no chat e responde 200 OK (evita loop de 500 por horas).
+                        await db.insert(pendingInbounds).values({
+                          id: `inb_media_${crypto.createHash("sha256").update(externalEventId).digest("hex").slice(0, 24)}`,
+                          tenantId,
+                          provider: "meta",
+                          externalEventId,
+                          payload: recoverablePayload,
+                          status: "failed",
+                          attempts: 1,
+                          errorMessage: classified.safeReason,
+                          createdAt: new Date(),
+                        }).onConflictDoNothing();
+                        textContent = buildMetaMediaDownloadFailureNotice({
+                          mediaType: msg.type,
+                          category: classified.category,
+                          caption: mediaObj?.caption,
+                          fileName: mediaObj?.filename,
+                        });
+                      } else {
+                        // Erro transitório (timeout/rede/429/5xx): persiste em pending_inbounds para o
+                        // DurableRecoveryService retentar com backoff. Só devolve 500 na 1ª tentativa;
+                        // retries posteriores da Meta sobre um evento já persistido retornam 200 OK.
+                        const inserted = await db.insert(pendingInbounds).values({
+                          id: `inb_media_${crypto.createHash("sha256").update(externalEventId).digest("hex").slice(0, 24)}`,
+                          tenantId,
+                          provider: "meta",
+                          externalEventId,
+                          payload: recoverablePayload,
+                          status: "pending",
+                          attempts: 0,
+                          errorMessage: classified.safeReason,
+                          createdAt: new Date(),
+                        }).onConflictDoNothing().returning({ id: pendingInbounds.id });
+                        if (inserted.length > 0) {
+                          unprocessableItemsCount++;
+                          unprocessableErrors.push(
+                            `Download de mídia falhou para ${messageId} (${classified.category}: ${classified.safeReason})`,
+                          );
+                        } else {
+                          console.warn(
+                            `[Meta Webhook] Retry da Meta para mídia já persistida em pending_inbounds (${externalEventId}); delegando ao DurableRecoveryService sem novo HTTP 500.`,
+                          );
+                          processedMessagesCount++;
+                        }
+                        continue;
+                      }
                     }
-                    mediaInfo = {
-                       mediaType: msg.type,
-                       mimeType: downloaded.mimeType,
-                      fileName: mediaObj?.filename || `${msg.type}_${messageId}`,
-                       fileSize: downloaded.buffer.length,
-                       dataBuffer: downloaded.buffer,
-                    };
+                    if (downloaded) {
+                      mediaInfo = {
+                        mediaType: msg.type,
+                        mimeType: downloaded.mimeType,
+                        fileName: mediaObj?.filename || `${msg.type}_${messageId}`,
+                        fileSize: downloaded.buffer.length,
+                        dataBuffer: downloaded.buffer,
+                      };
+                    }
                   }
 
                   // Processamento SÍNCRONO: persistido em pending_inbounds e na tabela messages antes do 200

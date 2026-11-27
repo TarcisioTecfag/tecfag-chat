@@ -55,7 +55,10 @@ export function projectIndustrialMonitoring(
       (isInformativeSubflow &&
         (flow.outcome === "completed" || meta.handoffStatus === "resolved")),
   );
-  const sdrHiddenByObj = object(meta.sdrHiddenBy);
+  const dismissedByObj = object(meta.dismissedBy);
+  const rawSdrHiddenByObj = object(meta.sdrHiddenBy);
+  const sdrHiddenByObj =
+    Object.keys(rawSdrHiddenByObj).length > 0 ? rawSdrHiddenByObj : dismissedByObj;
   const sdrHidden = Boolean(meta.sdrHidden === true || meta.dismissedBy);
   const informativeCloseLabel =
     subflowText === "5B_CURRICULO"
@@ -194,6 +197,7 @@ export function projectIndustrialMonitoring(
     sdrHidden,
     sdrHiddenAt: iso(sdrHiddenByObj.at),
     sdrHiddenByName: text(sdrHiddenByObj.operatorName),
+    dismissedReason: text(dismissedByObj.reason),
     pendingApproval:
       state === "awaiting_approval" && Object.keys(pendingApproval).length > 0
         ? {
