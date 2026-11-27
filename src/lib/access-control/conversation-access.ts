@@ -1,4 +1,4 @@
-import { and, eq, exists, inArray, isNull, isNotNull, or, sql } from "drizzle-orm";
+import { and, eq, exists, inArray, isNull, isNotNull, like, notLike, or, sql } from "drizzle-orm";
 import { db } from "../../db";
 import {
   agentConfigs,
@@ -7,7 +7,7 @@ import {
   whatsappConnections,
   whatsappConnectionGroupAccess,
 } from "../../db/schema";
-import { conversationReadRules } from "./conversation-policy";
+import { conversationReadRules, SITE_CONVERSATION_PREFIX } from "./conversation-policy";
 import type { ConversationPrincipal } from "./conversation-policy";
 
 /** Groups may read history; only the linked owner or master may send. Existing chat limits still apply. */
@@ -63,6 +63,39 @@ export async function hasWhatsappConnectionAccess(
 export function conversationReadCondition(session: ConversationPrincipal) {
   const rules = conversationReadRules(session);
   if (!rules.enabled || !rules.channels.length || !rules.queues.length) return sql`false`;
+  const sitePattern = `${SITE_CONVERSATION_PREFIX}%`;
+  const allowWhatsapp = rules.channels.includes("whatsapp");
+  const allowLivechat = rules.channels.includes("livechat");
+  const nonSiteChannels = rules.channels.filter((channel) => channel !== "livechat");
+  const effectiveNonSiteContactChannels = allowWhatsapp
+    ? [...nonSiteChannels, "livechat"]
+    : nonSiteChannels;
+
+  const nonSiteParts = [
+    ...(allowWhatsapp ? [isNotNull(conversations.whatsappConnectionId)] : []),
+    ...(effectiveNonSiteContactChannels.length > 0
+      ? [
+          and(
+            isNull(conversations.whatsappConnectionId),
+            inArray(
+              sql<string>`coalesce(${contacts.mainChannel}, 'whatsapp')`,
+              effectiveNonSiteContactChannels,
+            ),
+          ),
+        ]
+      : []),
+  ];
+  const nonSiteChannelMatch = nonSiteParts.length > 1 ? or(...nonSiteParts) : nonSiteParts[0];
+
+  const channelParts = [
+    ...(allowLivechat ? [like(conversations.id, sitePattern)] : []),
+    ...(nonSiteChannelMatch
+      ? [and(notLike(conversations.id, sitePattern), nonSiteChannelMatch)]
+      : []),
+  ];
+  const channelCondition = channelParts.length > 1 ? or(...channelParts) : channelParts[0];
+  if (!channelCondition) return sql`false`;
+
   return and(
     eq(conversations.tenantId, session.tenantId),
     inArray(conversations.queueState, rules.queues),
@@ -94,15 +127,7 @@ export function conversationReadCondition(session: ConversationPrincipal) {
           and(
             eq(contacts.tenantId, session.tenantId),
             eq(contacts.id, conversations.contactId),
-            or(
-              rules.channels.includes("whatsapp")
-                ? isNotNull(conversations.whatsappConnectionId)
-                : undefined,
-              and(
-                isNull(conversations.whatsappConnectionId),
-                inArray(sql<string>`coalesce(${contacts.mainChannel}, 'whatsapp')`, rules.channels),
-              ),
-            ),
+            channelCondition,
           ),
         ),
     ),

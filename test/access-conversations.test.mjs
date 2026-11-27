@@ -4,7 +4,7 @@ import fs from "node:fs";
 import ts from "typescript";
 import { apiRequest, loadAccessSource, routeStub } from "./helpers/access-harness.mjs";
 
-const { canReadConversation, conversationReadRules, OWN_CONVERSATIONS_PRESET } = loadAccessSource("src/lib/access-control/conversation-policy.ts");
+const { canReadConversation, conversationReadRules, OWN_CONVERSATIONS_PRESET, resolveEffectiveConversationChannel } = loadAccessSource("src/lib/access-control/conversation-policy.ts");
 const { normalizeGroupPermissions } = loadAccessSource("src/lib/rbac.ts");
 const { canManageWhatsappConnection, canMonitorAllSiteVisitors } = loadAccessSource("src/lib/access-control/channel-permissions.ts");
 const principal = (chat = {}, patch = {}) => ({ tenantId: "tenant-a", operator: { id: "agent-a", role: "agent" },
@@ -58,11 +58,17 @@ function databaseHarness(rows) {
   const expr = (op) => (...args) => ({ op, args });
   const dsl = { and: (...args) => ({ op: "and", args: args.filter(Boolean) }), or: (...args) => ({ op: "or", args: args.filter(Boolean) }),
     eq: expr("eq"), inArray: expr("in"), isNull: expr("null"), exists: expr("exists"),
-    isNotNull: expr("notNull"),
+    isNotNull: expr("notNull"), like: expr("like"), notLike: expr("notLike"),
     sql: (strings, ...args) => { const text = strings.join("?");
       if (text === "false") return { op: "false", args: [] };
       if (text.startsWith("coalesce(")) return { op: "coalesce", args };
       throw Error(`Unexpected SQL expression: ${text}`); } };
+  function matchLike(input, pattern) {
+    const str = String(input ?? "");
+    const pat = String(pattern ?? "");
+    const regex = new RegExp("^" + pat.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replaceAll("%", ".*") + "$");
+    return regex.test(str);
+  }
   function value(x, ctx) {
     if (x?.column) return ctx[x.table]?.[x.column];
     if (!x?.op) return x;
@@ -73,6 +79,8 @@ function databaseHarness(rows) {
       case "in": return b.includes(value(a, ctx));
       case "null": return value(a, ctx) === null;
       case "notNull": return value(a, ctx) != null;
+      case "like": return matchLike(value(a, ctx), value(b, ctx));
+      case "notLike": return !matchLike(value(a, ctx), value(b, ctx));
       case "and": return x.args.every((item) => value(item, ctx));
       case "or": return x.args.some((item) => value(item, ctx));
       case "coalesce": return value(a, ctx) ?? "whatsapp";
@@ -93,20 +101,60 @@ function databaseHarness(rows) {
   const source = loadAccessSource("src/lib/access-control/conversation-access.ts", { "../../db": { db }, "../../db/schema": { conversations, contacts, whatsappConnections }, "drizzle-orm": dsl });
   return { ...source, db, conversations, contacts, dsl, queries };
 }
-test("SQL predicate and record evaluator agree across tenant, owner, channel and every queue", async () => {
+test("SQL predicate and record evaluator agree across tenant, owner, channel (site vs whatsapp) and every queue", async () => {
   let next = 0;
   const rows = [];
   for (const tenantId of ["tenant-a", "tenant-b"]) for (const operatorId of ["agent-a", "other", null])
-    for (const queueState of ["meus", "fila", "automacao", "finalizados"]) for (const mainChannel of [null, "whatsapp", "livechat", "messenger"])
+    for (const queueState of ["meus", "fila", "automacao", "finalizados"]) for (const mainChannel of [null, "whatsapp", "livechat", "messenger", "instagram"]) {
       rows.push(record({ id: `c-${next++}`, tenantId, operatorId, queueState, mainChannel }));
+      rows.push(record({ id: `conv-lc-${next++}`, tenantId, operatorId, queueState, mainChannel }));
+    }
   const h = databaseHarness(rows);
   for (const chat of [{}, { canViewAllChats: true }, OWN_CONVERSATIONS_PRESET, { canViewQueueBot: false }, { canViewQueueWaiting: false, canViewAllChats: true }]) {
-    for (const allowedChannels of [["whatsapp"], ["livechat"], [], ["whatsapp", "livechat"]]) {
+    for (const allowedChannels of [["whatsapp"], ["livechat"], ["instagram"], ["whatsapp", "instagram", "messenger"], [], ["whatsapp", "livechat"]]) {
       const p = principal(chat, { accessGroup: { allowedChannels } });
       const actual = await h.db.select({ id: h.conversations.id }).from(h.conversations).where(h.conversationReadCondition(p));
       assert.deepEqual(actual.map((row) => row.id), rows.filter((row) => canReadConversation(p, row)).map((row) => row.id));
     }
   }
+});
+
+test("WhatsApp official conversations of site-originated contacts are visible to whatsapp-only groups, while conv-lc-* stays strictly isolated to livechat", async () => {
+  const rows = [
+    // Contato originado no Site (mainChannel='livechat') com conversa WhatsApp Oficial (ex.: Ovídio, Luciano, Gabriel, Fernando)
+    record({ id: "conv-56fbd6b8-wa", mainChannel: "livechat", whatsappConnectionId: null }),
+    // Conversa do Site (conv-lc-*) do mesmo contato
+    record({ id: "conv-lc-79b4ba26", mainChannel: "livechat", whatsappConnectionId: null }),
+    // Conversa do Site cujo contato já foi migrado para mainChannel='whatsapp' (ex.: Rafael boff)
+    record({ id: "conv-lc-migrated", mainChannel: "whatsapp", whatsappConnectionId: null }),
+    // Conversa Instagram oficial
+    record({ id: "conv-ig-1", mainChannel: "instagram", whatsappConnectionId: null }),
+  ];
+  const h = databaseHarness(rows);
+
+  const visibleIds = async (allowedChannels) =>
+    (await h.db.select({ id: h.conversations.id }).from(h.conversations).where(
+      h.conversationReadCondition(principal({}, { accessGroup: { allowedChannels } })),
+    )).map((r) => r.id);
+
+  // Grupos SDR / Vendedor / Pós-venda (sem livechat): veem a conversa WhatsApp do contato do site, mas NÃO veem conv-lc-*
+  assert.deepEqual(await visibleIds(["whatsapp"]), ["conv-56fbd6b8-wa"]);
+  assert.deepEqual(await visibleIds(["whatsapp", "instagram", "messenger"]), ["conv-56fbd6b8-wa", "conv-ig-1"]);
+
+  // Grupo somente Site (livechat): vê apenas conv-lc-* (mesmo se contato migrou para whatsapp), NÃO vê a conversa WhatsApp
+  assert.deepEqual(await visibleIds(["livechat"]), ["conv-lc-79b4ba26", "conv-lc-migrated"]);
+
+  // Grupo somente Instagram: vê apenas Instagram (jamais conversa WhatsApp de contato livechat)
+  assert.deepEqual(await visibleIds(["instagram"]), ["conv-ig-1"]);
+
+  // Grupo com WhatsApp + Site (ex.: Administradores): vê ambos
+  assert.deepEqual(await visibleIds(["whatsapp", "livechat"]), ["conv-56fbd6b8-wa", "conv-lc-79b4ba26", "conv-lc-migrated"]);
+
+  // Verificação direta do resolvedor puro
+  assert.equal(resolveEffectiveConversationChannel({ id: "conv-56fbd6b8-wa", mainChannel: "livechat" }), "whatsapp");
+  assert.equal(resolveEffectiveConversationChannel({ id: "conv-lc-79b4ba26", mainChannel: "livechat" }), "livechat");
+  assert.equal(resolveEffectiveConversationChannel({ id: "conv-lc-migrated", mainChannel: "whatsapp" }), "livechat");
+  assert.equal(resolveEffectiveConversationChannel({ id: "conv-ig-1", mainChannel: "instagram" }), "instagram");
 });
 test("read and write guards distinguish visibility from capture", async () => {
   const h = databaseHarness([record(), record({ id: "other", operatorId: "other" }), record({ id: "waiting", operatorId: null, queueState: "fila" })]);

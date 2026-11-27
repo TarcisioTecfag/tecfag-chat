@@ -62,7 +62,7 @@ import {
   resolveMetaTemplateValues,
   stripTemplateAccents,
 } from "../whatsapp/meta-template-common";
-import { SITE_CHANNEL } from "../livechat/site-channel-policy";
+import { isSiteConversationId } from "../livechat/site-channel-policy";
 import { sendSiteOperatorText } from "../livechat/site-delivery";
 import { SessionManager } from "../baileys/session-manager";
 import { SdrDebouncer } from "../valentina/sdr-debouncer";
@@ -2505,8 +2505,8 @@ export async function executeExtendedMcpTool(
 
       SdrDebouncer.getInstance().clearSession(conversationId);
 
-      // Canal Site (widget livechat)
-      if (!conv.whatsappConnectionId && contact.mainChannel === SITE_CHANNEL) {
+      // Canal Site (widget livechat) — roteamento segue estritamente o ID da conversa (`conv-lc-*`), nunca `contacts.mainChannel`
+      if (!conv.whatsappConnectionId && isSiteConversationId(conv.id)) {
         const siteResult = await sendSiteOperatorText({
           tenantId,
           conversationId: conv.id,

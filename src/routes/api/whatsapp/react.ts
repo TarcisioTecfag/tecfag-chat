@@ -12,6 +12,7 @@ import {
 } from "../../../lib/access-control/conversation-access";
 import { resolveConversationConnection } from "../../../lib/whatsapp/connections";
 import { connectionPeerJid } from "../../../lib/whatsapp/connection-contacts";
+import { isSiteConversationId } from "../../../lib/livechat/site-channel-policy";
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -94,7 +95,12 @@ export const Route = createFileRoute("/api/whatsapp/react")({
             .from(contacts)
             .where(and(eq(contacts.id, conv.contactId), eq(contacts.tenantId, tenantId)));
 
-          const isWhatsApp = !!conv.whatsappConnectionId || !contact?.mainChannel || contact.mainChannel === "whatsapp";
+          const isWhatsApp =
+            !isSiteConversationId(conv.id) &&
+            (!!conv.whatsappConnectionId ||
+              !contact?.mainChannel ||
+              contact.mainChannel === "whatsapp" ||
+              contact.mainChannel === "livechat");
           if (isWhatsApp && targetMsg.externalId) {
             const target = await resolveConversationConnection(tenantId, conversationId);
             const channel = { activeProvider: target.provider };

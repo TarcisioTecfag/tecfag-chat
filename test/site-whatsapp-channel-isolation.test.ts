@@ -2,6 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { isSiteConversationId } from "../src/lib/livechat/site-channel-policy";
+import {
+  canReadConversation,
+  resolveEffectiveConversationChannel,
+} from "../src/lib/access-control/conversation-policy";
 
 const root = path.resolve(import.meta.dir, "..");
 const read = (rel: string) => readFileSync(path.join(root, rel), "utf8");
@@ -76,6 +80,88 @@ describe("Isolamento de canal Site (conv-lc-*) vs WhatsApp", () => {
 
     const mcpCore = read("src/lib/mcp/valem-tecfag-mcp-core.ts");
     expect(mcpCore).toContain("!r.whatsapp_connection_id && !isSiteConversationId(r.conversation_id)");
+
+    const mcpWrite = read("src/lib/mcp/valem-tecfag-mcp-write-tools.ts");
+    expect(mcpWrite).toContain("!conv.whatsappConnectionId && isSiteConversationId(conv.id)");
+    expect(mcpWrite).not.toContain("!conv.whatsappConnectionId && contact.mainChannel === SITE_CHANNEL");
+
+    const reactRoute = read("src/routes/api/whatsapp/react.ts");
+    expect(reactRoute).toContain("!isSiteConversationId(conv.id)");
+    expect(reactRoute).toContain('contact.mainChannel === "livechat"');
+
+    const convAccess = read("src/lib/access-control/conversation-access.ts");
+    expect(convAccess).toContain("like(conversations.id, sitePattern)");
+    expect(convAccess).toContain("notLike(conversations.id, sitePattern)");
+  });
+
+  test("controle de acesso resolve canal efetivo da conversa: WhatsApp de contato Site liberado p/ grupos WhatsApp, conv-lc-* isolado em livechat", () => {
+    expect(
+      resolveEffectiveConversationChannel({
+        id: "conv-56fbd6b8-994e-448d-8ece-9460b6879805",
+        whatsappConnectionId: null,
+        mainChannel: "livechat",
+      }),
+    ).toBe("whatsapp");
+    expect(
+      resolveEffectiveConversationChannel({
+        id: "conv-lc-79b4ba26-079f-4011-82f8-97baae1af741",
+        whatsappConnectionId: null,
+        mainChannel: "livechat",
+      }),
+    ).toBe("livechat");
+    expect(
+      resolveEffectiveConversationChannel({
+        id: "conv-lc-7e240833-6fd4-424d-84ca-61553f7c19bf",
+        whatsappConnectionId: null,
+        mainChannel: "whatsapp",
+      }),
+    ).toBe("livechat");
+
+    for (const tenantId of ["tecfag", "valem"] as const) {
+      const sdrPrincipal = {
+        tenantId,
+        operator: { id: "op-sdr", role: "agent" },
+        permissions: { views: { chat: true }, chat: { canViewAllChats: true, restrictToOwnChats: false } },
+        accessGroup: { allowedChannels: ["whatsapp", "instagram", "messenger"] },
+      };
+      const posVendaPrincipal = {
+        tenantId,
+        operator: { id: "op-pv", role: "agent" },
+        permissions: { views: { chat: true }, chat: { canViewAllChats: true, restrictToOwnChats: false } },
+        accessGroup: { allowedChannels: ["whatsapp"] },
+      };
+
+      // Conversa WhatsApp Oficial de contato nascido no Site -> VISÍVEL para SDR e Pós-Venda
+      const waOfSiteContact = {
+        id: "conv-56fbd6b8-994e-448d-8ece-9460b6879805",
+        tenantId,
+        operatorId: "op-sdr",
+        queueState: "meus",
+        mainChannel: "livechat",
+        whatsappConnectionId: null,
+      };
+      expect(canReadConversation(sdrPrincipal, waOfSiteContact)).toBe(true);
+      expect(canReadConversation(posVendaPrincipal, { ...waOfSiteContact, operatorId: "op-pv" })).toBe(true);
+
+      // Conversa do Site (conv-lc-*) -> BLOQUEADA para grupos sem "livechat", mesmo se mainChannel migrou para "whatsapp"
+      expect(
+        canReadConversation(sdrPrincipal, {
+          ...waOfSiteContact,
+          id: "conv-lc-79b4ba26-079f-4011-82f8-97baae1af741",
+        }),
+      ).toBe(false);
+      expect(
+        canReadConversation(posVendaPrincipal, {
+          ...waOfSiteContact,
+          id: "conv-lc-7e240833-6fd4-424d-84ca-61553f7c19bf",
+          mainChannel: "whatsapp",
+        }),
+      ).toBe(false);
+
+      // Isolamento cross-tenant preservado
+      const otherTenant = tenantId === "tecfag" ? "valem" : "tecfag";
+      expect(canReadConversation(sdrPrincipal, { ...waOfSiteContact, tenantId: otherTenant })).toBe(false);
+    }
   });
 
   test("UI (ChatPanel e CrmChatWidget) jamais exibe bloqueio Meta 24h ou templates em conversas do site e oferece atalho para WhatsApp", () => {

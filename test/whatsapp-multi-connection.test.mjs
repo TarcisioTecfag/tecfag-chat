@@ -621,7 +621,10 @@ test("unified history is chronological, labelled and excludes another seller and
 });
 
 test("unified WhatsApp history excludes conv-lc-* site threads and deduplicates mirrored site messages", async () => {
-  const who = session("admin-a", "admin");
+  const who = {
+    ...session("admin-a", "admin"),
+    accessGroup: { allowedChannels: ["whatsapp", "livechat"] },
+  };
   const route = loadAccessSource("src/routes/api/whatsapp/contact-history.ts", {
     "@tanstack/react-router": routeStub,
     "drizzle-orm": orm,
