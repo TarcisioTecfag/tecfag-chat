@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useTrainingSurface } from "@/hooks/useTrainingSurface";
 import { sortAlphabeticallyByName } from "@/lib/operator-initial-navigation";
 import { formatDateKeySaoPaulo } from "@/lib/crm/closed-at-policy";
+import { formatBrtTimeAndDate } from "@/lib/chat-preview";
 import {
   X,
   Building2,
@@ -5919,8 +5920,8 @@ export function DealDetailModal({
                                   <div className="text-[11px] text-muted-foreground/90 max-w-md pt-0.5">
                                     {renderCrmMediaOrTextContent(c.lastMessageText)}
                                     {c.lastMessageTime && (
-                                      <span className="ml-1 text-[10px] opacity-75 not-italic">
-                                        • {new Date(c.lastMessageTime).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                                      <span className="ml-1 text-[10px] opacity-75 not-italic tabular-nums">
+                                        • {formatBrtTimeAndDate(c.lastMessageTime) || new Date(c.lastMessageTime).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
                                       </span>
                                     )}
                                   </div>

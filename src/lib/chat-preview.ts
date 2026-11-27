@@ -1,13 +1,21 @@
-import type { Message } from "./mockData";
+import type { Conversation, Message } from "./mockData";
 
 export type PreviewSenderRole = "client" | "operator" | "none";
 
-export function isAutoDealContextNote(msg?: Message | string | null): boolean {
+type PreviewMessageLike = Message & {
+  sender?: string;
+  sentAt?: string | Date | null;
+};
+
+const HHMM_REGEX = /^\d{2}:\d{2}$/;
+const DDMMYYYY_REGEX = /^\d{2}\/\d{2}\/\d{4}$/;
+
+export function isAutoDealContextNote(msg?: PreviewMessageLike | string | null): boolean {
   if (!msg) return false;
   if (
     typeof msg === "object" &&
     !msg.isInternalNote &&
-    (msg as any).sender !== "system" &&
+    msg.sender !== "system" &&
     msg.author !== "Sistema" &&
     !/^\[(?:Nota|Sistema)\]/i.test((msg.text || "").trim())
   ) {
@@ -19,13 +27,81 @@ export function isAutoDealContextNote(msg?: Message | string | null): boolean {
   );
 }
 
-export function isConversationSystemLog(msg?: Message | null): boolean {
+export function isConversationSystemLog(msg?: PreviewMessageLike | null): boolean {
   if (!msg) return false;
-  return (
-    msg.senderType === "system" ||
-    (msg as any).sender === "system" ||
-    msg.author === "Sistema"
-  );
+  return msg.senderType === "system" || msg.sender === "system" || msg.author === "Sistema";
+}
+
+export function getConversationPreviewMessage(messages?: Message[] | null): Message | undefined {
+  if (!Array.isArray(messages) || messages.length === 0) return undefined;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const candidate = messages[i];
+    if (!isAutoDealContextNote(candidate) && !isConversationSystemLog(candidate)) {
+      return candidate;
+    }
+  }
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const candidate = messages[i];
+    if (!isAutoDealContextNote(candidate)) {
+      return candidate;
+    }
+  }
+  return messages[messages.length - 1];
+}
+
+export function formatBrtTimeHHMM(value?: string | Date | null): string | null {
+  if (!value) return null;
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleTimeString("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "America/Sao_Paulo",
+  });
+}
+
+export function formatBrtDateDDMMYYYY(value?: string | Date | null): string | null {
+  if (!value) return null;
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    timeZone: "America/Sao_Paulo",
+  });
+}
+
+export function formatBrtTimeAndDate(value?: string | Date | null): string | null {
+  const time = formatBrtTimeHHMM(value);
+  const date = formatBrtDateDDMMYYYY(value);
+  if (!time || !date) return null;
+  return `${time} - ${date}`;
+}
+
+export function getConversationPreviewTime(
+  conversation: Pick<Conversation, "lastMessageTime" | "lastMessageAtISO" | "messages"> & {
+    time?: string;
+  },
+  previewMsg?: PreviewMessageLike,
+): string {
+  const targetMsg: PreviewMessageLike | undefined =
+    previewMsg ?? getConversationPreviewMessage(conversation.messages);
+  if (targetMsg) {
+    const fromIso = formatBrtTimeAndDate(targetMsg.sentAtISO || targetMsg.sentAt);
+    if (fromIso) return fromIso;
+    if (targetMsg.time && HHMM_REGEX.test(targetMsg.time)) {
+      if (targetMsg.date && DDMMYYYY_REGEX.test(targetMsg.date)) {
+        return `${targetMsg.time} - ${targetMsg.date}`;
+      }
+      const convDate = formatBrtDateDDMMYYYY(conversation.lastMessageAtISO);
+      if (convDate) return `${targetMsg.time} - ${convDate}`;
+      return targetMsg.time;
+    }
+  }
+  const fromConvIso = formatBrtTimeAndDate(conversation.lastMessageAtISO);
+  if (fromConvIso) return fromConvIso;
+  return conversation.time || conversation.lastMessageTime || "";
 }
 
 /**

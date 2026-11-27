@@ -21,11 +21,12 @@ import { useWhatsappConnections } from "@/hooks/useWhatsappConnections";
 import { useOptionalOnboarding } from "@/hooks/useOnboarding";
 import { useOnboardingAdapter } from "@/hooks/useOnboardingAdapter";
 import { canReadConversation, conversationReadRules } from "@/lib/access-control/conversation-policy";
-import { getConversationPreviewMessage, getConversationPreviewTime } from "@/components/crm/CrmChatWidget";
 import {
   classifyConversationMessageSender,
   getConversationLastRealMessage,
+  getConversationPreviewMessage,
   getConversationPreviewPrefix,
+  getConversationPreviewTime,
 } from "@/lib/chat-preview";
 import { ContactPhoneTypeBadge } from "@/components/crm/ContactPhonesEditor";
 import { buildPhoneQueryPlan, matchesPhoneSearchQuery } from "@/lib/utils";
@@ -963,6 +964,7 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
                 const lastRealMsg = getConversationLastRealMessage(c.messages);
                 const isLastFromOperator = classifyConversationMessageSender(lastRealMsg) === "operator";
                 const previewPrefix = getConversationPreviewPrefix(lastMsg);
+                const previewTime = getConversationPreviewTime(c, lastMsg);
                 const { mediaType: msgMediaType, label: msgLabel } = formatLastMessage(lastMsg?.text || "");
                 return (
                   <motion.div
@@ -1056,19 +1058,21 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
 
                       {/* Info Text */}
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between gap-1">
-                          <div className="flex items-center gap-1 min-w-0">
-                            <span className="truncate text-xs font-bold text-foreground">{c.name}</span>
-                            {c.contactPhones && c.contactPhones.length > 1 && (
-                              <ContactPhoneTypeBadge
-                                type={c.phoneType || "commercial"}
-                                label={c.phoneLabel}
-                                compact
-                              />
-                            )}
-                          </div>
-                          <span className="shrink-0 text-[10px] text-muted-foreground font-medium">{getConversationPreviewTime(c, lastMsg)}</span>
+                        <div className="flex items-center gap-1 min-w-0">
+                          <span className="truncate text-xs font-bold text-foreground leading-tight">{c.name}</span>
+                          {c.contactPhones && c.contactPhones.length > 1 && (
+                            <ContactPhoneTypeBadge
+                              type={c.phoneType || "commercial"}
+                              label={c.phoneLabel}
+                              compact
+                            />
+                          )}
                         </div>
+                        {previewTime && (
+                          <div className="mt-0.5 text-[10px] leading-tight text-muted-foreground font-medium tabular-nums">
+                            {previewTime}
+                          </div>
+                        )}
                         <div className="flex items-center justify-between mt-0.5">
                           <p className="truncate text-[10px] text-muted-foreground pr-2 flex items-center gap-1">
                             {lastMsg?.isInternalNote ? (
