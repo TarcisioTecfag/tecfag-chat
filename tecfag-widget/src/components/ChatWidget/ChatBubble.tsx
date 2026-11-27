@@ -21,6 +21,9 @@ export interface Message {
   serverTs?: string;
   isSystem?: boolean;
   isAgentJoined?: boolean;
+  quotedMessageId?: string | null;
+  quotedMessageSender?: string | null;
+  quotedMessageContent?: string | null;
 }
 
 export interface ChatBubbleProps {
@@ -33,6 +36,8 @@ export interface ChatBubbleProps {
   isAgentJoined?: boolean;
   onSelectRating?: (rating: number) => void;
   onRetry?: (id: string) => void;
+  onJumpToMessage?: (messageId: string) => void;
+  highlighted?: boolean;
   isBlackNovember?: boolean;
 }
 
@@ -566,6 +571,11 @@ export const ChatBubble: React.FC<ChatBubbleProps> = (props) => {
   const isAgentJoined = isMsgObj ? Boolean(msgObj!.isAgentJoined) : Boolean(props.isAgentJoined);
   const deliveryState = isMsgObj ? msgObj!.deliveryState : undefined;
   const msgId = isMsgObj ? msgObj!.id : "";
+  const quotedMessageId = isMsgObj ? msgObj!.quotedMessageId || null : null;
+  const quotedMessageSender = isMsgObj ? msgObj!.quotedMessageSender || null : null;
+  const quotedMessageContent = isMsgObj ? msgObj!.quotedMessageContent || null : null;
+  const onJumpToMessage = props.onJumpToMessage;
+  const highlighted = Boolean(props.highlighted);
 
   const formatTs = (ts?: string) => {
     if (!ts) return "";
@@ -764,6 +774,7 @@ export const ChatBubble: React.FC<ChatBubbleProps> = (props) => {
   return (
     <>
       <motion.div
+        data-widget-msg-id={msgId || undefined}
         initial={{ opacity: 0, y: 16, scale: 0.95 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ type: "spring", stiffness: 400, damping: 25 }}
@@ -778,11 +789,86 @@ export const ChatBubble: React.FC<ChatBubbleProps> = (props) => {
             maxWidth: "85%",
             borderRadius: isAgent ? "18px 18px 18px 4px" : "18px 18px 4px 18px",
             padding: "10px 14px 8px 14px",
-            boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
+            boxShadow: highlighted
+              ? isBlackNovember
+                ? "0 0 0 3px rgba(244, 63, 94, 0.55), 0 4px 14px rgba(0,0,0,0.18)"
+                : "0 0 0 3px rgba(220, 38, 38, 0.45), 0 4px 14px rgba(220,38,38,0.22)"
+              : "0 1px 3px rgba(0,0,0,0.08)",
+            transition: "box-shadow 0.25s ease",
             background: isAgent ? agentBubbleBg : "#f1f0f0",
             color: isAgent ? "#ffffff" : "#1a1a1a",
           }}
         >
+          {/* Bloco de citação (Reply / Quote) */}
+          {quotedMessageContent && (
+            <button
+              type="button"
+              onClick={() => {
+                if (quotedMessageId && onJumpToMessage) {
+                  onJumpToMessage(quotedMessageId);
+                }
+              }}
+              style={{
+                display: "block",
+                width: "100%",
+                textAlign: "left",
+                border: "none",
+                borderLeft: isAgent
+                  ? isBlackNovember
+                    ? "3px solid #f87171"
+                    : "3px solid rgba(255, 255, 255, 0.85)"
+                  : isBlackNovember
+                    ? "3px solid #27272a"
+                    : "3px solid #dc2626",
+                borderRadius: "6px 10px 10px 6px",
+                padding: "6px 9px",
+                marginBottom: 7,
+                background: isAgent
+                  ? isBlackNovember
+                    ? "rgba(255, 255, 255, 0.10)"
+                    : "rgba(0, 0, 0, 0.18)"
+                  : "rgba(0, 0, 0, 0.06)",
+                cursor: quotedMessageId && onJumpToMessage ? "pointer" : "default",
+                outline: "none",
+              }}
+            >
+              <span
+                style={{
+                  display: "block",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  lineHeight: 1.25,
+                  marginBottom: 2,
+                  color: isAgent
+                    ? isBlackNovember
+                      ? "#fca5a5"
+                      : "rgba(255, 255, 255, 0.95)"
+                    : isBlackNovember
+                      ? "#18181b"
+                      : "#b91c1c",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {quotedMessageSender || "Mensagem citada"}
+              </span>
+              <span
+                style={{
+                  display: "-webkit-box",
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: "vertical",
+                  overflow: "hidden",
+                  fontSize: 12,
+                  lineHeight: 1.35,
+                  wordBreak: "break-word",
+                  color: isAgent ? "rgba(255, 255, 255, 0.82)" : "#4b5563",
+                }}
+              >
+                {quotedMessageContent}
+              </span>
+            </button>
+          )}
           {/* Attachments do VISITANTE (File objects) */}
           {attachments && attachments.length > 0 && (
             <div style={{ marginBottom: 8, display: "flex", flexDirection: "column", gap: 8 }}>

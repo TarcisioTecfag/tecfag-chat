@@ -35,6 +35,9 @@ export interface SiteMirrorSourceMessage {
   provider?: string | null;
   direction: string;
   status: string;
+  quotedMessageId?: string | null;
+  quotedMessageSender?: string | null;
+  quotedMessageContent?: string | null;
   metaDetails?: unknown;
   sentAt: Date | string;
 }
@@ -69,6 +72,11 @@ export function buildMirroredSiteMessageRow(params: {
     provider: SITE_CHANNEL,
     direction: m.direction,
     status: m.status === "pending" || m.status === "sending" ? "accepted" : m.status,
+    quotedMessageId: m.quotedMessageId
+      ? buildMirroredSiteMessageId(params.waConversationId, m.quotedMessageId)
+      : null,
+    quotedMessageSender: m.quotedMessageSender ?? null,
+    quotedMessageContent: m.quotedMessageContent ?? null,
     metaDetails: {
       ...(extractedSiteCtx ? { siteContext: extractedSiteCtx } : {}),
       copiedFrom: {

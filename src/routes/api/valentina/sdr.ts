@@ -427,6 +427,9 @@ export const Route = createFileRoute("/api/valentina/sdr")({
               mediaUrl: mediaInfo.mediaUrl,
               mediaType: mediaInfo.mediaType,
               fileName: mediaInfo.fileName,
+              quotedMessageId: m.quotedMessageId || null,
+              quotedMessageSender: m.quotedMessageSender || null,
+              quotedMessageContent: m.quotedMessageContent || null,
             };
           });
         };
@@ -439,6 +442,9 @@ export const Route = createFileRoute("/api/valentina/sdr")({
           sentAt: messages.sentAt,
           isInternalNote: messages.isInternalNote,
           metaDetails: messages.metaDetails,
+          quotedMessageId: messages.quotedMessageId,
+          quotedMessageSender: messages.quotedMessageSender,
+          quotedMessageContent: messages.quotedMessageContent,
         };
 
         // ── MODO SOB DEMANDA: Mensagens completas de 1 conversa específica ──────

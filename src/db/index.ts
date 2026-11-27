@@ -627,6 +627,9 @@ export async function verifyDatabaseCompatibility(): Promise<void> {
       CREATE UNIQUE INDEX IF NOT EXISTS idx_rd_sched_tpl_one_pending_per_contact
         ON rd_marketing_scheduled_templates (tenant_id, contact_id)
         WHERE status = 'pending';
+      ALTER TABLE lc_messages ADD COLUMN IF NOT EXISTS quoted_message_id TEXT;
+      ALTER TABLE lc_messages ADD COLUMN IF NOT EXISTS quoted_message_sender TEXT;
+      ALTER TABLE lc_messages ADD COLUMN IF NOT EXISTS quoted_message_content TEXT;
     `);
     console.log("[db] ✓ Compatibilidade do schema verificada com sucesso.");
   } catch (e: any) {

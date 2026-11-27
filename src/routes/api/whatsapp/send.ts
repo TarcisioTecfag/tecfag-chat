@@ -278,6 +278,7 @@ export const Route = createFileRoute("/api/whatsapp/send")({
                 text: siteText,
                 operatorName: session.operator.name,
                 idempotencyKey: clientMessageId,
+                quotedMessageId,
               });
               return Response.json(siteResult, { status: 200 });
             }

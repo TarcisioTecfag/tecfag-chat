@@ -84,6 +84,12 @@ import { extractSitePageProduct, guardVtexMessages } from "../vtex/turn";
 import { readVtexEvidence } from "../vtex/contract";
 import { parseIndustrialAiResult } from "../triage/industrial-ai-result";
 import {
+  isMessageQuotableOnChannel,
+  resolveIndustrialBubbleQuotes,
+  type IndustrialMessageQuote,
+  type QuotableMessageRef,
+} from "../triage/industrial-citations";
+import {
   claimsIndustrialHandoffEffect,
   evaluateIndustrialClientMessages,
   industrialHandoffOutcome,
@@ -185,6 +191,7 @@ export interface SdrAiResult {
     position?: "before_text" | "after_text" | "only_audio";
   } | null;
   quoteMessageId?: string | null;
+  messageQuotes?: IndustrialMessageQuote[];
   mediaDescription?: string | null; // Interpretação textual da mídia recebida (imagem/áudio/PDF)
   isCompleted?: boolean;
 }
@@ -1133,7 +1140,16 @@ export class SdrEngine {
         const timeTag = includeTimestamp
           ? `[${formatSdrMessageTimestampTag(m.sentAt, promptNow)}] `
           : "";
-        return `${timeTag}[ID MENSAGEM: ${m.id}] [${sender}]${mediaCtx}: ${contentText}`;
+        const idTag =
+          !industrialTriage ||
+          isMessageQuotableOnChannel(
+            m,
+            isSiteConversationId(conversationId) ? "site" : "whatsapp",
+            tenantId,
+          )
+            ? `[ID MENSAGEM: ${m.id}] `
+            : "";
+        return `${timeTag}${idTag}[${sender}]${mediaCtx}: ${contentText}`;
       };
 
       const conversationHistoryText = historyMsgs
@@ -2067,6 +2083,16 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         return false;
       }
 
+      const initialIndustrialAiMessages = industrialTriage ? [...aiResult.messagesToSend] : [];
+      const initialIndustrialMessageQuotes = industrialTriage
+        ? [...(aiResult.messageQuotes || [])]
+        : [];
+      const initialIndustrialLegacyQuoteId = industrialTriage
+        ? aiResult.quoteMessageId || null
+        : null;
+      let industrialReplyWasRewritten = Boolean(useVtexDirectReply);
+      let industrialIsGenericGreetingOnly = false;
+
       // Garantias de roteamento do servidor mantendo 100% a redação natural do Gemini:
       if (isClientDeclinedTurn && !clientDeclinedWithFactualQuestion) {
         aiResult.isCompleted = true;
@@ -2103,6 +2129,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
             });
             if (rewritten?.messagesToSend.length) {
               aiResult.messagesToSend = rewritten.messagesToSend;
+              industrialReplyWasRewritten = true;
             }
           }
           console.log(
@@ -2126,6 +2153,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
             });
             if (rewritten?.messagesToSend.length) {
               aiResult.messagesToSend = rewritten.messagesToSend;
+              industrialReplyWasRewritten = true;
             }
           }
           console.log(
@@ -2158,6 +2186,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
             });
             if (rewritten?.messagesToSend.length) {
               aiResult.messagesToSend = rewritten.messagesToSend;
+              industrialReplyWasRewritten = true;
             }
           }
           console.log(
@@ -2184,6 +2213,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
             });
             if (rewritten?.messagesToSend.length) {
               aiResult.messagesToSend = rewritten.messagesToSend;
+              industrialReplyWasRewritten = true;
             }
           }
         } else if (resolvedDirectOperator.status === "past_reference_only") {
@@ -2213,6 +2243,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           greeting,
         });
         aiResult.messagesToSend = finalizedOpening.messagesToSend;
+        industrialIsGenericGreetingOnly = finalizedOpening.isGenericGreetingOnly;
       } else if (isFirstMessage) {
         const combinedText = batchItems.map((i) => i.text).join(" ").toLowerCase();
 
@@ -3353,6 +3384,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
             : null;
         if (siteWhatsappHandoffMessage) {
           aiResult.messagesToSend = [siteWhatsappHandoffMessage];
+          industrialReplyWasRewritten = true;
         } else if (
           isSiteChannelTurn &&
           siteMigrationAction === "offer_whatsapp" &&
@@ -3398,6 +3430,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
               signal,
             });
             if (signal?.aborted) return false;
+            industrialReplyWasRewritten = true;
 
             if (
               rewritten?.shouldEscalateToReview &&
@@ -4251,6 +4284,53 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
             });
           }
         } else {
+          let industrialQuoteIdsByIndex: Array<string | undefined> | undefined;
+          if (industrialTriage) {
+            const activeChannel: "site" | "whatsapp" = isSiteConversationId(conversationId)
+              ? "site"
+              : "whatsapp";
+            const batchQuotables: QuotableMessageRef[] = batchItems
+              .filter((item) => Boolean(item.messageId))
+              .map((item) => ({
+                id: item.messageId!,
+                senderType: "client",
+                content: item.text,
+                provider: activeChannel === "site" ? "livechat" : "meta",
+                mediaType: item.mediaType,
+                isCurrentBatch: true,
+              }));
+            const batchMediaItem = batchItems.find(
+              (item) =>
+                Boolean(item.messageId) &&
+                (item.mediaType === "audio" ||
+                  item.mediaType === "image" ||
+                  item.mediaType === "document"),
+            );
+            const resolvedBodyQuotes = resolveIndustrialBubbleQuotes({
+              tenantId,
+              channel: activeChannel,
+              initialAiMessages: initialIndustrialAiMessages,
+              finalMessages: aiResult.messagesToSend,
+              aiMessageQuotes: initialIndustrialMessageQuotes,
+              legacyQuoteMessageId: initialIndustrialLegacyQuoteId,
+              quotableMessages: [...historyMsgs, ...batchQuotables],
+              batchMediaMessageId: batchMediaItem?.messageId || null,
+              isGenericGreetingOnly: industrialIsGenericGreetingOnly,
+              isTerminalOrClosingTurn:
+                isIndustrialClosingOrHandoffTurn || isInformativeNonLeadClosure,
+              wasFullyRewritten: industrialReplyWasRewritten,
+            });
+            industrialQuoteIdsByIndex = [
+              ...industrialGreetingMessages.map(() => undefined),
+              ...resolvedBodyQuotes,
+            ];
+            const activeQuotesCount = industrialQuoteIdsByIndex.filter(Boolean).length;
+            if (activeQuotesCount > 0) {
+              console.log(
+                `[SdrEngine] 💬 ${activeQuotesCount} citação(ões) planejada(s) para conversa ${conversationId} (${activeChannel}): ${JSON.stringify(industrialQuoteIdsByIndex)}`,
+              );
+            }
+          }
           await this.sendHumanizedBotMessages(
             tenantId,
             conversationId,
@@ -4260,7 +4340,17 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
             targetQuoteItem,
             aiResult.quoteMessageId,
             allocatedOp?.id || null,
-            deliveryTurnContext ? { ...deliveryTurnContext, scope: "reply", images: industrialImageItems, greetingCount: industrialGreetingMessages.length } : undefined
+            deliveryTurnContext
+              ? {
+                  ...deliveryTurnContext,
+                  scope: "reply",
+                  images: industrialImageItems,
+                  greetingCount: industrialGreetingMessages.length,
+                  ...(industrialQuoteIdsByIndex
+                    ? { quoteIdsByIndex: industrialQuoteIdsByIndex }
+                    : {}),
+                }
+              : undefined,
           );
 
           // Encerramento definitivo (Site e WhatsApp) para atendimentos informativos não-lead
@@ -4701,19 +4791,40 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
     quoteItem?: QueuedMessageItem | null,
     targetQuoteMessageId?: string | null,
     expectedOperatorId?: string | null,
-    deliveryContext?: IndustrialDeliveryContext & { scope?: string; images?: IndustrialBotItem[]; greetingCount?: number }
+    deliveryContext?: IndustrialDeliveryContext & {
+      scope?: string;
+      images?: IndustrialBotItem[];
+      greetingCount?: number;
+      quoteIdsByIndex?: ReadonlyArray<string | undefined>;
+    }
   ): Promise<void> {
     if (getAiPersona(tenantId).triagePolicy === "industrial") {
       const { sendIndustrialBotBatch } = await import("./industrial-outbound");
-      const fragments = messagesArray.map((text) => text.trim()).filter(Boolean);
-      const hasRequote = fragments.some((text) => /só me responde|me responde isso/i.test(text));
+      const pairedFragments = messagesArray
+        .map((raw, idx) => ({
+          text: raw.trim(),
+          explicitQuoteId: deliveryContext?.quoteIdsByIndex?.[idx],
+        }))
+        .filter((entry) => Boolean(entry.text));
+      const hasExplicitQuotePlan = Boolean(deliveryContext?.quoteIdsByIndex);
+      const hasRequote = pairedFragments.some((entry) =>
+        /só me responde|me responde isso/i.test(entry.text),
+      );
       try {
         const result = await sendIndustrialBotBatch({ tenantId, conversationId, scope: deliveryContext?.scope || "reply",
           expectedOperatorId, context: deliveryContext, signal,
-          items: [...fragments.map((text, index) => ({ text,
-            quotedMessageId: (/só me responde|me responde isso/i.test(text) || (index === (deliveryContext?.greetingCount || 0) && !hasRequote))
-              ? targetQuoteMessageId || quoteItem?.messageId || undefined : undefined,
-          })), ...(deliveryContext?.images || [])],
+          items: [
+            ...pairedFragments.map((entry, index) => ({
+              text: entry.text,
+              quotedMessageId: hasExplicitQuotePlan
+                ? entry.explicitQuoteId
+                : (/só me responde|me responde isso/i.test(entry.text) ||
+                    (index === (deliveryContext?.greetingCount || 0) && !hasRequote))
+                  ? targetQuoteMessageId || quoteItem?.messageId || undefined
+                  : undefined,
+            })),
+            ...(deliveryContext?.images || []),
+          ],
           beforeSend: async (text) => {
             await sendBotPresence(tenantId, conversationId, phone, "composing");
             const isSite = isSiteConversationId(conversationId);

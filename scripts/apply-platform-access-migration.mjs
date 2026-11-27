@@ -355,6 +355,13 @@ const migrations = [
       import.meta.url,
     ),
   },
+  {
+    name: "0073_lc_messages_quoted_reply",
+    url: new URL(
+      "../src/db/migrations/0073_lc_messages_quoted_reply.sql",
+      import.meta.url,
+    ),
+  },
 ];
 const databaseUrl = process.env.DATABASE_URL;
 

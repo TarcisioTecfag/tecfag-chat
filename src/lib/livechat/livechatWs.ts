@@ -401,6 +401,13 @@ async function handleVisitorMessage(
             sender: msg.sender === "operator" ? "agent" : "ai",
             content: msgContent,
             timestamp: msg.sentAt ? new Date(msg.sentAt).toISOString() : new Date().toISOString(),
+            ...(msg.quotedMessageContent
+              ? {
+                  quotedMessageId: msg.quotedMessageId || undefined,
+                  quotedMessageSender: msg.quotedMessageSender || undefined,
+                  quotedMessageContent: msg.quotedMessageContent,
+                }
+              : {}),
             fromHistory: true,
           });
         }

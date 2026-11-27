@@ -446,6 +446,9 @@ export async function getVisitorAllMessages(
       mediaType: lcMessages.mediaType,
       fileName: lcMessages.fileName,
       trayProductData: lcMessages.trayProductData,
+      quotedMessageId: lcMessages.quotedMessageId,
+      quotedMessageSender: lcMessages.quotedMessageSender,
+      quotedMessageContent: lcMessages.quotedMessageContent,
       sentAt: lcMessages.sentAt,
     })
     .from(lcMessages)

@@ -11,8 +11,18 @@ import { loadAccessSource } from "./helpers/access-harness.mjs";
 // Real PostgreSQL semantics; no operational DB, credentials, AI or transport imports.
 const schema = loadAccessSource("src/db/schema.ts", { "drizzle-orm": orm, "drizzle-orm/pg-core": pg });
 const industrialPolicy = loadAccessSource("src/lib/triage/industrial-policy.ts");
+const ownershipGuard = loadAccessSource("src/lib/triage/industrial-ownership-guard.ts", {
+  "drizzle-orm": orm,
+  "../../db/schema": schema,
+  "./industrial-policy": industrialPolicy,
+});
+const industrialCitations = loadAccessSource("src/lib/triage/industrial-citations.ts");
 const sitePolicy = loadAccessSource("src/lib/livechat/site-channel-policy.ts", { "../triage/industrial-policy.ts": industrialPolicy });
-const schedule = loadAccessSource("src/lib/triage/industrial-silence-policy.ts");
+const businessHours = loadAccessSource("src/lib/triage/industrial-business-hours.ts");
+const schedule = loadAccessSource("src/lib/triage/industrial-silence-policy.ts", {
+  "./industrial-ownership-guard.ts": ownershipGuard,
+  "./industrial-business-hours.ts": businessHours,
+});
 const envelope = loadAccessSource("src/lib/whatsapp/envelope.ts");
 const tenantId = "delivery-company-a", otherTenant = "delivery-company-b";
 const persona = { getAiPersona: (id) => id === tenantId ? { name: "Assistente teste", triagePolicy: "industrial" } : { name: "Outro" } };
@@ -38,6 +48,15 @@ before(async () => {
   context = loadAccessSource("src/lib/valentina/industrial-delivery-context.ts", {
     "../../db": { db }, "../../db/schema": schema, "drizzle-orm": orm, "../ai-persona": persona,
     "../livechat/site-channel-policy": sitePolicy, "../whatsapp/meta-policy": metaPolicy, "../triage/industrial-silence-policy": schedule,
+    "../triage/industrial-business-hours-store": {
+      loadIndustrialBusinessHoursForTenant: async (database, tid, now = new Date(), fallback = null) => {
+        const [sdrRow] = await database.select({ config: schema.agentConfigs.config }).from(schema.agentConfigs)
+          .where(orm.and(orm.eq(schema.agentConfigs.tenantId, tid), orm.eq(schema.agentConfigs.agentType, "sdr"))).limit(1);
+        const cfg = businessHours.parseIndustrialScheduleConfig(fallback || sdrRow?.config || {});
+        const evalNow = now instanceof Date ? now : new Date();
+        return { config: cfg, nonWorkingDays: [], evaluation: businessHours.evaluateIndustrialBusinessHours(evalNow, cfg, []) };
+      },
+    },
   });
   const manager = { SessionManager: { getInstance: () => ({ notifyPublic() { if (notifyFails) throw Error("SSE unavailable"); } }) } };
   const adapter = { send: async (_, payload) => {
@@ -60,6 +79,7 @@ before(async () => {
     "./adapters/meta": { metaAdapter: adapter }, "./adapters/baileys": { baileysAdapter: adapter }, "./envelope": envelope,
     "./meta-status": { replayPendingMetaStatuses: async () => {} }, "./meta-presence": { resetMetaTypingThrottle() {} },
     "../commercial/tma": { recordCommercialFirstResponse() { assert.fail("Bot must not record human TMA"); } },
+    "../sla-engine": { SlaEngine: { getInstance: () => ({ closeOpenSlaCycles: async () => {} }) } },
     "../baileys/session-manager": manager, "./connection-policy": { baileysStanzaId: (value) => value },
     "./connections": { resolveConversationConnection: async () => {
       const [channel] = await db.select().from(schema.channelConfigs).where(orm.eq(schema.channelConfigs.tenantId, tenantId));
@@ -73,6 +93,7 @@ function loadDelivery(database, manager = { SessionManager: { getInstance: () =>
     "../../db": { db: database }, "../../db/schema": schema, "drizzle-orm": orm, "../ai-persona": persona,
     "../livechat/site-gateway": { siteGateway: { push: (_, __, payload) => { socketEvents.push(payload); return false; } } },
     "../livechat/site-channel-policy": sitePolicy, "../baileys/session-manager": manager,
+    "../triage/industrial-citations": industrialCitations,
     "../whatsapp/dispatch": dispatch, "../whatsapp/envelope": envelope, "./industrial-delivery-context": context,
   });
 }
@@ -251,6 +272,43 @@ describe("integracao com engine e silencio", () => {
     await assert.rejects(subject.sendHumanizedBotMessages(tenantId, conversationId, "phone", [" Um ", "Dois"], undefined, null, "in-a", null, snapshot), /unknown/);
     assert.deepEqual(calls[0].items, [{ text: "Um", quotedMessageId: "in-a" }, { text: "Dois", quotedMessageId: undefined }]);
     assert.equal(calls[0].scope, "greeting"); assert.equal(calls[0].context, snapshot);
+
+    const multiQuoteCalls = [];
+    const subjectMulti = realMethod("src/lib/valentina/sdr-engine.ts", "SdrEngine", "sendHumanizedBotMessages", {
+      getAiPersona: persona.getAiPersona, sendBotPresence: async () => {},
+      require: (name) => { assert.equal(name, "./industrial-outbound"); return { sendIndustrialBotBatch: async (input) => { multiQuoteCalls.push(input); return { sent: true, messageId: "ok" }; } }; },
+    });
+    const multiSnapshot = { flowId: "flow-a", cycle: "2026-10-27T12:00:00.000Z", triggerId: "in-a", scope: "reply", quoteIdsByIndex: ["in-a", "bot-prev"] };
+    await subjectMulti.sendHumanizedBotMessages(tenantId, conversationId, "phone", ["Ficamos em Bauru/SP!", "Antes, poderia só me responder isso rapidinho?"], undefined, null, null, null, multiSnapshot);
+    assert.deepEqual(multiQuoteCalls[0].items, [
+      { text: "Ficamos em Bauru/SP!", quotedMessageId: "in-a" },
+      { text: "Antes, poderia só me responder isso rapidinho?", quotedMessageId: "bot-prev" },
+    ]);
+  });
+  it("canal site persiste citacao em lc_messages e envia campos quoted no CHAT_REPLY do widget", async () => {
+    conversationId = "conv-lc-vis-quote";
+    await client.query("INSERT INTO lc_visitors(id,tenant_id,cookie_id,name) VALUES ('vis-quote',$1,'cookie-q','Carlos')", [tenantId]);
+    await client.query("INSERT INTO lc_chats(id,tenant_id,visitor_id,status) VALUES ('chat-q',$1,'vis-quote','active')", [tenantId]);
+    await client.query("INSERT INTO conversations(id,tenant_id,contact_id,queue_state) VALUES ($1,$2,'contact-a','automacao')", [conversationId, tenantId]);
+    await client.query("INSERT INTO agent_flow_states(id,tenant_id,conversation_id,agent_type,outcome,started_at) VALUES ('flow-site-q',$1,$2,'sdr','in_progress',NOW()-INTERVAL '10 minutes')", [tenantId, conversationId]);
+    await client.query("INSERT INTO messages(id,tenant_id,conversation_id,sender_type,sender_name,content,is_internal_note,provider,direction,external_id,status,sent_at) VALUES ('lc-usr_1',$1,$2,'client','Carlos','Vocês entregam em todo o Brasil?',false,'livechat','inbound','usr_1','delivered',NOW()-INTERVAL '1 minute')", [tenantId, conversationId]);
+    const res = await delivery.sendIndustrialBotBatch({
+      tenantId,
+      conversationId,
+      scope: "reply",
+      items: [{ text: "Sim, entregamos para todo o Brasil!", quotedMessageId: "lc-usr_1" }],
+    });
+    assert.equal(res.sent, true);
+    const widgetRows = await db.select().from(schema.lcMessages).where(orm.eq(schema.lcMessages.tenantId, tenantId));
+    assert.equal(widgetRows.length, 1);
+    assert.equal(widgetRows[0].quotedMessageId, "usr_1");
+    assert.equal(widgetRows[0].quotedMessageSender, "Você");
+    assert.equal(widgetRows[0].quotedMessageContent, "Vocês entregam em todo o Brasil?");
+    const chatReplyEvt = socketEvents.find((ev) => ev.type === "CHAT_REPLY");
+    assert.ok(chatReplyEvt);
+    assert.equal(chatReplyEvt.quotedMessageId, "usr_1");
+    assert.equal(chatReplyEvt.quotedMessageSender, "Você");
+    assert.equal(chatReplyEvt.quotedMessageContent, "Vocês entregam em todo o Brasil?");
   });
   it("silencio nao progride enquanto a resposta do turno aguarda entrega ou revisao", async () => {
     await park();
@@ -258,6 +316,11 @@ describe("integracao com engine e silencio", () => {
     const tracedDb = drizzle(client, { logger: { logQuery(query) { queries.push(query); } } });
     const subject = realMethod("src/lib/valentina/sdr-followup-engine.ts", "SdrFollowupEngine", "runIndustrialSilenceCycle", {
       db: tracedDb, ...schema, ...orm, ...schedule, getAiPersona: persona.getAiPersona,
+      loadIndustrialBusinessHoursForTenant: async (_db, _tid, now = new Date(), fallback = null) => {
+        const cfg = businessHours.parseIndustrialScheduleConfig(fallback || { enabled: false });
+        return { config: cfg, nonWorkingDays: [], evaluation: businessHours.evaluateIndustrialBusinessHours(now instanceof Date ? now : new Date(), cfg, []) };
+      },
+      isSiteConversationId: sitePolicy.isSiteConversationId,
       SdrDebouncer: { getInstance: () => ({ isBusy: () => false }) },
       console: { log() {}, error: (...args) => errors.push(args) },
       evaluateIndustrialSilence() { evaluated = true; return { action: "none" }; },
@@ -273,6 +336,11 @@ describe("integracao com engine e silencio", () => {
     let called = false; const errors = [];
     const subject = realMethod("src/lib/valentina/sdr-followup-engine.ts", "SdrFollowupEngine", "runIndustrialSilenceCycle", {
       db, ...schema, ...orm, ...schedule, getAiPersona: persona.getAiPersona,
+      loadIndustrialBusinessHoursForTenant: async (_db, _tid, now = new Date(), fallback = null) => {
+        const cfg = businessHours.parseIndustrialScheduleConfig(fallback || { enabled: false });
+        return { config: cfg, nonWorkingDays: [], evaluation: businessHours.evaluateIndustrialBusinessHours(now instanceof Date ? now : new Date(), cfg, []) };
+      },
+      isSiteConversationId: sitePolicy.isSiteConversationId,
       SdrDebouncer: { getInstance: () => ({ isBusy: () => false }) },
       console: { log() {}, warn() {}, error: (...args) => errors.push(args) },
       evaluateIndustrialSilence: () => ({ action: "send_followup", nextStage: 1 }),

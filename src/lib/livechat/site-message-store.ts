@@ -3,6 +3,11 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { db } from "../../db";
 import { conversations, lcChats, lcMessages, lcVisitors, messages } from "../../db/schema";
 import { SITE_PROVIDER, visitorIdFromSiteConversation } from "./site-channel-policy";
+import { getAiPersona } from "../ai-persona";
+import {
+  formatQuotedPreviewForSite,
+  resolveSiteQuotedSenderLabel,
+} from "../triage/industrial-citations";
 
 /** Both histories commit together. An accepted legacy row is repaired before retry succeeds. */
 export async function persistSiteOperatorMessage(
@@ -14,6 +19,7 @@ export async function persistSiteOperatorMessage(
     operatorName: string;
     text: string;
     idempotencyKey?: string;
+    quotedMessageId?: string;
   },
 ) {
   const { tenantId, conversationId, operatorId, idempotencyKey } = input;
@@ -55,6 +61,45 @@ export async function persistSiteOperatorMessage(
     const id = previous?.id || `msg-${randomUUID()}`;
     const content = previous?.content ?? input.text;
     const widgetId = previous?.externalId || `${id}-widget`;
+    let canonicalQuotedId: string | null = previous?.quotedMessageId ?? null;
+    let canonicalQuotedSender: string | null = previous?.quotedMessageSender ?? null;
+    let canonicalQuotedContent: string | null = previous?.quotedMessageContent ?? null;
+    let widgetQuotedId: string | null = null;
+    let widgetQuotedSender: string | null = null;
+    let widgetQuotedContent: string | null = null;
+    const requestedQuoteId = input.quotedMessageId?.trim() || canonicalQuotedId;
+    if (requestedQuoteId) {
+      const [quotedRow] = await tx
+        .select({
+          id: messages.id,
+          externalId: messages.externalId,
+          senderType: messages.senderType,
+          senderName: messages.senderName,
+          content: messages.content,
+          mediaInterpretation: messages.mediaInterpretation,
+        })
+        .from(messages)
+        .where(
+          and(
+            eq(messages.tenantId, tenantId),
+            eq(messages.conversationId, conversationId),
+            eq(messages.id, requestedQuoteId),
+          ),
+        )
+        .limit(1);
+      if (quotedRow) {
+        canonicalQuotedId = quotedRow.id;
+        canonicalQuotedSender =
+          quotedRow.senderName || (quotedRow.senderType === "client" ? "Cliente" : "Operador");
+        canonicalQuotedContent = quotedRow.content || null;
+        widgetQuotedId = quotedRow.externalId || quotedRow.id;
+        widgetQuotedSender = resolveSiteQuotedSenderLabel(quotedRow, getAiPersona(tenantId).name);
+        widgetQuotedContent = formatQuotedPreviewForSite(
+          quotedRow.content,
+          quotedRow.mediaInterpretation,
+        );
+      }
+    }
     let [widget] = await tx
       .select()
       .from(lcMessages)
@@ -107,6 +152,9 @@ export async function persistSiteOperatorMessage(
           sender: "operator",
           content,
           contentType: "text",
+          quotedMessageId: widgetQuotedId,
+          quotedMessageSender: widgetQuotedSender,
+          quotedMessageContent: widgetQuotedContent,
           sentAt: previous?.sentAt || now,
         })
         .returning();
@@ -137,6 +185,9 @@ export async function persistSiteOperatorMessage(
           direction: "outbound",
           provider: SITE_PROVIDER,
           idempotencyKey: idempotencyKey || null,
+          quotedMessageId: canonicalQuotedId,
+          quotedMessageSender: canonicalQuotedSender,
+          quotedMessageContent: canonicalQuotedContent,
           sentAt: now,
           ...values,
         })

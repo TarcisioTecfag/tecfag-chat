@@ -1954,6 +1954,10 @@ export const lcMessages = pgTable("lc_messages", {
   fileName:    text("file_name"),
   // Para card de produto Tray (embed na mensagem)
   trayProductData: jsonb("tray_product_data"),             // { id, name, price, imageUrl, productUrl }
+  // Citação / resposta a mensagem anterior no widget do site
+  quotedMessageId: text("quoted_message_id"),
+  quotedMessageSender: text("quoted_message_sender"),
+  quotedMessageContent: text("quoted_message_content"),
   sentAt:      timestamp("sent_at").defaultNow().notNull(),
 });
 

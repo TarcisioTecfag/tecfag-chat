@@ -97,6 +97,9 @@ export interface SdrTriageMessage {
   mediaUrl?: string | null;
   mediaType?: string | null;
   fileName?: string | null;
+  quotedMessageId?: string | null;
+  quotedMessageSender?: string | null;
+  quotedMessageContent?: string | null;
 }
 
 export interface SdrPreviousTriage {
@@ -1179,6 +1182,32 @@ const SdrTimelineRow = React.memo(function SdrTimelineRow({
             <span className="text-[9px] font-extrabold text-primary-foreground/85 tracking-wide">
               {personaName} · IA
             </span>
+          </div>
+        )}
+
+        {msg.quotedMessageContent && (
+          <div
+            className={`mb-1.5 rounded-md border-l-2 px-2 py-1 text-[10px] leading-snug ${
+              isBot
+                ? "border-primary-foreground/75 bg-primary-foreground/15 text-primary-foreground/90"
+                : "border-primary bg-background/70 text-muted-foreground"
+            }`}
+          >
+            <div
+              className={`font-bold truncate ${
+                isBot ? "text-primary-foreground" : "text-primary"
+              }`}
+            >
+              {msg.quotedMessageSender || "Mensagem citada"}
+            </div>
+            <div className="line-clamp-2 break-words opacity-90">
+              {msg.quotedMessageContent
+                .replace(/^\[MEDIA:image\][^\n]*\n?/i, "📷 Imagem ")
+                .replace(/^\[MEDIA:audio\][^\n]*\n?/i, "🎤 Áudio ")
+                .replace(/^\[MEDIA:document\][^\n]*\n?/i, "📄 Documento ")
+                .replace(/^\[MEDIA:video\][^\n]*\n?/i, "🎥 Vídeo ")
+                .trim() || "Mensagem citada"}
+            </div>
           </div>
         )}
 

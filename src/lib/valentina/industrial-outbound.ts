@@ -11,6 +11,10 @@ import {
   tenants,
 } from "../../db/schema";
 import { getAiPersona } from "../ai-persona";
+import {
+  formatQuotedPreviewForSite,
+  resolveSiteQuotedSenderLabel,
+} from "../triage/industrial-citations";
 import { siteGateway } from "../livechat/site-gateway";
 import { buildSiteCatalogMediaUrl, visitorIdFromSiteConversation } from "../livechat/site-channel-policy";
 import { SessionManager } from "../baileys/session-manager";
@@ -305,6 +309,44 @@ async function dispatchSiteBot(message: typeof messages.$inferSelect) {
     const widgetContent = imageUrl
       ? `[Anexo_Cliente: ${imageUrl}]`
       : String(current.metaDetails.text || current.content);
+    let widgetQuotedMessageId: string | null = null;
+    let widgetQuotedSender: string | null = null;
+    let widgetQuotedContent: string | null = null;
+    if (current.quotedMessageId) {
+      const [quotedRow] = await tx
+        .select({
+          id: messages.id,
+          externalId: messages.externalId,
+          senderType: messages.senderType,
+          senderName: messages.senderName,
+          content: messages.content,
+          mediaInterpretation: messages.mediaInterpretation,
+        })
+        .from(messages)
+        .where(
+          and(
+            eq(messages.tenantId, current.tenantId),
+            eq(messages.conversationId, current.conversationId),
+            eq(messages.id, current.quotedMessageId),
+          ),
+        )
+        .limit(1);
+      if (quotedRow) {
+        widgetQuotedMessageId = quotedRow.externalId || quotedRow.id;
+        widgetQuotedSender = resolveSiteQuotedSenderLabel(
+          quotedRow,
+          getAiPersona(current.tenantId).name,
+        );
+        widgetQuotedContent = formatQuotedPreviewForSite(
+          quotedRow.content,
+          quotedRow.mediaInterpretation,
+        );
+      } else if (current.quotedMessageContent) {
+        widgetQuotedMessageId = current.quotedMessageId;
+        widgetQuotedSender = current.quotedMessageSender || getAiPersona(current.tenantId).name;
+        widgetQuotedContent = formatQuotedPreviewForSite(current.quotedMessageContent);
+      }
+    }
     const [widget] = await tx
       .insert(lcMessages)
       .values({
@@ -315,6 +357,9 @@ async function dispatchSiteBot(message: typeof messages.$inferSelect) {
         content: widgetContent,
         contentType: imageUrl ? "image" : "text",
         mediaUrl: imageUrl,
+        quotedMessageId: widgetQuotedMessageId,
+        quotedMessageSender: widgetQuotedSender,
+        quotedMessageContent: widgetQuotedContent,
         sentAt: current.sentAt,
       })
       .returning();
@@ -353,6 +398,13 @@ async function dispatchSiteBot(message: typeof messages.$inferSelect) {
   const imageUrl = rawSavedImageUrl
     ? buildSiteCatalogMediaUrl(message.tenantId, rawSavedImageUrl)
     : null;
+  const quotePayload = saved.widget.quotedMessageContent
+    ? {
+        quotedMessageId: saved.widget.quotedMessageId || undefined,
+        quotedMessageSender: saved.widget.quotedMessageSender || undefined,
+        quotedMessageContent: saved.widget.quotedMessageContent,
+      }
+    : {};
   siteGateway.push(
     message.tenantId,
     saved.visitorId,
@@ -363,6 +415,7 @@ async function dispatchSiteBot(message: typeof messages.$inferSelect) {
           messageId: saved.widget.id,
           sender: "ai",
           imageUrl,
+          ...quotePayload,
         }
       : {
           type: "message",
@@ -371,6 +424,7 @@ async function dispatchSiteBot(message: typeof messages.$inferSelect) {
           sender: "ai",
           senderName: saved.canonical.senderName,
           content: saved.widget.content,
+          ...quotePayload,
         },
   );
   siteGateway.push(message.tenantId, saved.visitorId, {
@@ -381,6 +435,7 @@ async function dispatchSiteBot(message: typeof messages.$inferSelect) {
     senderName: saved.canonical.senderName,
     content: saved.widget.content,
     timestamp: saved.canonical.sentAt.toISOString(),
+    ...quotePayload,
   });
   notify(message.tenantId, {
     type: "message_status",

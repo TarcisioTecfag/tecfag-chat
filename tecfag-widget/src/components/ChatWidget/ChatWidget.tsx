@@ -157,6 +157,11 @@ function sanitizeLoadedMessages(msgs: any[]): Message[] {
         serverTs: m.serverTs,
         isSystem: Boolean(m.isSystem || sender === "system"),
         isAgentJoined,
+        quotedMessageId: typeof m.quotedMessageId === "string" ? m.quotedMessageId : undefined,
+        quotedMessageSender:
+          typeof m.quotedMessageSender === "string" ? m.quotedMessageSender : undefined,
+        quotedMessageContent:
+          typeof m.quotedMessageContent === "string" ? m.quotedMessageContent : undefined,
       };
     })
     .filter((m): m is Message => m !== null);
@@ -290,6 +295,8 @@ export const ChatWidget: React.FC = () => {
     : AVATAR_URL || `${BACKEND_URL}/fagner-avatar.jpg`;
 
   const [messages, setMessages] = useState<Message[]>(loadStoredMessages);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isTyping, setIsTyping] = useState(false);
   const [, setIsConnected] = useState(false);
@@ -611,12 +618,36 @@ export const ChatWidget: React.FC = () => {
     }
   }, [messages, isTyping, isOpen]);
 
+  const handleJumpToMessage = useCallback((targetId: string) => {
+    if (!targetId || !scrollRef.current) return;
+    const escaped =
+      typeof CSS !== "undefined" && typeof CSS.escape === "function"
+        ? CSS.escape(targetId)
+        : targetId.replace(/["\\]/g, "\\$&");
+    const targetEl = scrollRef.current.querySelector(
+      `[data-widget-msg-id="${escaped}"]`,
+    ) as HTMLElement | null;
+    if (targetEl) {
+      targetEl.scrollIntoView({ behavior: "smooth", block: "center" });
+      setHighlightedMessageId(targetId);
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+      highlightTimerRef.current = setTimeout(() => {
+        setHighlightedMessageId((cur) => (cur === targetId ? null : cur));
+      }, 1600);
+    }
+  }, []);
+
   const addAgentMessage = useCallback(
     (
       text: string,
       agentAttachments?: { url: string; name: string; mimeType: string; size?: number }[],
       messageId?: string,
       serverTs?: string,
+      quoted?: {
+        id?: string | null;
+        sender?: string | null;
+        content?: string | null;
+      },
     ) => {
       const ts = serverTs || getTimestamp();
       setMessages((prev) => {
@@ -630,6 +661,13 @@ export const ChatWidget: React.FC = () => {
             timestamp: ts,
             agentAttachments,
             serverTs,
+            ...(quoted?.content
+              ? {
+                  quotedMessageId: quoted.id || null,
+                  quotedMessageSender: quoted.sender || null,
+                  quotedMessageContent: quoted.content,
+                }
+              : {}),
           },
         ];
       });
@@ -807,6 +845,18 @@ export const ChatWidget: React.FC = () => {
                 !/^\[(?:AGENT_ATTACHMENTS|Anexo_Cliente|IMAGE):/i.test(replyContent.trim());
               if (isInternalLog && !incomingAttachments?.length) break;
 
+              const quotedPayload =
+                typeof data.quotedMessageContent === "string" && data.quotedMessageContent.trim()
+                  ? {
+                      id: typeof data.quotedMessageId === "string" ? data.quotedMessageId : null,
+                      sender:
+                        typeof data.quotedMessageSender === "string"
+                          ? data.quotedMessageSender
+                          : null,
+                      content: data.quotedMessageContent,
+                    }
+                  : undefined;
+
               const isHistory = data.fromHistory === true;
               if (isHistory) {
                 setMessages((prev) => {
@@ -827,12 +877,25 @@ export const ChatWidget: React.FC = () => {
                       timestamp: data.timestamp || getTimestamp(),
                       serverTs: data.timestamp ?? undefined,
                       agentAttachments: incomingAttachments,
+                      ...(quotedPayload
+                        ? {
+                            quotedMessageId: quotedPayload.id,
+                            quotedMessageSender: quotedPayload.sender,
+                            quotedMessageContent: quotedPayload.content,
+                          }
+                        : {}),
                       ...(data.sender === "visitor" ? { deliveryState: "confirmed" as const } : {}),
                     },
                   ];
                 });
               } else {
-                addAgentMessage(replyContent, incomingAttachments, data.messageId, data.timestamp);
+                addAgentMessage(
+                  replyContent,
+                  incomingAttachments,
+                  data.messageId,
+                  data.timestamp,
+                  quotedPayload,
+                );
               }
               break;
             }
@@ -1053,6 +1116,7 @@ export const ChatWidget: React.FC = () => {
       document.removeEventListener("click", handleCtaClick, { capture: true });
       if (heartbeatIntervalRef.current) clearInterval(heartbeatIntervalRef.current);
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
       const socket = wsRef.current;
       wsRef.current = null;
       socket?.close();
@@ -1912,6 +1976,8 @@ export const ChatWidget: React.FC = () => {
                     key={msg.id}
                     message={msg}
                     isBlackNovember={isBlackNovember}
+                    highlighted={highlightedMessageId === msg.id}
+                    onJumpToMessage={handleJumpToMessage}
                     onRetry={retryMessage}
                     onSelectRating={(rating) => {
                       if (wsRef.current?.readyState === WebSocket.OPEN) {

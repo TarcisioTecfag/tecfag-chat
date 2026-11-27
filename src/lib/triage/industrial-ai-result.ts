@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { INDUSTRIAL_ROUTES } from "./industrial-policy.ts";
+import type { IndustrialMessageQuote, IndustrialQuoteReason } from "./industrial-citations.ts";
 
 const fieldNames = new Set([
   "NOME COMPLETO",
@@ -144,6 +145,44 @@ const siteWhatsappMigrationSchema = z
     };
   });
 
+const quoteReasonSet = new Set<IndustrialQuoteReason>([
+  "unanswered_question",
+  "client_question",
+  "client_media",
+]);
+
+function normalizeMessageQuotes(raw: unknown): IndustrialMessageQuote[] {
+  if (!Array.isArray(raw)) return [];
+  const results: IndustrialMessageQuote[] = [];
+  const seenIndices = new Set<number>();
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const obj = entry as Record<string, unknown>;
+    const rawIdx =
+      typeof obj.messageIndex === "number"
+        ? obj.messageIndex
+        : typeof obj.messageIndex === "string" && /^\d+$/.test(obj.messageIndex.trim())
+          ? Number.parseInt(obj.messageIndex.trim(), 10)
+          : NaN;
+    if (!Number.isInteger(rawIdx) || rawIdx < 0 || rawIdx >= 8) continue;
+    if (seenIndices.has(rawIdx)) continue;
+    const rawId = typeof obj.quoteMessageId === "string" ? obj.quoteMessageId.trim() : "";
+    if (!rawId || rawId.toLowerCase() === "null" || rawId.toLowerCase() === "none") continue;
+    const rawReason = typeof obj.reason === "string" ? obj.reason.trim() : "";
+    const reason = quoteReasonSet.has(rawReason as IndustrialQuoteReason)
+      ? (rawReason as IndustrialQuoteReason)
+      : null;
+    seenIndices.add(rawIdx);
+    results.push({
+      messageIndex: rawIdx,
+      quoteMessageId: rawId.slice(0, 250),
+      reason,
+    });
+    if (results.length >= 3) break;
+  }
+  return results;
+}
+
 const schema = z.object({
   subflow: z.unknown().transform(normalizeSubflow),
   extractedData: z.unknown().transform(normalizeExtractedData),
@@ -159,6 +198,7 @@ const schema = z.object({
     .optional()
     .transform(() => null),
   quoteMessageId: nullableTrimmedString(250),
+  messageQuotes: z.unknown().optional().transform(normalizeMessageQuotes),
   mediaDescription: nullableTrimmedString(8000),
   directOperatorRequest: directOperatorRequestSchema,
   siteWhatsappMigration: siteWhatsappMigrationSchema,

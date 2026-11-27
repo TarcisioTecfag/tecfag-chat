@@ -527,15 +527,24 @@ export class MetaAdapter implements WhatsAppAdapter {
 
       // Contexto de resposta a mensagem anterior (quoted) se fornecido (suportado para texto e mídia)
       if (!message.templateName && message.quotedMessageId) {
-        const [quoted] = await db.select({ externalId: messages.externalId }).from(messages).where(and(
-          eq(messages.id, message.quotedMessageId),
-          eq(messages.tenantId, tenantId),
-          eq(messages.conversationId, message.conversationId)
-        ));
-        if (quoted?.externalId) {
-          const inboundPrefix = `meta:${tenantId}:`;
-          bodyPayload.context = { message_id: quoted.externalId.startsWith(inboundPrefix)
-            ? quoted.externalId.slice(inboundPrefix.length) : quoted.externalId };
+        const [quoted] = await db
+          .select({ externalId: messages.externalId, provider: messages.provider })
+          .from(messages)
+          .where(
+            and(
+              eq(messages.id, message.quotedMessageId),
+              eq(messages.tenantId, tenantId),
+              eq(messages.conversationId, message.conversationId),
+            ),
+          );
+        const { resolveMetaReplyContextMessageId } = await import("../../triage/industrial-citations");
+        const replyContextId = resolveMetaReplyContextMessageId(
+          quoted?.externalId,
+          tenantId,
+          quoted?.provider,
+        );
+        if (replyContextId) {
+          bodyPayload.context = { message_id: replyContextId };
         }
       }
 
@@ -552,6 +561,27 @@ export class MetaAdapter implements WhatsAppAdapter {
       });
 
       let data = await response.json();
+
+      // Fallback defensivo: caso a API rejeite especificamente o parâmetro `context` (citação expirada/inválida), reenvia sem `context`
+      if (
+        !response.ok &&
+        bodyPayload.context?.message_id &&
+        /(?:context|message_id|replied|quoted)/i.test(
+          `${data?.error?.message || ""} ${data?.error?.error_data?.details || ""}`,
+        )
+      ) {
+        const { context: _droppedContext, ...fallbackPayload } = bodyPayload;
+        response = await fetch(messagesEndpoint, {
+          method: "POST",
+          signal: AbortSignal.timeout(30000),
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(fallbackPayload),
+        });
+        data = await response.json();
+      }
 
       // Fallback defensivo: caso a API rejeite especificamente o parâmetro `voice`, reenvia sem `voice`
       if (

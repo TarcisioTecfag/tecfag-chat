@@ -287,18 +287,28 @@ export async function sendSiteOperatorText(params: {
   text: string;
   operatorName: string;
   idempotencyKey?: string;
+  quotedMessageId?: string;
 }) {
   const { tenantId, conversationId } = params;
   const { message, widgetMessage, visitorId } = await persistSiteOperatorMessage(db, params);
+  const quotePayload = widgetMessage.quotedMessageContent
+    ? {
+        quotedMessageId: widgetMessage.quotedMessageId || undefined,
+        quotedMessageSender: widgetMessage.quotedMessageSender || undefined,
+        quotedMessageContent: widgetMessage.quotedMessageContent,
+      }
+    : {};
   // Publishing is auxiliary: the two histories already committed and survive a crash.
   const delivered = siteGateway.push(tenantId, visitorId, {
     type: "message", chatId: widgetMessage.chatId, messageId: widgetMessage.id,
     sender: "operator", senderName: message.senderName, content: message.content,
+    ...quotePayload,
   }) || false;
   const deliveredLegacy = siteGateway.push(tenantId, visitorId, {
     type: "CHAT_REPLY", chatId: widgetMessage.chatId, messageId: widgetMessage.id,
     sender: "agent", senderName: message.senderName, content: message.content,
     timestamp: message.sentAt.toISOString(),
+    ...quotePayload,
   });
   let status = message.status;
   if ((delivered || deliveredLegacy) && status !== "read") try {
