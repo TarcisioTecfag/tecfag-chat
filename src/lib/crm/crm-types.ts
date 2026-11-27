@@ -174,6 +174,7 @@ export type CrmDealEventType =
   | "rating_changed"
   | "owner_changed"
   | "expected_close_date_changed"
+  | "closed_at_changed"
   | "source_changed"
   | "campaign_changed"
   | "pipeline_changed"

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useTrainingSurface } from "@/hooks/useTrainingSurface";
 import { sortAlphabeticallyByName } from "@/lib/operator-initial-navigation";
+import { formatDateKeySaoPaulo } from "@/lib/crm/closed-at-policy";
 import {
   X,
   Building2,
@@ -4398,6 +4399,31 @@ export function DealDetailModal({
                     />
                   </div>
 
+                  {/* Data de Fechamento Real (editável por administradores em negociações encerradas) */}
+                  {(deal?.status === "won" || deal?.status === "lost" || Boolean(deal?.closedAt)) &&
+                    chatContext?.sessionRole === "admin" && (
+                      <div className="space-y-1">
+                        <label className="text-[10px] text-muted-foreground font-semibold block">
+                          Data de Fechamento
+                        </label>
+                        <CrmDatePicker
+                          value={formatDateKeySaoPaulo(deal?.closedAt)}
+                          onChange={(val) => {
+                            if (!val) return;
+                            updateDeal({
+                              closedAt: val,
+                              closedAtExplicit: true,
+                            });
+                          }}
+                          allowClear={false}
+                          allowFuture={false}
+                          footerPrefix="Fechamento:"
+                          placeholder="Selecionar data de fechamento"
+                          tooltipText="Ajustar data real de fechamento (somente administradores)"
+                        />
+                      </div>
+                    )}
+
                   {/* Origem do Lead -> agora com nome "Fonte" */}
                   <div className="space-y-1">
                     <label className="text-[10px] text-muted-foreground font-semibold block">Fonte</label>
@@ -4426,6 +4452,20 @@ export function DealDetailModal({
                           : "-"}
                       </span>
                     </div>
+                    {deal?.closedAt && (
+                      <div className="flex items-center justify-between">
+                        <span>Fechado em:</span>
+                        <span className="font-semibold text-foreground">
+                          {new Date(deal.closedAt).toLocaleDateString("pt-BR", {
+                            day: "2-digit",
+                            month: "2-digit",
+                            year: "2-digit",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </span>
+                      </div>
+                    )}
                     <div className="flex items-center justify-between">
                       <span>Atualizado em:</span>
                       <span className="font-semibold text-foreground">

@@ -9,6 +9,9 @@ interface CrmDatePickerProps {
   className?: string;
   disabled?: boolean;
   tooltipText?: string;
+  allowClear?: boolean;
+  allowFuture?: boolean;
+  footerPrefix?: string;
 }
 
 export function CrmDatePicker({
@@ -18,6 +21,9 @@ export function CrmDatePicker({
   className = "",
   disabled = false,
   tooltipText = "Selecionar data",
+  allowClear = true,
+  allowFuture = true,
+  footerPrefix = "Previsão:",
 }: CrmDatePickerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -132,7 +138,7 @@ export function CrmDatePicker({
                 {formattedDisplay || placeholder}
               </span>
             </div>
-            {parsedDate && !disabled && (
+            {allowClear && parsedDate && !disabled && (
               <SystemTooltip content="Remover data">
                 <span
                   role="button"
@@ -198,44 +204,85 @@ export function CrmDatePicker({
           </div>
 
           {/* Atalhos Rápidos */}
-          <div className="grid grid-cols-4 gap-1 mb-2.5 pb-2 border-b border-border/50 text-[10px]">
-            <SystemTooltip content="Definir para a data de hoje">
-              <button
-                type="button"
-                onClick={() => handleQuickSelect(0)}
-                className="py-1 px-1.5 rounded bg-muted/40 hover:bg-primary/20 hover:text-primary text-muted-foreground transition-colors text-center font-medium cursor-pointer"
-              >
-                Hoje
-              </button>
-            </SystemTooltip>
-            <SystemTooltip content="Definir para daqui a 7 dias">
-              <button
-                type="button"
-                onClick={() => handleQuickSelect(7)}
-                className="py-1 px-1.5 rounded bg-muted/40 hover:bg-primary/20 hover:text-primary text-muted-foreground transition-colors text-center font-medium cursor-pointer"
-              >
-                +7d
-              </button>
-            </SystemTooltip>
-            <SystemTooltip content="Definir para daqui a 15 dias">
-              <button
-                type="button"
-                onClick={() => handleQuickSelect(15)}
-                className="py-1 px-1.5 rounded bg-muted/40 hover:bg-primary/20 hover:text-primary text-muted-foreground transition-colors text-center font-medium cursor-pointer"
-              >
-                +15d
-              </button>
-            </SystemTooltip>
-            <SystemTooltip content="Definir para o último dia deste mês">
-              <button
-                type="button"
-                onClick={handleSelectEndOfMonth}
-                className="py-1 px-1.5 rounded bg-muted/40 hover:bg-primary/20 hover:text-primary text-muted-foreground transition-colors text-center font-medium cursor-pointer"
-              >
-                Fim do mês
-              </button>
-            </SystemTooltip>
-          </div>
+          {allowFuture ? (
+            <div className="grid grid-cols-4 gap-1 mb-2.5 pb-2 border-b border-border/50 text-[10px]">
+              <SystemTooltip content="Definir para a data de hoje">
+                <button
+                  type="button"
+                  onClick={() => handleQuickSelect(0)}
+                  className="py-1 px-1.5 rounded bg-muted/40 hover:bg-primary/20 hover:text-primary text-muted-foreground transition-colors text-center font-medium cursor-pointer"
+                >
+                  Hoje
+                </button>
+              </SystemTooltip>
+              <SystemTooltip content="Definir para daqui a 7 dias">
+                <button
+                  type="button"
+                  onClick={() => handleQuickSelect(7)}
+                  className="py-1 px-1.5 rounded bg-muted/40 hover:bg-primary/20 hover:text-primary text-muted-foreground transition-colors text-center font-medium cursor-pointer"
+                >
+                  +7d
+                </button>
+              </SystemTooltip>
+              <SystemTooltip content="Definir para daqui a 15 dias">
+                <button
+                  type="button"
+                  onClick={() => handleQuickSelect(15)}
+                  className="py-1 px-1.5 rounded bg-muted/40 hover:bg-primary/20 hover:text-primary text-muted-foreground transition-colors text-center font-medium cursor-pointer"
+                >
+                  +15d
+                </button>
+              </SystemTooltip>
+              <SystemTooltip content="Definir para o último dia deste mês">
+                <button
+                  type="button"
+                  onClick={handleSelectEndOfMonth}
+                  className="py-1 px-1.5 rounded bg-muted/40 hover:bg-primary/20 hover:text-primary text-muted-foreground transition-colors text-center font-medium cursor-pointer"
+                >
+                  Fim do mês
+                </button>
+              </SystemTooltip>
+            </div>
+          ) : (
+            <div className="grid grid-cols-4 gap-1 mb-2.5 pb-2 border-b border-border/50 text-[10px]">
+              <SystemTooltip content="Definir para a data de hoje">
+                <button
+                  type="button"
+                  onClick={() => handleQuickSelect(0)}
+                  className="py-1 px-1.5 rounded bg-muted/40 hover:bg-primary/20 hover:text-primary text-muted-foreground transition-colors text-center font-medium cursor-pointer"
+                >
+                  Hoje
+                </button>
+              </SystemTooltip>
+              <SystemTooltip content="Definir para ontem">
+                <button
+                  type="button"
+                  onClick={() => handleQuickSelect(-1)}
+                  className="py-1 px-1.5 rounded bg-muted/40 hover:bg-primary/20 hover:text-primary text-muted-foreground transition-colors text-center font-medium cursor-pointer"
+                >
+                  Ontem
+                </button>
+              </SystemTooltip>
+              <SystemTooltip content="Definir para 7 dias atrás">
+                <button
+                  type="button"
+                  onClick={() => handleQuickSelect(-7)}
+                  className="py-1 px-1.5 rounded bg-muted/40 hover:bg-primary/20 hover:text-primary text-muted-foreground transition-colors text-center font-medium cursor-pointer"
+                >
+                  -7d
+                </button>
+              </SystemTooltip>
+              <SystemTooltip content="Definir para 30 dias atrás">
+                <button
+                  type="button"
+                  onClick={() => handleQuickSelect(-30)}
+                  className="py-1 px-1.5 rounded bg-muted/40 hover:bg-primary/20 hover:text-primary text-muted-foreground transition-colors text-center font-medium cursor-pointer"
+                >
+                  -30d
+                </button>
+              </SystemTooltip>
+            </div>
+          )}
 
           {/* Dias da Semana */}
           <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-semibold text-muted-foreground mb-1">
@@ -260,6 +307,9 @@ export function CrmDatePicker({
                 : false;
 
               const today = new Date();
+              const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+              const cellDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), item.day);
+              const isFutureDay = !allowFuture && cellDate.getTime() > todayStart.getTime();
               const isToday =
                 today.getDate() === item.day &&
                 today.getMonth() === currentMonth.getMonth() &&
@@ -268,17 +318,24 @@ export function CrmDatePicker({
               return (
                 <SystemTooltip
                   key={item.dateString}
-                  content={`Selecionar dia ${String(item.day).padStart(2, "0")}/${String(currentMonth.getMonth() + 1).padStart(2, "0")}/${currentMonth.getFullYear()}`}
+                  content={
+                    isFutureDay
+                      ? "Datas futuras não são permitidas"
+                      : `Selecionar dia ${String(item.day).padStart(2, "0")}/${String(currentMonth.getMonth() + 1).padStart(2, "0")}/${currentMonth.getFullYear()}`
+                  }
                 >
                   <button
                     type="button"
-                    onClick={() => handleSelectDate(item.dateString!)}
-                    className={`h-7 w-full flex items-center justify-center rounded-md text-xs transition-colors cursor-pointer relative ${
-                      isSelected
-                        ? "bg-primary text-primary-foreground font-bold shadow-sm"
+                    disabled={isFutureDay}
+                    onClick={() => !isFutureDay && handleSelectDate(item.dateString!)}
+                    className={`h-7 w-full flex items-center justify-center rounded-md text-xs transition-colors relative ${
+                      isFutureDay
+                        ? "text-muted-foreground/40 cursor-not-allowed"
+                        : isSelected
+                        ? "bg-primary text-primary-foreground font-bold shadow-sm cursor-pointer"
                         : isToday
-                        ? "border border-primary/50 text-primary font-semibold hover:bg-primary/10"
-                        : "text-foreground hover:bg-muted/80 hover:text-foreground"
+                        ? "border border-primary/50 text-primary font-semibold hover:bg-primary/10 cursor-pointer"
+                        : "text-foreground hover:bg-muted/80 hover:text-foreground cursor-pointer"
                     }`}
                   >
                     {item.day}
@@ -295,9 +352,9 @@ export function CrmDatePicker({
           <div className="mt-2.5 pt-2 border-t border-border/50 flex items-center justify-between text-[10px] text-muted-foreground">
             <span className="flex items-center gap-1">
               <Clock className="h-3 w-3" />
-              {parsedDate ? `Previsão: ${formattedDisplay}` : "Nenhuma data selecionada"}
+              {parsedDate ? `${footerPrefix} ${formattedDisplay}` : "Nenhuma data selecionada"}
             </span>
-            {parsedDate && (
+            {allowClear && parsedDate && (
               <SystemTooltip content="Remover data selecionada">
                 <button
                   type="button"

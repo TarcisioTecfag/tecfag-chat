@@ -3,6 +3,11 @@ import { createFileRoute } from "@tanstack/react-router";
 import { requireSession } from "../../../../lib/auth-session";
 import { getAllowedPipelineIds, requireCrmPermission } from "../../../../lib/rbac";
 import { crmService, handleCrmError } from "../../../../lib/crm/crm-service";
+import {
+  DealClosedAtValidationError,
+  isExplicitClosedAtRequest,
+  parseDealClosedAtInput,
+} from "../../../../lib/crm/closed-at-policy";
 import { conversationReadCondition } from "../../../../lib/access-control/conversation-access";
 
 const corsHeaders = {
@@ -124,6 +129,31 @@ export const Route = createFileRoute("/api/crm/deals/$dealId")({
             if (denied) return denied;
           }
 
+          const isManualClosedAtEdit = isExplicitClosedAtRequest(body);
+          let parsedExplicitClosedAt: Date | undefined;
+          if (isManualClosedAtEdit) {
+            if (session.operator.role !== "admin") {
+              return new Response(
+                JSON.stringify({
+                  error: "Apenas administradores podem alterar manualmente a data de fechamento.",
+                  code: "FORBIDDEN",
+                }),
+                { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+              );
+            }
+            try {
+              parsedExplicitClosedAt = parseDealClosedAtInput(body.closedAt);
+            } catch (err) {
+              if (err instanceof DealClosedAtValidationError) {
+                return new Response(
+                  JSON.stringify({ error: err.message, code: err.code }),
+                  { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+                );
+              }
+              throw err;
+            }
+          }
+
           const targetOpId = body.operatorId !== undefined ? body.operatorId : body.ownerId;
 
           const updated = await crmService.updateDeal(tenantId, dealId, session.operator.id, {
@@ -138,6 +168,11 @@ export const Route = createFileRoute("/api/crm/deals/$dealId")({
                 : body.expectedCloseDate
                   ? new Date(body.expectedCloseDate)
                   : undefined,
+            closedAt: parsedExplicitClosedAt,
+            closedAtReason:
+              isManualClosedAtEdit && typeof body.closedAtReason === "string"
+                ? body.closedAtReason
+                : undefined,
             operatorId: targetOpId,
             accountId: body.accountId,
             rating: body.rating,

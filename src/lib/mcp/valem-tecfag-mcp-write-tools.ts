@@ -28,6 +28,7 @@ import {
   tasks,
 } from "../../db/schema";
 import { crmService } from "../crm/crm-service";
+import { parseDealClosedAtInput } from "../crm/closed-at-policy";
 import { recordCrmAction } from "../crm/action-history";
 import { resolveAccountCustomFieldsInput } from "./valem-tecfag-mcp-account-fields";
 import {
@@ -985,6 +986,15 @@ export const MCP_EXTENDED_TOOLS: McpToolDefinition[] = [
         expectedCloseDate: {
           type: ["string", "null"],
           description: "Previsão de fechamento (ISO YYYY-MM-DD ou null para limpar).",
+        },
+        closedAt: {
+          type: "string",
+          description:
+            "Data de fechamento real da negociação (YYYY-MM-DD ou ISO 8601; datas YYYY-MM-DD são normalizadas para 12:00 BRT). Sincroniza closedAt e wonAt/lostAt em negociações ganhas, perdidas ou em etapa de fechamento.",
+        },
+        closedAtReason: {
+          type: "string",
+          description: "Motivo opcional da alteração manual da data de fechamento (registrado no log de auditoria).",
         },
         rating: {
           type: "number",
@@ -3980,6 +3990,13 @@ export async function executeExtendedMcpTool(
             : parseOptionalDate(args.expectedCloseDate, "expectedCloseDate") ?? null;
         updatedFields.push("expectedCloseDate");
       }
+      if (args.closedAt !== undefined) {
+        updatePayload.closedAt = parseDealClosedAtInput(args.closedAt);
+        if (args.closedAtReason !== undefined) {
+          updatePayload.closedAtReason = asTrimmedString(args.closedAtReason) ?? null;
+        }
+        updatedFields.push("closedAt");
+      }
       if (args.rating !== undefined) {
         const ratingNum = Number(args.rating);
         if (!Number.isInteger(ratingNum) || ratingNum < 0 || ratingNum > 5) {
@@ -4215,6 +4232,9 @@ export async function executeExtendedMcpTool(
               campaign: freshDeal.campaign,
               rating: freshDeal.rating,
               expectedCloseDate: freshDeal.expectedCloseDate,
+              closedAt: freshDeal.closedAt,
+              wonAt: freshDeal.wonAt,
+              lostAt: freshDeal.lostAt,
               pausedReason: freshDeal.pausedReason,
               entryChannel: freshDeal.entryChannel,
               utmSource: freshDeal.utmSource,

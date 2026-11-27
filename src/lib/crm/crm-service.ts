@@ -48,6 +48,12 @@ import {
 import { ensureAuditOriginSchema } from "../audit/audit-schema";
 import { normalizeLossReasonInput, resolveRequiredLossReason } from "./loss-reason-policy";
 import {
+  DealClosedAtValidationError,
+  formatDateKeySaoPaulo,
+  parseDealClosedAtInput,
+  resolveDealClosureTimestamps,
+} from "./closed-at-policy";
+import {
   findContactByAnyPhone,
   getContactPhonesMap,
   normalizeContactPhonesInput,
@@ -5522,6 +5528,8 @@ export class CrmService {
       status?: "open" | "won" | "lost" | "paused";
       value?: string | number | null;
       expectedCloseDate?: Date | null;
+      closedAt?: Date | string | null;
+      closedAtReason?: string | null;
       operatorId?: string | null;
       ownerId?: string | null;
       accountId?: string | null;
@@ -5960,16 +5968,46 @@ export class CrmService {
         sectorCurrent: nextSectorCurrent,
       });
 
-      if (finalStatus === "lost") {
-        setPayload.lostAt = current.lostAt ?? setPayload.closedAt ?? now;
-        setPayload.wonAt = null;
-      } else if (effectiveWin) {
-        setPayload.wonAt = current.wonAt ?? setPayload.closedAt ?? now;
-        setPayload.lostAt = null;
-      } else if (finalStatus === "open") {
-        if (current.wonAt !== null) setPayload.wonAt = null;
-        if (current.lostAt !== null) setPayload.lostAt = null;
+      let explicitClosedAt: Date | undefined;
+      if (updates.closedAt !== undefined) {
+        if (updates.closedAt === null) {
+          throw new CrmValidationError(
+            "A data de fechamento não pode ser removida manualmente em uma negociação encerrada.",
+            "INVALID_CLOSED_AT",
+          );
+        }
+        try {
+          explicitClosedAt = parseDealClosedAtInput(updates.closedAt, now);
+        } catch (err) {
+          if (err instanceof DealClosedAtValidationError) {
+            throw new CrmValidationError(err.message, err.code);
+          }
+          throw err;
+        }
       }
+
+      let resolvedClosure: { closedAt?: Date | null; wonAt?: Date | null; lostAt?: Date | null };
+      try {
+        resolvedClosure = resolveDealClosureTimestamps({
+          finalStatus,
+          effectiveWin,
+          explicitClosedAt,
+          currentClosedAt: current.closedAt ? new Date(current.closedAt) : null,
+          currentWonAt: current.wonAt ? new Date(current.wonAt) : null,
+          currentLostAt: current.lostAt ? new Date(current.lostAt) : null,
+          pendingClosedAt: setPayload.closedAt !== undefined ? setPayload.closedAt : undefined,
+          now,
+        });
+      } catch (err) {
+        if (err instanceof DealClosedAtValidationError) {
+          throw new CrmValidationError(err.message, err.code);
+        }
+        throw err;
+      }
+
+      if (resolvedClosure.closedAt !== undefined) setPayload.closedAt = resolvedClosure.closedAt;
+      if (resolvedClosure.wonAt !== undefined) setPayload.wonAt = resolvedClosure.wonAt;
+      if (resolvedClosure.lostAt !== undefined) setPayload.lostAt = resolvedClosure.lostAt;
 
       const [updated] = await tx
         .update(crmDeals)
@@ -6074,6 +6112,29 @@ export class CrmService {
             {
               fromDate,
               toDate,
+            },
+            tx
+          );
+        }
+      }
+
+      if (explicitClosedAt !== undefined) {
+        const fromIso = current.closedAt ? new Date(current.closedAt).toISOString() : null;
+        const toIso = explicitClosedAt.toISOString();
+        if (fromIso !== toIso) {
+          await this.logDealEvent(
+            tenantId,
+            dealId,
+            "closed_at_changed",
+            operatorId,
+            {
+              fromDate: formatDateKeySaoPaulo(current.closedAt),
+              toDate: formatDateKeySaoPaulo(explicitClosedAt),
+              fromIso,
+              toIso,
+              previousWonAt: current.wonAt ? new Date(current.wonAt).toISOString() : null,
+              previousLostAt: current.lostAt ? new Date(current.lostAt).toISOString() : null,
+              reason: updates.closedAtReason?.trim() || null,
             },
             tx
           );
@@ -6267,6 +6328,7 @@ export class CrmService {
       if (setPayload.rating !== undefined && setPayload.rating !== current.rating) changedFields.push("rating");
       if (setPayload.operatorId !== undefined && setPayload.operatorId !== current.operatorId) changedFields.push("operatorId");
       if (setPayload.expectedCloseDate !== undefined) changedFields.push("expectedCloseDate");
+      if (explicitClosedAt !== undefined) changedFields.push("closedAt");
       if (setPayload.source !== undefined && (setPayload.source || null) !== (current.source || null)) changedFields.push("source");
       if (setPayload.campaign !== undefined && (setPayload.campaign || null) !== (current.campaign || null)) changedFields.push("campaign");
       if (setPayload.accountId !== undefined && setPayload.accountId !== current.accountId) changedFields.push("accountId");

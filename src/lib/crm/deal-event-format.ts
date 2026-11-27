@@ -208,6 +208,23 @@ export function formatDealEvent(
       };
     }
 
+    case "closed_at_changed": {
+      const fromDate = formatDatePtBr(meta.fromDate);
+      const toDate = formatDatePtBr(meta.toDate);
+      const changeReason = text(meta.reason);
+      return {
+        title: toDate
+          ? `Data de fechamento alterada para ${toDate}`
+          : "Data de fechamento atualizada",
+        description: [
+          fromDate ? `Antes: ${fromDate}` : "Antes: Não definida",
+          changeReason ? `Motivo: ${changeReason}` : null,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+      };
+    }
+
     case "source_changed": {
       const fromSource = text(meta.fromSource) || "Não informada";
       const toSource = text(meta.toSource);
