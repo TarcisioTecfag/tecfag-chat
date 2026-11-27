@@ -71,6 +71,8 @@ import {
   type AgenticThoughtTraceData,
 } from "../../../lib/valentina/agentic-thought-trace";
 import { SessionManager } from "../../../lib/baileys/session-manager";
+import { parseCitedMessageMedia } from "../../../lib/valentina/cited-media";
+import { hydrateCitedMediaForInternalRows } from "../../../lib/valentina/cited-media-hydrate";
 import type { MultimodalPart } from "../../../lib/vertex-ai";
 import type {
   RelatedConversationItem,
@@ -1591,10 +1593,8 @@ async function getOperatorContext(
             const waitMinutes = isClientWaiting
               ? Math.max(1, Math.floor((Date.now() - clientMsgMs) / 60_000))
               : agoMin;
-            const cleanPreview = (c.lastMessage || "")
-              .replace(/^\[(LOCAL_MEDIA|MEDIA):[^\]]+\]\s*/i, "[Mídia] ")
-              .trim()
-              .slice(0, 110);
+            const parsedPreview = parseCitedMessageMedia(c.lastMessage || "");
+            const cleanPreview = parsedPreview.previewText.trim().slice(0, 110);
 
             const convItem: RelatedConversationItem = {
               clientId: c.id,
@@ -1602,6 +1602,7 @@ async function getOperatorContext(
               clientPhone: c.contactPhone || null,
               company: c.contactCompany || null,
               lastMessage: cleanPreview || null,
+              ...(parsedPreview.media ? { lastMessageMedia: parsedPreview.media } : {}),
               waitMinutes: isClientWaiting ? waitMinutes : null,
               isWaiting: isClientWaiting,
               dealTitle: c.dealTitle || null,
@@ -2112,12 +2113,14 @@ async function getOperatorContext(
             const deepDetails: string[] = [];
             for (const tc of targetConvs) {
               if (!knownConvMap.has(tc.id)) {
+                const parsedTcPreview = parseCitedMessageMedia(tc.lastMessage || "");
                 knownConvMap.set(tc.id, {
                   clientId: tc.id,
                   clientName: tc.contactName,
                   clientPhone: tc.contactPhone || null,
                   company: tc.contactCompany || null,
-                  lastMessage: tc.lastMessage || null,
+                  lastMessage: parsedTcPreview.previewText.trim().slice(0, 110) || null,
+                  ...(parsedTcPreview.media ? { lastMessageMedia: parsedTcPreview.media } : {}),
                   dealTitle: tc.dealTitle || null,
                   funnelName: tc.funnelName || null,
                 });
@@ -3363,13 +3366,15 @@ async function fetchActiveConversationsForOperatorCard(
       const isWaiting = clientMsgMs > 0 && (opMsgMs === 0 || clientMsgMs > opMsgMs);
       const waitMinutes = isWaiting ? Math.max(1, Math.floor((nowMs - clientMsgMs) / 60_000)) : 0;
 
+      const parsedLast = parseCitedMessageMedia(c.lastMessageText || "");
       return {
         clientId: c.convId,
         clientName: c.contactName || c.contactPhone || "Cliente",
         clientPhone: c.contactPhone || undefined,
         company: c.accountName || undefined,
         waitMinutes: isWaiting ? waitMinutes : undefined,
-        lastMessage: c.lastMessageText ? c.lastMessageText.slice(0, 90) : undefined,
+        lastMessage: parsedLast.previewText ? parsedLast.previewText.slice(0, 90) : undefined,
+        ...(parsedLast.media ? { lastMessageMedia: parsedLast.media } : {}),
         statusLabel: isWaiting ? `Aguardando há ${waitMinutes} min` : "Em atendimento",
       };
     });
@@ -4157,6 +4162,31 @@ export const Route = createFileRoute("/api/valentina/messages")({
                   )
                 )
                 .catch(() => {});
+            }
+
+            // Hidrata em lote mídias citadas em alertas de SLA, sobrecarga e conversas citadas (inclusive legados med_...)
+            try {
+              const citedMediaRepairs = await hydrateCitedMediaForInternalRows({
+                db,
+                tenantId,
+                rows: finalSorted,
+              });
+              for (const repair of citedMediaRepairs) {
+                const existingIdx = metaRepairs.findIndex((m) => m.id === repair.id);
+                if (existingIdx !== -1) {
+                  metaRepairs[existingIdx] = {
+                    ...metaRepairs[existingIdx],
+                    metadata: repair.metadata,
+                  };
+                } else {
+                  metaRepairs.push({ id: repair.id, metadata: repair.metadata });
+                }
+              }
+            } catch (hydrateErr: any) {
+              console.warn(
+                "[valentina/messages] Falha ao hidratar mídias citadas:",
+                hydrateErr?.message,
+              );
             }
 
             if (metaRepairs.length > 0) {

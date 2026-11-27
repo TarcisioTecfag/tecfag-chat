@@ -2,9 +2,10 @@ import { runtimeSingleton } from "../runtime-singleton";
 import { isSdrTenant } from "../ai-persona";
 import { tenants } from "../../db/schema";
 import { db } from "../../db";
-import { conversations, contacts, messages, internalMessages, operators } from "../../db/schema";
+import { conversations, contacts, messages, internalMessages, operators, mediaFiles } from "../../db/schema";
 import { isNull, eq, ne, desc, and, inArray, gte, sql } from "drizzle-orm";
 import crypto from "crypto";
+import { parseCitedMessageMedia, type CitedMessageMedia } from "./cited-media";
 
 /**
  * Tenants com Supervisor ativo.
@@ -115,6 +116,7 @@ export class SupervisorEngine {
         clientId: string;
         clientName: string;
         lastMessage: string;
+        lastMessageMedia?: CitedMessageMedia | null;
         waitMinutes: number;
         isWaiting: boolean;
       }>
@@ -144,10 +146,15 @@ export class SupervisorEngine {
       const isClientWaiting = lastMsg?.senderType === "client";
       const diffMs = lastMsg ? Date.now() - lastMsg.sentAt.getTime() : 0;
       const waitMinutes = lastMsg ? Math.max(0, Math.floor(diffMs / 60000)) : 0;
-      const lastMessagePreview = (lastMsg?.content || lastMsg?.mediaInterpretation || "")
-        .replace(/^\[(LOCAL_MEDIA|MEDIA):[^\]]+\]\s*/i, "[Mídia recebida] ")
-        .trim()
-        .slice(0, 180);
+      const parsedLastMessage = parseCitedMessageMedia(
+        lastMsg?.content || lastMsg?.mediaInterpretation || "",
+        {
+          mediaInterpretation: lastMsg?.mediaInterpretation,
+          messageId: lastMsg?.id,
+        },
+      );
+      const lastMessagePreview = parsedLastMessage.previewText.trim().slice(0, 180);
+      const lastMessageMedia = parsedLastMessage.media;
 
       if (conv.operatorId) {
         const list = operatorConvsMap.get(conv.operatorId) || [];
@@ -155,6 +162,7 @@ export class SupervisorEngine {
           clientId: conv.id,
           clientName: conv.contactName || "Cliente",
           lastMessage: lastMessagePreview || "Conversa ativa em Meus Atendimentos",
+          ...(lastMessageMedia ? { lastMessageMedia } : {}),
           waitMinutes,
           isWaiting: isClientWaiting,
         });
@@ -165,11 +173,35 @@ export class SupervisorEngine {
 
       if (isClientWaiting) {
         if (waitMinutes > 24 * 60) {
-          await this.notifySlaRisk(conv, waitMinutes, lastMsg.sentAt, lastMessagePreview, "high", true);
+          await this.notifySlaRisk(
+            conv,
+            waitMinutes,
+            lastMsg.sentAt,
+            lastMessagePreview,
+            lastMessageMedia,
+            "high",
+            true,
+          );
         } else if (waitMinutes >= 15) {
-          await this.notifySlaRisk(conv, waitMinutes, lastMsg.sentAt, lastMessagePreview, "high", false);
+          await this.notifySlaRisk(
+            conv,
+            waitMinutes,
+            lastMsg.sentAt,
+            lastMessagePreview,
+            lastMessageMedia,
+            "high",
+            false,
+          );
         } else if (waitMinutes >= 8) {
-          await this.notifySlaRisk(conv, waitMinutes, lastMsg.sentAt, lastMessagePreview, "medium", false);
+          await this.notifySlaRisk(
+            conv,
+            waitMinutes,
+            lastMsg.sentAt,
+            lastMessagePreview,
+            lastMessageMedia,
+            "medium",
+            false,
+          );
         }
       }
     }
@@ -193,6 +225,7 @@ export class SupervisorEngine {
     waitMinutes: number,
     lastClientMessageAt: Date,
     lastMessageText: string,
+    lastMessageMedia: CitedMessageMedia | null,
     priority: "medium" | "high",
     is24h: boolean,
   ) {
@@ -219,6 +252,26 @@ export class SupervisorEngine {
 
     if (!conv.operatorId) return;
 
+    let enrichedMedia: CitedMessageMedia | null = lastMessageMedia;
+    if (enrichedMedia?.mediaId && (!enrichedMedia.fileName || !enrichedMedia.mimeType)) {
+      try {
+        const [mf] = await db
+          .select({ fileName: mediaFiles.fileName, mimeType: mediaFiles.mimeType })
+          .from(mediaFiles)
+          .where(and(eq(mediaFiles.tenantId, conv.tenantId), eq(mediaFiles.id, enrichedMedia.mediaId)))
+          .limit(1);
+        if (mf) {
+          enrichedMedia = {
+            ...enrichedMedia,
+            fileName: enrichedMedia.fileName || mf.fileName || null,
+            mimeType: enrichedMedia.mimeType || mf.mimeType || null,
+          };
+        }
+      } catch {
+        // Failsafe: mantém metadados já extraídos da mensagem
+      }
+    }
+
     await this.dispatchInternalNotification(conv.tenantId, conv.operatorId, alertMessage, {
       type: is24h ? "no_response" : "sla_alert",
       scope: "operator",
@@ -236,6 +289,7 @@ export class SupervisorEngine {
       clientName,
       waitMinutes,
       lastMessage: lastMessageText || "Aguardando retorno no WhatsApp",
+      ...(enrichedMedia ? { lastMessageMedia: enrichedMedia } : {}),
       lastClientMessage: lastClientMessageAt.toISOString(),
     });
   }
@@ -250,6 +304,7 @@ export class SupervisorEngine {
       clientId: string;
       clientName: string;
       lastMessage: string;
+      lastMessageMedia?: CitedMessageMedia | null;
       waitMinutes: number;
       isWaiting: boolean;
     }>,
@@ -433,6 +488,9 @@ export class SupervisorEngine {
                   clientId: convId || metadata?.conversations?.[0]?.clientId || "",
                   clientName: metadata?.clientName || metadata?.contactName || "Cliente",
                   lastMessage: metadata?.lastMessage || "",
+                  ...(metadata?.lastMessageMedia
+                    ? { lastMessageMedia: metadata.lastMessageMedia }
+                    : {}),
                   conversations: metadata?.conversations || undefined,
                 }
               : undefined;

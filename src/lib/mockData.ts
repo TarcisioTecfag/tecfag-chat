@@ -1,3 +1,7 @@
+import type { CitedMessageMedia } from "./valentina/cited-media";
+
+export type { CitedMessageMedia };
+
 export type Channel = "whatsapp" | "instagram" | "messenger" | "livechat";
 export type QueueType = "meus" | "todos" | "fila" | "automacao" | "finalizados";
 
@@ -7,6 +11,7 @@ export type RelatedConversationItem = {
   clientPhone?: string | null;
   company?: string | null;
   lastMessage?: string | null;
+  lastMessageMedia?: CitedMessageMedia | null;
   waitMinutes?: number | null;
   isWaiting?: boolean;
   dealTitle?: string | null;
@@ -89,6 +94,7 @@ export type Message = {
     transferredBy?: string | null;
     receivedAt?: string | null;
     lastMessage?: string;
+    lastMessageMedia?: CitedMessageMedia | null;
     temperature?: "quente" | "morno" | "frio";
     interest?: string;
     dealId?: string;

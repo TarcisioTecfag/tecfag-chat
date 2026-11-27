@@ -68,6 +68,7 @@ import {
   isEmojiOnly,
   QuotedMessagePreview,
 } from "./ChatPanel";
+import { CitedMessageMediaPreview } from "./CitedMessageMediaPreview";
 import { resolveMessageInfoAuthor } from "@/lib/chat/message-context-menu";
 
 const VTEX_HTML_ENTITIES: Record<string, string> = {
@@ -1687,10 +1688,13 @@ function ChatMessageBubbleComponent({
                         {m.warningMetadata.clientName}
                       </span>
                     </div>
-                    {m.warningMetadata.lastMessage && (
-                      <div className="p-2 rounded-lg bg-muted/65 text-[10px] text-muted-foreground border-l-2 border-primary italic">
-                        "{m.warningMetadata.lastMessage}"
-                      </div>
+                    {(m.warningMetadata.lastMessage || m.warningMetadata.lastMessageMedia) && (
+                      <CitedMessageMediaPreview
+                        lastMessage={m.warningMetadata.lastMessage}
+                        lastMessageMedia={m.warningMetadata.lastMessageMedia}
+                        clientName={m.warningMetadata.clientName}
+                        onMediaClick={onMediaClick}
+                      />
                     )}
                     {onOpenWarningChat &&
                       (m.warningMetadata.clientId || m.warningMetadata.clientName) && (
@@ -2128,10 +2132,14 @@ function ChatMessageBubbleComponent({
                                       {[conv.funnelName, conv.dealTitle].filter(Boolean).join(" • ")}
                                     </div>
                                   )}
-                                  {conv.lastMessage && (
-                                    <div className="text-[10px] text-muted-foreground truncate italic">
-                                      "{conv.lastMessage}"
-                                    </div>
+                                  {(conv.lastMessage || conv.lastMessageMedia) && (
+                                    <CitedMessageMediaPreview
+                                      lastMessage={conv.lastMessage}
+                                      lastMessageMedia={conv.lastMessageMedia}
+                                      clientName={conv.clientName}
+                                      compact
+                                      onMediaClick={onMediaClick}
+                                    />
                                   )}
                                 </div>
                                 {onOpenWarningChat && conv.clientId && (

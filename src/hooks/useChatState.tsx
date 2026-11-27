@@ -25,6 +25,7 @@ import {
   type AgenticThoughtTraceData,
 } from "@/lib/valentina/agentic-thought-trace";
 import { buildOperatorCopilotWelcome } from "@/lib/valentina/sector-copilot-config";
+import { normalizeCitedMessageMedia } from "@/lib/valentina/cited-media";
 import {
   playNotificationSound,
   playNewLeadAlertSound,
@@ -2439,7 +2440,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           );
           return m?.[1]?.trim() || "";
         })();
-      const conversationsList = Array.isArray(meta.conversations)
+      const rawConversationsList = Array.isArray(meta.conversations)
         ? meta.conversations
         : Array.isArray(meta.relatedConversations)
         ? meta.relatedConversations
@@ -2448,6 +2449,17 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         : Array.isArray(r.relatedConversations)
         ? r.relatedConversations
         : undefined;
+      const conversationsList = rawConversationsList?.map((conv: any) => {
+        if (!conv || typeof conv !== "object") return conv;
+        const normalizedConvMedia = normalizeCitedMessageMedia(conv.lastMessageMedia, BACKEND_URL);
+        return normalizedConvMedia
+          ? { ...conv, lastMessageMedia: normalizedConvMedia }
+          : conv;
+      });
+      const normalizedWarningLastMedia = normalizeCitedMessageMedia(
+        meta.lastMessageMedia ?? r.warningMetadata?.lastMessageMedia,
+        BACKEND_URL,
+      );
       const warningMetadata =
         warningType &&
         (isWhisper ||
@@ -2468,6 +2480,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               transferredBy: meta.transferredBy || r.warningMetadata?.transferredBy || null,
               receivedAt: meta.receivedAt || r.warningMetadata?.receivedAt || r.createdAt || null,
               lastMessage: meta.lastMessage || r.warningMetadata?.lastMessage || undefined,
+              ...(normalizedWarningLastMedia
+                ? { lastMessageMedia: normalizedWarningLastMedia }
+                : {}),
               interest: meta.interest || r.warningMetadata?.interest || undefined,
               temperature: meta.temperature || r.warningMetadata?.temperature || undefined,
               dealId: meta.dealId || r.warningMetadata?.dealId || undefined,

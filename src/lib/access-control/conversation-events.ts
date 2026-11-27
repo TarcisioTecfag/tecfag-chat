@@ -53,10 +53,10 @@ export async function filterConversationEvent(session: AuthSessionContext, event
           ? {
               ...payload,
               metadata: payload.metadata
-                ? { ...payload.metadata, conversationId: null, clientId: null }
+                ? { ...payload.metadata, conversationId: null, clientId: null, lastMessageMedia: null }
                 : payload.metadata,
               warningMetadata: payload.warningMetadata
-                ? { ...payload.warningMetadata, conversationId: null, clientId: "" }
+                ? { ...payload.warningMetadata, conversationId: null, clientId: "", lastMessageMedia: null }
                 : payload.warningMetadata,
             }
           : payload;

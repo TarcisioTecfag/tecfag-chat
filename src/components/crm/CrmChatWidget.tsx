@@ -58,6 +58,7 @@ import {
   WhatsappLogo,
 } from "@/components/chat/ChatList";
 import { SystemAnnotationBubble } from "@/components/chat/SystemAnnotationBubble";
+import { CitedMessageMediaPreview } from "@/components/chat/CitedMessageMediaPreview";
 import { ChannelTransitionDivider, SiteOriginTag } from "@/components/chat/ChannelOriginIndicators";
 import { computeChannelBoundaryMarkers } from "@/lib/chat/message-channel-origin";
 import { getVigosPhoneLink } from "@/lib/utils";
@@ -1311,6 +1312,7 @@ export function CrmChatWidget() {
   const [sending, setSending] = useState(false);
   const [metaWindowOpen, setMetaWindowOpen] = useState<boolean | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [previewVideo, setPreviewVideo] = useState<string | null>(null);
   const [showSystemInfo, setShowSystemInfo] = useState(false);
   const [openedChatIds, setOpenedChatIds] = useState<string[]>([]);
   const [resolvingThread, setResolvingThread] = useState<{
@@ -2058,9 +2060,10 @@ export function CrmChatWidget() {
         setContextMenu(null);
         return;
       }
-      if (previewImage) {
+      if (previewImage || previewVideo) {
         event.stopPropagation();
         setPreviewImage(null);
+        setPreviewVideo(null);
         return;
       }
 
@@ -2093,6 +2096,7 @@ export function CrmChatWidget() {
     visible,
     view,
     previewImage,
+    previewVideo,
     contextMenu,
     transferTargetChat,
     showMetaTemplateModal,
@@ -2876,14 +2880,17 @@ export function CrmChatWidget() {
 
   return (
     <>
-      {/* Lightbox rápido para visualização de imagem enviada/recebida */}
+      {/* Lightbox rápido para visualização de imagem ou vídeo */}
       <AnimatePresence>
-        {previewImage && (
+        {(previewImage || previewVideo) && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={() => setPreviewImage(null)}
+            onClick={() => {
+              setPreviewImage(null);
+              setPreviewVideo(null);
+            }}
             data-crm-chat-widget
             aria-live="polite"
             className="fixed inset-0 z-[10060] pointer-events-auto flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm cursor-zoom-out"
@@ -2897,12 +2904,30 @@ export function CrmChatWidget() {
             >
               <button
                 type="button"
-                onClick={() => setPreviewImage(null)}
-                className="absolute right-3 top-3 z-10 grid h-8 w-8 place-items-center rounded-full bg-black/60 text-white hover:bg-black/90 transition-colors"
+                aria-label="Fechar visualização"
+                onClick={() => {
+                  setPreviewImage(null);
+                  setPreviewVideo(null);
+                }}
+                className="absolute right-3 top-3 z-10 grid h-8 w-8 place-items-center rounded-full bg-black/60 text-white hover:bg-black/90 transition-colors cursor-pointer"
               >
                 <X className="h-4 w-4" />
               </button>
-              <img src={previewImage} alt="Visualização ampliada" className="max-h-[85vh] max-w-[85vw] object-contain" />
+              {previewVideo ? (
+                <video
+                  src={previewVideo}
+                  controls
+                  autoPlay
+                  playsInline
+                  className="max-h-[85vh] max-w-[85vw] object-contain"
+                />
+              ) : (
+                <img
+                  src={previewImage!}
+                  alt="Visualização ampliada"
+                  className="max-h-[85vh] max-w-[85vw] object-contain"
+                />
+              )}
             </motion.div>
           </motion.div>
         )}
@@ -3787,10 +3812,22 @@ export function CrmChatWidget() {
                                             {message.warningMetadata.clientName}
                                           </span>
                                         </div>
-                                        {message.warningMetadata.lastMessage && (
-                                          <div className="p-2 rounded-lg bg-muted/65 text-[10px] text-muted-foreground border-l-2 border-primary italic">
-                                            "{message.warningMetadata.lastMessage}"
-                                          </div>
+                                        {(message.warningMetadata.lastMessage ||
+                                          message.warningMetadata.lastMessageMedia) && (
+                                          <CitedMessageMediaPreview
+                                            lastMessage={message.warningMetadata.lastMessage}
+                                            lastMessageMedia={
+                                              message.warningMetadata.lastMessageMedia
+                                            }
+                                            clientName={message.warningMetadata.clientName}
+                                            onMediaClick={(type, url) => {
+                                              if (type === "video") {
+                                                setPreviewVideo(url);
+                                              } else {
+                                                setPreviewImage(url);
+                                              }
+                                            }}
+                                          />
                                         )}
                                         {(message.warningMetadata.clientId ||
                                           message.warningMetadata.clientName) && (
@@ -4335,10 +4372,20 @@ export function CrmChatWidget() {
                                                           .join(" • ")}
                                                       </div>
                                                     )}
-                                                    {conv.lastMessage && (
-                                                      <div className="text-[10px] text-muted-foreground truncate italic">
-                                                        "{conv.lastMessage}"
-                                                      </div>
+                                                    {(conv.lastMessage || conv.lastMessageMedia) && (
+                                                      <CitedMessageMediaPreview
+                                                        lastMessage={conv.lastMessage}
+                                                        lastMessageMedia={conv.lastMessageMedia}
+                                                        clientName={conv.clientName}
+                                                        compact
+                                                        onMediaClick={(type, url) => {
+                                                          if (type === "video") {
+                                                            setPreviewVideo(url);
+                                                          } else {
+                                                            setPreviewImage(url);
+                                                          }
+                                                        }}
+                                                      />
                                                     )}
                                                   </div>
                                                   {(conv.clientId || conv.clientName) && (
