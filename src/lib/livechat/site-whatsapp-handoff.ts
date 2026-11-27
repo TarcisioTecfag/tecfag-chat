@@ -20,7 +20,7 @@
  *    vincula o card/jornada preservando o operador.
  */
 import crypto from "node:crypto";
-import { and, desc, eq, isNull, notLike, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, notLike, sql } from "drizzle-orm";
 import {
   agentConfigs,
   agentFlowStates,
@@ -71,6 +71,105 @@ import { siteContextFromMessages } from "./site-context";
 import { readSiteContinuationHistory } from "./site-conversation-store";
 
 const sha256Hex = (value: string) => crypto.createHash("sha256").update(value).digest("hex");
+
+export interface SiteWhatsappBridgePendingCheckpoint {
+  waConversationId: string;
+  cycle: string;
+  templateName: string;
+  idempotencyKey: string;
+  hasActiveHuman: boolean;
+  startedAt: string;
+  route: {
+    subflow: IndustrialRoute["subflow"];
+    funnelStage: IndustrialRoute["funnelStage"];
+    targetFunnel: string;
+    needsReview: boolean;
+    reason: IndustrialRoute["reason"];
+  };
+  clientName: string;
+  companyName: string;
+  contactId: string;
+  machineDecision?: MachineDecision | null;
+  siteContext?: unknown;
+}
+
+export const SITE_WA_BRIDGE_RECOVERY_MIN_AGE_MS = 45_000;
+export const SITE_WA_BRIDGE_RECOVERY_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+export const SITE_WA_BRIDGE_UNSENT_RETRY_WINDOW_MS = 15 * 60 * 1000;
+
+export function isTransientPgTransactionError(err: unknown): boolean {
+  const e = err as { code?: unknown; cause?: { code?: unknown }; message?: unknown } | null;
+  const code = String(e?.code || e?.cause?.code || "").trim().toUpperCase();
+  if (
+    code === "40001" || // serialization_failure
+    code === "40P01" || // deadlock_detected
+    code === "57P01" || // admin_shutdown
+    code === "08006" || // connection_failure
+    code === "08003" // connection_does_not_exist
+  ) {
+    return true;
+  }
+  const msg = String(e?.message || "").toLowerCase();
+  return (
+    msg.includes("deadlock detected") ||
+    msg.includes("could not serialize access") ||
+    msg.includes("connection terminated unexpectedly")
+  );
+}
+
+export async function runSiteHandoffStep6WithRetry<T>(
+  fn: () => Promise<T>,
+  options?: { maxAttempts?: number; retryDelayMs?: number },
+): Promise<T> {
+  const maxAttempts = Math.max(1, options?.maxAttempts ?? 2);
+  const retryDelayMs = Math.max(0, options?.retryDelayMs ?? 150);
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastError = err;
+      if (attempt < maxAttempts && isTransientPgTransactionError(err)) {
+        if (retryDelayMs > 0) {
+          await new Promise((resolve) => setTimeout(resolve, retryDelayMs * attempt));
+        }
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastError;
+}
+
+export function shouldRecoverPendingSiteWhatsappBridge(
+  metadata: Record<string, unknown> | null | undefined,
+  nowMs = Date.now(),
+): SiteWhatsappBridgePendingCheckpoint | null {
+  if (!metadata || typeof metadata !== "object") return null;
+  if (metadata.handoffStatus === "continued_to_whatsapp") return null;
+  const raw = metadata.siteWhatsappBridgePending as Partial<SiteWhatsappBridgePendingCheckpoint> | null | undefined;
+  if (
+    !raw ||
+    typeof raw !== "object" ||
+    typeof raw.waConversationId !== "string" ||
+    !raw.waConversationId.trim() ||
+    typeof raw.idempotencyKey !== "string" ||
+    !raw.idempotencyKey.trim() ||
+    typeof raw.startedAt !== "string"
+  ) {
+    return null;
+  }
+  const startedMs = Date.parse(raw.startedAt);
+  if (!Number.isFinite(startedMs)) return null;
+  const ageMs = nowMs - startedMs;
+  if (ageMs < SITE_WA_BRIDGE_RECOVERY_MIN_AGE_MS || ageMs > SITE_WA_BRIDGE_RECOVERY_MAX_AGE_MS) {
+    return null;
+  }
+  if (!raw.route || typeof raw.route.subflow !== "string" || typeof raw.route.funnelStage !== "string") {
+    return null;
+  }
+  return raw as SiteWhatsappBridgePendingCheckpoint;
+}
 
 export interface SiteWhatsappHandoffInput {
   tenantId: string;
@@ -496,6 +595,46 @@ export async function dispatchSiteTriageToWhatsApp(
   });
 
   const waConversationId = waPrep.conversation.id;
+  const idempotencyKey = `site-wa-handoff:${tenantId}:${siteConversationId}:${cycle}`;
+
+  // Checkpoint durável ANTES do Step 5 (disparo Meta): se o container reiniciar (deploy/SIGTERM)
+  // ou ocorrer falha transitória entre o envio do template na Meta e o commit do Step 6,
+  // a varredura periódica retoma e conclui o Step 6 idempotentemente sem reenviar o template.
+  const bridgeCheckpoint: SiteWhatsappBridgePendingCheckpoint = {
+    waConversationId,
+    cycle,
+    templateName: templateRow.name,
+    idempotencyKey,
+    hasActiveHuman: waPrep.hasActiveHuman,
+    startedAt: new Date().toISOString(),
+    route: {
+      subflow: input.route.subflow,
+      funnelStage: input.route.funnelStage,
+      targetFunnel: input.route.targetFunnel,
+      needsReview: input.route.needsReview,
+      reason: input.route.reason,
+    },
+    clientName: input.clientName || contact.name,
+    companyName: input.companyName,
+    contactId: contact.id,
+    machineDecision: input.machineDecision ?? null,
+    siteContext: input.siteContext ?? null,
+  };
+  try {
+    await database
+      .update(agentFlowStates)
+      .set({
+        metadata: sql`COALESCE(${agentFlowStates.metadata}, '{}'::jsonb) || ${JSON.stringify({
+          siteWhatsappBridgePending: bridgeCheckpoint,
+        })}::jsonb`,
+      })
+      .where(and(eq(agentFlowStates.tenantId, tenantId), eq(agentFlowStates.id, siteFlowId)));
+  } catch (checkpointErr: any) {
+    console.warn(
+      `[Site→WhatsApp] Aviso ao gravar checkpoint pré-envio (${siteConversationId}):`,
+      checkpointErr?.message || checkpointErr,
+    );
+  }
 
   // 5. Disparar o template Meta oficial ANTES de criar o card no CRM (garante 0 cards se envio falhar)
   const payload = buildSiteTemplatePayload({
@@ -523,10 +662,17 @@ export async function dispatchSiteTriageToWhatsApp(
       templateComponents: payload.templateComponents,
       senderType: "bot",
       senderName: `${persona.name} (Site → WhatsApp)`,
-      idempotencyKey: `site-wa-handoff:${tenantId}:${siteConversationId}:${cycle}`,
+      idempotencyKey,
     });
 
     if (!sendResult.success) {
+      await database
+        .update(agentFlowStates)
+        .set({
+          metadata: sql`COALESCE(${agentFlowStates.metadata}, '{}'::jsonb) || '{"siteWhatsappBridgePending": null}'::jsonb`,
+        })
+        .where(and(eq(agentFlowStates.tenantId, tenantId), eq(agentFlowStates.id, siteFlowId)))
+        .catch(() => {});
       return {
         handedOff: false,
         reason: sendResult.error || "meta_template_send_failed",
@@ -564,9 +710,16 @@ export async function dispatchSiteTriageToWhatsApp(
 
   // 6. Pós-envio confirmado: copiar histórico do site (incluindo despedida do bot no site),
   //    criar card no funil correto, estacionar WhatsApp em `awaiting_approval` herdando 100%
-  //    da triagem e concluir ciclo do site.
-  const committed = await database.transaction(async (tx) => {
-    const now = new Date();
+  //    da triagem e concluir ciclo do site. Executa com retry automático em erros transitórios
+  //    de transação PostgreSQL e log explícito com contexto completo em caso de falha.
+  let committed: {
+    suggestion: PendingApprovalSuggestion;
+    dealResult: Awaited<ReturnType<typeof ensureSiteDealOnWhatsappHandoff>>;
+  };
+  try {
+    committed = await runSiteHandoffStep6WithRetry(() =>
+      database.transaction(async (tx) => {
+        const now = new Date();
 
     // 6.1 Copiar mensagens do site + despedida de encerramento do site + nota interna de resumo (ordem cronológica estrita)
     const siteMsgs = await readSiteContinuationHistory(tx, tenantId, siteConversationId);
@@ -807,6 +960,7 @@ export async function dispatchSiteTriageToWhatsApp(
         missingFields: [],
         readyForHandoff: true,
         handoffStatus: "continued_to_whatsapp",
+        siteWhatsappBridgePending: null,
         whatsappConversationId: waConversationId,
         siteWhatsappTemplateSent: true,
         siteWhatsappTemplateDispatched: !waPrep.hasActiveHuman,
@@ -845,8 +999,22 @@ export async function dispatchSiteTriageToWhatsApp(
       })
       .where(and(eq(conversations.tenantId, tenantId), eq(conversations.id, siteConversationId)));
 
-    return { suggestion, dealResult };
-  });
+        return { suggestion, dealResult };
+      }),
+    );
+  } catch (step6Err: any) {
+    console.error("[Site→WhatsApp] ❌ Falha crítica no Step 6 pós-envio do template Meta:", {
+      tenantId,
+      siteConversationId,
+      waConversationId,
+      templateName: templateRow.name,
+      idempotencyKey,
+      code: step6Err?.code || step6Err?.cause?.code || null,
+      message: step6Err?.message || String(step6Err),
+      stack: step6Err?.stack || null,
+    });
+    throw step6Err;
+  }
 
   // 7. Notificar setor SDR apontando para a conversa do WhatsApp (onde já aguarda aprovação)
   if (!waPrep.hasActiveHuman) {
@@ -871,4 +1039,71 @@ export async function dispatchSiteTriageToWhatsApp(
     suggestion: committed.suggestion,
     preservedHumanOperator: waPrep.hasActiveHuman,
   };
+}
+
+/**
+ * Auto-recuperação idempotente de uma ponte Site → WhatsApp interrompida entre o Step 5
+ * (template Meta enviado) e o Step 6 (espelhamento + deal CRM + `awaiting_approval` no WA + fechamento do Site),
+ * por exemplo durante um reinício de deploy no Railway ou erro transitório de banco.
+ *
+ * Como `outboundQueue.enqueueAndSend` é 100% idempotente por `idempotencyKey`,
+ * reexecutar `dispatchSiteTriageToWhatsApp` nunca reenvia o template na Meta.
+ */
+export async function recoverInterruptedSiteWhatsappBridge(
+  database: IndustrialDatabase,
+  params: {
+    tenantId: string;
+    siteConversationId: string;
+    siteFlowId: string;
+    collectedData: CollectedFields;
+    pending: SiteWhatsappBridgePendingCheckpoint;
+    nowMs?: number;
+  },
+): Promise<SiteWhatsappHandoffResult> {
+  const { tenantId, siteConversationId, siteFlowId, collectedData, pending } = params;
+  const nowMs = params.nowMs ?? Date.now();
+  const startedMs = Date.parse(pending.startedAt);
+  const ageMs = Number.isFinite(startedMs) ? Math.max(0, nowMs - startedMs) : Number.POSITIVE_INFINITY;
+
+  const [persistedTemplate] = await database
+    .select({ id: messages.id, status: messages.status })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.tenantId, tenantId),
+        eq(messages.idempotencyKey, pending.idempotencyKey),
+        inArray(messages.status, ["sent", "accepted", "delivered", "read"]),
+      ),
+    )
+    .limit(1);
+
+  const canRecover =
+    Boolean(persistedTemplate) ||
+    pending.hasActiveHuman ||
+    ageMs <= SITE_WA_BRIDGE_UNSENT_RETRY_WINDOW_MS;
+
+  if (!canRecover) {
+    await database
+      .update(agentFlowStates)
+      .set({
+        metadata: sql`COALESCE(${agentFlowStates.metadata}, '{}'::jsonb) || '{"siteWhatsappBridgePending": null}'::jsonb`,
+      })
+      .where(and(eq(agentFlowStates.tenantId, tenantId), eq(agentFlowStates.id, siteFlowId)))
+      .catch(() => {});
+    return { handedOff: false, reason: "bridge_checkpoint_expired_without_template" };
+  }
+
+  return dispatchSiteTriageToWhatsApp(database, {
+    tenantId,
+    siteConversationId,
+    siteFlowId,
+    cycle: pending.cycle,
+    route: pending.route,
+    data: collectedData,
+    clientName: pending.clientName,
+    companyName: pending.companyName,
+    contactId: pending.contactId,
+    machineDecision: pending.machineDecision ?? undefined,
+    siteContext: pending.siteContext ?? undefined,
+  });
 }

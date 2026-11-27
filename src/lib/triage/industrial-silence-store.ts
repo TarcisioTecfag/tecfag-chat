@@ -1,5 +1,6 @@
-import { and, desc, eq } from "drizzle-orm";
-import { agentFlowStates, conversations } from "../../db/schema";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { agentFlowStates, conversations, lcChats } from "../../db/schema";
+import { isSiteConversationId, visitorIdFromSiteConversation } from "../livechat/site-channel-policy";
 import type { IndustrialDatabase } from "./industrial-rodizio-store";
 import { appendIndustrialJournal } from "./industrial-triage-journal-store";
 
@@ -86,6 +87,48 @@ export async function markIndustrialNoResponse(
       )
       .returning();
     await appendIndustrialJournal(tx, flow, updated, "status", "no_response");
+
+    // Canal Site (`conv-lc-*`): ao encerrar sessão expirada por inatividade como Sem Resposta,
+    // finaliza também a conversa em `automacao` e o `lc_chats` aberto para que não continue
+    // aparecendo como triagem ativa em `Automação` ou `Visitantes do Site`.
+    // Se o visitante retornar depois no site, o livechat reabre a conversa automaticamente.
+    if (isSiteConversationId(conversationId)) {
+      await tx
+        .update(conversations)
+        .set({
+          queueState: "finalizados",
+          unreadCount: 0,
+          updatedAt: input.at,
+          version: sql`${conversations.version} + 1`,
+        })
+        .where(
+          and(
+            eq(conversations.tenantId, tenantId),
+            eq(conversations.id, conversationId),
+            isNull(conversations.operatorId),
+            eq(conversations.queueState, "automacao"),
+          ),
+        );
+
+      const visitorId = visitorIdFromSiteConversation(conversationId);
+      if (visitorId) {
+        await tx
+          .update(lcChats)
+          .set({
+            status: "closed",
+            outcome: "abandoned",
+            closedAt: input.at,
+          })
+          .where(
+            and(
+              eq(lcChats.tenantId, tenantId),
+              eq(lcChats.visitorId, visitorId),
+              inArray(lcChats.status, ["active", "operator_took_over"]),
+            ),
+          );
+      }
+    }
+
     return updated;
   });
 }

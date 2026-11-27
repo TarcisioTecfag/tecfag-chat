@@ -50,6 +50,8 @@ export interface IndustrialSilenceConfig {
   siteFollowUpMinutes: number;
   /** Limite máximo de silêncio no Site para disparar follow-up (evita cobrar horas depois / madrugada). */
   siteFollowUpMaxSilenceMinutes: number;
+  /** Minutos máximos de silêncio no Site antes de encerrar automaticamente como Sem Resposta (evita sessões zumbi). */
+  siteNoResponseMinutes: number;
   /** Minutos após abertura do expediente (ex.: 30 -> 08:30 BRT) antes de retomar leads da madrugada. */
   morningSoftStartMinutes: number;
   /** Limite seguro da janela de 24h da Meta (padrão 23h45 = 1425 min) para envio em texto livre. */
@@ -72,6 +74,7 @@ export const DEFAULT_INDUSTRIAL_SILENCE_CONFIG: IndustrialSilenceConfig = {
   sitePartialRescueMinutes: 10,
   siteFollowUpMinutes: 5,
   siteFollowUpMaxSilenceMinutes: 15,
+  siteNoResponseMinutes: 180,
   morningSoftStartMinutes: 30,
   metaWindowMinutes: 1425,
   aiDecisionEnabled: true,
@@ -142,6 +145,12 @@ export function parseIndustrialSilenceConfig(
     siteFollowUpMinutes,
     60,
   );
+  const siteNoResponseMinutes = clampInt(
+    source.siteNoResponseMinutes,
+    DEFAULT_INDUSTRIAL_SILENCE_CONFIG.siteNoResponseMinutes,
+    Math.max(30, siteFollowUpMaxSilenceMinutes + 15),
+    1440,
+  );
   const morningSoftStartMinutes = clampInt(
     source.morningSoftStartMinutes,
     DEFAULT_INDUSTRIAL_SILENCE_CONFIG.morningSoftStartMinutes,
@@ -177,6 +186,7 @@ export function parseIndustrialSilenceConfig(
     sitePartialRescueMinutes,
     siteFollowUpMinutes,
     siteFollowUpMaxSilenceMinutes,
+    siteNoResponseMinutes,
     morningSoftStartMinutes,
     metaWindowMinutes,
     aiDecisionEnabled,
@@ -654,11 +664,26 @@ export function evaluateIndustrialSilence(
     }
   }
 
+  // Hard Guard Site (conv-lc-* / site-*): sessão de navegador não fica aberta indefinidamente.
+  // Após `siteNoResponseMinutes` (padrão 180 min = 3h) de silêncio sem retorno do visitante,
+  // encerra automaticamente como Sem Resposta (inclusive fora do expediente / madrugada ou
+  // quando stage === 0 após expirar a janela curta de 5–15 min), eliminando sessões zumbi.
+  if (isSite && silenceMinutes >= cfg.siteNoResponseMinutes) {
+    return {
+      action: "mark_no_response",
+      nextStage: 3,
+      reason: "site_session_no_response_timeout",
+      rescuePartialLead: Boolean(rescuePartialLead || (hasPartial && !alreadyRescued)),
+    };
+  }
+
   const isEndOfDay = zonedNow.hour >= cfg.endOfDayHour;
   const canCloseWithoutFollowUp = !cfg.pauseOutsideSchedule || input.withinSchedule;
   if (
     isEndOfDay &&
-    (stage >= 1 || (canCloseWithoutFollowUp && silenceMinutes >= cfg.followUp1Minutes))
+    (stage >= 1 ||
+      (canCloseWithoutFollowUp && silenceMinutes >= cfg.followUp1Minutes) ||
+      (isSite && silenceMinutes >= cfg.followUp1Minutes))
   ) {
     return {
       action: "mark_no_response",

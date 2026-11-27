@@ -2988,48 +2988,61 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
               // herdando 100% da triagem. Se o template ainda não estiver configurado ou falhar,
               // mantém fallback seguro em `awaiting_approval` no site SEM criar card no CWR.
               let handledBySiteWhatsappHandoff = false;
+              let siteWhatsappHandoffThrew = false;
               if (isSiteConversationId(conversationId)) {
-                const { dispatchSiteTriageToWhatsApp } = await import(
-                  "../livechat/site-whatsapp-handoff"
-                );
-                const siteWaRes = await dispatchSiteTriageToWhatsApp(db, {
-                  tenantId,
-                  siteConversationId: conversationId,
-                  siteFlowId: flowState.id,
-                  cycle: flowState.startedAt.toISOString(),
-                  route: industrialRoute,
-                  data: updatedCollectedData,
-                  clientName,
-                  companyName: company,
-                  contactId: convCheck?.contactId || null,
-                  machineDecision,
-                  siteContext,
-                  businessHours: industrialBusinessHours,
-                });
-                if (siteWaRes.handedOff) {
-                  handledBySiteWhatsappHandoff = true;
-                  siteWhatsappHandoffMessage = siteWaRes.closingMessageForSite || null;
-                  industrialHandoff = {
-                    status: "transferred",
-                    operator: null,
-                    deal: siteWaRes.dealId
-                      ? {
-                          dealId: siteWaRes.dealId,
-                          dealTitle: siteWaRes.dealTitle || clientName,
-                          action: "created_new",
-                          funnelId: siteWaRes.pipelineId || "",
-                          stageId: siteWaRes.stageId || "",
-                        }
-                      : null,
-                  };
-                  industrialHandoffPersisted = true;
-                  allocatedOp = null;
-                  localCrmResult = industrialHandoff.deal;
-                } else {
-                  console.warn(
-                    `[SdrEngine] Ponte Site→WhatsApp não disparada para ${conversationId} (${siteWaRes.reason || "erro"}); mantendo fallback em awaiting_approval no site sem criar card CWR.`,
+                try {
+                  const { dispatchSiteTriageToWhatsApp } = await import(
+                    "../livechat/site-whatsapp-handoff"
+                  );
+                  const siteWaRes = await dispatchSiteTriageToWhatsApp(db, {
+                    tenantId,
+                    siteConversationId: conversationId,
+                    siteFlowId: flowState.id,
+                    cycle: flowState.startedAt.toISOString(),
+                    route: industrialRoute,
+                    data: updatedCollectedData,
+                    clientName,
+                    companyName: company,
+                    contactId: convCheck?.contactId || null,
+                    machineDecision,
+                    siteContext,
+                    businessHours: industrialBusinessHours,
+                  });
+                  if (siteWaRes.handedOff) {
+                    handledBySiteWhatsappHandoff = true;
+                    siteWhatsappHandoffMessage = siteWaRes.closingMessageForSite || null;
+                    industrialHandoff = {
+                      status: "transferred",
+                      operator: null,
+                      deal: siteWaRes.dealId
+                        ? {
+                            dealId: siteWaRes.dealId,
+                            dealTitle: siteWaRes.dealTitle || clientName,
+                            action: "created_new",
+                            funnelId: siteWaRes.pipelineId || "",
+                            stageId: siteWaRes.stageId || "",
+                          }
+                        : null,
+                    };
+                    industrialHandoffPersisted = true;
+                    allocatedOp = null;
+                    localCrmResult = industrialHandoff.deal;
+                  } else {
+                    console.warn(
+                      `[SdrEngine] Ponte Site→WhatsApp não disparada para ${conversationId} (${siteWaRes.reason || "erro"}); mantendo fallback em awaiting_approval no site sem criar card CWR.`,
+                    );
+                  }
+                } catch (siteBridgeErr: any) {
+                  siteWhatsappHandoffThrew = true;
+                  console.error(
+                    `[SdrEngine] ❌ Exceção na ponte Site→WhatsApp para ${conversationId} (checkpoint pendente será recuperado automaticamente pelo sweep):`,
+                    siteBridgeErr?.stack || siteBridgeErr?.message || siteBridgeErr,
                   );
                 }
+              }
+
+              if (siteWhatsappHandoffThrew) {
+                return false;
               }
 
               let handledByDirectOperatorTransfer = false;
@@ -3231,7 +3244,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
             }
           }
         } catch (rErr: any) {
-          console.error("[SdrEngine] ❌ Erro ao alocar no rodízio ou acionar CRM:", rErr?.message || rErr);
+          console.error("[SdrEngine] ❌ Erro ao alocar no rodízio ou acionar CRM:", rErr?.stack || rErr?.message || rErr);
         }
       } else if (
         industrialTriage &&
@@ -4488,6 +4501,89 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
               console.warn(
                 `[SdrEngine] Aviso ao finalizar conversa informativa (${conversationId}):`,
                 closeErr?.message || closeErr,
+              );
+            }
+          }
+
+          // Encerramento limpo no canal Site para desistência explícita ("Encerrado (Sem interesse)")
+          // ou despedida cordial ("Encerrado (Lead Parcial Site)"): move a conversa do Site de `automacao`
+          // para `finalizados` e fecha o `lc_chats` ativo para evitar sessões mortas em `Automação` / `Visitantes do Site`.
+          if (
+            !isInformativeNonLeadClosure &&
+            industrialTriage &&
+            isSiteConversationId(conversationId) &&
+            (isClientDeclinedTurn || isCordialBotClosingTurn) &&
+            !signal?.aborted
+          ) {
+            try {
+              const closeNow = new Date();
+              const closedSiteConv = await db.transaction(async (tx) => {
+                const [lockedConv] = await tx
+                  .select()
+                  .from(conversations)
+                  .where(and(eq(conversations.tenantId, tenantId), eq(conversations.id, conversationId)))
+                  .for("update");
+                if (!lockedConv || lockedConv.operatorId || lockedConv.queueState !== "automacao") {
+                  return null;
+                }
+
+                await setAttendanceActor(tx, tenantId, `${aiPersona.name} (Encerramento Site)`, null);
+                const [updatedConv] = await tx
+                  .update(conversations)
+                  .set({
+                    queueState: "finalizados",
+                    operatorId: null,
+                    unreadCount: 0,
+                    version: sql`${conversations.version} + 1`,
+                    updatedAt: closeNow,
+                  })
+                  .where(
+                    and(
+                      eq(conversations.tenantId, tenantId),
+                      eq(conversations.id, conversationId),
+                      isNull(conversations.operatorId),
+                      eq(conversations.queueState, "automacao"),
+                    ),
+                  )
+                  .returning();
+
+                if (!updatedConv) return null;
+
+                const visitorId = visitorIdFromSiteConversation(conversationId);
+                if (visitorId) {
+                  await tx
+                    .update(lcChats)
+                    .set({
+                      status: "closed",
+                      closedAt: closeNow,
+                      outcome: isClientDeclinedTurn ? "abandoned" : "resolved",
+                    })
+                    .where(
+                      and(
+                        eq(lcChats.tenantId, tenantId),
+                        eq(lcChats.visitorId, visitorId),
+                        inArray(lcChats.status, ["active", "operator_took_over"]),
+                      ),
+                    );
+                }
+
+                return updatedConv;
+              });
+
+              if (closedSiteConv) {
+                SessionManager.getInstance().notifyPublic(tenantId, {
+                  type: "queue_update",
+                  conversationId,
+                  queueState: "finalizados",
+                  operatorId: null,
+                  unreadCount: 0,
+                  version: closedSiteConv.version,
+                });
+              }
+            } catch (siteCloseErr: any) {
+              console.warn(
+                `[SdrEngine] Aviso ao finalizar conversa encerrada do site (${conversationId}):`,
+                siteCloseErr?.message || siteCloseErr,
               );
             }
           }

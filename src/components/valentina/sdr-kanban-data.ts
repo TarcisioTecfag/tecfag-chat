@@ -545,6 +545,24 @@ export function classifySessionToColumn(session: SdrTriageSession): KanbanColumn
     return "outros";
   }
 
+  const norm = (str: string = "") =>
+    str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+
+  const outcome = norm(session.outcome);
+  const step = norm(session.currentStep);
+
+  // 1. Sem Resposta / Abandonado sempre prevalece sobre o funnelStage coletado antes do abandono
+  if (
+    session.status === "abandoned" ||
+    outcome === "abandoned" ||
+    outcome.includes("sem resposta") ||
+    outcome.includes("sem_resposta") ||
+    outcome === "no_reply" ||
+    step === "sem resposta"
+  ) {
+    return "sem_resposta";
+  }
+
   if (session.funnelStage) {
     const rawStage = String(session.funnelStage) as KanbanColumnKey;
     if (VALID_COLUMN_KEYS.has(rawStage)) {
@@ -553,11 +571,6 @@ export function classifySessionToColumn(session: SdrTriageSession): KanbanColumn
     return "outros";
   }
 
-  const norm = (str: string = "") =>
-    str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
-
-  const outcome = norm(session.outcome);
-  const step = norm(session.currentStep);
   const resp = norm(session.responsibleName);
   const qualif = norm(
     session.collectedData?.["SETOR / FUNIL DE DESTINO"]?.value ||
@@ -567,17 +580,6 @@ export function classifySessionToColumn(session: SdrTriageSession): KanbanColumn
     session.collectedData?.["MÁQUINA / PEÇA / INTERESSE"]?.value ||
     session.collectedData?.["QUAL O TIPO DE PRODUTO?"]?.value
   );
-
-  // 1. Sem Resposta / Abandonado
-  if (
-    session.status === "abandoned" ||
-    outcome === "abandoned" ||
-    outcome.includes("sem resposta") ||
-    outcome.includes("sem_resposta") ||
-    outcome === "no_reply"
-  ) {
-    return "sem_resposta";
-  }
 
   // 2. Setores Específicos
   if (

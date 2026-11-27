@@ -143,6 +143,55 @@ export class SdrFollowupEngine {
             ),
           );
 
+        // Auto-recuperação de ponte Site → WhatsApp interrompida entre Step 5 (template Meta enviado)
+        // e Step 6 (commit de espelhamento/CRM/awaiting_approval), ex.: deploy no Railway durante o handoff.
+        if (isSiteConversationId(flow.conversationId) && conv && conv.queueState !== "finalizados" && !conv.operatorId) {
+          const metaBridgeCheck = (flow.metadata as Record<string, unknown>) || {};
+          const { shouldRecoverPendingSiteWhatsappBridge, recoverInterruptedSiteWhatsappBridge } = await import(
+            "../livechat/site-whatsapp-handoff"
+          );
+          const pendingBridge = shouldRecoverPendingSiteWhatsappBridge(metaBridgeCheck, now.getTime());
+          if (pendingBridge) {
+            try {
+              const recovered = await recoverInterruptedSiteWhatsappBridge(db, {
+                tenantId,
+                siteConversationId: flow.conversationId,
+                siteFlowId: flow.id,
+                collectedData: (flow.collectedData as Record<string, any>) || {},
+                pending: pendingBridge,
+                nowMs: now.getTime(),
+              });
+              if (recovered.handedOff) {
+                SessionManager.getInstance().notifyPublic(tenantId, {
+                  type: "queue_update",
+                  conversationId: flow.conversationId,
+                  queueState: "finalizados",
+                  operatorId: null,
+                  unreadCount: 0,
+                });
+                SessionManager.getInstance().notifyPublic(tenantId, {
+                  type: "sdr_flow_updated",
+                  conversationId: flow.conversationId,
+                  funnelStage: pendingBridge.route.funnelStage,
+                  targetFunnel: pendingBridge.route.targetFunnel,
+                  outcome: "transferred",
+                  handoffStatus: "continued_to_whatsapp",
+                });
+                console.log(
+                  `[SdrFollowupEngine] 🔁 Ponte Site→WhatsApp interrompida recuperada com sucesso (${flow.conversationId} → ${recovered.whatsappConversationId}, deal=${recovered.dealId || "n/a"}).`,
+                );
+                continue;
+              }
+            } catch (bridgeRecErr: any) {
+              console.error(
+                `[SdrFollowupEngine] ❌ Falha ao recuperar ponte Site→WhatsApp interrompida (${flow.conversationId}):`,
+                bridgeRecErr?.stack || bridgeRecErr?.message || bridgeRecErr,
+              );
+              continue;
+            }
+          }
+        }
+
         // Trava cross-channel Site × WhatsApp: se o mesmo contato já está em triagem/aprovação/atendimento
         // ativo no WhatsApp oficial (24h), espelha as mensagens do site no WhatsApp e encerra o ciclo
         // paralelo do Site sem disparar follow-up nem criar card duplicado (exceto se o cliente
@@ -295,14 +344,38 @@ export class SdrFollowupEngine {
         });
 
         if (decision.action === "cancel_by_human") {
+          const movedToHuman = conv?.queueState === "meus" || Boolean(conv?.operatorId);
+          const preSilenceStage =
+            typeof meta.funnelStage === "string" && meta.funnelStage !== "sem_resposta"
+              ? meta.funnelStage
+              : typeof meta.preSilenceFunnelStage === "string"
+                ? meta.preSilenceFunnelStage
+                : "triagem";
           await db
             .update(agentFlowStates)
-            .set({
-              metadata: { ...meta, followUpStage: 0 },
-              outcome: conv?.queueState === "meus" ? "transferred" : "abandoned",
-              completedAt: now,
-              lastInteractionAt: now,
-            })
+            .set(
+              movedToHuman
+                ? {
+                    metadata: { ...meta, followUpStage: 0 },
+                    outcome: "transferred",
+                    completedAt: now,
+                    lastInteractionAt: now,
+                  }
+                : {
+                    currentStep: "Sem Resposta",
+                    metadata: {
+                      ...meta,
+                      followUpStage: 0,
+                      preSilenceFunnelStage: preSilenceStage,
+                      funnelStage: "sem_resposta",
+                      noResponseAt: now.toISOString(),
+                      noResponseReason: decision.reason || "conversation_closed_before_completion",
+                    },
+                    outcome: "abandoned",
+                    completedAt: now,
+                    lastInteractionAt: now,
+                  },
+            )
             .where(
               and(
                 eq(agentFlowStates.id, flow.id),
@@ -701,6 +774,15 @@ export class SdrFollowupEngine {
             flowId: flow.id, cycle: flow.startedAt.toISOString(), expectedInteraction: flow.lastInteractionAt.toISOString(), at: now, reason: decision.reason, partialLeadRescuedAt,
           });
           if (updatedAbandoned) {
+            if (isSiteConversationId(flow.conversationId)) {
+              SessionManager.getInstance().notifyPublic(tenantId, {
+                type: "queue_update",
+                conversationId: flow.conversationId,
+                queueState: "finalizados",
+                operatorId: null,
+                unreadCount: 0,
+              });
+            }
             SessionManager.getInstance().notifyPublic(tenantId, {
               type: "sdr_flow_updated",
               conversationId: flow.conversationId,
