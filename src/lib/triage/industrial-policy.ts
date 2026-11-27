@@ -2009,15 +2009,53 @@ export function isAutomatedBotOrUraMessage(params: {
   return hasUraPrompt && numberedOptionsCount >= 3;
 }
 
-export function hasPendingTriageQuestion(messages: string[]): boolean {
-  return messages.some((message) => {
-    const text = normalizeTriageText(message);
-    if (/^(?:ok|certo|combinado|tudo bem|ne)\?$/.test(text)) return false;
-    return (
-      text.includes("?") ||
-      /\b(?:pode me (?:informar|confirmar|passar)|me (?:informe|confirme|passe|envie|conta)|qual (?:seu|sua|o|a)|esta correto)\b/.test(
-        text,
-      )
-    );
-  });
+const IMPERATIVE_COLLECTION_QUESTION_PATTERN =
+  /\b(?:pode me (?:informar|confirmar|passar)|me (?:informe|confirme|passe|envie|conta)|qual (?:seu|sua|o|a)|esta correto)\b/;
+
+const REAL_QUESTION_BEFORE_PHATIC_TAG_PATTERN =
+  /\b(?:pode me (?:informar|confirmar|passar|dizer|enviar|mandar)|poderia me (?:informar|confirmar|passar|dizer|enviar|detalhar)|me (?:informe|confirme|passe|envie|conta|diga|manda)|qual (?:seria |e )?(?:o |a )?(?:seu|sua|o|a)\b|quais (?:sao|seriam)\b|quant[oa]s?\b|o que (?:voce|vc)\b|esta correto|sua empresa e\b|seu nome e\b|seu cnpj e\b|seu cpf e\b|e sobre (?:este|esse|esta|essa)\b|voce (?:busca|precisa|pretende|prefere|teria|sabe|consegue|pode|gostaria)\b|posso (?:te mandar|prosseguir|seguir|confirmar)\b)/;
+
+const DATA_CONFIRMATION_CONTEXT_PATTERN =
+  /\b(?:empresa|cadastro|cnpj|cpf|nome|telefone|numero|email|modelo|maquina|equipamento|produto|quantidade|producao|confirmar|confirmando|isso mesmo)\b/;
+
+/**
+ * Remove uma tag fática/retórica de encerramento no fim de um balão declarativo
+ * (ex.: "...eles retornam amanhã a partir das 8h para finalizar com você, ok?"),
+ * preservando perguntas reais de coleta ou confirmação de cadastro ("sua empresa é a X, certo?").
+ */
+export function stripTrailingPhaticConfirmationTag(normalizedText: string): string {
+  const text = normalizedText.trim();
+  if (!text) return text;
+  if (/^(?:ok|ta|ta bom|certo|combinado|tudo bem|beleza|ne|nao e|nao e mesmo)\?$/.test(text)) {
+    return "";
+  }
+  const strippedStrict = text.replace(
+    /(?:[,.;!–—-]\s+|\s+)(?:ok|ta|ta bom|combinado|tudo bem|beleza|ne|nao e|nao e mesmo)\?$/,
+    "",
+  );
+  if (strippedStrict !== text) return strippedStrict.trim();
+
+  if (!DATA_CONFIRMATION_CONTEXT_PATTERN.test(text)) {
+    const strippedCerto = text.replace(/(?:[,.;!–—-]\s+|\s+)certo\?$/, "");
+    if (strippedCerto !== text) return strippedCerto.trim();
+  }
+  return text;
+}
+
+export function isPendingTriageQuestionBubble(message: string): boolean {
+  const text = normalizeTriageText(String(message || ""));
+  if (!text) return false;
+  if (IMPERATIVE_COLLECTION_QUESTION_PATTERN.test(text)) return true;
+  if (!text.includes("?")) return false;
+  const withoutTrailingPhatic = stripTrailingPhaticConfirmationTag(text);
+  if (withoutTrailingPhatic === text) return true;
+  if (!withoutTrailingPhatic) return false;
+  return (
+    withoutTrailingPhatic.includes("?") ||
+    REAL_QUESTION_BEFORE_PHATIC_TAG_PATTERN.test(withoutTrailingPhatic)
+  );
+}
+
+export function hasPendingTriageQuestion(messages: readonly string[]): boolean {
+  return messages.some((message) => isPendingTriageQuestionBubble(message));
 }

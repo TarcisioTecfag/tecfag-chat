@@ -9,6 +9,7 @@ import {
 import {
   INDUSTRIAL_CURRICULUM_SOLIDES_URL,
   INDUSTRIAL_SUPPLIERS_EMAIL,
+  isPendingTriageQuestionBubble,
   type CollectedFields,
   type RequiredField,
 } from "./industrial-policy.ts";
@@ -268,11 +269,15 @@ export function sanitizeRewrittenIndustrialMessages(
       ? cleaned.filter((m) => !isPrematureIndustrialHandoffBubble(m))
       : rewriteMode === "awaiting_approval" || rewriteMode === "direct_operator_not_found"
         ? cleaned.filter(
-            (m) => !m.includes("?") && !INDUSTRIAL_FALSE_SYSTEM_CLAIM_PATTERN.test(m),
+            (m) =>
+              !isPendingTriageQuestionBubble(m) &&
+              !INDUSTRIAL_FALSE_SYSTEM_CLAIM_PATTERN.test(m),
           )
         : rewriteMode === "direct_operator_transferred"
           ? cleaned.filter(
-              (m) => !m.includes("?") && !DIRECT_TRANSFER_FALSE_CRM_CLAIM_PATTERN.test(m),
+              (m) =>
+                !isPendingTriageQuestionBubble(m) &&
+                !DIRECT_TRANSFER_FALSE_CRM_CLAIM_PATTERN.test(m),
             )
           : rewriteMode === "resolved"
             ? cleaned.filter((m) => {

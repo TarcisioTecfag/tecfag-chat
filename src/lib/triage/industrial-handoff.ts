@@ -4,6 +4,7 @@ import {
   INDUSTRIAL_CURRICULUM_SOLIDES_URL,
   INDUSTRIAL_REVIEW_FUNNEL,
   INDUSTRIAL_SUPPLIERS_EMAIL,
+  isPendingTriageQuestionBubble,
   normalizeIndustrialFunnel,
   type CollectedFields,
   type IndustrialRoute,
@@ -92,7 +93,12 @@ export function isPrematureIndustrialHandoffBubble(text: string): boolean {
   if (!clean) return false;
   // Uma pergunta legítima de coleta que apenas explica o motivo ("Para que o especialista possa...")
   // não é promessa falsa de encaminhamento, salvo se alegar ação já executada pelo servidor.
-  if (clean.includes("?") && !INDUSTRIAL_FALSE_SYSTEM_CLAIM_PATTERN.test(clean)) {
+  // Perguntas meramente fáticas no fim de frases declarativas (", ok?", ", tá?", ", combinado?")
+  // NÃO blindam uma promessa prematura de encaminhamento nem impedem implicitReadyHandoff.
+  if (
+    isPendingTriageQuestionBubble(clean) &&
+    !INDUSTRIAL_FALSE_SYSTEM_CLAIM_PATTERN.test(clean)
+  ) {
     return false;
   }
   return INDUSTRIAL_CLAIMS_EFFECT_PATTERN.test(clean);
@@ -319,7 +325,7 @@ export function evaluateIndustrialClientMessages(params: {
       .filter(
         (m) =>
           Boolean(m) &&
-          !m.includes("?") &&
+          !isPendingTriageQuestionBubble(m) &&
           !INDUSTRIAL_FALSE_SYSTEM_CLAIM_PATTERN.test(m),
       )
       .slice(0, 4);
@@ -352,7 +358,7 @@ export function evaluateIndustrialClientMessages(params: {
       .filter(
         (m) =>
           Boolean(m) &&
-          !m.includes("?") &&
+          !isPendingTriageQuestionBubble(m) &&
           !/(?:j[aá]\s+(?:criei|vinculei)\b|(?:card|negocia[cç][aã]o)\s+(?:j[aá]\s+)?(?:criad[oa]|vinculad[oa])|j[aá]\s+coletei\s+tudo|estou\s+validando)/i.test(
             m,
           ),
@@ -387,7 +393,7 @@ export function evaluateIndustrialClientMessages(params: {
         .filter(
           (m) =>
             Boolean(m) &&
-            !m.includes("?") &&
+            !isPendingTriageQuestionBubble(m) &&
             !isRedundantIndustrialClosingMessage(m),
         )
         .slice(0, 3);
@@ -446,7 +452,7 @@ export function evaluateIndustrialClientMessages(params: {
     .map((m) => String(m || "").trim())
     .filter((m) => Boolean(m) && !isPrematureIndustrialHandoffBubble(m));
 
-  const alreadyAsksQuestion = safeBubbles.some((m) => m.includes("?"));
+  const alreadyAsksQuestion = hasPendingTriageQuestion(safeBubbles);
   const firstBubbleIsOrphan =
     safeBubbles.length > 0 && startsWithOrphanAnaphoricConnector(safeBubbles[0]);
   if (safeBubbles.length > 0 && alreadyAsksQuestion && !firstBubbleIsOrphan) {
