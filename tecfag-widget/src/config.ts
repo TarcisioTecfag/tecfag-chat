@@ -4,6 +4,8 @@
 // o mesmo bundle funcione em homologação, produção ou domínio externo (VTEX).
 // ══════════════════════════════════════════════════════════════════════════════
 
+import { getBrowserSiteEntry } from "./lib/site-entry";
+
 const DEFAULT_PRODUCTION_BACKEND = "https://tecfagchat.up.railway.app";
 
 const capturedScript =
@@ -88,6 +90,7 @@ export function buildLiveChatWsUrl(cookieId: string): string {
   const currentUrl = typeof window !== "undefined" ? window.location.href : "";
   const currentTitle = typeof document !== "undefined" ? document.title : "";
   const referrer = typeof document !== "undefined" ? document.referrer : "";
+  const entry = getBrowserSiteEntry();
 
   const params = new URLSearchParams({
     tenantId: TENANT_ID,
@@ -95,6 +98,9 @@ export function buildLiveChatWsUrl(cookieId: string): string {
     ...(currentUrl ? { currentUrl } : {}),
     ...(currentTitle ? { currentTitle } : {}),
     ...(referrer ? { referrer } : {}),
+    ...(entry?.url ? { entryUrl: entry.url } : {}),
+    ...(entry?.title ? { entryTitle: entry.title } : {}),
+    ...(entry?.referrer ? { entryReferrer: entry.referrer } : {}),
   });
 
   return `${baseWs}${baseWs.includes("?") ? "&" : "?"}${params.toString()}`;

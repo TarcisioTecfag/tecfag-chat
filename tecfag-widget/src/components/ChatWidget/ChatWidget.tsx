@@ -12,6 +12,7 @@ import {
 } from "./notifications";
 import { AVATAR_URL, BACKEND_URL, TENANT_ID, buildLiveChatWsUrl } from "../../config";
 import { WidgetMessageOutbox, type PendingWidgetMessage } from "../../lib/message-outbox";
+import { getBrowserSiteEntry } from "../../lib/site-entry";
 
 // ─── Campanha Sazonal: Black November 2026 (expira automaticamente em 30/11/2026 23:59:59 BRT) ─
 const BLACK_NOVEMBER_END_MS = new Date("2026-11-30T23:59:59-03:00").getTime();
@@ -711,17 +712,35 @@ export const ChatWidget: React.FC = () => {
       ws.onopen = () => {
         if (wsRef.current !== ws || !mountedRef.current) return;
         setIsConnected(true);
-        const urlParams = new URLSearchParams(window.location?.search || "");
+        const currentHref = window.location?.href || "";
+        const currentTitle = document.title || "";
+        const entry = getBrowserSiteEntry();
+        const entryParams = (() => {
+          try {
+            return new URL(entry?.url || currentHref).searchParams;
+          } catch {
+            return new URLSearchParams(window.location?.search || "");
+          }
+        })();
         ws.send(
           JSON.stringify({
             type: "VISITOR_CONNECT",
             cookieId,
-            currentPage: window.location?.href || "",
-            pageTitle: document.title || "",
+            currentPage: currentHref,
+            pageTitle: currentTitle,
             referrer: document.referrer || undefined,
-            utmSource: urlParams.get("utm_source") || undefined,
-            utmMedium: urlParams.get("utm_medium") || undefined,
-            utmCampaign: urlParams.get("utm_campaign") || undefined,
+            entryUrl: entry?.url || undefined,
+            entryTitle: entry?.title || undefined,
+            entryReferrer: entry?.referrer || undefined,
+            utmSource: entryParams.get("utm_source") || undefined,
+            utmMedium: entryParams.get("utm_medium") || undefined,
+            utmCampaign: entryParams.get("utm_campaign") || undefined,
+            siteContext: {
+              entry: entry
+                ? { url: entry.url, title: entry.title, referrer: entry.referrer || undefined }
+                : undefined,
+              page: { url: currentHref, title: currentTitle, referrer: document.referrer || undefined },
+            },
           }),
         );
         const savedIdentity = visitorIdentityRef.current;
@@ -1029,11 +1048,15 @@ export const ChatWidget: React.FC = () => {
         currentPageviewIdRef.current = null;
 
         if (wsRef.current?.readyState === WebSocket.OPEN) {
+          const entry = getBrowserSiteEntry();
           wsRef.current.send(
             JSON.stringify({
               type: "PAGE_UPDATE",
               url: currentUrl,
               pageTitle: document.title,
+              entryUrl: entry?.url || undefined,
+              entryTitle: entry?.title || undefined,
+              entryReferrer: entry?.referrer || undefined,
             }),
           );
         }
@@ -1328,6 +1351,7 @@ export const ChatWidget: React.FC = () => {
       setPendingProductInquiry(null);
       setChatStarted(true);
       const visitorMsg = `Quero saber mais sobre ${product.displayName}`;
+      const entry = getBrowserSiteEntry();
       queueVisitorMessage(visitorMsg, {
         type: "PRODUCT_INQUIRY",
         productSlug: product.slug,
@@ -1336,6 +1360,13 @@ export const ChatWidget: React.FC = () => {
         visitorMessage: visitorMsg,
         currentPage: window.location?.href || "",
         pageTitle: document.title || "",
+        ...(entry
+          ? {
+              entryUrl: entry.url,
+              entryTitle: entry.title,
+              entryReferrer: entry.referrer || undefined,
+            }
+          : {}),
       });
       setDismissedProductSlug(product.slug);
       return;
@@ -1410,6 +1441,7 @@ export const ChatWidget: React.FC = () => {
 
       setChatStarted(true);
       const visitorMsg = `Quero saber mais sobre ${product.displayName}`;
+      const entry = getBrowserSiteEntry();
       queueVisitorMessage(visitorMsg, {
         type: "PRODUCT_INQUIRY",
         productSlug: product.slug,
@@ -1418,6 +1450,13 @@ export const ChatWidget: React.FC = () => {
         visitorMessage: visitorMsg,
         currentPage: window.location?.href || "",
         pageTitle: document.title || "",
+        ...(entry
+          ? {
+              entryUrl: entry.url,
+              entryTitle: entry.title,
+              entryReferrer: entry.referrer || undefined,
+            }
+          : {}),
       });
       setDismissedProductSlug(product.slug);
     },
@@ -1491,6 +1530,7 @@ export const ChatWidget: React.FC = () => {
     const finalText = combinedText.trim();
     if (!finalText) return;
 
+    const entry = getBrowserSiteEntry();
     queueVisitorMessage(
       text || finalText,
       {
@@ -1498,6 +1538,13 @@ export const ChatWidget: React.FC = () => {
         content: finalText,
         currentPage: window.location?.href || "",
         pageTitle: document.title || "",
+        ...(entry
+          ? {
+              entryUrl: entry.url,
+              entryTitle: entry.title,
+              entryReferrer: entry.referrer || undefined,
+            }
+          : {}),
       },
       attList.length > 0 ? attList : undefined,
     );

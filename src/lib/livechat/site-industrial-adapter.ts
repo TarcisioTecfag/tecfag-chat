@@ -16,7 +16,12 @@ import { SessionManager } from "../baileys/session-manager";
 import { SdrDebouncer } from "../valentina/sdr-debouncer";
 import { reopenIndustrialSiteConversation } from "./site-conversation-store";
 import { readSiteContext, type SiteContext } from "./site-context";
-import { extractSiteContextAttribution } from "../marketing/crm-attribution";
+import {
+  extractSiteContextAttribution,
+  getDefaultSiteCampaignLabel,
+  isOperationalChannelLabel,
+  resolveVisitorJourneyAttributionInTx,
+} from "../marketing/crm-attribution";
 import { setAttendanceActor } from "../attendance-events";
 import {
   computeContactPhoneIdentity,
@@ -196,6 +201,7 @@ export async function ensureSiteConversation(tenantId: string, visitor: LcVisito
           email: identity.email,
           phone: identity.phone,
           mainChannel: SITE_CHANNEL,
+          entryChannel: SITE_CHANNEL,
           responsibleName: "Na Fila",
           cpf: identity.cpf,
           cnpj: identity.cnpj,
@@ -467,8 +473,22 @@ export async function handleIndustrialSiteMessage(tenantId: string, visitor: LcV
   }
 
   const now = new Date();
-  const siteContext = readSiteContext(item.siteContext);
-  const siteAttribution = extractSiteContextAttribution(siteContext, "Chat Site");
+  const rawSiteContext = readSiteContext(item.siteContext);
+  const defaultSiteCampaign = getDefaultSiteCampaignLabel(tenantId);
+  let journeyResolution: Awaited<ReturnType<typeof resolveVisitorJourneyAttributionInTx>> = null;
+  try {
+    journeyResolution = await resolveVisitorJourneyAttributionInTx(db, tenantId, {
+      visitorIds: [visitor.id],
+      cookieIds: visitor.cookieId ? [visitor.cookieId] : [],
+      siteContext: rawSiteContext,
+      conversionPointLabel: defaultSiteCampaign,
+    });
+  } catch {
+    // Fallback seguro em ambientes de teste com mocks parciais
+  }
+  const siteContext = journeyResolution?.enrichedSiteContext || rawSiteContext;
+  const siteAttribution =
+    journeyResolution?.attribution || extractSiteContextAttribution(siteContext, defaultSiteCampaign);
   const [inserted] = await db
     .insert(messages)
     .values({
@@ -483,10 +503,10 @@ export async function handleIndustrialSiteMessage(tenantId: string, visitor: LcV
       provider: SITE_PROVIDER,
       externalId: item.siteMessageId,
       status: "delivered",
-      ...(siteContext
+      ...(siteContext || siteAttribution
         ? {
             metaDetails: {
-              siteContext,
+              ...(siteContext ? { siteContext } : {}),
               ...(siteAttribution ? { marketingAttribution: siteAttribution } : {}),
             },
           }
@@ -500,27 +520,77 @@ export async function handleIndustrialSiteMessage(tenantId: string, visitor: LcV
 
   if (siteAttribution) {
     try {
+      const [existingContact] = await db
+        .select({
+          firstSource: contacts.firstSource,
+          firstCampaign: contacts.firstCampaign,
+          utmSource: contacts.utmSource,
+          utmMedium: contacts.utmMedium,
+          utmCampaign: contacts.utmCampaign,
+          utmContent: contacts.utmContent,
+          utmTerm: contacts.utmTerm,
+          clickId: contacts.clickId,
+          landingPage: contacts.landingPage,
+          entryChannel: contacts.entryChannel,
+        })
+        .from(contacts)
+        .where(and(eq(contacts.tenantId, tenantId), eq(contacts.id, conv.contactId)))
+        .limit(1);
+
+      const prevSourceNorm = (existingContact?.firstSource || "").trim().toLowerCase();
+      const prevSourceIsReplaceable =
+        !existingContact?.firstSource ||
+        isOperationalChannelLabel(existingContact.firstSource) ||
+        prevSourceNorm === "contato pelo site" ||
+        (prevSourceNorm === "tráfego direto" && Boolean(journeyResolution?.hasExplicitTracking)) ||
+        (prevSourceNorm === "trafego direto" && Boolean(journeyResolution?.hasExplicitTracking));
+
+      const prevCampaignNorm = (existingContact?.firstCampaign || "").trim().toLowerCase();
+      const prevCampaignIsReplaceable =
+        !existingContact?.firstCampaign || prevCampaignNorm === "chat site";
+
+      const patch: Record<string, any> = {
+        sectorOrigin: sql`COALESCE(${contacts.sectorOrigin}, 'pre_venda')`,
+      };
+      if (!existingContact?.entryChannel) patch.entryChannel = SITE_CHANNEL;
+      if (prevSourceIsReplaceable && siteAttribution.source) {
+        patch.firstSource = siteAttribution.source;
+      }
+      if (prevCampaignIsReplaceable && siteAttribution.campaign) {
+        patch.firstCampaign = siteAttribution.campaign;
+      }
+      if (!existingContact?.utmSource && siteAttribution.utmSource) {
+        patch.utmSource = siteAttribution.utmSource;
+      }
+      if (!existingContact?.utmMedium && siteAttribution.utmMedium) {
+        patch.utmMedium = siteAttribution.utmMedium;
+      }
+      if (!existingContact?.utmCampaign && siteAttribution.utmCampaign) {
+        patch.utmCampaign = siteAttribution.utmCampaign;
+      }
+      if (!existingContact?.utmContent && siteAttribution.utmContent) {
+        patch.utmContent = siteAttribution.utmContent;
+      }
+      if (!existingContact?.utmTerm && siteAttribution.utmTerm) {
+        patch.utmTerm = siteAttribution.utmTerm;
+      }
+      if (!existingContact?.clickId && siteAttribution.clickId) {
+        patch.clickId = siteAttribution.clickId;
+      }
+      if (
+        (!existingContact?.landingPage ||
+          (Boolean(journeyResolution?.hasExplicitTracking) &&
+            siteAttribution.landingPage &&
+            !existingContact.utmSource)) &&
+        siteAttribution.landingPage
+      ) {
+        patch.landingPage = siteAttribution.landingPage;
+      }
+
       await db
         .update(contacts)
-        .set({
-          firstSource: siteAttribution.source,
-          firstCampaign: siteAttribution.campaign,
-          utmSource: siteAttribution.utmSource,
-          utmMedium: siteAttribution.utmMedium,
-          utmCampaign: siteAttribution.utmCampaign,
-          utmContent: siteAttribution.utmContent,
-          utmTerm: siteAttribution.utmTerm,
-          clickId: siteAttribution.clickId,
-          landingPage: siteAttribution.landingPage,
-          sectorOrigin: sql`COALESCE(${contacts.sectorOrigin}, 'pre_venda')`,
-        })
-        .where(
-          and(
-            eq(contacts.tenantId, tenantId),
-            eq(contacts.id, conv.contactId),
-            sql`${contacts.firstSource} IS NULL`,
-          ),
-        );
+        .set(patch)
+        .where(and(eq(contacts.tenantId, tenantId), eq(contacts.id, conv.contactId)));
     } catch {
       // Ignora em mocks parciais
     }

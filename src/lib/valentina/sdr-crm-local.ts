@@ -29,12 +29,14 @@ import { eq, and, desc, asc, gte, inArray, or, sql } from "drizzle-orm";
 import { getAiPersona } from "../ai-persona";
 import { ensureCatalogOption } from "../crm/catalogs";
 import {
+  getDefaultSiteCampaignLabel,
   isEffectiveCommercialWin,
   isTestEntityTitle,
   loadDealSectorResolutionContext,
   resolveDealCurrentSector,
   resolveInheritedMarketingAttribution,
 } from "../marketing/crm-attribution";
+import { isSiteConversationId } from "../livechat/site-channel-policy";
 
 export const SDR_DEAL_REUSE_WINDOW_HOURS = 3;
 export const SDR_DEAL_REUSE_WINDOW_MS = SDR_DEAL_REUSE_WINDOW_HOURS * 60 * 60 * 1000;
@@ -882,10 +884,14 @@ export async function ensureLocalCrmDealBeforeTransfer(
         documento: validDoc || undefined,
       };
 
+      const fromSiteConversation = isSiteConversationId(conversationId);
       const inheritedAttr = await resolveInheritedMarketingAttribution(tx, tenantId, {
         contactId,
         conversationId,
-        explicitEntryChannel: "whatsapp_sdr",
+        siteConversationId: fromSiteConversation ? conversationId : null,
+        isSiteOriginated: fromSiteConversation,
+        explicitEntryChannel: fromSiteConversation ? "livechat" : "whatsapp_sdr",
+        explicitCampaign: fromSiteConversation ? getDefaultSiteCampaignLabel(tenantId) : null,
       });
       const sectorCtx = await loadDealSectorResolutionContext(
         tx,

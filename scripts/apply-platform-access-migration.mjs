@@ -901,6 +901,47 @@ if (!databaseUrl) {
       );
     }
 
+    // 10i. Backfill único de atribuição (Fonte, Campanha e UTMs) de cards do Fagner Site na Tecfag (27/11/2026)
+    // Recupera UTM/ClickID/Referrer reais da jornada (`lc_pageviews` / `lc_visitors`) -> ex.: Social | linktree,
+    // normaliza campanha para "Fagner | Vtex" e fallback direto para "Tráfego Direto" (preservando edições humanas).
+    const tecfagSiteAttributionBackfillName =
+      "tecfag_site_deal_attribution_backfill_2026_11_27_v1";
+    const [appliedTecfagSiteAttributionBackfill] = await sql`
+      SELECT name FROM app_deploy_migrations WHERE name = ${tecfagSiteAttributionBackfillName}
+    `;
+    if (!appliedTecfagSiteAttributionBackfill) {
+      console.log(
+        `[platform migration] Iniciando execução única de ${tecfagSiteAttributionBackfillName}...`,
+      );
+      try {
+        const { runSiteDealAttributionBackfill } = await import(
+          "./backfill-site-deal-attribution.mjs"
+        );
+        const summary = await sql.begin(async (tx) => {
+          const res = await runSiteDealAttributionBackfill(tx, "tecfag");
+          await tx`
+            INSERT INTO app_deploy_migrations (name)
+            VALUES (${tecfagSiteAttributionBackfillName})
+            ON CONFLICT (name) DO NOTHING
+          `;
+          return res;
+        });
+        console.log(
+          `[platform migration] ${tecfagSiteAttributionBackfillName} concluída com sucesso:`,
+          JSON.stringify(summary),
+        );
+      } catch (siteAttrErr) {
+        console.warn(
+          `[platform migration] Aviso ao executar ${tecfagSiteAttributionBackfillName}:`,
+          siteAttrErr?.message || siteAttrErr,
+        );
+      }
+    } else {
+      console.log(
+        `[platform migration] ${tecfagSiteAttributionBackfillName} já aplicada anteriormente.`,
+      );
+    }
+
     // 11. Higienização contínua de sectors.operator_ids (remove IDs de operadores órfãos/excluídos e deduplica por setor)
     try {
       const [allSectors, allOperators] = await Promise.all([

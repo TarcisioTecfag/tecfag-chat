@@ -12,10 +12,13 @@ import {
   crmStages,
 } from "../../db/schema";
 import { getAiPersona } from "../ai-persona";
+import { ensureCatalogOption } from "../crm/catalogs";
 import {
+  getDefaultSiteCampaignLabel,
   isTestEntityTitle,
   loadDealSectorResolutionContext,
   resolveDealCurrentSector,
+  resolveInheritedMarketingAttribution,
 } from "../marketing/crm-attribution";
 import {
   ensureLocalCrmDealBeforeTransfer,
@@ -178,6 +181,9 @@ export async function ensureCwrDealOnContacting(
     actorName?: string | null;
     entryChannelOverride?: string | null;
     sourceOverride?: string | null;
+    campaignOverride?: string | null;
+    siteConversationId?: string | null;
+    isSiteOriginated?: boolean;
     compatiblePipelineIdsForReuse?: string[] | null;
   },
 ): Promise<EnsureCwrContactingResult> {
@@ -367,6 +373,42 @@ export async function ensureCwrDealOnContacting(
     const dealTitle = resolvedCompany ? `${resolvedName} - ${resolvedCompany}` : resolvedName;
     const newDealId = `deal-${Date.now()}-${crypto.randomUUID().slice(0, 6)}`;
 
+    const isSiteFlow = Boolean(
+      params.isSiteOriginated ||
+        params.siteConversationId ||
+        params.entryChannelOverride === "livechat" ||
+        params.entryChannelOverride === "site_chat",
+    );
+    const inheritedAttr = await resolveInheritedMarketingAttribution(tx, tenantId, {
+      contactId,
+      conversationId,
+      siteConversationId: params.siteConversationId,
+      isSiteOriginated: isSiteFlow,
+      explicitEntryChannel: params.entryChannelOverride || contactRow?.entryChannel || "whatsapp",
+      explicitSource: params.sourceOverride || null,
+      explicitCampaign: params.campaignOverride || (isSiteFlow ? getDefaultSiteCampaignLabel(tenantId) : null),
+    });
+
+    const resolvedSource =
+      inheritedAttr.source || (isSiteFlow ? "Tráfego Direto" : "WhatsApp");
+    const resolvedCampaign =
+      inheritedAttr.campaign || (isSiteFlow ? getDefaultSiteCampaignLabel(tenantId) : null);
+
+    if (resolvedSource) {
+      try {
+        await ensureCatalogOption(tenantId, "source", resolvedSource, tx);
+      } catch {
+        // Ignora erro de catálogo em mocks parciais
+      }
+    }
+    if (resolvedCampaign) {
+      try {
+        await ensureCatalogOption(tenantId, "campaign", resolvedCampaign, tx);
+      } catch {
+        // Ignora erro de catálogo em mocks parciais
+      }
+    }
+
     await tx.insert(crmDeals).values({
       id: newDealId,
       tenantId,
@@ -377,16 +419,16 @@ export async function ensureCwrDealOnContacting(
       originalPipelineId: cwr.pipelineId,
       status: "open",
       operatorId: null,
-      entryChannel: params.entryChannelOverride || contactRow?.entryChannel || "whatsapp",
-      source: params.sourceOverride || contactRow?.firstSource || "WhatsApp",
-      campaign: contactRow?.firstCampaign || null,
-      utmSource: contactRow?.utmSource || null,
-      utmMedium: contactRow?.utmMedium || null,
-      utmCampaign: contactRow?.utmCampaign || null,
-      utmContent: contactRow?.utmContent || null,
-      utmTerm: contactRow?.utmTerm || null,
-      clickId: contactRow?.clickId || null,
-      landingPage: contactRow?.landingPage || null,
+      entryChannel: inheritedAttr.entryChannel || params.entryChannelOverride || contactRow?.entryChannel || "whatsapp",
+      source: resolvedSource,
+      campaign: resolvedCampaign,
+      utmSource: inheritedAttr.utmSource || null,
+      utmMedium: inheritedAttr.utmMedium || null,
+      utmCampaign: inheritedAttr.utmCampaign || null,
+      utmContent: inheritedAttr.utmContent || null,
+      utmTerm: inheritedAttr.utmTerm || null,
+      clickId: inheritedAttr.clickId || null,
+      landingPage: inheritedAttr.landingPage || null,
       sectorOrigin: "pre_venda",
       sectorCurrent: "pre_venda",
       isTest: isTestEntityTitle(dealTitle),
@@ -1050,16 +1092,20 @@ export async function ensureSiteDealOnWhatsappHandoff(
     (normalizedKey === "FINANCEIRO" || normalizedKey === "3_AT" || normalizedKey === "POS_VENDA") &&
     Boolean(targetPipelineId && targetStageId);
 
+  const defaultSiteCampaign = getDefaultSiteCampaignLabel(tenantId);
+
   if (!isOperationalOwnFunnel) {
     const cwrResult = await ensureCwrDealOnContacting(tx, {
       tenantId,
       conversationId: whatsappConversationId,
+      siteConversationId,
       contactId,
       clientName: params.clientName,
       companyName: params.companyName,
       actorName: params.actorName,
       entryChannelOverride: "livechat",
-      sourceOverride: "Chat Site",
+      campaignOverride: defaultSiteCampaign,
+      isSiteOriginated: true,
       compatiblePipelineIdsForReuse: targetPipelineId ? [targetPipelineId] : null,
     });
     if (cwrResult.dealId && siteConversationId) {
@@ -1134,20 +1180,48 @@ export async function ensureSiteDealOnWhatsappHandoff(
   const dealTitle = resolvedCompany ? `${resolvedName} - ${resolvedCompany}` : resolvedName;
   const newDealId = `deal-${Date.now()}-${crypto.randomUUID().slice(0, 6)}`;
 
-  const sectorCtx = await loadDealSectorResolutionContext(tx, tenantId);
-  const resolvedSector = resolveDealCurrentSector(
-    {
-      pipelineId: targetPipelineId!,
-      originalPipelineId: targetPipelineId!,
-      operatorId: null,
-      sectorOrigin: null,
-      sectorCurrent: null,
-      customFields: {},
-      isTest: isTestEntityTitle(dealTitle),
-      title: dealTitle,
-    },
-    sectorCtx,
+  const sectorCtx = await loadDealSectorResolutionContext(
+    tx,
+    tenantId,
+    targetPipelineId!,
+    targetStageId!,
+    null,
   );
+  const resolvedSector = resolveDealCurrentSector({
+    isTest: isTestEntityTitle(dealTitle),
+    pipelineId: targetPipelineId!,
+    pipelineName: sectorCtx.pipelineName,
+    stageId: targetStageId!,
+    stageName: sectorCtx.stageName,
+    operatorDivision: sectorCtx.operatorDivision,
+    operatorSectorNames: sectorCtx.operatorSectorNames,
+    customFields: {},
+  });
+
+  const inheritedAttr = await resolveInheritedMarketingAttribution(tx, tenantId, {
+    contactId,
+    conversationId: whatsappConversationId,
+    siteConversationId,
+    isSiteOriginated: true,
+    explicitEntryChannel: "livechat",
+    explicitCampaign: defaultSiteCampaign,
+  });
+  const resolvedSource = inheritedAttr.source || "Tráfego Direto";
+  const resolvedCampaign = inheritedAttr.campaign || defaultSiteCampaign;
+  if (resolvedSource) {
+    try {
+      await ensureCatalogOption(tenantId, "source", resolvedSource, tx);
+    } catch {
+      // Ignora erro de catálogo em mocks parciais
+    }
+  }
+  if (resolvedCampaign) {
+    try {
+      await ensureCatalogOption(tenantId, "campaign", resolvedCampaign, tx);
+    } catch {
+      // Ignora erro de catálogo em mocks parciais
+    }
+  }
 
   await tx.insert(crmDeals).values({
     id: newDealId,
@@ -1160,17 +1234,17 @@ export async function ensureSiteDealOnWhatsappHandoff(
     status: "open",
     operatorId: null,
     entryChannel: "livechat",
-    source: contactRow?.firstSource || "Chat Site",
-    campaign: contactRow?.firstCampaign || null,
-    utmSource: contactRow?.utmSource || null,
-    utmMedium: contactRow?.utmMedium || null,
-    utmCampaign: contactRow?.utmCampaign || null,
-    utmContent: contactRow?.utmContent || null,
-    utmTerm: contactRow?.utmTerm || null,
-    clickId: contactRow?.clickId || null,
-    landingPage: contactRow?.landingPage || null,
-    sectorOrigin: resolvedSector || "pos_venda",
-    sectorCurrent: resolvedSector || "pos_venda",
+    source: resolvedSource,
+    campaign: resolvedCampaign,
+    utmSource: inheritedAttr.utmSource || null,
+    utmMedium: inheritedAttr.utmMedium || null,
+    utmCampaign: inheritedAttr.utmCampaign || null,
+    utmContent: inheritedAttr.utmContent || null,
+    utmTerm: inheritedAttr.utmTerm || null,
+    clickId: inheritedAttr.clickId || null,
+    landingPage: inheritedAttr.landingPage || null,
+    sectorOrigin: resolvedSector || "suporte_tecnico",
+    sectorCurrent: resolvedSector || "suporte_tecnico",
     isTest: isTestEntityTitle(dealTitle),
     lastActivityAt: now,
     createdAt: now,

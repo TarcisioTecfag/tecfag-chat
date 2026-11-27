@@ -51,6 +51,7 @@ import {
   resolveApprovedRdTemplate,
 } from "../rd-marketing/sdr-template-dispatch";
 import { ensureCwrDealOnContacting } from "../triage/industrial-cwr-crm";
+import { getDefaultSiteCampaignLabel } from "../marketing/crm-attribution";
 import {
   INDUSTRIAL_POLICY_VERSION,
   normalizeTriageText,
@@ -1005,12 +1006,14 @@ export async function executeMidTriageSiteToWhatsApp(
     const cwrResult = await ensureCwrDealOnContacting(tx, {
       tenantId,
       conversationId: waConversationId,
+      siteConversationId,
       contactId: contact.id,
       clientName: input.clientName || contact.name,
       companyName: input.companyName,
       actorName: persona.name,
       entryChannelOverride: SITE_CHANNEL,
-      sourceOverride: "Chat Site",
+      campaignOverride: getDefaultSiteCampaignLabel(tenantId),
+      isSiteOriginated: true,
     });
 
     // 6.4 Transferir o ciclo de triagem INCOMPLETA para a conversa do WhatsApp (em `collecting`)

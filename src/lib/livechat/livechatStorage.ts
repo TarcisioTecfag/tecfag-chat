@@ -31,6 +31,11 @@ import { canPerformSiteAction } from "../access-control/site-actions";
 import type { SiteOperatorAction } from "../access-control/site-actions";
 import type { ChatPermissions } from "../rbac";
 import { siteGateway } from "./site-gateway";
+import { isExternalSiteReferrer } from "./site-context";
+import {
+  extractTrackingParamsFromUrls,
+  normalizeRdDealSource,
+} from "../marketing/crm-attribution";
 
 const uuid = () => crypto.randomUUID();
 
@@ -146,31 +151,16 @@ function extractUtmParams(
   utmMedium: string | null;
   utmCampaign: string | null;
 } {
-  let utmSource: string | null = null;
-  let utmMedium: string | null = null;
-  let utmCampaign: string | null = null;
-
-  for (const rawUrl of urls) {
-    if (!rawUrl) continue;
-    try {
-      const parsed = new URL(rawUrl, "https://site.local");
-      const src = parsed.searchParams.get("utm_source");
-      const med = parsed.searchParams.get("utm_medium");
-      const cmp = parsed.searchParams.get("utm_campaign");
-      const gclid = parsed.searchParams.get("gclid");
-      const fbclid = parsed.searchParams.get("fbclid");
-      if (!utmSource && src) utmSource = src;
-      if (!utmSource && gclid) utmSource = "google";
-      if (!utmSource && fbclid) utmSource = "meta";
-      if (!utmMedium && med) utmMedium = med;
-      if (!utmMedium && (gclid || fbclid)) utmMedium = "cpc";
-      if (!utmCampaign && cmp) utmCampaign = cmp;
-    } catch {
-      // ignore invalid URL
-    }
-  }
-
-  return { utmSource, utmMedium, utmCampaign };
+  const tracked = extractTrackingParamsFromUrls(...urls);
+  return {
+    utmSource:
+      tracked.utmSource ||
+      (tracked.gclid ? "google" : tracked.fbclid ? "meta" : tracked.msclkid ? "bing" : tracked.ttclid ? "tiktok" : null),
+    utmMedium:
+      tracked.utmMedium ||
+      (tracked.gclid || tracked.fbclid || tracked.msclkid || tracked.ttclid ? "cpc" : null),
+    utmCampaign: tracked.utmCampaign,
+  };
 }
 
 function extractLocation(
@@ -242,9 +232,17 @@ export async function upsertVisitor(
     .limit(1);
 
   if (existing[0]) {
+    const nextData: Partial<LcVisitor> = { ...data };
+    const prevExternal = isExternalSiteReferrer(existing[0].referrer, existing[0].currentUrl);
+    const nextExternal = isExternalSiteReferrer(nextData.referrer, nextData.currentUrl || existing[0].currentUrl);
+    if (prevExternal && !nextExternal) {
+      delete nextData.referrer;
+    } else if (nextData.referrer && !nextExternal && !existing[0].referrer) {
+      delete nextData.referrer;
+    }
     const [updated] = await db
       .update(lcVisitors)
-      .set({ ...data, lastSeenAt: new Date() })
+      .set({ ...nextData, lastSeenAt: new Date() })
       .where(and(eq(lcVisitors.tenantId, tenantId), eq(lcVisitors.cookieId, cookieId)))
       .returning();
     return updated;
@@ -714,31 +712,27 @@ function inferPageIntent(url?: string | null, title?: string | null): "high" | "
   return "low";
 }
 
-function inferTrafficSource(referrer?: string | null, firstUrl?: string | null): string {
-  const urlStr = firstUrl || "";
-  const refStr = (referrer || "").toLowerCase();
-  try {
-    if (urlStr) {
-      const parsed = new URL(urlStr, "https://site.local");
-      const utmSource = (parsed.searchParams.get("utm_source") || "").toLowerCase();
-      const utmMedium = (parsed.searchParams.get("utm_medium") || "").toLowerCase();
-      if (parsed.searchParams.get("gclid") || (utmSource.includes("google") && /cpc|paid|ads/.test(utmMedium))) {
-        return "Google Ads";
-      }
-      if (parsed.searchParams.get("fbclid") || /meta|facebook|instagram/.test(utmSource)) {
-        return "Meta Ads";
-      }
-      if (utmSource) {
-        return utmSource.charAt(0).toUpperCase() + utmSource.slice(1);
-      }
-    }
-  } catch {}
-  if (refStr.includes("google.")) return "Google Orgânico";
-  if (refStr.includes("bing.") || refStr.includes("yahoo.")) return "Busca Orgânica";
-  if (refStr.includes("instagram.") || refStr.includes("facebook.") || refStr.includes("fb.")) return "Redes Sociais";
-  if (refStr.includes("whatsapp") || refStr.includes("wa.me")) return "WhatsApp";
-  if (refStr && !refStr.includes("tecfag") && !refStr.includes("valem")) return "Referência Externa";
-  return "Acesso Direto";
+function inferTrafficSource(
+  referrer?: string | null,
+  ...urls: Array<string | null | undefined>
+): string {
+  const tracked = extractTrackingParamsFromUrls(...urls);
+  const externalRef = isExternalSiteReferrer(referrer, tracked.landingPage || urls.find(Boolean) || null)
+    ? referrer
+    : null;
+  return (
+    normalizeRdDealSource({
+      utmSource: tracked.utmSource,
+      utmMedium: tracked.utmMedium,
+      utmCampaign: tracked.utmCampaign,
+      gclid: tracked.gclid,
+      fbclid: tracked.fbclid,
+      clickId: tracked.clickId,
+      referrer: externalRef,
+      landingPage: tracked.landingPage,
+      entryChannel: "site_chat",
+    }) || "Tráfego Direto"
+  );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1168,12 +1162,18 @@ export async function getEnrichedSiteVisitorsOverview(
     const referrer =
       v.referrer || siteContext?.entry?.referrer || siteContext?.page?.referrer || null;
 
-    const utmFromUrls = extractUtmParams(entryPage, currentPage);
+    const allJourneyUrls = [
+      ...vPageviews.map((pv) => pv.url),
+      siteContext?.entry?.url,
+      entryPage,
+      currentPage,
+    ];
+    const utmFromUrls = extractUtmParams(...allJourneyUrls);
     const utmSource = utmFromUrls.utmSource || siteContext?.entry?.utm?.utm_source || null;
     const utmMedium = utmFromUrls.utmMedium || siteContext?.entry?.utm?.utm_medium || null;
     const utmCampaign = utmFromUrls.utmCampaign || siteContext?.entry?.utm?.utm_campaign || null;
 
-    const source = inferTrafficSource(referrer, entryPage);
+    const source = inferTrafficSource(referrer, ...allJourneyUrls);
     const uaDetails = parseUserAgentDetails(v.userAgent);
     const location = extractLocation(matchedContact, v.phone);
 
@@ -1538,7 +1538,7 @@ export async function getEnrichedSiteVisitorsOverview(
     { source: string; count: number; hotCount: number; chatCount: number; dealCount: number }
   >();
   for (const v of enrichedVisitors) {
-    const key = v.source || "Acesso Direto";
+    const key = v.source || "Tráfego Direto";
     const entry = sourceAgg.get(key) || {
       source: key,
       count: 0,
@@ -1995,7 +1995,13 @@ export async function getVisitorJourneyDetail(
     siteContext?.page?.referrer ||
     null;
   const firstUrl = pageviews[0]?.url || primaryVisitor?.currentUrl || siteContext?.page?.url || null;
-  const source = inferTrafficSource(referrer, firstUrl);
+  const source = inferTrafficSource(
+    referrer,
+    ...pageviews.map((pv) => pv.url),
+    siteContext?.entry?.url,
+    firstUrl,
+    siteContext?.page?.url,
+  );
   const uaDetails = parseUserAgentDetails(primaryVisitor?.userAgent);
   const location = extractLocation(contactRecord, primaryVisitor?.phone);
 

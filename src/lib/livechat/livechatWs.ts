@@ -36,7 +36,13 @@ import { canMonitorAllSiteVisitors } from "../access-control/channel-permissions
 import { isSdrTenant } from "../ai-persona";
 import { siteGateway } from "./site-gateway";
 import { buildSiteCatalogMediaUrl, clampSiteText, isSiteOriginAllowed } from "./site-channel-policy";
-import { captureSiteContext, mergeSiteContexts, siteProductInquiryText, type SiteContext } from "./site-context";
+import {
+  captureSiteContext,
+  isExternalSiteReferrer,
+  mergeSiteContexts,
+  siteProductInquiryText,
+  type SiteContext,
+} from "./site-context";
 import {
   applySiteIdentity,
   handleIndustrialSiteMessage,
@@ -200,11 +206,20 @@ export function setupLiveChatWebSocket(wss: WebSocketServer) {
     let initialPageviewId: string | undefined;
 
     try {
-      // Cria/atualiza visitante
+      // Cria/atualiza visitante (só persiste referrer quando for externo ao domínio do site)
+      const initialExternalReferrer = industrial
+        ? isExternalSiteReferrer(siteContext?.entry.referrer, siteContext?.entry.url || siteContext?.page.url)
+          ? siteContext?.entry.referrer
+          : isExternalSiteReferrer(siteContext?.page.referrer, siteContext?.page.url)
+            ? siteContext?.page.referrer
+            : undefined
+        : isExternalSiteReferrer(url.searchParams.get("referrer"), currentUrl)
+          ? url.searchParams.get("referrer") || undefined
+          : undefined;
       visitor = await upsertVisitor(tenantId, cookieId, {
         currentUrl: industrial ? siteContext?.page.url : currentUrl || undefined,
         currentTitle: industrial ? siteContext?.page.title : currentTitle || undefined,
-        ...(industrial && siteContext?.entry.referrer ? { referrer: siteContext.entry.referrer } : {}),
+        ...(initialExternalReferrer ? { referrer: initialExternalReferrer } : {}),
         ipAddress:
           (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ||
           req.socket.remoteAddress,
@@ -326,6 +341,9 @@ async function handleVisitorMessage(
     const inquiry = type === "product_inquiry" || type === "PRODUCT_INQUIRY";
     const captured = captureSiteContext(payload.siteContext || {
       page: { url: url || visitor.currentUrl, title: title || visitor.currentTitle, referrer: payload.referrer },
+      entry: payload.entryUrl || payload.entryReferrer
+        ? { url: payload.entryUrl, title: payload.entryTitle, referrer: payload.entryReferrer }
+        : undefined,
       product: { url: payload.productUrl, name: payload.productName || payload.productSlug },
     }, conn.siteOrigin, new Date(), inquiry);
     capturedSiteContext = captured;
@@ -352,10 +370,20 @@ async function handleVisitorMessage(
   if (type === "VISITOR_CONNECT") {
     let connectPageviewId: string | undefined;
     if (conn.industrial && conn.siteContext) {
+      const connectExternalRef =
+        !isExternalSiteReferrer(visitor.referrer, visitor.currentUrl) &&
+        isExternalSiteReferrer(
+          conn.siteContext.entry.referrer,
+          conn.siteContext.entry.url || conn.siteContext.page.url,
+        )
+          ? conn.siteContext.entry.referrer
+          : undefined;
       await updateVisitorData(tenantId, visitor.id, {
         currentUrl: conn.siteContext.page.url,
         currentTitle: conn.siteContext.page.title,
+        ...(connectExternalRef ? { referrer: connectExternalRef } : {}),
       });
+      if (connectExternalRef) visitor.referrer = connectExternalRef;
       if (!visitor.currentUrl && conn.siteContext.page.url) {
         const pv = await recordPageview(
           tenantId,

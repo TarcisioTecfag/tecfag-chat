@@ -18,6 +18,7 @@ import {
 } from "./site-channel-policy";
 import { readSiteContinuationHistory } from "./site-conversation-store";
 import { siteContextFromMessages } from "./site-context";
+import { isOperationalChannelLabel } from "../marketing/crm-attribution";
 import { readVtexEvidence } from "../vtex/contract";
 const sha256Hex = (value: string) => crypto.createHash("sha256").update(value).digest("hex");
 function isGenericContactName(name: string | null | undefined, phone: string | null | undefined) {
@@ -118,6 +119,31 @@ export async function linkSiteContinuityInDatabase(
       identity.name = siteContact.name;
     if (!waContact.cpf && siteContact.cpf) identity.cpf = siteContact.cpf;
     if (!waContact.cnpj && siteContact.cnpj) identity.cnpj = siteContact.cnpj;
+    const waSourceNorm = (waContact.firstSource || "").trim().toLowerCase();
+    const waSourceReplaceable =
+      !waContact.firstSource ||
+      isOperationalChannelLabel(waContact.firstSource) ||
+      waSourceNorm === "contato pelo site";
+    if (
+      waSourceReplaceable &&
+      siteContact.firstSource &&
+      !isOperationalChannelLabel(siteContact.firstSource)
+    ) {
+      identity.firstSource = siteContact.firstSource;
+    }
+    if (
+      (!waContact.firstCampaign || waContact.firstCampaign.trim().toLowerCase() === "chat site") &&
+      siteContact.firstCampaign
+    ) {
+      identity.firstCampaign = siteContact.firstCampaign;
+    }
+    if (!waContact.utmSource && siteContact.utmSource) identity.utmSource = siteContact.utmSource;
+    if (!waContact.utmMedium && siteContact.utmMedium) identity.utmMedium = siteContact.utmMedium;
+    if (!waContact.utmCampaign && siteContact.utmCampaign) identity.utmCampaign = siteContact.utmCampaign;
+    if (!waContact.utmContent && siteContact.utmContent) identity.utmContent = siteContact.utmContent;
+    if (!waContact.utmTerm && siteContact.utmTerm) identity.utmTerm = siteContact.utmTerm;
+    if (!waContact.clickId && siteContact.clickId) identity.clickId = siteContact.clickId;
+    if (!waContact.landingPage && siteContact.landingPage) identity.landingPage = siteContact.landingPage;
     await tx
       .update(contacts)
       .set(identity)

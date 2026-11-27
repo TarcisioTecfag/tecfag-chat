@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import {
   commercialConsultantProfiles,
   contacts,
@@ -6,10 +6,34 @@ import {
   crmDeals,
   crmPipelines,
   crmStages,
+  lcPageviews,
+  lcVisitors,
   messages,
   sectors,
 } from "../../db/schema";
-import { readSiteContext, type SiteContext } from "../livechat/site-context";
+import { getAiPersona } from "../ai-persona";
+import {
+  isSiteConversationId,
+  visitorIdFromSiteConversation,
+} from "../livechat/site-channel-policy";
+import {
+  captureSiteContext,
+  isExternalSiteReferrer,
+  readSiteContext,
+  type SiteContext,
+} from "../livechat/site-context";
+
+/**
+ * Ponto de conversão padrão do chat do site por tenant:
+ * - Perfil industrial (Fagner / loja VTEX): "Fagner | Vtex"
+ * - Demais tenants (ex.: Valem / Valentina): "Chat Site"
+ */
+export function getDefaultSiteCampaignLabel(tenantId?: string | null): string {
+  if (tenantId && getAiPersona(tenantId).triagePolicy === "industrial") {
+    return "Fagner | Vtex";
+  }
+  return "Chat Site";
+}
 
 export const MARKETING_SECTORS = [
   "semi_industrial",
@@ -103,6 +127,9 @@ export function isOperationalChannelLabel(rawSource: unknown): boolean {
   return (
     n === "manual" ||
     n === "chat" ||
+    n === "chat site" ||
+    n === "livechat" ||
+    n === "site_chat" ||
     n === "whatsapp" ||
     n === "auto_sdr" ||
     n === "crm" ||
@@ -211,6 +238,93 @@ function isSelfDomainHost(host: string, landingPage?: string | null): boolean {
   return false;
 }
 
+export interface ExtractedUrlTrackingParams {
+  utmSource: string | null;
+  utmMedium: string | null;
+  utmCampaign: string | null;
+  utmContent: string | null;
+  utmTerm: string | null;
+  gclid: string | null;
+  fbclid: string | null;
+  msclkid: string | null;
+  ttclid: string | null;
+  clickId: string | null;
+  landingPage: string | null;
+}
+
+/**
+ * Percorre URLs em ordem cronológica (ex.: `lc_pageviews` ASC + `siteContext.entry.url`)
+ * e extrai os primeiros parâmetros de rastreamento encontrados (UTMs e Click IDs),
+ * priorizando como `landingPage` a primeira URL portadora de tracking.
+ */
+export function extractTrackingParamsFromUrls(
+  ...urls: Array<string | null | undefined>
+): ExtractedUrlTrackingParams {
+  let utmSource: string | null = null;
+  let utmMedium: string | null = null;
+  let utmCampaign: string | null = null;
+  let utmContent: string | null = null;
+  let utmTerm: string | null = null;
+  let gclid: string | null = null;
+  let fbclid: string | null = null;
+  let msclkid: string | null = null;
+  let ttclid: string | null = null;
+  let firstValidUrl: string | null = null;
+  let firstTrackedUrl: string | null = null;
+
+  for (const rawUrl of urls) {
+    const cleanUrl = cleanStr(rawUrl, 1000);
+    if (!cleanUrl) continue;
+    if (!firstValidUrl) firstValidUrl = cleanUrl;
+    try {
+      const parsed = new URL(cleanUrl, "https://site.local");
+      const s = cleanStr(parsed.searchParams.get("utm_source"), 200);
+      const m = cleanStr(parsed.searchParams.get("utm_medium"), 200);
+      const c = cleanStr(parsed.searchParams.get("utm_campaign"), 200);
+      const ct = cleanStr(parsed.searchParams.get("utm_content"), 200);
+      const tm = cleanStr(parsed.searchParams.get("utm_term"), 200);
+      const gc =
+        cleanStr(parsed.searchParams.get("gclid"), 250) ||
+        cleanStr(parsed.searchParams.get("gbraid"), 250) ||
+        cleanStr(parsed.searchParams.get("wbraid"), 250);
+      const fb = cleanStr(parsed.searchParams.get("fbclid"), 250);
+      const ms = cleanStr(parsed.searchParams.get("msclkid"), 250);
+      const tt = cleanStr(parsed.searchParams.get("ttclid"), 250);
+
+      const urlHasTracking = Boolean(s || m || c || ct || tm || gc || fb || ms || tt);
+      if (urlHasTracking && !firstTrackedUrl) {
+        firstTrackedUrl = cleanUrl;
+      }
+
+      if (!utmSource && s) utmSource = s;
+      if (!utmMedium && m) utmMedium = m;
+      if (!utmCampaign && c) utmCampaign = c;
+      if (!utmContent && ct) utmContent = ct;
+      if (!utmTerm && tm) utmTerm = tm;
+      if (!gclid && gc) gclid = gc;
+      if (!fbclid && fb) fbclid = fb;
+      if (!msclkid && ms) msclkid = ms;
+      if (!ttclid && tt) ttclid = tt;
+    } catch {
+      // ignore unparseable URL
+    }
+  }
+
+  return {
+    utmSource,
+    utmMedium,
+    utmCampaign,
+    utmContent,
+    utmTerm,
+    gclid,
+    fbclid,
+    msclkid,
+    ttclid,
+    clickId: gclid || fbclid || msclkid || ttclid || null,
+    landingPage: firstTrackedUrl || firstValidUrl,
+  };
+}
+
 /**
  * Converte sinais de UTM / Click IDs / Referrals exatamente para a taxonomia oficial
  * de `deal_source_name` do RD Station CRM usada pelos dashboards de Marketing:
@@ -218,7 +332,8 @@ function isSelfDomainHost(host: string, landingPage?: string | null): boolean {
  * - "Busca Paga | Meta"
  * - "Busca Paga | Mercado Livre"
  * - "Busca Orgânica | Google"
- * - "Tráfego Direto" (incluindo "(direct)", "(none)" e domínios próprios como tecfagpersonnalite.com.br)
+ * - "Social | linktree"
+ * - "Tráfego Direto" (incluindo "(direct)", "(none)", domínios próprios e chat do site sem UTM/referrer externo)
  * - "Referência | <domínio externo>"
  */
 export function normalizeRdDealSource(input: UtmAndAttributionInput): string | null {
@@ -238,14 +353,26 @@ export function normalizeRdDealSource(input: UtmAndAttributionInput): string | n
     return explicitClean;
   }
 
-  const rawSourceOriginal = cleanStr(input.utmSource, 160) || explicitClean;
+  const landingTracking = input.landingPage ? extractTrackingParamsFromUrls(input.landingPage) : null;
+  const effectiveUtmSource = cleanStr(input.utmSource, 160) || landingTracking?.utmSource || null;
+  const effectiveUtmMedium = cleanStr(input.utmMedium, 160) || landingTracking?.utmMedium || null;
+  const rawSourceOriginal = effectiveUtmSource || explicitClean;
   const rawSourceToken = normText(rawSourceOriginal);
   const rawSourceBare = stripOuterParens(rawSourceToken);
-  const rawMedium = stripOuterParens(normText(input.utmMedium));
+  const rawMedium = stripOuterParens(normText(effectiveUtmMedium));
   const rawChannel = normText(input.channel);
   const refNorm = normText(input.referrer);
-  const hasGclid = Boolean(cleanStr(input.gclid));
-  const hasFbclid = Boolean(cleanStr(input.fbclid));
+  const effectiveClickId = cleanStr(input.clickId, 250);
+  const hasGclid =
+    Boolean(cleanStr(input.gclid)) ||
+    Boolean(landingTracking?.gclid) ||
+    Boolean(effectiveClickId && /^(Cj0K|EAIa|CjwK)/i.test(effectiveClickId));
+  const hasFbclid =
+    Boolean(cleanStr(input.fbclid)) ||
+    Boolean(landingTracking?.fbclid) ||
+    Boolean(effectiveClickId && /^(IwAR|IwZX|PAZX)/i.test(effectiveClickId));
+  const hasMsclkid = Boolean(landingTracking?.msclkid);
+  const hasTtclid = Boolean(landingTracking?.ttclid);
   const hasCtwa = Boolean(cleanStr(input.ctwaClid)) || Boolean(input.hasMetaAdReferral);
 
   const isPaidChannel =
@@ -258,6 +385,8 @@ export function normalizeRdDealSource(input: UtmAndAttributionInput): string | n
   const isPaid =
     hasGclid ||
     hasFbclid ||
+    hasMsclkid ||
+    hasTtclid ||
     hasCtwa ||
     isPaidChannel ||
     PAID_MEDIUM_RE.test(rawMedium) ||
@@ -284,7 +413,7 @@ export function normalizeRdDealSource(input: UtmAndAttributionInput): string | n
     return "Busca Paga | Mercado Livre";
   }
 
-  if (isPaid && /\bbing\b/.test(rawSourceBare)) {
+  if (hasMsclkid || (isPaid && /\bbing\b/.test(rawSourceBare))) {
     return "Busca Paga | Bing";
   }
 
@@ -292,7 +421,7 @@ export function normalizeRdDealSource(input: UtmAndAttributionInput): string | n
     return "Busca Paga | LinkedIn";
   }
 
-  if (isPaid && /\btiktok\b/.test(rawSourceBare)) {
+  if (hasTtclid || (isPaid && /\btiktok\b/.test(rawSourceBare))) {
     return "Busca Paga | TikTok";
   }
 
@@ -350,7 +479,10 @@ export function normalizeRdDealSource(input: UtmAndAttributionInput): string | n
     return "Busca Orgânica | Yahoo";
   }
 
-  if (/\blinktree\b/.test(rawSourceBare) || refNorm.includes("linktr.ee")) {
+  if (
+    /(?:^|[\s_-])linktree(?:$|[\s_-])|linktr\.ee/i.test(rawSourceBare) ||
+    refNorm.includes("linktr.ee")
+  ) {
     return "Social | linktree";
   }
 
@@ -374,18 +506,21 @@ export function normalizeRdDealSource(input: UtmAndAttributionInput): string | n
     return "E-mail Marketing";
   }
 
-  if (input.entryChannel === "site_chat") {
-    return "Contato pelo Site";
-  }
-
-  // Referrer de domínio próprio sem outra fonte (exceto site_chat acima) -> Tráfego Direto
+  // Referrer de domínio externo sem UTM -> Referência | <domínio>; domínio próprio -> Tráfego Direto
   const refHost = extractBareHostname(input.referrer);
-  if (!rawSourceBare && refHost && isSelfDomainHost(refHost, input.landingPage)) {
-    return "Tráfego Direto";
+  if (!rawSourceBare && refHost) {
+    if (isSelfDomainHost(refHost, input.landingPage)) {
+      return "Tráfego Direto";
+    }
+    return `Referência | ${refHost}`;
   }
 
   if (explicitClean) {
     return explicitClean;
+  }
+
+  if (input.entryChannel === "site_chat" || input.entryChannel === "livechat") {
+    return "Tráfego Direto";
   }
 
   return null;
@@ -469,44 +604,245 @@ export function extractSiteContextAttribution(
   const entry = siteContext.entry || siteContext.page;
   if (!entry) return null;
 
-  const utm = entry.utm || {};
-  const utmSource = cleanStr(utm.utm_source, 200);
-  const utmMedium = cleanStr(utm.utm_medium, 200);
-  const utmCampaign = cleanStr(utm.utm_campaign, 200);
-  const utmContent = cleanStr(utm.utm_content, 200);
-  const utmTerm = cleanStr(utm.utm_term, 200);
+  const entryUtm = entry.utm || {};
+  const pageUtm = siteContext.page?.utm || {};
+  const urlTracking = extractTrackingParamsFromUrls(entry.url, siteContext.page?.url);
 
-  let gclid: string | null = null;
-  let fbclid: string | null = null;
-  try {
-    const u = new URL(entry.url);
-    gclid = cleanStr(u.searchParams.get("gclid"), 250);
-    fbclid = cleanStr(u.searchParams.get("fbclid"), 250);
-  } catch {
-    // ignore
-  }
+  const utmSource = cleanStr(entryUtm.utm_source, 200) || cleanStr(pageUtm.utm_source, 200) || urlTracking.utmSource;
+  const utmMedium = cleanStr(entryUtm.utm_medium, 200) || cleanStr(pageUtm.utm_medium, 200) || urlTracking.utmMedium;
+  const utmCampaign =
+    cleanStr(entryUtm.utm_campaign, 200) || cleanStr(pageUtm.utm_campaign, 200) || urlTracking.utmCampaign;
+  const utmContent =
+    cleanStr(entryUtm.utm_content, 200) || cleanStr(pageUtm.utm_content, 200) || urlTracking.utmContent;
+  const utmTerm = cleanStr(entryUtm.utm_term, 200) || cleanStr(pageUtm.utm_term, 200) || urlTracking.utmTerm;
+
+  const externalReferrer = isExternalSiteReferrer(entry.referrer, entry.url)
+    ? entry.referrer
+    : isExternalSiteReferrer(siteContext.page?.referrer, siteContext.page?.url)
+      ? siteContext.page?.referrer
+      : entry.referrer;
+
+  const landingPage = urlTracking.landingPage || cleanStr(entry.url, 1000);
 
   const source = normalizeRdDealSource({
     utmSource,
     utmMedium,
     utmCampaign,
-    gclid,
-    fbclid,
-    referrer: entry.referrer,
+    gclid: urlTracking.gclid,
+    fbclid: urlTracking.fbclid,
+    clickId: urlTracking.clickId,
+    referrer: externalReferrer,
+    landingPage,
     entryChannel: "site_chat",
   });
 
   return {
     entryChannel: "site_chat",
-    source: source || "Contato pelo Site",
+    source: source || "Tráfego Direto",
     campaign: conversionPointLabel,
     utmSource,
     utmMedium,
     utmCampaign,
     utmContent,
     utmTerm,
-    clickId: gclid || fbclid || null,
-    landingPage: cleanStr(entry.url, 1000),
+    clickId: urlTracking.clickId,
+    landingPage,
+  };
+}
+
+export interface VisitorJourneyAttributionResult {
+  attribution: NormalizedMarketingAttribution;
+  hasExplicitTracking: boolean;
+  enrichedSiteContext: SiteContext | null;
+}
+
+/**
+ * Resolve a atribuição real da jornada do visitante no site combinando:
+ * `lc_pageviews` (ordem cronológica ASC — mesma fonte do modal Jornada do Cliente),
+ * `lc_visitors` (referrer externo persistido) e `siteContext` da conexão atual.
+ * Isolado estritamente por `tenantId`.
+ */
+export async function resolveVisitorJourneyAttributionInTx(
+  tx: any,
+  tenantId: string,
+  params: {
+    visitorIds?: string[];
+    cookieIds?: string[];
+    siteContext?: SiteContext | null;
+    conversionPointLabel?: string | null;
+  },
+): Promise<VisitorJourneyAttributionResult | null> {
+  const conversionPointLabel = params.conversionPointLabel || getDefaultSiteCampaignLabel(tenantId);
+  const visitorIdList = Array.from(
+    new Set((params.visitorIds || []).map((v) => String(v || "").trim()).filter(Boolean)),
+  );
+  const cookieIdList = Array.from(
+    new Set((params.cookieIds || []).map((c) => String(c || "").trim()).filter(Boolean)),
+  );
+
+  let matchedVisitors: Array<{
+    id: string;
+    cookieId: string;
+    currentUrl: string | null;
+    currentTitle: string | null;
+    referrer: string | null;
+  }> = [];
+
+  try {
+    if (visitorIdList.length > 0) {
+      matchedVisitors = await tx
+        .select({
+          id: lcVisitors.id,
+          cookieId: lcVisitors.cookieId,
+          currentUrl: lcVisitors.currentUrl,
+          currentTitle: lcVisitors.currentTitle,
+          referrer: lcVisitors.referrer,
+        })
+        .from(lcVisitors)
+        .where(and(eq(lcVisitors.tenantId, tenantId), inArray(lcVisitors.id, visitorIdList)))
+        .orderBy(desc(lcVisitors.lastSeenAt))
+        .limit(10);
+    }
+    if (matchedVisitors.length === 0 && cookieIdList.length > 0) {
+      matchedVisitors = await tx
+        .select({
+          id: lcVisitors.id,
+          cookieId: lcVisitors.cookieId,
+          currentUrl: lcVisitors.currentUrl,
+          currentTitle: lcVisitors.currentTitle,
+          referrer: lcVisitors.referrer,
+        })
+        .from(lcVisitors)
+        .where(and(eq(lcVisitors.tenantId, tenantId), inArray(lcVisitors.cookieId, cookieIdList)))
+        .orderBy(desc(lcVisitors.lastSeenAt))
+        .limit(10);
+    }
+  } catch {
+    // Em ambientes de teste com mocks parciais sem lc_visitors, segue com siteContext
+  }
+
+  const allVisitorIds = Array.from(new Set([...visitorIdList, ...matchedVisitors.map((v) => v.id)]));
+  let pageviewRows: Array<{ url: string; title: string | null }> = [];
+  if (allVisitorIds.length > 0) {
+    try {
+      pageviewRows = await tx
+        .select({
+          url: lcPageviews.url,
+          title: lcPageviews.title,
+        })
+        .from(lcPageviews)
+        .where(and(eq(lcPageviews.tenantId, tenantId), inArray(lcPageviews.visitorId, allVisitorIds)))
+        .orderBy(asc(lcPageviews.visitedAt))
+        .limit(60);
+    } catch {
+      // Ignora em mocks parciais sem lc_pageviews
+    }
+  }
+
+  const sc = params.siteContext || null;
+  if (!sc && matchedVisitors.length === 0 && pageviewRows.length === 0) {
+    return null;
+  }
+
+  const candidateUrls: Array<string | null | undefined> = [
+    ...pageviewRows.map((pv) => pv.url),
+    sc?.entry?.url,
+    ...matchedVisitors.map((v) => v.currentUrl),
+    sc?.page?.url,
+  ];
+  const urlTracking = extractTrackingParamsFromUrls(...candidateUrls);
+
+  const utmSource =
+    urlTracking.utmSource || cleanStr(sc?.entry?.utm?.utm_source, 200) || cleanStr(sc?.page?.utm?.utm_source, 200);
+  const utmMedium =
+    urlTracking.utmMedium || cleanStr(sc?.entry?.utm?.utm_medium, 200) || cleanStr(sc?.page?.utm?.utm_medium, 200);
+  const utmCampaign =
+    urlTracking.utmCampaign ||
+    cleanStr(sc?.entry?.utm?.utm_campaign, 200) ||
+    cleanStr(sc?.page?.utm?.utm_campaign, 200);
+  const utmContent =
+    urlTracking.utmContent ||
+    cleanStr(sc?.entry?.utm?.utm_content, 200) ||
+    cleanStr(sc?.page?.utm?.utm_content, 200);
+  const utmTerm =
+    urlTracking.utmTerm || cleanStr(sc?.entry?.utm?.utm_term, 200) || cleanStr(sc?.page?.utm?.utm_term, 200);
+
+  const candidateReferrers = [
+    sc?.entry?.referrer,
+    ...matchedVisitors.map((v) => v.referrer),
+    sc?.page?.referrer,
+  ];
+  const externalReferrer =
+    candidateReferrers.find((r) => isExternalSiteReferrer(r, urlTracking.landingPage || sc?.page?.url)) ||
+    null;
+
+  const hasExplicitTracking = Boolean(
+    utmSource || utmMedium || utmCampaign || urlTracking.clickId || externalReferrer,
+  );
+
+  const source =
+    normalizeRdDealSource({
+      utmSource,
+      utmMedium,
+      utmCampaign,
+      gclid: urlTracking.gclid,
+      fbclid: urlTracking.fbclid,
+      clickId: urlTracking.clickId,
+      referrer: externalReferrer,
+      landingPage: urlTracking.landingPage,
+      entryChannel: "site_chat",
+    }) || "Tráfego Direto";
+
+  // Enriquece siteContext.entry com a página real de entrada da jornada (ex.: URL com UTM de pageviews[0])
+  let enrichedSiteContext: SiteContext | null = sc;
+  if (sc && (urlTracking.landingPage || externalReferrer)) {
+    const currentEntryTracking = extractTrackingParamsFromUrls(sc.entry?.url);
+    const currentEntryHasSignals = Boolean(
+      currentEntryTracking.utmSource ||
+        currentEntryTracking.clickId ||
+        Object.keys(sc.entry?.utm || {}).length > 0 ||
+        isExternalSiteReferrer(sc.entry?.referrer, sc.entry?.url),
+    );
+    if (!currentEntryHasSignals && hasExplicitTracking) {
+      const matchedPv = pageviewRows.find((pv) => pv.url === urlTracking.landingPage);
+      try {
+        const pageOrigin = new URL(sc.page.url).origin;
+        const rebuilt = captureSiteContext(
+          {
+            entry: {
+              url: urlTracking.landingPage || sc.entry.url,
+              title: matchedPv?.title || sc.entry.title,
+              referrer: externalReferrer || sc.entry.referrer,
+            },
+            page: sc.page,
+            product: sc.product || undefined,
+          },
+          pageOrigin,
+          new Date(sc.capturedAt),
+          Boolean(sc.product),
+        );
+        if (rebuilt) enrichedSiteContext = rebuilt;
+      } catch {
+        // mantém sc original
+      }
+    }
+  }
+
+  return {
+    attribution: {
+      entryChannel: "livechat",
+      source,
+      campaign: conversionPointLabel,
+      utmSource,
+      utmMedium,
+      utmCampaign,
+      utmContent,
+      utmTerm,
+      clickId: urlTracking.clickId,
+      landingPage: urlTracking.landingPage,
+    },
+    hasExplicitTracking,
+    enrichedSiteContext,
   };
 }
 
@@ -794,6 +1130,8 @@ export async function resolveInheritedMarketingAttribution(
   params: {
     contactId?: string | null;
     conversationId?: string | null;
+    siteConversationId?: string | null;
+    isSiteOriginated?: boolean;
     explicitSource?: string | null;
     explicitCampaign?: string | null;
     explicitEntryChannel?: string | null;
@@ -806,50 +1144,35 @@ export async function resolveInheritedMarketingAttribution(
     landingPage?: string | null;
   },
 ): Promise<NormalizedMarketingAttribution> {
+  const siteCampaignLabel = getDefaultSiteCampaignLabel(tenantId);
+  const isSiteFlow = Boolean(
+    params.isSiteOriginated ||
+      params.siteConversationId ||
+      isSiteConversationId(params.conversationId) ||
+      params.explicitEntryChannel === "livechat" ||
+      params.explicitEntryChannel === "site_chat",
+  );
   const inferredChannel =
     cleanStr(params.explicitEntryChannel, 60) ||
+    (isSiteFlow ? "livechat" : null) ||
     inferEntryChannelFromOperationalSource(
       params.explicitSource,
       params.conversationId ? "whatsapp" : "manual",
     );
 
-  let convAttribution: Partial<NormalizedMarketingAttribution> | null = null;
-
-  // 1. Verificar atribuição capturada nas mensagens recentes da conversa (Meta CTWA referral ou siteContext)
-  if (params.conversationId) {
-    try {
-      const recentClientMsgs = await tx
-        .select({ metaDetails: messages.metaDetails })
-        .from(messages)
-        .where(
-          and(
-            eq(messages.tenantId, tenantId),
-            eq(messages.conversationId, params.conversationId),
-            eq(messages.senderType, "client"),
-            eq(messages.isInternalNote, false),
-          ),
-        )
-        .orderBy(desc(messages.sentAt))
-        .limit(15);
-
-      for (const row of recentClientMsgs) {
-        const meta = (row.metaDetails || {}) as Record<string, any>;
-        if (meta.marketingAttribution && typeof meta.marketingAttribution === "object") {
-          convAttribution = meta.marketingAttribution;
-          break;
-        }
-        const sc = readSiteContext(meta.siteContext);
-        if (sc) {
-          convAttribution = extractSiteContextAttribution(sc, "Chat Site");
-          if (convAttribution) break;
-        }
-      }
-    } catch {
-      // Ignora em ambientes de teste com mocks parciais
+  const normalizeSiteCampaign = (raw: string | null | undefined): string | null => {
+    const cleaned = cleanStr(raw, 200);
+    if (!cleaned) return null;
+    if (normText(cleaned) === "chat site" && siteCampaignLabel !== "Chat Site") {
+      return siteCampaignLabel;
     }
-  }
+    return cleaned;
+  };
 
-  // 2. Verificar primeiro toque persistido no contato (ou último deal com fonte válida do contato)
+  let convAttribution: Partial<NormalizedMarketingAttribution> | null = null;
+  let convSiteContext: SiteContext | null = null;
+
+  // 1. Verificar primeiro toque persistido no contato (também fornece siteVisitorId/linkedSiteContactIds)
   let contactRow: any = null;
   let priorDealRow: any = null;
   if (params.contactId) {
@@ -871,116 +1194,279 @@ export async function resolveInheritedMarketingAttribution(
         .where(and(eq(contacts.tenantId, tenantId), eq(contacts.id, params.contactId)))
         .limit(1);
       contactRow = c || null;
+    } catch {
+      // Ignora em mocks parciais
+    }
+  }
 
-      if (!convAttribution && contactRow?.customFields && typeof contactRow.customFields === "object") {
-        const sc = readSiteContext((contactRow.customFields as Record<string, unknown>).siteContext);
-        if (sc) {
-          convAttribution = extractSiteContextAttribution(sc, "Chat Site");
+  // 2. Coletar IDs de visitante e conversas do site vinculadas para consultar jornada real (`lc_pageviews` / `lc_visitors`)
+  const candidateVisitorIds = new Set<string>();
+  const candidateCookieIds = new Set<string>();
+  const candidateConvIds = new Set<string>();
+
+  if (params.conversationId) candidateConvIds.add(params.conversationId);
+  if (params.siteConversationId) candidateConvIds.add(params.siteConversationId);
+
+  const vidFromSiteConv = params.siteConversationId
+    ? visitorIdFromSiteConversation(params.siteConversationId)
+    : null;
+  const vidFromConv = params.conversationId
+    ? visitorIdFromSiteConversation(params.conversationId)
+    : null;
+  if (vidFromSiteConv) candidateVisitorIds.add(vidFromSiteConv);
+  if (vidFromConv) candidateVisitorIds.add(vidFromConv);
+  if (params.contactId && params.contactId.startsWith("cont-lc-")) {
+    const vid = params.contactId.slice("cont-lc-".length);
+    if (vid) candidateVisitorIds.add(vid);
+  }
+  const contactCf =
+    contactRow?.customFields && typeof contactRow.customFields === "object"
+      ? (contactRow.customFields as Record<string, any>)
+      : {};
+  if (typeof contactCf.siteVisitorId === "string" && contactCf.siteVisitorId.trim()) {
+    candidateVisitorIds.add(contactCf.siteVisitorId.trim());
+  }
+  if (typeof contactCf.siteCookieId === "string" && contactCf.siteCookieId.trim()) {
+    candidateCookieIds.add(contactCf.siteCookieId.trim());
+  }
+  if (Array.isArray(contactCf.linkedSiteContactIds)) {
+    for (const linkedId of contactCf.linkedSiteContactIds) {
+      if (typeof linkedId === "string" && linkedId.startsWith("cont-lc-")) {
+        const vid = linkedId.slice("cont-lc-".length);
+        if (vid) candidateVisitorIds.add(vid);
+      }
+    }
+  }
+  for (const vid of candidateVisitorIds) {
+    candidateConvIds.add(`conv-lc-${vid}`);
+  }
+
+  // 3. Verificar atribuição capturada nas mensagens recentes da conversa (Meta CTWA referral ou siteContext)
+  const convIdsList = Array.from(candidateConvIds);
+  if (convIdsList.length > 0) {
+    try {
+      const recentClientMsgs = await tx
+        .select({ metaDetails: messages.metaDetails })
+        .from(messages)
+        .where(
+          and(
+            eq(messages.tenantId, tenantId),
+            convIdsList.length === 1
+              ? eq(messages.conversationId, convIdsList[0])
+              : inArray(messages.conversationId, convIdsList),
+            eq(messages.senderType, "client"),
+            eq(messages.isInternalNote, false),
+          ),
+        )
+        .orderBy(desc(messages.sentAt))
+        .limit(20);
+
+      for (const row of recentClientMsgs) {
+        const meta = (row.metaDetails || {}) as Record<string, any>;
+        const sc = readSiteContext(meta.siteContext);
+        if (sc && !convSiteContext) {
+          convSiteContext = sc;
+        }
+        const metaAttr =
+          meta.marketingAttribution && typeof meta.marketingAttribution === "object"
+            ? (meta.marketingAttribution as Partial<NormalizedMarketingAttribution>)
+            : sc
+              ? extractSiteContextAttribution(sc, siteCampaignLabel)
+              : null;
+        if (metaAttr) {
+          const hasRich = Boolean(
+            metaAttr.utmSource ||
+              metaAttr.clickId ||
+              (metaAttr.source &&
+                !isOperationalChannelLabel(metaAttr.source) &&
+                normText(metaAttr.source) !== "contato pelo site" &&
+                normText(metaAttr.source) !== "trafego direto"),
+          );
+          if (!convAttribution || hasRich) {
+            convAttribution = metaAttr;
+            if (hasRich) break;
+          }
         }
       }
+    } catch {
+      // Ignora em ambientes de teste com mocks parciais
+    }
+  }
 
-      if (!contactRow?.firstSource && !convAttribution?.source) {
-        const [d] = await tx
-          .select({
-            source: crmDeals.source,
-            campaign: crmDeals.campaign,
-            utmSource: crmDeals.utmSource,
-            utmMedium: crmDeals.utmMedium,
-            utmCampaign: crmDeals.utmCampaign,
-            utmContent: crmDeals.utmContent,
-            utmTerm: crmDeals.utmTerm,
-            clickId: crmDeals.clickId,
-            landingPage: crmDeals.landingPage,
-          })
-          .from(crmDeals)
-          .where(
-            and(
-              eq(crmDeals.tenantId, tenantId),
-              sql`EXISTS (
-                SELECT 1 FROM crm_deal_contacts dc
-                WHERE dc.tenant_id = ${tenantId}
-                  AND dc.deal_id = ${crmDeals.id}
-                  AND dc.contact_id = ${params.contactId}
-              )`,
-              sql`${crmDeals.source} IS NOT NULL AND ${crmDeals.source} != ''`,
-            ),
-          )
-          .orderBy(desc(crmDeals.createdAt))
-          .limit(1);
-        if (d && !isOperationalChannelLabel(d.source)) {
-          priorDealRow = d;
-        }
+  if (!convSiteContext && contactCf.siteContext) {
+    convSiteContext = readSiteContext(contactCf.siteContext);
+  }
+  if (!convAttribution && convSiteContext) {
+    convAttribution = extractSiteContextAttribution(convSiteContext, siteCampaignLabel);
+  }
+
+  // 4. Consultar jornada real do visitante no site (`lc_pageviews` + `lc_visitors`)
+  const journeyResolution =
+    candidateVisitorIds.size > 0 || candidateCookieIds.size > 0
+      ? await resolveVisitorJourneyAttributionInTx(tx, tenantId, {
+          visitorIds: Array.from(candidateVisitorIds),
+          cookieIds: Array.from(candidateCookieIds),
+          siteContext: convSiteContext,
+          conversionPointLabel: siteCampaignLabel,
+        })
+      : null;
+  const journeyAttr = journeyResolution?.attribution || null;
+
+  // 5. Fallback para último deal com fonte válida do contato
+  const contactValidFirstSource =
+    contactRow?.firstSource && !isOperationalChannelLabel(contactRow.firstSource)
+      ? cleanStr(contactRow.firstSource, 160)
+      : null;
+
+  const convHasExplicitTracking = Boolean(
+    convAttribution?.utmSource ||
+      convAttribution?.utmMedium ||
+      convAttribution?.clickId ||
+      (convAttribution?.source &&
+        !isOperationalChannelLabel(convAttribution.source) &&
+        normText(convAttribution.source) !== "contato pelo site" &&
+        normText(convAttribution.source) !== "trafego direto"),
+  );
+  const hasCurrentVisitTracking = Boolean(
+    journeyResolution?.hasExplicitTracking || convHasExplicitTracking,
+  );
+
+  if (params.contactId && !contactValidFirstSource && !hasCurrentVisitTracking) {
+    try {
+      const [d] = await tx
+        .select({
+          source: crmDeals.source,
+          campaign: crmDeals.campaign,
+          utmSource: crmDeals.utmSource,
+          utmMedium: crmDeals.utmMedium,
+          utmCampaign: crmDeals.utmCampaign,
+          utmContent: crmDeals.utmContent,
+          utmTerm: crmDeals.utmTerm,
+          clickId: crmDeals.clickId,
+          landingPage: crmDeals.landingPage,
+        })
+        .from(crmDeals)
+        .where(
+          and(
+            eq(crmDeals.tenantId, tenantId),
+            sql`EXISTS (
+              SELECT 1 FROM crm_deal_contacts dc
+              WHERE dc.tenant_id = ${tenantId}
+                AND dc.deal_id = ${crmDeals.id}
+                AND dc.contact_id = ${params.contactId}
+            )`,
+            sql`${crmDeals.source} IS NOT NULL AND ${crmDeals.source} != ''`,
+          ),
+        )
+        .orderBy(desc(crmDeals.createdAt))
+        .limit(1);
+      if (d && !isOperationalChannelLabel(d.source)) {
+        priorDealRow = d;
       }
     } catch {
       // Ignora em mocks parciais
     }
   }
 
+  // Quando a visita/conversa atual possui rastreamento explícito (UTM, ClickID ou referrer externo),
+  // mantemos os parâmetros dessa visita coesos sem misturar UTMs/clickId antigos de `contacts` ou deals anteriores.
   const utmSource =
     cleanStr(params.utmSource, 200) ||
+    cleanStr(journeyAttr?.utmSource, 200) ||
     cleanStr(convAttribution?.utmSource, 200) ||
-    cleanStr(contactRow?.utmSource, 200) ||
-    cleanStr(priorDealRow?.utmSource, 200);
+    (hasCurrentVisitTracking ? null : cleanStr(contactRow?.utmSource, 200) || cleanStr(priorDealRow?.utmSource, 200));
   const utmMedium =
     cleanStr(params.utmMedium, 200) ||
+    cleanStr(journeyAttr?.utmMedium, 200) ||
     cleanStr(convAttribution?.utmMedium, 200) ||
-    cleanStr(contactRow?.utmMedium, 200) ||
-    cleanStr(priorDealRow?.utmMedium, 200);
+    (hasCurrentVisitTracking ? null : cleanStr(contactRow?.utmMedium, 200) || cleanStr(priorDealRow?.utmMedium, 200));
   const utmCampaign =
     cleanStr(params.utmCampaign, 200) ||
+    cleanStr(journeyAttr?.utmCampaign, 200) ||
     cleanStr(convAttribution?.utmCampaign, 200) ||
-    cleanStr(contactRow?.utmCampaign, 200) ||
-    cleanStr(priorDealRow?.utmCampaign, 200);
+    (hasCurrentVisitTracking
+      ? null
+      : cleanStr(contactRow?.utmCampaign, 200) || cleanStr(priorDealRow?.utmCampaign, 200));
   const utmContent =
     cleanStr(params.utmContent, 200) ||
+    cleanStr(journeyAttr?.utmContent, 200) ||
     cleanStr(convAttribution?.utmContent, 200) ||
-    cleanStr(contactRow?.utmContent, 200) ||
-    cleanStr(priorDealRow?.utmContent, 200);
+    (hasCurrentVisitTracking
+      ? null
+      : cleanStr(contactRow?.utmContent, 200) || cleanStr(priorDealRow?.utmContent, 200));
   const utmTerm =
     cleanStr(params.utmTerm, 200) ||
+    cleanStr(journeyAttr?.utmTerm, 200) ||
     cleanStr(convAttribution?.utmTerm, 200) ||
-    cleanStr(contactRow?.utmTerm, 200) ||
-    cleanStr(priorDealRow?.utmTerm, 200);
+    (hasCurrentVisitTracking ? null : cleanStr(contactRow?.utmTerm, 200) || cleanStr(priorDealRow?.utmTerm, 200));
   const clickId =
     cleanStr(params.clickId, 250) ||
+    cleanStr(journeyAttr?.clickId, 250) ||
     cleanStr(convAttribution?.clickId, 250) ||
-    cleanStr(contactRow?.clickId, 250) ||
-    cleanStr(priorDealRow?.clickId, 250);
+    (hasCurrentVisitTracking ? null : cleanStr(contactRow?.clickId, 250) || cleanStr(priorDealRow?.clickId, 250));
   const landingPage =
     cleanStr(params.landingPage, 1000) ||
+    (journeyResolution?.hasExplicitTracking ? cleanStr(journeyAttr?.landingPage, 1000) : null) ||
     cleanStr(convAttribution?.landingPage, 1000) ||
-    cleanStr(contactRow?.landingPage, 1000) ||
-    cleanStr(priorDealRow?.landingPage, 1000);
+    cleanStr(journeyAttr?.landingPage, 1000) ||
+    (hasCurrentVisitTracking
+      ? null
+      : cleanStr(contactRow?.landingPage, 1000) || cleanStr(priorDealRow?.landingPage, 1000));
 
   const explicitValidSource =
     params.explicitSource && !isOperationalChannelLabel(params.explicitSource)
       ? cleanStr(params.explicitSource, 160)
       : null;
 
+  const journeyExplicitSource =
+    journeyResolution?.hasExplicitTracking && journeyAttr?.source ? journeyAttr.source : null;
+  const convValidSource =
+    convAttribution?.source && !isOperationalChannelLabel(convAttribution.source)
+      ? cleanStr(convAttribution.source, 160)
+      : null;
+  const nonGenericConvSource =
+    convValidSource &&
+    normText(convValidSource) !== "contato pelo site" &&
+    normText(convValidSource) !== "trafego direto"
+      ? convValidSource
+      : null;
+  const nonGenericContactSource =
+    contactValidFirstSource &&
+    normText(contactValidFirstSource) !== "contato pelo site"
+      ? contactValidFirstSource
+      : null;
+
   const source =
     normalizeRdDealSource({
       explicitSource:
         explicitValidSource ||
-        cleanStr(convAttribution?.source, 160) ||
-        cleanStr(contactRow?.firstSource, 160) ||
-        cleanStr(priorDealRow?.source, 160),
+        journeyExplicitSource ||
+        nonGenericConvSource ||
+        nonGenericContactSource ||
+        cleanStr(priorDealRow?.source, 160) ||
+        (isSiteFlow ? journeyAttr?.source || convValidSource : contactValidFirstSource),
       utmSource,
       utmMedium,
       utmCampaign,
       clickId,
       landingPage,
       entryChannel: inferredChannel,
-    }) || null;
+    }) || (isSiteFlow ? "Tráfego Direto" : null);
 
   const campaign =
-    cleanStr(params.explicitCampaign, 200) ||
-    cleanStr(convAttribution?.campaign, 200) ||
-    cleanStr(contactRow?.firstCampaign, 200) ||
-    cleanStr(priorDealRow?.campaign, 200) ||
+    normalizeSiteCampaign(params.explicitCampaign) ||
+    (isSiteFlow ? siteCampaignLabel : null) ||
+    normalizeSiteCampaign(convAttribution?.campaign) ||
+    normalizeSiteCampaign(contactRow?.firstCampaign) ||
+    normalizeSiteCampaign(priorDealRow?.campaign) ||
     null;
 
   return {
-    entryChannel: convAttribution?.entryChannel || inferredChannel,
+    entryChannel:
+      cleanStr(params.explicitEntryChannel, 60) ||
+      (isSiteFlow ? "livechat" : null) ||
+      convAttribution?.entryChannel ||
+      inferredChannel,
     source,
     campaign,
     utmSource,
