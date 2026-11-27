@@ -927,6 +927,21 @@ export function DealDetailModal({
   const [deal, setDeal] = useState<any>(() => initialCachedDeal);
   const dealRef = React.useRef<any>(initialCachedDeal);
   dealRef.current = deal;
+  const whisperDefaultDeal = React.useMemo(
+    () =>
+      deal?.id
+        ? {
+            id: deal.id,
+            title: deal.title || "Negociação",
+            stageName: deal.stage?.name || null,
+            operatorId: deal.operatorId || null,
+          }
+        : null,
+    [deal?.id, deal?.title, deal?.stage?.name, deal?.operatorId],
+  );
+  const handleCloseWhisperModal = React.useCallback(() => {
+    setIsWhisperModalOpen(false);
+  }, []);
   const [customFieldDraft, setCustomFieldDraft] = useState<Record<string, unknown>>(() =>
     ((initialCachedDeal?.customFields || {}) as Record<string, unknown>)
   );
@@ -2269,6 +2284,7 @@ export function DealDetailModal({
       setDeal(null);
       setShowWinPrompt(false);
       setShowLossPrompt(false);
+      setIsWhisperModalOpen(false);
     }
   }, [isOpen, dealId]);
 
@@ -8592,15 +8608,10 @@ export function DealDetailModal({
       {canSendSupervisorWhisper && deal && (
         <SupervisorWhisperModal
           open={isWhisperModalOpen}
-          onClose={() => setIsWhisperModalOpen(false)}
+          onClose={handleCloseWhisperModal}
           source="ui_crm"
           defaultOperatorId={deal.operatorId || null}
-          defaultDeal={{
-            id: deal.id,
-            title: deal.title || "Negociação",
-            stageName: deal.stage?.name || null,
-            operatorId: deal.operatorId || null,
-          }}
+          defaultDeal={whisperDefaultDeal}
         />
       )}
 

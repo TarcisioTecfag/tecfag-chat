@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Briefcase,
@@ -18,6 +18,7 @@ import {
 import { toast } from "sonner";
 import { useChat } from "@/hooks/useChatState";
 import { getAiPersona } from "@/lib/ai-persona";
+import { resolveWhisperOpenTransition } from "@/lib/valentina/whisper-modal-state";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { SystemTooltip } from "@/components/ui/tooltip";
 
@@ -69,7 +70,9 @@ export function SupervisorWhisperModal({
   );
 
   const [targetMode, setTargetMode] = useState<TargetMode>("single");
-  const [selectedOperatorId, setSelectedOperatorId] = useState<string>(defaultOperatorId || "");
+  const [selectedOperatorId, setSelectedOperatorId] = useState<string>(
+    defaultOperatorId || defaultDeal?.operatorId || "",
+  );
   const [selectedOperatorIds, setSelectedOperatorIds] = useState<string[]>([]);
   const [selectedSectorId, setSelectedSectorId] = useState<string>("");
 
@@ -94,9 +97,15 @@ export function SupervisorWhisperModal({
   const [searchingDeals, setSearchingDeals] = useState(false);
 
   const [submitting, setSubmitting] = useState(false);
+  const wasOpenRef = useRef(false);
 
+  // Inicializa/reseta o formulário apenas na transição fechado -> aberto,
+  // evitando limpar o rascunho em re-renders do componente pai (SSE/polling/props inline).
   useEffect(() => {
-    if (!open) return;
+    const transition = resolveWhisperOpenTransition(wasOpenRef.current, open);
+    wasOpenRef.current = transition.nextWasOpen;
+    if (!transition.shouldResetForm) return;
+
     setTargetMode("single");
     setSelectedOperatorId(defaultOperatorId || defaultDeal?.operatorId || "");
     setSelectedOperatorIds([]);
@@ -110,14 +119,19 @@ export function SupervisorWhisperModal({
     setRewriteWithAi(false);
     setTone("consultivo");
     setMirrorInConversation(true);
+    setOpPopoverOpen(false);
+    setSectorPopoverOpen(false);
+    setDealPopoverOpen(false);
     setOpSearch("");
     setDealQuery("");
   }, [open, defaultOperatorId, defaultDeal, defaultConversationId]);
 
   useEffect(() => {
     if (!open || !dealPopoverOpen) return;
+    let cancelled = false;
     const trimmed = dealQuery.trim();
     const timer = setTimeout(async () => {
+      if (cancelled) return;
       setSearchingDeals(true);
       try {
         const params = new URLSearchParams({
@@ -129,8 +143,9 @@ export function SupervisorWhisperModal({
         const res = await fetch(`/api/crm/deals?${params.toString()}`, {
           credentials: "include",
         });
-        if (!res.ok) return;
+        if (!res.ok || cancelled) return;
         const data = await res.json().catch(() => ({}));
+        if (cancelled) return;
         const rawList = Array.isArray(data) ? data : Array.isArray(data.deals) ? data.deals : [];
         setDealResults(
           rawList.slice(0, 8).map((d: any) => ({
@@ -143,10 +158,13 @@ export function SupervisorWhisperModal({
       } catch {
         // Silencioso no autocomplete
       } finally {
-        setSearchingDeals(false);
+        if (!cancelled) setSearchingDeals(false);
       }
     }, 250);
-    return () => clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [open, dealPopoverOpen, dealQuery]);
 
   const filteredOperators = useMemo(() => {
